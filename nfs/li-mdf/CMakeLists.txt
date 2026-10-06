@@ -7,8 +7,8 @@
 find_package(redis++ CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-add_executable(li-mdf src/main.cpp src/task_store.cpp)
+add_executable(li-mdf src/main.cpp)
 target_link_libraries(li-mdf PRIVATE
-    sbi_core li_core nf_config redis++::redis++_static OpenSSL::SSL OpenSSL::Crypto)
+    sbi_core li_core li_mdf_store nf_config redis++::redis++_static OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(li-mdf PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs" CONFIG_DIR="${CMAKE_SOURCE_DIR}/config")
