@@ -448,6 +448,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0480](decisions/ADR-0480-amf-nas-algorithm-selection-core-ts-33-501-6-7-1-1-pure.md) AMF NAS algorithm selection core (TS 33.501 6.7.1.1), pure function, not yet wired
 - [0481](decisions/ADR-0481-ci-lint-select-the-cpp-list-first-skip-toolchain-setup-when.md) CI lint: select the .cpp list first, skip toolchain setup when it is empty
 - [0482](decisions/ADR-0482-lab-host-and-nf-images-move-to-ubuntu-26-04-with-gcc-15.md) Lab host and NF images move to Ubuntu 26.04 with GCC 15; clang-tidy cost measured
+- [0483](decisions/ADR-0483-pin-gcc-13-for-asn1c-s-own-compiler-build-gcc-15-2.md) Build asn1c with -fno-strict-aliasing (GCC 15.2 miscompiles its NGAP codegen into a segfault)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
