@@ -1,6 +1,6 @@
 ## ADR-0483: Build asn1c with `-fno-strict-aliasing` (GCC 15.2 miscompiles its NGAP codegen into a segfault)
 
-**Date:** 2026-10-12. **Status:** Proposed.
+**Date:** 2026-10-12. **Status:** Accepted.
 
 **Context.**
 
