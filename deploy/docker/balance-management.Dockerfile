@@ -7,7 +7,7 @@
 # real prepaid balance reservation (ADR-0056/0057) needs this service actually reachable for the
 # lab to demonstrate a real rated grant, not just the graceful-degradation path.
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build git curl zip unzip tar pkg-config \
@@ -72,7 +72,7 @@ RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,shar
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     && cmake --build build --target balance-management
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl ca-certificates \

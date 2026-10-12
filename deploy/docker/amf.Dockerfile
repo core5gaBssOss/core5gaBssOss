@@ -11,7 +11,7 @@
 # volume both nrf and amf mount. This entrypoint assumes /build/certs is already populated when the
 # container starts.
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 # bison/flex: vcpkg builds libpq from source (libpqxx, ADR-0054 -- bss/product-catalog's real
 # PostgreSQL persistence) -- and since vcpkg.json is one shared manifest, `vcpkg install` pulls in
@@ -90,12 +90,14 @@ RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,shar
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     && cmake --build build --target amf
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
-# libxml2: the AMF now hosts an LI IRI-POI (src/li_poi.cpp, ADR-0377) whose LI_X1 server links
+# libxml2-16 (26.04 package name for libxml2): the AMF now hosts an LI IRI-POI (src/li_poi.cpp, ADR-0377) whose LI_X1 server links
 # li_core, which validates X1 documents with libxml2 at runtime.
+# libsctp1: `ldd` shows this binary dynamically links the system libsctp.so.1,
+# same as the CHF image's ADR-0062 fix -- found missing here during the 26.04 migration (2026-10-11).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates libxml2 \
+    openssl ca-certificates libxml2-16 libsctp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

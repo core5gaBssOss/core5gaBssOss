@@ -5,7 +5,7 @@
 # bss/roaming-interconnect/src/main.cpp's own header comment), built the same way as one for
 # consistency with this repo's existing image convention.
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build git curl zip unzip tar pkg-config \
@@ -70,7 +70,7 @@ RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,shar
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     && cmake --build build --target roaming-interconnect
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl ca-certificates \

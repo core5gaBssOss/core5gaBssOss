@@ -41,7 +41,7 @@ RUN npm ci
 COPY gui/web/ .
 RUN npm run build
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 # bison/flex: vcpkg builds libpq from source (libpqxx, ADR-0054) -- and since vcpkg.json is one
 # shared manifest, `vcpkg install` pulls in every dependency for ANY target's configure step, not
@@ -117,7 +117,7 @@ RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,shar
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     && cmake --build build --target oam-gui-bff
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl ca-certificates \
