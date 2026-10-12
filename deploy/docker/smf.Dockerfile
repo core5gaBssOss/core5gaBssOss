@@ -3,7 +3,7 @@
 # comment for why this image does NOT generate its own lab PKI at start (must share the same root
 # CA as nrf/amf; see deploy/docker/docker-compose.yml's pki-init service).
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 # bison/flex: vcpkg builds libpq from source (libpqxx, ADR-0054 -- bss/product-catalog's real
 # PostgreSQL persistence) -- and since vcpkg.json is one shared manifest, `vcpkg install` pulls in
@@ -82,7 +82,7 @@ RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,shar
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     && cmake --build build --target smf
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl ca-certificates \

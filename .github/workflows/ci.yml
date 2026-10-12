@@ -972,7 +972,7 @@ jobs:
             echo "VCPKG_MAX_CONCURRENCY=4" >> "$GITHUB_ENV"
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
-            for t in ninja cmake clang-18 clang-format-18 clang-tidy-18 bison flex ccache docker; do
+            for t in ninja cmake clang-18 clang-format-18 clang-tidy-22 bison flex ccache docker; do
               command -v "$t" >/dev/null || { echo "self-hosted runner is missing $t"; exit 1; }
             done
             ccache -o max_size=20G; ccache -z
@@ -983,7 +983,17 @@ jobs:
         # bison/flex: see the build/sanitize jobs' "Install Ninja" step comment -- same libpq
         # (ADR-0054) build-from-source requirement applies here too, since Configure below runs
         # for the whole project including bss/product-catalog.
-        run: sudo apt-get update -qq && sudo apt-get install -y clang-format-18 clang-tidy-18 ninja-build libsctp-dev libbpf-dev libcap-dev clang-18 bison flex
+        # ADR-0482: clang-tidy-22. Ubuntu 26.04's archive has it (the self-hosted runner's source); on an
+        # older hosted image (e.g. 24.04 noble) take it from apt.llvm.org for the runner's own codename.
+        run: |
+          sudo apt-get update -qq
+          if ! apt-cache show clang-tidy-22 >/dev/null 2>&1; then
+            CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
+            curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+            echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-22 main" | sudo tee /etc/apt/sources.list.d/llvm-22.list
+            sudo apt-get update -qq
+          fi
+          sudo apt-get install -y clang-format-18 clang-tidy-22 ninja-build libsctp-dev libbpf-dev libcap-dev clang-18 bison flex
 
       - name: architecture diagram in sync with README
         run: python3 tools/diagrams/check_readme_sync.py
@@ -1099,5 +1109,10 @@ jobs:
         # increments were never linted in CI. A push now lints the .cpp files it changed (the
         # diff from the push's base commit; the whole tree when there is no base, e.g. a new
         # branch); the full sweep runs weekly (schedule) and on demand (workflow_dispatch).
+        #
+        # ADR-0482 (2026-10-12): clang-tidy-18 -> clang-tidy-22. Measured per file on the lab host:
+        # 18 spent 67-88% of its time in google-runtime-int alone; 22 runs the same .clang-tidy
+        # 7-14x faster with the same google-runtime-int findings (NRF main 475 s -> 34 s, UDR main
+        # 595 s -> 74 s). portability-avoid-pragma-once (new in 22) is disabled in .clang-tidy.
         run: |
-          xargs -0 -P "${CI_JOBS:-$(nproc)}" -n 1 clang-tidy-18 -p build < files.lst
+          xargs -0 -P "${CI_JOBS:-$(nproc)}" -n 1 clang-tidy-22 -p build < files.lst

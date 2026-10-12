@@ -15,6 +15,10 @@ project(5gc-r19
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# ADR-0482: no C++20 modules here, so no module dependency scanning. With GCC >= 14 CMake otherwise
+# adds -fmodules-ts/-fmodule-mapper/-fdeps-format to every compile command (and ~560 scan steps to
+# the build); clang-tidy rejects those GCC-only flags, failing every file in the lint job.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)

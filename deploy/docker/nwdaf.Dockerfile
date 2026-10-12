@@ -3,7 +3,7 @@
 # header comment for why this image does NOT generate its own lab PKI at start (must share the
 # same root CA as every other NF; see deploy/docker/docker-compose.yml's pki-init service).
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build git curl zip unzip tar pkg-config \
@@ -68,7 +68,7 @@ RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,shar
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     && cmake --build build --target nwdaf
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 # python3 + venv: the MTLF's training sidecar (ADR-0369, nfs/nwdaf/training). Training only --
 # the AnLF's inference is ONNX Runtime linked into the nwdaf binary. The same image serves both

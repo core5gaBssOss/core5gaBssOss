@@ -10,7 +10,7 @@
 
 services:
   pki-init:
-    image: ubuntu:24.04
+    image: ubuntu:26.04
     working_dir: /build
     volumes:
       - certs_data:/build/certs
