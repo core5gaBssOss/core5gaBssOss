@@ -1,4 +1,7 @@
 ---
+# ADR-0482: -portability-avoid-pragma-once (new in clang-tidy 22) is off because every header in
+# this repo uses #pragma once by convention. (A comment inside the folded Checks block would become
+# part of the check list.)
 Checks: >
   -*,
   bugprone-*,
@@ -15,7 +18,8 @@ Checks: >
   -modernize-use-trailing-return-type,
   -google-readability-todo,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
-  -cppcoreguidelines-owning-memory
+  -cppcoreguidelines-owning-memory,
+  -portability-avoid-pragma-once
 WarningsAsErrors: ''
 HeaderFilterRegex: '(libs|nfs|tools)/.*\.(h|hpp)$'
 FormatStyle: file

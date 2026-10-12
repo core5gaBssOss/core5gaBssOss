@@ -15,6 +15,10 @@ project(5gc-r19
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# ADR-0482: no C++20 modules here, so no module dependency scanning. With GCC >= 14 CMake otherwise
+# adds -fmodules-ts/-fmodule-mapper/-fdeps-format to every compile command (and ~560 scan steps to
+# the build); clang-tidy rejects those GCC-only flags, failing every file in the lint job.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -60,6 +64,7 @@ add_subdirectory(libs/nf-config) # ADR-0449: sbi-core now links nf_config, so it
 add_subdirectory(libs/sbi-core)
 add_subdirectory(libs/sbi-generated)
 add_subdirectory(libs/aka-crypto)
+add_subdirectory(libs/nas-alg-provider) # ADR-0479
 add_subdirectory(libs/ngap-generated)
 add_subdirectory(libs/ngap-core)
 add_subdirectory(libs/li-generated)

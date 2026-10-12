@@ -45,7 +45,25 @@ patch -p1 < "${ROOT_DIR}/scripts/patches/asn1c-aligned-per.patch"
 
 echo "Configuring and building..."
 ./configure --prefix="${ASN1C_PREFIX}"
-make -j"$(nproc)"
+# -fno-strict-aliasing: vanilla asn1c 0.9.29's libasn1fix/asn1fix_constr.c builds three
+# TQ_HEAD(asn1p_expr_t) tail-queue locals (root_list, ext_list, and a TQ_HEAD(...)* cur_list that
+# aliases whichever of the first two is active) -- the TQ_HEAD(type) macro
+# (libasn1parser/asn1p_list.h:7) expands to an anonymous struct at EVERY use site, so root_list,
+# ext_list, and *cur_list are three structurally-identical but nominally distinct C types.
+# Assigning &root_list/&ext_list into cur_list through a (void*) cast is a strict-aliasing
+# violation -- real, confirmed undefined behavior, not a guess: a GCC-15.2-compiled asn1c segfaults
+# (SIGSEGV, write to a read-only .text page) in asn1f_fix_constr_ext at asn1fix_constr.c:144's
+# `TQ_ADD(cur_list, ...)`, because cur_list->tq_tail is read back corrupted -- confirmed via gdb
+# backtrace, reproduced directly on the host (no Docker involved), and confirmed GCC-version-
+# sensitive: GCC 13.3 does not miscompile this, GCC 15.2 does, and a plain -O0 rebuild (any
+# optimization disabled) does not crash either, pointing squarely at a TBAA-driven optimization
+# exploiting the aliasing UB. This flag is the standard fix for exactly this class of bug (same one
+# the Linux kernel and CPython build with) and is a no-op on compilers that don't need it, so it is
+# safe and correct on every GCC version this project builds with, not just 15.2 -- verified: with
+# this flag the GCC-15.2 build generates the NGAP codec successfully and the output is byte-
+# identical (ignoring the invocation-path header comment) to the known-good pre-patch generation.
+# See ADR-0483.
+make CFLAGS="-g -O2 -fno-strict-aliasing" -j"$(nproc)"
 make install
 
 echo "asn1c ${ASN1C_VERSION} (Aligned PER patched) installed to ${ASN1C_PREFIX}"

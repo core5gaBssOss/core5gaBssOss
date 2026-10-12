@@ -5,7 +5,7 @@
 # entrypoint generates the lab PKI fresh at that same path so the compiled-in path resolves.
 # This is a direct, disclosed consequence of that earlier simplification, not hidden here.
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 # bison/flex: vcpkg builds libpq from source (libpqxx, ADR-0054 -- bss/product-catalog's real
 # PostgreSQL persistence) -- and since vcpkg.json is one shared manifest, `vcpkg install` pulls in
@@ -87,7 +87,7 @@ RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,shar
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     && cmake --build build --target nrf
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl ca-certificates \

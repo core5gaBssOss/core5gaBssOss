@@ -5,7 +5,7 @@
 # service). Not a 3GPP NF (see bss/product-catalog/src/main.cpp's own header comment), but built
 # the same way as one for consistency with this repo's existing image convention.
 
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 # bison/flex: vcpkg builds libpq from source (libpqxx, ADR-0054 -- this service's own real
 # PostgreSQL persistence, the direct reason this image exists in this form).
@@ -81,7 +81,7 @@ RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,shar
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     && cmake --build build --target product-catalog
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl ca-certificates \
