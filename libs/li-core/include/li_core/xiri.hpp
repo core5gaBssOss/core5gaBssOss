@@ -410,6 +410,73 @@ struct UdmStartOfInterceptionWithRegisteredTarget {
     bool operator==(const UdmStartOfInterceptionWithRegisteredTarget&) const = default;
 };
 
+// XIRIEvent.cancelLocationMessage [55] UDMCancelLocationMessage (TS 33.128 clause 7.2.2.3.4). M
+// members: sUPI, cancelLocationMethod. Modelled C members: pEI, gPSI, pLMNID. NOT modelled
+// (disclosed, same complexity-skip precedent as UdmServingSystemMessage's gUAMI/gUMMEI/serviceID):
+// gUAMI, aMFDeregistrationInfo, deregistrationData.
+// UDMCancelLocationMethod ::= ENUMERATED { aMF3GPPAccessDeregistration(1),
+//                                          aMFNon3GPPAccessDeregistration(2), uDMDeregistration(3),
+//                                          unknown(4) }
+enum class UdmCancelLocationMethod : std::uint8_t {
+    Amf3GppAccessDeregistration = 1,
+    AmfNon3GppAccessDeregistration = 2,
+    UdmDeregistration = 3,
+    Unknown = 4
+};
+
+struct UdmCancelLocationMessage {
+    Supi supi;
+    std::optional<Pei> pei;
+    std::optional<Gpsi> gpsi;
+    std::optional<Plmnid> plmn_id;
+    UdmCancelLocationMethod cancel_location_method = UdmCancelLocationMethod::Unknown;
+    bool operator==(const UdmCancelLocationMessage&) const = default;
+};
+
+// XIRIEvent.uDMUEAuthenticationResponse [110] UDMUEAuthenticationResponse (TS 33.128 clause
+// 7.2.2.3.8). M members: sUPI, authenticationInfoRequest. Modelled C members: aKMAIndicator,
+// authAAA. NOT modelled (disclosed): problemDetails, pvsInfo -- a scope cut, not a security-driven
+// omission. Tables 7.2.2.3.8-1 and -2 were read in full before coding this event (ADR-0475's own
+// required gate): neither table carries key material (no K, OPc, or RAND-derived secrets).
+// UDMInfoRequestType ::= ENUMERATED { hSS(1), aUSF(2), other(3) }
+enum class UdmInfoRequestType : std::uint8_t { Hss = 1, Ausf = 2, Other = 3 };
+
+// PrimaryAuthenticationType ::= ENUMERATED { eAPAKAPrime(1), fiveGAKA(2), eAPTLS(3), none(4),
+//                                            ePSAKA(5), eAPAKA(6), iMSAKA(7), gBAAKA(8), uMTSAKA(9) }
+enum class PrimaryAuthenticationType : std::uint8_t {
+    EapAkaPrime = 1,
+    FiveGAka = 2,
+    EapTls = 3,
+    None = 4,
+    EpsAka = 5,
+    EapAka = 6,
+    ImsAka = 7,
+    GbaAka = 8,
+    UmtsAka = 9
+};
+
+// UDMAuthenticationInfoRequest ::= SEQUENCE { infoRequestType [1], rGAuthCtx [2] SEQUENCE
+// SIZE(1..MAX) OF SubscriberIdentifier, authType [3], servingNetworkName [4] PLMNID,
+// aUSFInstanceID [5] OPTIONAL, cellCAGInfo [6] OPTIONAL, n5GCIndicator [7] OPTIONAL }. rGAuthCtx is
+// Mandatory, SIZE(1..MAX), CHOICE { sUCI, sUPI } per entry -- only the sUPI alternative is modelled
+// (disclosed): fill() requires >=1 entry, and a received sUCI-typed entry is a decode error, never
+// silently dropped. NOT modelled (disclosed): aUSFInstanceID, cellCAGInfo, n5GCIndicator.
+struct UdmAuthenticationInfoRequest {
+    UdmInfoRequestType info_request_type = UdmInfoRequestType::Other;
+    std::vector<Supi> rg_auth_ctx_supis;
+    PrimaryAuthenticationType auth_type = PrimaryAuthenticationType::None;
+    Plmnid serving_network_name;
+    bool operator==(const UdmAuthenticationInfoRequest&) const = default;
+};
+
+struct UdmUeAuthenticationResponse {
+    Supi supi;
+    UdmAuthenticationInfoRequest authentication_info_request;
+    std::optional<bool> akma_indicator;
+    std::optional<bool> auth_aaa;
+    bool operator==(const UdmUeAuthenticationResponse&) const = default;
+};
+
 using Event = std::variant<AmfRegistration,
                            AmfDeregistration,
                            AmfStartOfInterceptionWithRegisteredUE,
@@ -422,7 +489,9 @@ using Event = std::variant<AmfRegistration,
                            SmfStartOfInterceptionWithEstablishedPduSession,
                            SmfUnsuccessfulProcedure,
                            UdmServingSystemMessage,
-                           UdmStartOfInterceptionWithRegisteredTarget>;
+                           UdmStartOfInterceptionWithRegisteredTarget,
+                           UdmCancelLocationMessage,
+                           UdmUeAuthenticationResponse>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the

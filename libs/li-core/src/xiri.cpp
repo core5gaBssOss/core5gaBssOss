@@ -43,6 +43,7 @@ extern "C" {
 #include <SMFStartOfInterceptionWithEstablishedPDUSession.h>
 #include <SMFUnsuccessfulProcedure.h>
 #include <SNSSAI.h>
+#include <SubscriberIdentifier.h>
 #include <TAI.h>
 #include <UEEndpointAddress.h>
 #include <UserLocation.h>
@@ -1267,6 +1268,151 @@ extract(const UDMStartOfInterceptionWithRegisteredTarget_t& src) {
     return out;
 }
 
+tl::expected<void, std::string> fill(UDMCancelLocationMessage_t& out,
+                                     const UdmCancelLocationMessage& src) {
+    LI_TRY(fill_supi(out.sUPI, src.supi));
+    out.cancelLocationMethod = static_cast<long>(src.cancel_location_method);
+    if (src.pei) {
+        out.pEI = alloc_optional<PEI_t>();
+        if (out.pEI == nullptr) {
+            return tl::unexpected("PEI allocation failed");
+        }
+        LI_TRY(fill_pei(*out.pEI, *src.pei));
+    }
+    if (src.gpsi) {
+        out.gPSI = alloc_optional<GPSI_t>();
+        if (out.gPSI == nullptr) {
+            return tl::unexpected("GPSI allocation failed");
+        }
+        LI_TRY(fill_gpsi(*out.gPSI, *src.gpsi));
+    }
+    if (src.plmn_id) {
+        out.pLMNID = alloc_optional<PLMNID_t>();
+        if (out.pLMNID == nullptr) {
+            return tl::unexpected("PLMNID allocation failed");
+        }
+        LI_TRY(fill_plmnid(*out.pLMNID, *src.plmn_id));
+    }
+    return {};
+}
+
+tl::expected<UdmCancelLocationMessage, std::string> extract(const UDMCancelLocationMessage_t& src) {
+    UdmCancelLocationMessage out;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    out.cancel_location_method = static_cast<UdmCancelLocationMethod>(src.cancelLocationMethod);
+    if (src.pEI != nullptr) {
+        auto pei = extract_pei(*src.pEI);
+        if (!pei) {
+            return tl::unexpected(pei.error());
+        }
+        out.pei = *pei;
+    }
+    if (src.gPSI != nullptr) {
+        auto gpsi = extract_gpsi(*src.gPSI);
+        if (!gpsi) {
+            return tl::unexpected(gpsi.error());
+        }
+        out.gpsi = *gpsi;
+    }
+    if (src.pLMNID != nullptr) {
+        out.plmn_id = extract_plmnid(*src.pLMNID);
+    }
+    return out;
+}
+
+tl::expected<void, std::string> fill(UDMAuthenticationInfoRequest_t& out,
+                                     const UdmAuthenticationInfoRequest& src) {
+    out.infoRequestType = static_cast<long>(src.info_request_type);
+    out.authType = static_cast<long>(src.auth_type);
+    LI_TRY(fill_plmnid(out.servingNetworkName, src.serving_network_name));
+    if (src.rg_auth_ctx_supis.empty()) {
+        return tl::unexpected("rGAuthCtx requires at least one entry (SIZE(1..MAX))");
+    }
+    for (const auto& supi : src.rg_auth_ctx_supis) {
+        auto* entry = alloc_optional<SubscriberIdentifier_t>();
+        if (entry == nullptr) {
+            return tl::unexpected("SubscriberIdentifier allocation failed");
+        }
+        if (ASN_SEQUENCE_ADD(&out.rGAuthCtx.list, entry) != 0) {
+            ASN_STRUCT_FREE(asn_DEF_SubscriberIdentifier, entry);
+            return tl::unexpected("rGAuthCtx list allocation failed");
+        }
+        entry->present = SubscriberIdentifier_PR_sUPI;
+        if (auto r = fill_supi(entry->choice.sUPI, supi); !r) {
+            return r;
+        }
+    }
+    return {};
+}
+
+tl::expected<UdmAuthenticationInfoRequest, std::string>
+extract(const UDMAuthenticationInfoRequest_t& src) {
+    UdmAuthenticationInfoRequest out;
+    out.info_request_type = static_cast<UdmInfoRequestType>(src.infoRequestType);
+    out.auth_type = static_cast<PrimaryAuthenticationType>(src.authType);
+    out.serving_network_name = extract_plmnid(src.servingNetworkName);
+    for (int i = 0; i < src.rGAuthCtx.list.count; ++i) {
+        const auto& entry = *src.rGAuthCtx.list.array[i];
+        if (entry.present != SubscriberIdentifier_PR_sUPI) {
+            return tl::unexpected(
+                "rGAuthCtx entry is a sUCI, not modelled (only the sUPI alternative is supported)");
+        }
+        auto supi = extract_supi(entry.choice.sUPI);
+        if (!supi) {
+            return tl::unexpected(supi.error());
+        }
+        out.rg_auth_ctx_supis.push_back(*supi);
+    }
+    return out;
+}
+
+tl::expected<void, std::string> fill(UDMUEAuthenticationResponse_t& out,
+                                     const UdmUeAuthenticationResponse& src) {
+    LI_TRY(fill_supi(out.sUPI, src.supi));
+    LI_TRY(fill(out.authenticationInfoRequest, src.authentication_info_request));
+    if (src.akma_indicator) {
+        out.aKMAIndicator = alloc_optional<BOOLEAN_t>();
+        if (out.aKMAIndicator == nullptr) {
+            return tl::unexpected("aKMAIndicator allocation failed");
+        }
+        *out.aKMAIndicator = *src.akma_indicator ? 1 : 0;
+    }
+    if (src.auth_aaa) {
+        out.authAAA = alloc_optional<BOOLEAN_t>();
+        if (out.authAAA == nullptr) {
+            return tl::unexpected("authAAA allocation failed");
+        }
+        *out.authAAA = *src.auth_aaa ? 1 : 0;
+    }
+    return {};
+}
+
+tl::expected<UdmUeAuthenticationResponse, std::string>
+extract(const UDMUEAuthenticationResponse_t& src) {
+    UdmUeAuthenticationResponse out;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    auto air = extract(src.authenticationInfoRequest);
+    if (!air) {
+        return tl::unexpected(air.error());
+    }
+    out.authentication_info_request = *air;
+    if (src.aKMAIndicator != nullptr) {
+        out.akma_indicator = *src.aKMAIndicator != 0;
+    }
+    if (src.authAAA != nullptr) {
+        out.auth_aaa = *src.authAAA != 0;
+    }
+    return out;
+}
+
 #undef LI_TRY
 
 } // namespace
@@ -1310,6 +1456,12 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
                 payload->event.present = XIRIEvent_PR_uDMStartOfInterceptionWithRegisteredTarget;
                 return fill(payload->event.choice.uDMStartOfInterceptionWithRegisteredTarget,
                             variant_event);
+            } else if constexpr (std::is_same_v<T, UdmCancelLocationMessage>) {
+                payload->event.present = XIRIEvent_PR_cancelLocationMessage;
+                return fill(payload->event.choice.cancelLocationMessage, variant_event);
+            } else if constexpr (std::is_same_v<T, UdmUeAuthenticationResponse>) {
+                payload->event.present = XIRIEvent_PR_uDMUEAuthenticationResponse;
+                return fill(payload->event.choice.uDMUEAuthenticationResponse, variant_event);
             } else if constexpr (std::is_same_v<T, SmfPduSessionEstablishment>) {
                 payload->event.present = XIRIEvent_PR_pDUSessionEstablishment;
                 return fill(payload->event.choice.pDUSessionEstablishment, variant_event);
@@ -1434,6 +1586,22 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
         }
         case XIRIEvent_PR_uDMStartOfInterceptionWithRegisteredTarget: {
             auto udm = extract(payload->event.choice.uDMStartOfInterceptionWithRegisteredTarget);
+            if (!udm) {
+                return tl::unexpected(udm.error());
+            }
+            out.event = *udm;
+            return out;
+        }
+        case XIRIEvent_PR_cancelLocationMessage: {
+            auto udm = extract(payload->event.choice.cancelLocationMessage);
+            if (!udm) {
+                return tl::unexpected(udm.error());
+            }
+            out.event = *udm;
+            return out;
+        }
+        case XIRIEvent_PR_uDMUEAuthenticationResponse: {
+            auto udm = extract(payload->event.choice.uDMUEAuthenticationResponse);
             if (!udm) {
                 return tl::unexpected(udm.error());
             }

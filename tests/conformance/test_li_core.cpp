@@ -692,3 +692,63 @@ TEST(Xiri, UdmStartOfInterceptionWithRegisteredTargetRoundTrips) {
     ASSERT_TRUE(dec2.has_value());
     EXPECT_EQ(std::get<xiri::UdmStartOfInterceptionWithRegisteredTarget>(dec2->event), rec);
 }
+
+// ADR-0475 event 3: UdmCancelLocationMessage (TS 33.128 7.2.2.3.4, table 7.2.2.3.4-1).
+TEST(Xiri, UdmCancelLocationMessageRoundTripsMandatoryOnlyAndWithOptionalMembers) {
+    xiri::UdmCancelLocationMessage minimal;
+    minimal.supi = xiri::Imsi{"001010000000001"};
+    minimal.cancel_location_method = xiri::UdmCancelLocationMethod::UdmDeregistration;
+    auto enc = xiri::encode_xiri_payload(minimal);
+    ASSERT_TRUE(enc.has_value()) << enc.error();
+    auto dec = xiri::decode_xiri_payload(*enc);
+    ASSERT_TRUE(dec.has_value()) << dec.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::UdmCancelLocationMessage>(dec->event));
+    EXPECT_EQ(std::get<xiri::UdmCancelLocationMessage>(dec->event), minimal);
+
+    xiri::UdmCancelLocationMessage full = minimal;
+    full.cancel_location_method = xiri::UdmCancelLocationMethod::Amf3GppAccessDeregistration;
+    full.pei = xiri::Imeisv{"1234567890123456"};
+    full.gpsi = xiri::Msisdn{"491701234567"};
+    full.plmn_id = xiri::Plmnid{"001", "01"};
+    auto enc2 = xiri::encode_xiri_payload(full);
+    ASSERT_TRUE(enc2.has_value()) << enc2.error();
+    auto dec2 = xiri::decode_xiri_payload(*enc2);
+    ASSERT_TRUE(dec2.has_value()) << dec2.error();
+    EXPECT_EQ(std::get<xiri::UdmCancelLocationMessage>(dec2->event), full);
+}
+
+// ADR-0475 event 4: UdmUeAuthenticationResponse (TS 33.128 7.2.2.3.8, tables 7.2.2.3.8-1/-2).
+TEST(Xiri, UdmUeAuthenticationResponseRoundTripsMandatoryOnlyAndWithOptionalMembers) {
+    xiri::UdmUeAuthenticationResponse minimal;
+    minimal.supi = xiri::Imsi{"001010000000001"};
+    minimal.authentication_info_request.info_request_type = xiri::UdmInfoRequestType::Ausf;
+    minimal.authentication_info_request.auth_type = xiri::PrimaryAuthenticationType::FiveGAka;
+    minimal.authentication_info_request.serving_network_name = xiri::Plmnid{"001", "01"};
+    minimal.authentication_info_request.rg_auth_ctx_supis = {xiri::Imsi{"001010000000001"}};
+    auto enc = xiri::encode_xiri_payload(minimal);
+    ASSERT_TRUE(enc.has_value()) << enc.error();
+    auto dec = xiri::decode_xiri_payload(*enc);
+    ASSERT_TRUE(dec.has_value()) << dec.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::UdmUeAuthenticationResponse>(dec->event));
+    EXPECT_EQ(std::get<xiri::UdmUeAuthenticationResponse>(dec->event), minimal);
+
+    xiri::UdmUeAuthenticationResponse full = minimal;
+    full.akma_indicator = true;
+    full.auth_aaa = false;
+    full.authentication_info_request.rg_auth_ctx_supis.push_back(xiri::Nai{"a@b.example"});
+    auto enc2 = xiri::encode_xiri_payload(full);
+    ASSERT_TRUE(enc2.has_value()) << enc2.error();
+    auto dec2 = xiri::decode_xiri_payload(*enc2);
+    ASSERT_TRUE(dec2.has_value()) << dec2.error();
+    EXPECT_EQ(std::get<xiri::UdmUeAuthenticationResponse>(dec2->event), full);
+}
+
+TEST(Xiri, UdmUeAuthenticationResponseRejectsEmptyRgAuthCtx) {
+    xiri::UdmUeAuthenticationResponse rec;
+    rec.supi = xiri::Imsi{"001010000000001"};
+    rec.authentication_info_request.info_request_type = xiri::UdmInfoRequestType::Hss;
+    rec.authentication_info_request.auth_type = xiri::PrimaryAuthenticationType::EapAkaPrime;
+    rec.authentication_info_request.serving_network_name = xiri::Plmnid{"001", "01"};
+    // rg_auth_ctx_supis left empty -- SIZE(1..MAX) requires at least one entry.
+    EXPECT_FALSE(xiri::encode_xiri_payload(rec).has_value());
+}
