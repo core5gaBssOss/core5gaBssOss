@@ -1,10 +1,12 @@
 <p align="center">
   <a href="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml"><img src="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
-  <a href="https://claude.ai/artifact/V9TieM9VFwiaf5LFxYG5NX"><img src="https://img.shields.io/badge/Claude-Artifact-5A32FB.svg" alt="Claude Artifact"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-2ea44f.svg" alt="License: Apache 2.0"></a>
+  <a href="https://claude.ai/artifact/V9TieM9VFwiaf5LFxYG5NX"><img src="https://img.shields.io/badge/Claude-Artifact-8A2BE2.svg" alt="Claude Artifact"></a>
+  <img src="https://img.shields.io/badge/3GPP-R19-FF6B00.svg" alt="3GPP R19">
+  <img src="https://img.shields.io/badge/C%2B%2B-20%2F23-00ADD8.svg" alt="C++20/23">
 </p>
 
-# AI-Native 5G-Advanced Core, Charging & BSS
+# AI-Native 5G-Advanced Core, Charging & BSS — R19 — Built Forward to 6G
 
 <p align="center">
   <img src="docs/assets/hero-diagram.svg"
