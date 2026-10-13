@@ -7,5 +7,20 @@
   "vlr_peer_address": "",
   "vlr_peer_port": 2905,
   "map_server_port": 0,
-  "hlr_number": "99970000001"
+  "hlr_number": "99970000001",
+  "li_poi": {
+    "enabled": false,
+    "x1_bind_address": "0.0.0.0",
+    "x1_port": 7811,
+    "ne_identifier": "udm-poi-01",
+    "network_function_id": "udm-01.5gc.example.net",
+    "interception_point_id": "UDM-IRI-POI-1",
+    "mdf2_host": "127.0.0.1",
+    "mdf2_port": 7806,
+    "mdf2_sni": "localhost",
+    "x1_keepalive_p1_seconds": 60,
+    "x1_keepalive_p2_seconds": 180,
+    "x1_keepalive_p3_seconds": 300,
+    "x1_allow_deactivate_all": true
+  }
 }

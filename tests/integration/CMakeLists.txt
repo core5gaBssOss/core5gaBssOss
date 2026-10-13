@@ -297,6 +297,26 @@ target_compile_definitions(li_amf_e2e_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_amf_e2e_integration_tests PROPERTIES TIMEOUT 300)
 
+# ADR-0475: the UDM IRI-POI end to end through the real `udm` process with li_poi enabled, plus
+# nrf (OAuth2 tokens, LI_X1 provisioning target) and udr (am-data for event 2). Its own binary,
+# same reason li_amf_e2e_integration_tests is its own binary: li_core is a hidden-visibility
+# shared object (ADR-0364) and the monolithic `integration_tests` target already links
+# ngap_generated transitively (via its own AMF/NGAP test files) -- keeping li_core out of that
+# shared binary avoids reintroducing the exact symbol clash ADR-0364 exists to prevent. No AMF/
+# AUSF/PCF/SMF/UPF/gNB needed: every UDM xIRI this suite exercises is triggered by a direct SBI
+# call to the real udm process, not by a NAS/NGAP-driven procedure.
+add_executable(li_udm_e2e_integration_tests test_li_udm_e2e.cpp)
+target_link_libraries(li_udm_e2e_integration_tests PRIVATE
+    li_core li_poi sbi_core sbi_generated OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+add_dependencies(li_udm_e2e_integration_tests nrf udr udm)
+target_compile_definitions(li_udm_e2e_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    UDR_PATH="$<TARGET_FILE:udr>"
+    UDM_PATH="$<TARGET_FILE:udm>"
+    UDM_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/udm.json"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_udm_e2e_integration_tests PROPERTIES TIMEOUT 300)
+
 # ADR-0400: the UDSF suite -- its own binary (depends only on nrf + udsf, like the MTLF suite), so
 # it builds without the whole NF estate. Also carries the UDSF logic unit tests (no processes).
 add_executable(udsf_integration_tests test_udsf.cpp)
