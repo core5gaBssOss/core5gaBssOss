@@ -1,7 +1,10 @@
 <p align="center">
   <a href="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml"><img src="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
+  <a href="https://claude.ai/artifact/V9TieM9VFwiaf5LFxYG5NX"><img src="https://img.shields.io/badge/Claude-Artifact-5A32FB.svg" alt="Claude Artifact"></a>
 </p>
+
+# AI-Native 5G-Advanced Core, Charging & BSS
 
 <p align="center">
   <img src="docs/assets/hero-diagram.svg"
