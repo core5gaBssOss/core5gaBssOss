@@ -11,6 +11,8 @@
 #include <sys/prctl.h>
 #include <unistd.h>
 
+#include "datapath_internal.hpp"
+
 // Deliberately NOT including <net/if.h>: glibc's <net/if.h> and the kernel's <linux/if.h> (which
 // <linux/if_tun.h> above already needs for IFF_TUN/struct ifreq) both define struct ifreq/ifmap/
 // ifconf and the IFF_* flags -- a well-known, unavoidable conflict when both are included in the
@@ -21,9 +23,12 @@ extern "C" unsigned int if_nametoindex(const char* ifname);
 
 #include <spdlog/spdlog.h>
 
+#include <array>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <thread>
+#include <vector>
 
 #ifndef GTPU_BPF_OBJ_PATH
 #error "GTPU_BPF_OBJ_PATH must be defined by CMake (see nfs/upf/CMakeLists.txt)"
@@ -158,14 +163,7 @@ bool run_ip_command(const std::string& args) {
     return true;
 }
 
-// Mirrors nfs/upf/bpf/gtpu_decap.bpf.c's struct tpdu_record exactly -- the fixed-size ring
-// buffer record format the BPF verifier's constant-size requirement on bpf_ringbuf_reserve forced
-// (see that struct's own comment). `length` is the real T-PDU size; `data`'s bytes beyond that
-// are stale/unused ring buffer memory, never written to the TUN device.
-struct TpduRecord {
-    std::uint16_t length;
-    unsigned char data[1500];
-} __attribute__((packed));
+using upf::detail::TpduRecord;
 
 // Mirrors nfs/upf/bpf/gtpu_decap.bpf.c's struct urr_state exactly -- same field order/packing
 // requirement as TpduRecord above, since this is written directly into the BPF map's memory via
@@ -194,20 +192,40 @@ struct QerState {
     std::uint64_t last_refill_ns;
 } __attribute__((packed));
 
-int handle_tpdu_sample(void* ctx, void* data, std::size_t data_sz) {
-    const int tun_fd = *static_cast<int*>(ctx);
+} // namespace
+
+// ADR-0484 (LI stage 4): declared in datapath_internal.hpp, not the anonymous namespace above,
+// specifically so a unit test can call these directly without linking a real eBPF program.
+namespace detail {
+
+std::array<std::uint8_t, 8> reconstruct_gtpu_header(std::uint32_t teid, std::uint16_t tpdu_len) {
+    std::array<std::uint8_t, 8> hdr{};
+    hdr[0] = 0x30; // version=1 (bits 7-5), PT=1 (bit 4), spare/E/S/PN=0
+    hdr[1] = 255;  // G-PDU (TS 29.281 Table 6.1-1)
+    hdr[2] = static_cast<std::uint8_t>(tpdu_len >> 8);
+    hdr[3] = static_cast<std::uint8_t>(tpdu_len & 0xFF);
+    hdr[4] = static_cast<std::uint8_t>(teid >> 24);
+    hdr[5] = static_cast<std::uint8_t>(teid >> 16);
+    hdr[6] = static_cast<std::uint8_t>(teid >> 8);
+    hdr[7] = static_cast<std::uint8_t>(teid & 0xFF);
+    return hdr;
+}
+
+void process_tpdu_record(const TpduRecord& rec,
+                         std::size_t data_sz,
+                         int tun_fd,
+                         const Datapath::PacketHandler& on_packet) {
     if (data_sz < sizeof(TpduRecord)) {
         spdlog::warn("upf-datapath: ring buffer sample too small ({} bytes), ignoring", data_sz);
-        return 0;
+        return;
     }
-    const auto* rec = static_cast<const TpduRecord*>(data);
-    const std::size_t tpdu_len = rec->length;
-    if (tpdu_len > sizeof(rec->data)) {
+    const std::size_t tpdu_len = rec.length;
+    if (tpdu_len > sizeof(rec.data)) {
         spdlog::warn("upf-datapath: ring buffer record claims implausible length {}, ignoring",
                      tpdu_len);
-        return 0;
+        return;
     }
-    const ssize_t written = write(tun_fd, rec->data, tpdu_len);
+    const ssize_t written = write(tun_fd, rec.data, tpdu_len);
     if (written < 0 || static_cast<std::size_t>(written) != tpdu_len) {
         spdlog::warn("upf-datapath: short/failed write of decapsulated T-PDU ({} bytes) to {}: {}",
                      tpdu_len,
@@ -217,10 +235,21 @@ int handle_tpdu_sample(void* ctx, void* data, std::size_t data_sz) {
         spdlog::info(
             "upf-datapath: delivered decapsulated T-PDU ({} bytes) to {}", tpdu_len, kTunIface);
     }
-    return 0;
+
+    // ADR-0484 (LI stage 4): feed the CC-POI the real GTP-U packet regardless of TUN delivery
+    // outcome -- interception is independent of whether the DN-facing write succeeded, same as a
+    // real tap would be.
+    if (on_packet) {
+        const auto header = reconstruct_gtpu_header(rec.teid, rec.length);
+        std::vector<std::uint8_t> gtpu_packet;
+        gtpu_packet.reserve(header.size() + tpdu_len);
+        gtpu_packet.insert(gtpu_packet.end(), header.begin(), header.end());
+        gtpu_packet.insert(gtpu_packet.end(), rec.data, rec.data + tpdu_len);
+        on_packet(rec.teid, std::span<const std::uint8_t>(gtpu_packet));
+    }
 }
 
-} // namespace
+} // namespace detail
 
 struct Datapath::Impl {
     bpf_object* obj = nullptr;
@@ -233,6 +262,21 @@ struct Datapath::Impl {
     std::thread poll_thread;
     bool stop_polling = false;
     UsageReportHandler on_usage_report;
+    PacketHandler on_packet; // ADR-0484
+
+    // Trampoline for ring_buffer__new's C callback signature -- unpacks ctx (an Impl*) and
+    // forwards to process_tpdu_record, the directly unit-tested logic above.
+    static int handle_tpdu_sample(void* ctx, void* data, std::size_t data_sz) {
+        auto* impl = static_cast<Impl*>(ctx);
+        if (data_sz < sizeof(TpduRecord)) {
+            spdlog::warn("upf-datapath: ring buffer sample too small ({} bytes), ignoring",
+                         data_sz);
+            return 0;
+        }
+        detail::process_tpdu_record(
+            *static_cast<const TpduRecord*>(data), data_sz, impl->tun_fd, impl->on_packet);
+        return 0;
+    }
 
     // A static member function (not a free function like handle_tpdu_sample above) specifically
     // because it needs to name the complete Impl type to reach on_usage_report -- Impl is a
@@ -283,9 +327,11 @@ Datapath::Datapath(Datapath&&) noexcept = default;
 Datapath& Datapath::operator=(Datapath&&) noexcept = default;
 Datapath::~Datapath() = default;
 
-std::optional<Datapath> Datapath::create(UsageReportHandler on_usage_report) {
+std::optional<Datapath> Datapath::create(UsageReportHandler on_usage_report,
+                                         PacketHandler on_packet) {
     Datapath dp;
     dp.impl_->on_usage_report = std::move(on_usage_report);
+    dp.impl_->on_packet = std::move(on_packet);
 
     if (!run_ip_command(std::string("link add ") + kN3Iface + " type veth peer name " +
                         kN3PeerIface)) {
@@ -363,8 +409,8 @@ std::optional<Datapath> Datapath::create(UsageReportHandler on_usage_report) {
     dp.impl_->urr_map_fd = bpf_map__fd(urr_map);
     dp.impl_->qer_map_fd = bpf_map__fd(qer_map);
 
-    dp.impl_->rb =
-        ring_buffer__new(bpf_map__fd(ringbuf_map), handle_tpdu_sample, &dp.impl_->tun_fd, nullptr);
+    dp.impl_->rb = ring_buffer__new(
+        bpf_map__fd(ringbuf_map), Impl::handle_tpdu_sample, dp.impl_.get(), nullptr);
     if (dp.impl_->rb == nullptr) {
         spdlog::error("upf-datapath: ring_buffer__new failed");
         return std::nullopt;

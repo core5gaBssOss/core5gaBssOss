@@ -51,9 +51,12 @@ struct gtpu_hdr {
 // genuine compile-time constant on this kernel/libbpf combination -- a range-bounded runtime
 // value is rejected ("R2 is not a known constant"). So every record reserves this fixed
 // sizeof(), and `length` tells the consumer (nfs/upf/src/datapath.cpp) how many of `data`'s bytes
-// are the real T-PDU.
+// are the real T-PDU. `teid` (added ADR-0484, LI stage 4) lets that consumer tell which tunnel a
+// record came from -- needed to feed the UPF's CC-POI (nfs/upf/src/li_poi.hpp), which is keyed by
+// TEID; before this field the consumer had no way to attribute a record to a session at all.
 struct tpdu_record {
     __u16 length;
+    __u32 teid;
     unsigned char data[1500];
 } __attribute__((packed));
 
@@ -291,6 +294,7 @@ int gtpu_decap_prog(struct xdp_md *ctx) {
         return XDP_DROP; // ring buffer full -- drop rather than block, same as a real datapath would
     }
     rec->length = (__u16)tpdu_len;
+    rec->teid = teid;
     if (bpf_probe_read_kernel(rec->data, (__u32)tpdu_len, tpdu_start)) {
         bpf_ringbuf_discard(rec, 0);
         return XDP_DROP;

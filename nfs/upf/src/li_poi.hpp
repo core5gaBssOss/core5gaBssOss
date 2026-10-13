@@ -20,9 +20,12 @@
 //    session precedes the task. Only the F-SEID kind is supported; the other UPFLIT3 identifiers
 //    (F-TEID, UE IP, ports, PDR / QER ID, ...) are refused with X1 3010.
 //  * the packet-tap seam: on_packet() is what the datapath calls for a packet of a PFCP session's
-//    GTP-U tunnel. Nothing in this repository calls it from a real datapath yet -- the UPF's
-//    eBPF/XDP program is uplink decapsulation only and cannot attach in CI -- so until the capture
-//    stage exists a deployed UPF intercepts nothing. Tests feed it.
+//    GTP-U tunnel. nfs/upf/src/main.cpp wires every decapsulated uplink T-PDU from the real eBPF/
+//    XDP datapath into it (ADR-0484); `gtpu_packet` there is reconstructed in userspace (the
+//    ring buffer only ever carries the stripped T-PDU) rather than being the literal wire bytes,
+//    disclosed in that ADR. The kernel-side half of that wiring (gtpu_decap.bpf.c's `teid` field)
+//    is not live-verified on a privileged host as of ADR-0484 -- cc_capable stays false in any
+//    real deployment until it is (ADR-0464). Tests also feed it directly.
 //  * LI_X3: each matching packet goes out as one TS 103 221-2 X3 PDU, Payload Format 12 (GTP-U,
 //    the format clause 6.2.3.6 makes mandatory), direction FromTarget for uplink, ToTarget for
 //    downlink.

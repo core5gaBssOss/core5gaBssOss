@@ -446,7 +446,8 @@
   "ADR-0480-amf-nas-algorithm-selection-core-ts-33-501-6-7-1-1-pure.md",
   "ADR-0481-ci-lint-select-the-cpp-list-first-skip-toolchain-setup-when.md",
   "ADR-0482-lab-host-and-nf-images-move-to-ubuntu-26-04-with-gcc-15.md",
-  "ADR-0483-pin-gcc-13-for-asn1c-s-own-compiler-build-gcc-15-2.md"
+  "ADR-0483-pin-gcc-13-for-asn1c-s-own-compiler-build-gcc-15-2.md",
+  "ADR-0484-upf-cc-poi-real-packet-capture-wiring-the-ebpf-ring-buffer.md"
  ],
  "split_commit": "0530e4f"
 }
