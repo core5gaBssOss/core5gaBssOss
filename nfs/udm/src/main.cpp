@@ -112,6 +112,7 @@
 #include "aka_crypto/kdf.hpp"
 #include "aka_crypto/milenage.hpp"
 #include "aka_crypto/suci.hpp"
+#include "li_poi.hpp"
 #include "map_client.hpp"
 #include "map_server.hpp"
 #include "stores.hpp"
@@ -509,6 +510,13 @@ int main() {
 
     udm::AmfRegistrationStore amf_registrations;
 
+    // LI IRI-POI (ADR-0475), disabled unless config/udm.json's li_poi.enabled is true. Declared
+    // early (before the route handlers below, which capture it by reference) but constructed
+    // later in this function, once fetch_from_udr exists -- route handlers never run until
+    // server.start() at the very end, long after this unique_ptr is actually populated. nullptr
+    // keeps the UDM's behaviour unchanged, same convention as every other POI in this project.
+    std::unique_ptr<udm::UdmLiPoi> li_poi;
+
     // Started after the store it serves from, torn down before it (declaration order), so no
     // association can be answering out of a store that is already gone.
     std::optional<udm::MapServer> map_server;
@@ -699,8 +707,12 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access",
-        [&verifier, &amf_registrations, &amf_reg_counter, &vlr_peer_address, &vlr_peer_port](
-            const sbi_core::http2::Request& req) {
+        [&verifier,
+         &amf_registrations,
+         &amf_reg_counter,
+         &vlr_peer_address,
+         &vlr_peer_port,
+         &li_poi](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -718,6 +730,17 @@ int main() {
             // legacy VLR peer, if one is configured. Fire-and-forget; see the helper's own note.
             push_subscriber_data_to_vlr(vlr_peer_address, vlr_peer_port, ue_id);
             amf_reg_counter->Add(1);
+            // ADR-0475 event 1 (TS 33.128 7.2.2.3.2): note_registered first (li_poi.hpp's own
+            // ordering rule), then UDMServingSystemMessage. roamingIndicator is not in this real
+            // registration body -- left absent, never guessed.
+            if (li_poi) {
+                li_poi->note_registered(ue_id);
+                li_poi->report_serving_system(
+                    udm::LiIdentities{ue_id, body->pei, std::nullopt},
+                    li_core::xiri::UdmServingSystemMethod::Amf3GppAccessRegistration,
+                    std::nullopt,
+                    std::nullopt);
+            }
 
             sbi_core::http2::Response resp;
             resp.status = is_new ? 201 : 200;
@@ -750,7 +773,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access",
-        [&verifier, &amf_registrations](const sbi_core::http2::Request& req) {
+        [&verifier, &amf_registrations, &li_poi](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -770,14 +793,28 @@ int main() {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No AMF 3GPP-access registration for ueId " + ue_id);
             }
+            // ADR-0475 event 3 (TS 33.128 7.2.2.3.4, bullet 2): purgeFlag=true on this real
+            // Amf3GppAccessRegistrationModification is this build's only conformant trigger for
+            // UDMCancelLocationMessage (li_poi.hpp's own disclosed note on bullet 1).
+            if (li_poi && patch_dto->purgeFlag.value_or(false)) {
+                li_poi->note_deregistered(ue_id);
+                li_poi->report_cancel_location(
+                    udm::LiIdentities{ue_id, patch_dto->pei, std::nullopt},
+                    li_core::xiri::Plmnid{patch_dto->guami.plmnId.mcc, patch_dto->guami.plmnId.mnc},
+                    li_core::xiri::UdmCancelLocationMethod::Amf3GppAccessDeregistration);
+            }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
     server.add_route(
         "POST",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access/dereg-amf",
-        [&verifier, &amf_registrations, &amf_dereg_counter, &vlr_peer_address, &vlr_peer_port](
-            const sbi_core::http2::Request& req) {
+        [&verifier,
+         &amf_registrations,
+         &amf_dereg_counter,
+         &vlr_peer_address,
+         &vlr_peer_port,
+         &li_poi](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -794,6 +831,12 @@ int main() {
             amf_registrations.remove(ue_id);
             cancel_location_at_vlr(vlr_peer_address, vlr_peer_port, ue_id, body->deregReason.value);
             amf_dereg_counter->Add(1);
+            // Keeps the LI POI's registered-target registry accurate -- this real AmfDeregistration
+            // resource is not itself one of 7.2.2.3.4's named triggers (li_poi.hpp's own note), so
+            // no UDMCancelLocationMessage here, only the registry update.
+            if (li_poi) {
+                li_poi->note_deregistered(ue_id);
+            }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
@@ -877,7 +920,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-non-3gpp-access",
-        [&verifier, &amf_non3gpp_registrations, &amf_non3gpp_reg_counter](
+        [&verifier, &amf_non3gpp_registrations, &amf_non3gpp_reg_counter, &li_poi](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -893,6 +936,15 @@ int main() {
             json j = *body;
             amf_non3gpp_registrations.put(ue_id, j);
             amf_non3gpp_reg_counter->Add(1);
+            // ADR-0475 event 1 (TS 33.128 7.2.2.3.2), non-3GPP-access variant.
+            if (li_poi) {
+                li_poi->note_registered(ue_id);
+                li_poi->report_serving_system(
+                    udm::LiIdentities{ue_id, body->pei, std::nullopt},
+                    li_core::xiri::UdmServingSystemMethod::AmfNon3GppAccessRegistration,
+                    std::nullopt,
+                    std::nullopt);
+            }
 
             sbi_core::http2::Response resp;
             resp.status = is_new ? 201 : 200;
@@ -925,7 +977,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-non-3gpp-access",
-        [&verifier, &amf_non3gpp_registrations, &amf_non3gpp_patch_counter](
+        [&verifier, &amf_non3gpp_registrations, &amf_non3gpp_patch_counter, &li_poi](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -944,6 +996,14 @@ int main() {
                     404, "Not Found", "No AMF non-3GPP-access registration for ueId " + ue_id);
             }
             amf_non3gpp_patch_counter->Add(1);
+            // ADR-0475 event 3 (TS 33.128 7.2.2.3.4, bullet 3), non-3GPP-access variant.
+            if (li_poi && patch_dto->purgeFlag.value_or(false)) {
+                li_poi->note_deregistered(ue_id);
+                li_poi->report_cancel_location(
+                    udm::LiIdentities{ue_id, patch_dto->pei, std::nullopt},
+                    li_core::xiri::Plmnid{patch_dto->guami.plmnId.mcc, patch_dto->guami.plmnId.mnc},
+                    li_core::xiri::UdmCancelLocationMethod::AmfNon3GppAccessDeregistration);
+            }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
@@ -1789,6 +1849,44 @@ int main() {
                                                          std::string(e.what()));
         }
     };
+
+    // LI IRI-POI (ADR-0475), disabled unless config/udm.json's li_poi.enabled is true -- same
+    // pattern as nfs/amf/src/main.cpp's own li_poi construction. Built here, once fetch_from_udr
+    // exists, so the subscription-data fetcher (UDMStartOfInterceptionWithRegisteredTarget's
+    // uDMSubscriptionDataSets, event 2) can reuse the real UDR am-data call rather than a second
+    // client. li_poi was declared earlier in this function so the route handlers above (which
+    // capture it by reference) already compile; this assignment runs before server.start(), so
+    // every one of them sees a fully-constructed object once requests actually arrive.
+    if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
+        const auto& lp = config.at("li_poi");
+        li_poi::Config poi_cfg;
+        poi_cfg.x1_bind_address = lp.at("x1_bind_address").get<std::string>();
+        poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
+        poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"udm-poi"});
+        poi_cfg.network_function_id = lp.value("network_function_id", udm_instance_id);
+        poi_cfg.interception_point_id =
+            lp.value("interception_point_id", std::string{"UDM-IRI-POI-1"});
+        poi_cfg.mdf2_host = lp.at("mdf2_host").get<std::string>();
+        poi_cfg.mdf2_port = lp.at("mdf2_port").get<std::uint16_t>();
+        poi_cfg.mdf2_sni = lp.value("mdf2_sni", std::string{});
+        poi_cfg.cert_path = CERTS_DIR "/udm/cert.pem";
+        poi_cfg.key_path = CERTS_DIR "/udm/key.pem";
+        poi_cfg.ca_path = CERTS_DIR "/ca/ca.crt";
+        poi_cfg.x1_keepalive_p1_seconds = lp.value("x1_keepalive_p1_seconds", 60);
+        poi_cfg.x1_keepalive_p2_seconds = lp.value("x1_keepalive_p2_seconds", 180);
+        poi_cfg.x1_keepalive_p3_seconds = lp.value("x1_keepalive_p3_seconds", 300);
+        poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
+        udm::UdmLiPoi::SubscriptionDataFetcher fetch_am_data =
+            [&fetch_from_udr](const std::string& supi) -> std::optional<std::string> {
+            const auto result = fetch_from_udr(supi, kDefaultServingPlmnId, "am-data");
+            if (!std::holds_alternative<json>(result)) {
+                return std::nullopt;
+            }
+            return std::get<json>(result).dump();
+        };
+        li_poi = std::make_unique<udm::UdmLiPoi>(std::move(poi_cfg), std::move(fetch_am_data));
+        li_poi->start();
+    }
 
     server.add_route(
         "GET",
@@ -2849,7 +2947,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUeauApiRoot) + "/{supiOrSuci}/security-information/generate-auth-data",
-        [&verifier, &auth_subscriptions, &generate_auth_data_counter](
+        [&verifier, &auth_subscriptions, &generate_auth_data_counter, &li_poi](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -2945,6 +3043,16 @@ int main() {
             }
 
             generate_auth_data_counter->Add(1);
+            // ADR-0475 event 4 (TS 33.128 7.2.2.3.8): this real operation is always called by the
+            // AUSF (TS 29.503 6.3.6.2.2), never guessed per-call. No AKMA request field exists on
+            // this real AuthenticationInfoRequest body -- akma_indicator left absent, not guessed.
+            if (li_poi) {
+                const auto auth_type = sub->authentication_method == "EAP_AKA_PRIME"
+                                           ? li_core::xiri::PrimaryAuthenticationType::EapAkaPrime
+                                           : li_core::xiri::PrimaryAuthenticationType::FiveGAka;
+                li_poi->report_ue_authentication_response(
+                    supi_or_suci, body->servingNetworkName, auth_type, std::nullopt);
+            }
             json j = result;
             return sbi_core::http2::Response::json(200, j.dump());
         });
