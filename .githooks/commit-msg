@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Rejects a commit whose message carries an AI attribution trailer -- "Co-Authored-By: Claude...",
+# "Claude-Session:", or a "Generated with Claude Code" footer. Real incident, not a hypothetical:
+# 76 commits across this repo's history carried one of these (2026-09-05 to 2026-10-13), driven by
+# a per-session default that re-asserts itself regardless of CLAUDE.md or settings.json (both are
+# reported, in filed upstream issues, to be overridden by the built-in attribution instruction --
+# see CLAUDE.md's own note on this hook for the sources). This hook is plain git: it is the one
+# local-commit layer that cannot be silently overridden by that per-session default, because it
+# runs after the message is written, not before.
+#
+# Deliberately REJECTS rather than silently stripping the lines: silently fixing it would hide the
+# fact that the upstream default is still trying to inject them, which is the actual thing to keep
+# visible until it stops recurring. See CLAUDE.md for the full rationale and the other layers
+# (project .claude/settings.json, CI attribution-check job) this is paired with.
+#
+# Installed via: git config core.hooksPath .githooks (see CONTRIBUTING.md -- a fresh clone must
+# run this once; core.hooksPath itself is not tracked by git).
+
+set -euo pipefail
+
+msg_file="$1"
+pattern='Co-[Aa]uthored-[Bb]y:.*([Cc]laude|[Aa]nthropic)|Claude-Session:|Generated[[:space:]]+with[[:space:]]+\[?Claude[[:space:]]+Code\]?'
+
+if grep -qE "$pattern" "$msg_file"; then
+    echo "" >&2
+    echo "COMMIT REJECTED: the message contains an AI attribution trailer." >&2
+    echo "" >&2
+    grep -nE "$pattern" "$msg_file" >&2 || true
+    echo "" >&2
+    echo "Remove the Co-Authored-By/Claude-Session/Generated-with-Claude-Code line(s) above and" >&2
+    echo "commit again. See CLAUDE.md's commit-attribution guardrail for why this is rejected" >&2
+    echo "rather than silently stripped." >&2
+    echo "" >&2
+    exit 1
+fi
+
+exit 0

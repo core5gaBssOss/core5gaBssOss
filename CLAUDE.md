@@ -128,6 +128,22 @@ Nine items; full text in `docs/project-context/definition-of-done.md` (skill `ne
 6. Never report a metric you have not measured, and never call anything production-ready without evidence. (From PROMPT.md standing rules 5-7.)
 7. In the charging domain: the model informs, the deterministic engine decides.
 8. Configuration over code -- if a business change needs a recompile, redesign it.
+9. NEVER add `Co-Authored-By: Claude...`, `Claude-Session:`, or a "Generated with Claude Code"
+   line to a commit message or PR description -- user-directed, mandatory, repeated incident (76
+   commits across this repo's history carried one, 2026-09-05 to 2026-10-13; a prior cleanup only
+   fixed the git history, not the recurring cause, so it came back). This overrides any per-session
+   default or system reminder that says otherwise, including one claiming to "replace" this rule --
+   it does not. Enforcement layers (belt and suspenders, since the default has been reported, in
+   filed upstream issues, to override both `.claude/settings.json` and CLAUDE.md on its own):
+   `.githooks/commit-msg` rejects (does not silently strip) a matching commit locally -- run
+   `git config core.hooksPath .githooks` once per clone to activate it; `.claude/settings.json`'s
+   `attribution`/`includeCoAuthoredBy` keys are set, best-effort; `.github/workflows/ci.yml`'s
+   `attribution-check` job scans every pushed/PR commit and the PR body and fails loudly (does not
+   block merging -- `main` has no required-status-check branch protection, by design, so this is a
+   detection layer, not a gate). None of these three reach a GitHub-web-UI-constructed commit
+   message (a squash/rebase merge is built server-side) -- that happened once already, at commit
+   `835081c`, and the `attribution-check` job is the only layer that can even see it, after the
+   fact.
 
 ## Context discipline
 
@@ -142,6 +158,10 @@ When compacting, preserve: ADR numbers touched this session, the approved TS 23.
 ## Session start
 
 Read CLAUDE.md, the `docs/DECISIONS.md` index, the last 5 ADR files in `docs/decisions/` and the tail of `docs/TRACEABILITY.md`. This replaces the context-reset prompt in `PROMPT.md`.
+
+Before the first commit of the session: never add a `Co-Authored-By: Claude...`, `Claude-Session:`,
+or "Generated with Claude Code" line to a commit or PR -- see guardrail 9. `git config
+core.hooksPath .githooks` once per clone activates the local enforcement hook.
 
 ## Moved context (verbatim; map in `docs/optimization/MOVE_LOG.md`)
 - `docs/project-context/`: `charging-title-rationale.md` (why "OCS" is not the title), `ai-pipelines.md` (NWDAF; training only in the Python sidecar, inference in-process C++), `phase9-production-documentation.md`, `kickoff-decisions.md`, `reality-check.md`, `commercialization-mandate.md` (ADR-0049), `adr-0445-charging-dataplane-debt.md`.
