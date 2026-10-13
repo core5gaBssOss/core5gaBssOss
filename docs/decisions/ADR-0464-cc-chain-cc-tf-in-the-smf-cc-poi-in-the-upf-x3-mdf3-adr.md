@@ -1,7 +1,6 @@
 ## ADR-0464: CC chain -- CC-TF in the SMF, CC-POI in the UPF, X3, MDF3 (ADR-0463 stage 3)
 
-**Date:** 2026-10-06. **Status:** stage 3 built; stage 4 (real packet capture) not started and `cc_capable` stays
-false for the UPF in any real deployment until it is verified on a privileged lab host.
+**Date:** 2026-10-06. **Status:** stage 3 built; stage 4 (real packet capture) built (ADR-0484) but its kernel-side half is not live-verified on a privileged host, so `cc_capable` stays false for the UPF in any real deployment.
 **What was built.** (1) CC-TF in the SMF (`smf::CcTfConfig`, `libs/li-poi/x1_trigger`): just before the N4 PFCP
 Session Establishment Request leaves for a target's session the SMF sends an X1 ActivateTask (LI_T3) to the UPF's X1
 server naming the PFCP session by F-SEID; it withdraws the task on release or on a failed establishment. (2) CC-POI in
