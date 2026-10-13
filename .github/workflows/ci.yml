@@ -95,6 +95,50 @@ jobs:
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "code changed: $code (event=$EVENT)"
 
+  # Server-side gate against AI attribution trailers (Co-Authored-By: Claude..., Claude-Session:,
+  # "Generated with Claude Code" PR footers) -- real incident, not hypothetical: 76 commits across
+  # this repo's history carried one (2026-09-05 to 2026-10-13), and the squash-merge at 835081c
+  # reintroduced several that a local git hook could never have reached (GitHub builds a
+  # squash-merge message server-side; .githooks/commit-msg never runs for it). Runs on every push
+  # and PR, independent of the lab runner and of whether `changes` found code or docs-only -- a
+  # docs-only commit can carry the trailer too. Detects, does not block (see CLAUDE.md's own note:
+  # main has no required-status-check branch protection, by design, so this surfaces the problem
+  # loudly in the run rather than silently failing to prevent it).
+  attribution-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan commit range and PR body for AI attribution trailers
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          pattern='Co-[Aa]uthored-[Bb]y:.*([Cc]laude|[Aa]nthropic)|Claude-Session:|Generated[[:space:]]+with[[:space:]]+\[?Claude[[:space:]]+Code\]?'
+          fail=0
+          if [ -n "$BASE" ] && [ "$BASE" != "0000000000000000000000000000000000000000" ] \
+             && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            commits=$(git rev-list "$BASE..$HEAD_SHA")
+          else
+            commits="$HEAD_SHA"
+          fi
+          for h in $commits; do
+            if git show -s --format='%B' "$h" | grep -qE "$pattern"; then
+              echo "::error::commit $h carries an AI attribution trailer -- forbidden, see CLAUDE.md"
+              git show -s --format='%B' "$h" | grep -nE "$pattern" || true
+              fail=1
+            fi
+          done
+          if [ -n "$PR_BODY" ] && printf '%s' "$PR_BODY" | grep -qE "$pattern"; then
+            echo "::error::the PR description carries an AI attribution footer -- forbidden, see CLAUDE.md"
+            fail=1
+          fi
+          exit "$fail"
+
   build:
     # ADR-0469: after `lint` (fast, catches formatting/tidy/diagram drift first) and only when code changed.
     needs: [changes, lint]

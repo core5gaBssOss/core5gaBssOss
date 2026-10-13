@@ -450,6 +450,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0482](decisions/ADR-0482-lab-host-and-nf-images-move-to-ubuntu-26-04-with-gcc-15.md) Lab host and NF images move to Ubuntu 26.04 with GCC 15; clang-tidy cost measured
 - [0483](decisions/ADR-0483-pin-gcc-13-for-asn1c-s-own-compiler-build-gcc-15-2.md) Build asn1c with -fno-strict-aliasing (GCC 15.2 miscompiles its NGAP codegen into a segfault)
 - [0484](decisions/ADR-0484-upf-cc-poi-real-packet-capture-wiring-the-ebpf-ring-buffer.md) UPF CC-POI real packet capture: wiring the eBPF ring buffer into on_packet (ADR-0463/0464 stage 4)
+- [0485](decisions/ADR-0485-stop-claude-attribution-trailers-from-recurring-local-hook.md) Stop Claude attribution trailers from recurring: local hook, settings.json, CI detection job
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
