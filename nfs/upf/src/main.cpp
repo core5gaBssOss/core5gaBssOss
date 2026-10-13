@@ -84,6 +84,7 @@
 #include <chrono>
 #include <ctime>
 #include <mutex>
+#include <span>
 #include <string_view>
 #include <thread>
 #include <unordered_map>
@@ -1823,19 +1824,10 @@ int main() {
                      quota_exhausted ? "VOLQU" : "VOLTH");
     };
 
-    // ADR-0043: real eBPF/XDP GTP-U decapsulation datapath. Failure is disclosed and non-fatal --
-    // PFCP control-plane signalling (Stages 1-3) works identically with or without it (see
-    // datapath.hpp's own comment for why, and what privileges a real datapath needs).
-    auto datapath = upf::Datapath::create(usage_report_handler);
-    if (!datapath.has_value()) {
-        spdlog::warn("upf: eBPF/XDP datapath not started (see preceding error) -- PFCP "
-                     "control-plane signalling still works, but no uplink packet will actually "
-                     "be decapsulated/forwarded");
-    }
-
     // LI CC-POI (TS 33.127 6.2.3, ADR-0464), disabled unless config/upf.json's li_poi.enabled is
-    // true. Process lifetime; nullptr keeps the UPF's behaviour unchanged. NOTE the datapath does
-    // not feed it packets yet (see nfs/upf/src/li_poi.hpp).
+    // true. Process lifetime; nullptr keeps the UPF's behaviour unchanged. Constructed BEFORE the
+    // datapath below (ADR-0484) so Datapath::create()'s packet handler can already capture a live
+    // li_poi pointer.
     std::unique_ptr<upf::UpfLiPoi> li_poi;
     if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
         const auto& lp = config.at("li_poi");
@@ -1859,6 +1851,27 @@ int main() {
         poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
         li_poi = std::make_unique<upf::UpfLiPoi>(std::move(poi_cfg));
         li_poi->start();
+    }
+
+    // ADR-0043: real eBPF/XDP GTP-U decapsulation datapath. Failure is disclosed and non-fatal --
+    // PFCP control-plane signalling (Stages 1-3) works identically with or without it (see
+    // datapath.hpp's own comment for why, and what privileges a real datapath needs).
+    // ADR-0484 (LI stage 4): every decapsulated uplink T-PDU is now also handed to the CC-POI,
+    // which is a cheap no-op for any TEID with no active warrant (UpfLiPoi::on_packet's own
+    // session_by_teid_ lookup). Captured by raw pointer, not by value/shared_ptr: li_poi outlives
+    // datapath (declared first, and main() never returns while the datapath thread runs).
+    upf::UpfLiPoi* const li_poi_ptr = li_poi.get();
+    auto datapath = upf::Datapath::create(
+        usage_report_handler,
+        [li_poi_ptr](std::uint32_t teid, std::span<const std::uint8_t> gtpu_packet) {
+            if (li_poi_ptr != nullptr) {
+                li_poi_ptr->on_packet(teid, upf::PacketDirection::Uplink, gtpu_packet);
+            }
+        });
+    if (!datapath.has_value()) {
+        spdlog::warn("upf: eBPF/XDP datapath not started (see preceding error) -- PFCP "
+                     "control-plane signalling still works, but no uplink packet will actually "
+                     "be decapsulated/forwarded");
     }
 
     std::thread(run_nrf_lifecycle, upf_instance_id, nrf_base_url, advertised_ipv4_str).detach();

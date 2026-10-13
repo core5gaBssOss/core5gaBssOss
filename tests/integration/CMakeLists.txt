@@ -341,3 +341,23 @@ add_executable(sbi_tls_min_version_tests test_sbi_tls_min_version.cpp)
 target_link_libraries(sbi_tls_min_version_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
 target_compile_definitions(sbi_tls_min_version_tests PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(sbi_tls_min_version_tests PROPERTIES TIMEOUT 60)
+
+# ADR-0484: LI stage 4 -- the pure logic datapath.cpp pulls out of its ring-buffer handling
+# (TUN write + CC-POI dispatch, datapath_internal.hpp). Compiles the real datapath.cpp (same file
+# the upf binary links) so no behaviour is duplicated; needs libbpf/libcap to compile (datapath.cpp
+# includes their headers unconditionally) but never calls Datapath::create(), so no BPF object,
+# CAP_NET_ADMIN, or CAP_BPF is needed to run it. Pure logic, no ports.
+# nfs/upf/CMakeLists.txt already does this same pkg_check_modules call, but its IMPORTED_TARGET is
+# scoped to that directory's own subtree -- not visible here, hence the repeat.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(libbpf REQUIRED IMPORTED_TARGET libbpf)
+pkg_check_modules(libcap REQUIRED IMPORTED_TARGET libcap)
+find_package(spdlog CONFIG REQUIRED)
+add_executable(upf_datapath_internal_tests test_upf_datapath_internal.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/upf/src/datapath.cpp)
+target_include_directories(upf_datapath_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/upf/src)
+target_link_libraries(upf_datapath_internal_tests PRIVATE
+    PkgConfig::libbpf PkgConfig::libcap spdlog::spdlog GTest::gtest GTest::gtest_main)
+target_compile_definitions(upf_datapath_internal_tests PRIVATE
+    GTPU_BPF_OBJ_PATH="unused-by-this-test")
+gtest_discover_tests(upf_datapath_internal_tests PROPERTIES TIMEOUT 60)

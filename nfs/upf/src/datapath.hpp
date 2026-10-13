@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 
 // Real eBPF/XDP GTP-U decapsulation datapath -- Phase 3 Stage 4 (docs/DECISIONS.md ADR-0043).
 // Wraps: a veth pair (upf-n3 / upf-n3-peer, representing UPF's N3-facing interface -- no
@@ -33,7 +34,19 @@ public:
     using UsageReportHandler =
         std::function<void(std::uint32_t teid, std::uint64_t total_octets, bool quota_exhausted)>;
 
-    static std::optional<Datapath> create(UsageReportHandler on_usage_report);
+    // LI stage 4 (ADR-0484): invoked (same ring-buffer-polling thread as above) for every
+    // decapsulated uplink T-PDU, not just ones a warrant targets -- filtering by TEID is the
+    // CC-POI's job (nfs/upf/src/li_poi.hpp's on_packet(), a cheap no-op for a TEID with no active
+    // task). `gtpu_packet` is the full GTP-U packet (8-octet header + T-PDU), reconstructed here
+    // from the ring buffer record's `teid`/`length` -- bit-exact for every record this datapath
+    // can produce, since the XDP program only ever forwards E/S/PN=0 (minimal-header) packets to
+    // the ring buffer (see gtpu_decap.bpf.c's own header comment), the only case this
+    // reconstruction handles.
+    using PacketHandler =
+        std::function<void(std::uint32_t teid, std::span<const std::uint8_t> gtpu_packet)>;
+
+    static std::optional<Datapath> create(UsageReportHandler on_usage_report,
+                                          PacketHandler on_packet = nullptr);
 
     Datapath(Datapath&& other) noexcept;
     Datapath& operator=(Datapath&& other) noexcept;
