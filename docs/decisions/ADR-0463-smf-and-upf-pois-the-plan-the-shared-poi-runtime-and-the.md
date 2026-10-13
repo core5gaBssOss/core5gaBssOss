@@ -1,6 +1,6 @@
 ## ADR-0463: SMF and UPF POIs -- the plan, the shared POI runtime, and the SMF xIRI codec
 
-**Date:** 2026-10-06. **Status:** stages 1, 2a, 2b and 2c done; stages 3 and 4 not started. User-approved (event list shown
+**Date:** 2026-10-06. **Status:** stages 1, 2a, 2b, 2c, 3 and 4 built (ADR-0464, ADR-0484); stage 4's kernel-side capture not live-verified on a privileged host, `cc_capable` stays false. User-approved (event list shown
 first, as every LI POI increment): shared library over copying (decision 1), and CC scope "everything except the eBPF
 capture" (decision 2).
 **What TS 33.127 6.2.3 / TS 33.128 6.2.3 require.** The SMF hosts an IRI-POI generating xIRI for PDU session
