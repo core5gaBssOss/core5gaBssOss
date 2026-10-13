@@ -442,7 +442,8 @@ struct UdmCancelLocationMessage {
 enum class UdmInfoRequestType : std::uint8_t { Hss = 1, Ausf = 2, Other = 3 };
 
 // PrimaryAuthenticationType ::= ENUMERATED { eAPAKAPrime(1), fiveGAKA(2), eAPTLS(3), none(4),
-//                                            ePSAKA(5), eAPAKA(6), iMSAKA(7), gBAAKA(8), uMTSAKA(9) }
+//                                            ePSAKA(5), eAPAKA(6), iMSAKA(7), gBAAKA(8), uMTSAKA(9)
+//                                            }
 enum class PrimaryAuthenticationType : std::uint8_t {
     EapAkaPrime = 1,
     FiveGAka = 2,
