@@ -101,3 +101,6 @@ j00) + recordData "translated ... using the syntax encoding rules as specified i
    CHFRecord means either a partial-record-per-request or reporting at CDR closure -- neither is
    stated.
 Until answered, a TranslatedChargingDataInformation task still gets no record and a logged error.
+
+**Decision on Translated (user, 2026-10-14):** leave it unbuilt and move on. A task asking for
+TranslatedChargingDataInformation keeps getting no record and a logged error.
