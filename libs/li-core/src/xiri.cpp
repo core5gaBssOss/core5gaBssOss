@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <tl/expected.hpp>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -30,6 +31,7 @@ extern "C" {
 #include <Location.h>
 #include <LocationInfo.h>
 #include <NCGI.h>
+#include <NEFAFSessionWithQoSProvision.h>
 #include <NRLocation.h>
 #include <NumericString.h>
 #include <OBJECT_IDENTIFIER.h>
@@ -37,6 +39,7 @@ extern "C" {
 #include <PEI.h>
 #include <PLMNID.h>
 #include <RELATIVE-OID.h>
+#include <SBIType.h>
 #include <SMFPDUSessionEstablishment.h>
 #include <SMFPDUSessionModification.h>
 #include <SMFPDUSessionRelease.h>
@@ -1638,9 +1641,104 @@ tl::expected<SmsReport, std::string> extract(const SMSReport_t& src) {
     return out;
 }
 
+tl::expected<void, std::string> fill_sbi(SBIType_t& out, const SbiType& src) {
+    if (OCTET_STRING_fromBuf(
+            &out.sBIReference, src.reference.data(), static_cast<int>(src.reference.size())) != 0 ||
+        OCTET_STRING_fromBuf(&out.sBIValue, src.value.data(), static_cast<int>(src.value.size())) !=
+            0) {
+        return tl::unexpected("SBIType allocation failed");
+    }
+    return {};
+}
+
+SbiType extract_sbi(const SBIType_t& src) {
+    return SbiType{octet_string_to_std(src.sBIReference), octet_string_to_std(src.sBIValue)};
+}
+
+tl::expected<void, std::string> fill(NEFAFSessionWithQoSProvision_t& out,
+                                     const NefAfSessionWithQosProvision& src) {
+    LI_TRY(fill_gpsi(out.gPSI, src.gpsi));
+    if (OCTET_STRING_fromBuf(&out.aFID, src.af_id.data(), static_cast<int>(src.af_id.size())) !=
+        0) {
+        return tl::unexpected("AFID allocation failed");
+    }
+    out.aFSessionWithQoSOpType = static_cast<long>(src.op_type);
+    for (auto [dst, from] :
+         {std::pair{&out.aFSessionWithQoSSubscription, &src.subscription},
+          std::pair{&out.aFSessionWithQoSSubscriptionPatch, &src.subscription_patch}}) {
+        if (*from) {
+            *dst = alloc_optional<SBIType_t>();
+            if (*dst == nullptr) {
+                return tl::unexpected("SBIType allocation failed");
+            }
+            LI_TRY(fill_sbi(**dst, **from));
+        }
+    }
+    out.aFSessionWithQoSResponseCode = static_cast<long>(src.response_code);
+    return {};
+}
+
+tl::expected<NefAfSessionWithQosProvision, std::string>
+extract(const NEFAFSessionWithQoSProvision_t& src) {
+    NefAfSessionWithQosProvision out;
+    auto gpsi = extract_gpsi(src.gPSI);
+    if (!gpsi) {
+        return tl::unexpected(gpsi.error());
+    }
+    out.gpsi = *gpsi;
+    out.af_id = octet_string_to_std(src.aFID);
+    out.op_type = static_cast<AfSessionWithQosOpType>(src.aFSessionWithQoSOpType);
+    if (src.aFSessionWithQoSSubscription != nullptr) {
+        out.subscription = extract_sbi(*src.aFSessionWithQoSSubscription);
+    }
+    if (src.aFSessionWithQoSSubscriptionPatch != nullptr) {
+        out.subscription_patch = extract_sbi(*src.aFSessionWithQoSSubscriptionPatch);
+    }
+    out.response_code = static_cast<AfSessionWithQosResponseCode>(src.aFSessionWithQoSResponseCode);
+    return out;
+}
+
 #undef LI_TRY
 
 } // namespace
+
+std::optional<AfSessionWithQosResponseCode> to_af_session_response_code(int http_status) {
+    using C = AfSessionWithQosResponseCode;
+    switch (http_status) {
+        case 200:
+            return C::Ok200;
+        case 201:
+            return C::Created201;
+        case 204:
+            return C::NoContent204;
+        case 307:
+            return C::TemporaryRedirect307;
+        case 308:
+            return C::PermanentRedirect308;
+        case 400:
+            return C::BadRequest400;
+        case 401:
+            return C::Unauthorized401;
+        case 403:
+            return C::Forbidden403;
+        case 404:
+            return C::NotFound404;
+        case 406:
+            return C::NotAcceptable406;
+        case 411:
+            return C::LengthRequired411;
+        case 415:
+            return C::UnsupportedMediaType415;
+        case 429:
+            return C::TooManyRequests429;
+        case 500:
+            return C::InternalServerError500;
+        case 503:
+            return C::ServiceUnavailable503;
+        default:
+            return std::nullopt;
+    }
+}
 
 tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const Event& event) {
     PayloadPtr payload = new_payload();
@@ -1693,6 +1791,9 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
             } else if constexpr (std::is_same_v<T, SmsReport>) {
                 payload->event.present = XIRIEvent_PR_sMSReport;
                 return fill(payload->event.choice.sMSReport, variant_event);
+            } else if constexpr (std::is_same_v<T, NefAfSessionWithQosProvision>) {
+                payload->event.present = XIRIEvent_PR_nEFAFSessionWithQoSProvision;
+                return fill(payload->event.choice.nEFAFSessionWithQoSProvision, variant_event);
             } else if constexpr (std::is_same_v<T, SmfPduSessionEstablishment>) {
                 payload->event.present = XIRIEvent_PR_pDUSessionEstablishment;
                 return fill(payload->event.choice.pDUSessionEstablishment, variant_event);
@@ -1885,6 +1986,14 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
                 return tl::unexpected(sms.error());
             }
             out.event = *sms;
+            return out;
+        }
+        case XIRIEvent_PR_nEFAFSessionWithQoSProvision: {
+            auto rec = extract(payload->event.choice.nEFAFSessionWithQoSProvision);
+            if (!rec) {
+                return tl::unexpected(rec.error());
+            }
+            out.event = *rec;
             return out;
         }
         case XIRIEvent_PR_unsuccessfulSMProcedure: {
