@@ -85,3 +85,19 @@ now holds `std::variant<NchfChargingDataRequest, RfChargingDataRequest>`. Verifi
 `Xiri.ChargingDataEventRoundTripsConvergedOfflineAndRf`, `LiChfEndToEnd.RfAccountingRequestForATarget
 IsReportedWithItsOctets` (real CER/CEA then ACR/ACA against the real chf; the record's octets equal
 the ACR byte for byte); `ChfDiameterRar` / `ChfProtocolCeilings` unchanged. TS 32.299 j00 fetched.
+
+**Translated records -- scoped 2026-10-14, blocked (question to the user).** TranslatedChargingData
+(table 7.19.3.14-1) = releaseID / versonID / specificationNumber (TS 32.297 6.1.2.2/.3/.5, fetched
+j00) + recordData "translated ... using the syntax encoding rules as specified in TS 32.298 clause
+5.2". Three things are not settled by the specs in hand:
+1. No Rel-19 CHF-CDR ASN.1 in hand: TS 32.298 j60 (fetched) carries no ASN.1 module text; the
+   existing encoder (`nfs/chf/src/cdr_asn1.cpp`, ADR-0089) was read from V18.8.0 and encodes 11 of
+   the 46 ChargingRecord fields (no service-specific information).
+2. specificationNumber: TS 32.297 table 6.1.2.5.1 lists domain TSs (32.255 = 20, 32.274 = 15,
+   32.256 = 22, 32.254 = 21, ...), none for "CHF-CDR" as such -- it would have to be chosen from the
+   service-specific information present, which the table does not say.
+3. Per request vs per record: the trigger is each Charging Data Request; a CHF-CDR is a closed
+   record (recordOpeningTime, duration, causeForRecClosing). Translating one request into a
+   CHFRecord means either a partial-record-per-request or reporting at CDR closure -- neither is
+   stated.
+Until answered, a TranslatedChargingDataInformation task still gets no record and a logged error.
