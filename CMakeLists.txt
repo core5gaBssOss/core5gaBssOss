@@ -79,6 +79,7 @@ add_subdirectory(libs/tcap-core)
 add_subdirectory(libs/cap-core)
 add_subdirectory(libs/map-core)
 add_subdirectory(libs/tbcd-core)
+add_subdirectory(libs/sms-core) # ADR-0486
 add_subdirectory(libs/tap3-core)
 add_subdirectory(libs/event-bus)
 add_subdirectory(nfs/nrf)

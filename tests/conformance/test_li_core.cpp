@@ -752,3 +752,60 @@ TEST(Xiri, UdmUeAuthenticationResponseRejectsEmptyRgAuthCtx) {
     // rg_auth_ctx_supis left empty -- SIZE(1..MAX) requires at least one entry.
     EXPECT_FALSE(xiri::encode_xiri_payload(rec).has_value());
 }
+
+// ADR-0486: SMSF xIRI records (TS 33.128 clause 6.2.5.3, tables 6.2.5.3-1/-2).
+TEST(Xiri, SmsMessageRoundTripsMandatoryOnlyAndWithOptionalMembers) {
+    xiri::SmsMessage minimal;
+    minimal.originating_party.supi = xiri::Imsi{"001010000000001"};
+    minimal.terminating_party.sms_address =
+        std::vector<std::uint8_t>{0x0B, 0x91, 0x64, 0x07, 0x28, 0x15, 0x53, 0xF8};
+    minimal.direction = xiri::SmsDirection::FromTarget;
+    minimal.link_transfer_status = xiri::SmsTransferStatus::TransferFailed;
+    auto enc = xiri::encode_xiri_payload(minimal);
+    ASSERT_TRUE(enc.has_value()) << enc.error();
+    // XIRIEvent CHOICE alternative sMSMessage is [12], constructed: 0xAC.
+    EXPECT_NE(std::find(enc->begin(), enc->end(), 0xAC), enc->end());
+    auto dec = xiri::decode_xiri_payload(*enc);
+    ASSERT_TRUE(dec.has_value()) << dec.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::SmsMessage>(dec->event));
+    EXPECT_EQ(std::get<xiri::SmsMessage>(dec->event), minimal);
+
+    xiri::SmsMessage full = minimal;
+    full.originating_party.pei = xiri::Imeisv{"1234567890123456"};
+    full.originating_party.gpsi = xiri::Msisdn{"491701234567"};
+    full.other_message = false;
+    full.peer_nf_type = xiri::SmsNfType::Iwmsc;
+    full.tpdu_data = xiri::SmsTpduData{false, {0x11, 0x00, 0x0B, 0x91, 0x64, 0x07, 0x28}};
+    full.message_type = xiri::SmsMessageType::Submit;
+    full.rp_message_reference = 42;
+    auto enc2 = xiri::encode_xiri_payload(full);
+    ASSERT_TRUE(enc2.has_value()) << enc2.error();
+    auto dec2 = xiri::decode_xiri_payload(*enc2);
+    ASSERT_TRUE(dec2.has_value()) << dec2.error();
+    EXPECT_EQ(std::get<xiri::SmsMessage>(dec2->event), full);
+
+    full.tpdu_data->redacted = true;
+    auto dec3 = xiri::decode_xiri_payload(*xiri::encode_xiri_payload(full));
+    ASSERT_TRUE(dec3.has_value()) << dec3.error();
+    EXPECT_TRUE(std::get<xiri::SmsMessage>(dec3->event).tpdu_data->redacted);
+}
+
+TEST(Xiri, SmsReportRoundTripsAndRejectsEmptyTpdu) {
+    xiri::SmsReport rep;
+    rep.tpdu_data.tpdu = {0x01, 0xC2, 0x00, 0x62, 0x01, 0x41, 0x90, 0x50, 0x70, 0x00};
+    rep.message_type = xiri::SmsMessageType::SubmitReportError;
+    rep.rp_message_reference = 42;
+    auto enc = xiri::encode_xiri_payload(rep);
+    ASSERT_TRUE(enc.has_value()) << enc.error();
+    // sMSReport is [56]: high-tag-number form, constructed: 0xBF 0x38.
+    const std::vector<std::uint8_t> tag{0xBF, 0x38};
+    EXPECT_NE(std::search(enc->begin(), enc->end(), tag.begin(), tag.end()), enc->end());
+    auto dec = xiri::decode_xiri_payload(*enc);
+    ASSERT_TRUE(dec.has_value()) << dec.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::SmsReport>(dec->event));
+    EXPECT_EQ(std::get<xiri::SmsReport>(dec->event), rep);
+
+    xiri::SmsReport empty;
+    empty.message_type = xiri::SmsMessageType::SubmitReportAck;
+    EXPECT_FALSE(xiri::encode_xiri_payload(empty).has_value()); // SMSTPDU SIZE(1..270)
+}
