@@ -5,7 +5,13 @@
   <img src="https://img.shields.io/badge/C%2B%2B-20%2F23-00ADD8.svg" alt="C++20/23">
 </p>
 
-# AI-Native 5G-Advanced Core, Charging & BSS — R19 — Built Forward to 6G
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/title-dark.svg">
+    <img src="docs/assets/title.svg" alt="AI-Native 5G-Advanced Core, Charging &amp; BSS — R19. Built Forward to 6G"
+         width="920">
+  </picture>
+</h1>
 
 <p align="center">
   <img src="docs/assets/hero-diagram.svg"
