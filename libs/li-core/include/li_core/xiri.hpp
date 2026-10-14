@@ -621,18 +621,50 @@ enum class NchfChargingEvent : std::uint8_t {
 // RoamerInOut ::= ENUMERATED { in-bound(1), out-bound(2) }
 enum class RoamerInOut : std::uint8_t { InBound = 1, OutBound = 2 };
 
-// XIRIEvent.chargingDataEvent [190] ChargingDataEvent (TS 33.128 table 7.19.3.2-1), with the
-// nchfChargingDataRequest choice only -- rfChargingDataRequest (no Rf here) and
-// translatedChargingDataInfo are not modelled (ADR-0488). roamer_in_out is MANDATORY in the j70
-// ASN.1 although table 7.19.3.4-1 says 0..1 -- see ADR-0488 for why it is never defaulted.
-struct ChargingDataEvent {
-    std::optional<Location> location;
+// RfChargingEvent ::= ENUMERATED (TS 33.128 table 7.19.3.12-1).
+enum class RfChargingEvent : std::uint8_t {
+    AocInformation = 1,
+    PsInformation = 2,
+    ImsInformation = 3,
+    MmsInformation = 4,
+    LcsInformation = 5,
+    PocInformation = 6,
+    MbmsInformation = 7,
+    SmsInformation = 8,
+    VcsInformation = 9,
+    MmTelInformation = 10,
+    ProSeInformation = 11,
+    ServiceGenericInformation = 12,
+    ImInformation = 13,
+    DcdInformation = 14,
+    M2mInformation = 15,
+    CpdtInformation = 16
+};
+
+// ChargingDataInformation.nchfChargingDataRequest (table 7.19.3.4-1). roamer_in_out is MANDATORY in
+// the j70 ASN.1 although the table says 0..1 -- see ADR-0488 for why it is never defaulted.
+struct NchfChargingDataRequest {
     // fullSBIChargingData: encapsulatedSBIOfflineChargingData when true, else
     // encapsulatedSBIConvergedChargingData.
     bool offline = false;
     SbiType charging_data;
     std::optional<NchfChargingEvent> charging_event;
     RoamerInOut roamer_in_out = RoamerInOut::InBound;
+    bool operator==(const NchfChargingDataRequest&) const = default;
+};
+
+// ChargingDataInformation.rfChargingDataRequest (table 7.19.3.9-1): the ACR's octets as received.
+struct RfChargingDataRequest {
+    std::vector<std::uint8_t> acr;
+    std::optional<RfChargingEvent> charging_event;
+    bool operator==(const RfChargingDataRequest&) const = default;
+};
+
+// XIRIEvent.chargingDataEvent [190] ChargingDataEvent (TS 33.128 table 7.19.3.2-1). The
+// translatedChargingDataInfo choice is not modelled (ADR-0488).
+struct ChargingDataEvent {
+    std::optional<Location> location;
+    std::variant<NchfChargingDataRequest, RfChargingDataRequest> information;
     bool operator==(const ChargingDataEvent&) const = default;
 };
 

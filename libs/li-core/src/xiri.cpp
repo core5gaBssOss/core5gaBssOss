@@ -1707,25 +1707,44 @@ tl::expected<void, std::string> fill(ChargingDataEvent_t& out, const ChargingDat
         }
         LI_TRY(fill_location(*out.location, *src.location));
     }
+    if (const auto* rf = std::get_if<RfChargingDataRequest>(&src.information)) {
+        out.chargingDataInformation.present = ChargingDataInformation_PR_rfChargingDataRequest;
+        auto& req = out.chargingDataInformation.choice.rfChargingDataRequest;
+        req.rfChargingData.present = DiameterChargingData_PR_fullDiameterChargingData;
+        if (OCTET_STRING_fromBuf(&req.rfChargingData.choice.fullDiameterChargingData,
+                                 reinterpret_cast<const char*>(rf->acr.data()),
+                                 static_cast<int>(rf->acr.size())) != 0) {
+            return tl::unexpected("EncapsulatedRfChargingData allocation failed");
+        }
+        if (rf->charging_event) {
+            req.rfChargingEvent = alloc_optional<RfChargingEvent_t>();
+            if (req.rfChargingEvent == nullptr) {
+                return tl::unexpected("RfChargingEvent allocation failed");
+            }
+            *req.rfChargingEvent = static_cast<long>(*rf->charging_event);
+        }
+        return {};
+    }
+    const auto& nchf = std::get<NchfChargingDataRequest>(src.information);
     out.chargingDataInformation.present = ChargingDataInformation_PR_nchfChargingDataRequest;
     auto& req = out.chargingDataInformation.choice.nchfChargingDataRequest;
     req.sBIchargingData.present = SBIChargingData_PR_fullSBIChargingData;
     auto& enc = req.sBIchargingData.choice.fullSBIChargingData;
-    if (src.offline) {
+    if (nchf.offline) {
         enc.present = EncapsulatedSBIChargingData_PR_encapsulatedSBIOfflineChargingData;
-        LI_TRY(fill_sbi(enc.choice.encapsulatedSBIOfflineChargingData, src.charging_data));
+        LI_TRY(fill_sbi(enc.choice.encapsulatedSBIOfflineChargingData, nchf.charging_data));
     } else {
         enc.present = EncapsulatedSBIChargingData_PR_encapsulatedSBIConvergedChargingData;
-        LI_TRY(fill_sbi(enc.choice.encapsulatedSBIConvergedChargingData, src.charging_data));
+        LI_TRY(fill_sbi(enc.choice.encapsulatedSBIConvergedChargingData, nchf.charging_data));
     }
-    if (src.charging_event) {
+    if (nchf.charging_event) {
         req.nchfChargingEvent = alloc_optional<NchfChargingEvent_t>();
         if (req.nchfChargingEvent == nullptr) {
             return tl::unexpected("NchfChargingEvent allocation failed");
         }
-        *req.nchfChargingEvent = static_cast<long>(*src.charging_event);
+        *req.nchfChargingEvent = static_cast<long>(*nchf.charging_event);
     }
-    req.roamerInOut = static_cast<long>(src.roamer_in_out);
+    req.roamerInOut = static_cast<long>(nchf.roamer_in_out);
     return {};
 }
 
@@ -1734,27 +1753,46 @@ tl::expected<ChargingDataEvent, std::string> extract(const ChargingDataEvent_t& 
     if (src.location != nullptr) {
         out.location = extract_location(*src.location);
     }
-    if (src.chargingDataInformation.present != ChargingDataInformation_PR_nchfChargingDataRequest) {
-        return tl::unexpected(
-            "ChargingDataInformation alternative is not modelled (only nchfChargingDataRequest)");
+    switch (src.chargingDataInformation.present) {
+        case ChargingDataInformation_PR_rfChargingDataRequest: {
+            const auto& req = src.chargingDataInformation.choice.rfChargingDataRequest;
+            if (req.rfChargingData.present != DiameterChargingData_PR_fullDiameterChargingData) {
+                return tl::unexpected("DiameterChargingData has no alternative");
+            }
+            const auto& octets = req.rfChargingData.choice.fullDiameterChargingData;
+            RfChargingDataRequest rf;
+            rf.acr.assign(octets.buf, octets.buf + octets.size);
+            if (req.rfChargingEvent != nullptr) {
+                rf.charging_event = static_cast<RfChargingEvent>(*req.rfChargingEvent);
+            }
+            out.information = std::move(rf);
+            return out;
+        }
+        case ChargingDataInformation_PR_nchfChargingDataRequest:
+            break;
+        default:
+            return tl::unexpected("ChargingDataInformation alternative is not modelled (only "
+                                  "nchfChargingDataRequest / rfChargingDataRequest)");
     }
     const auto& req = src.chargingDataInformation.choice.nchfChargingDataRequest;
     const auto& enc = req.sBIchargingData.choice.fullSBIChargingData;
+    NchfChargingDataRequest nchf;
     switch (enc.present) {
         case EncapsulatedSBIChargingData_PR_encapsulatedSBIConvergedChargingData:
-            out.charging_data = extract_sbi(enc.choice.encapsulatedSBIConvergedChargingData);
+            nchf.charging_data = extract_sbi(enc.choice.encapsulatedSBIConvergedChargingData);
             break;
         case EncapsulatedSBIChargingData_PR_encapsulatedSBIOfflineChargingData:
-            out.offline = true;
-            out.charging_data = extract_sbi(enc.choice.encapsulatedSBIOfflineChargingData);
+            nchf.offline = true;
+            nchf.charging_data = extract_sbi(enc.choice.encapsulatedSBIOfflineChargingData);
             break;
         default:
             return tl::unexpected("EncapsulatedSBIChargingData has no alternative");
     }
     if (req.nchfChargingEvent != nullptr) {
-        out.charging_event = static_cast<NchfChargingEvent>(*req.nchfChargingEvent);
+        nchf.charging_event = static_cast<NchfChargingEvent>(*req.nchfChargingEvent);
     }
-    out.roamer_in_out = static_cast<RoamerInOut>(req.roamerInOut);
+    nchf.roamer_in_out = static_cast<RoamerInOut>(req.roamerInOut);
+    out.information = std::move(nchf);
     return out;
 }
 

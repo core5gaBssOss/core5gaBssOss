@@ -335,7 +335,7 @@ gtest_discover_tests(li_smsf_e2e_integration_tests PROPERTIES TIMEOUT 300)
 # LI_X1 provisioning (ChargingDataEvents extension) and a loopback MDF2.
 add_executable(li_chf_e2e_integration_tests test_li_chf_e2e.cpp)
 target_link_libraries(li_chf_e2e_integration_tests PRIVATE
-    li_core li_poi sbi_core sbi_generated OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+    li_core li_poi diameter_core sbi_core sbi_generated OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
 add_dependencies(li_chf_e2e_integration_tests nrf chf)
 target_compile_definitions(li_chf_e2e_integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"

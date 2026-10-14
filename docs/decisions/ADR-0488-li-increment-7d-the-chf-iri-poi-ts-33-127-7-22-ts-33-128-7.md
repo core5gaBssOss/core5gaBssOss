@@ -1,6 +1,6 @@
 ## ADR-0488: LI increment 7d -- the CHF IRI-POI (TS 33.127 7.22, TS 33.128 7.19): plan, and the roamerInOut schema contradiction
 
-**Date:** 2026-10-14. **Status:** Accepted -- option B (user decision, 2026-10-14); Nchf increment built; Rf record next.
+**Date:** 2026-10-14. **Status:** Accepted -- option B (user decision, 2026-10-14); Nchf and Rf built; Translated not built.
 
 **Context.** Next LI step-7 item (ADR-0364) after the NEF (ADR-0487). TS 33.127 7.22.3 / TS 33.128
 7.19.3: one record, `ChargingDataEvent` [190], whenever the charging function receives a Charging
@@ -71,3 +71,17 @@ location; a request without roamerInOut is withheld (logged); a task without the
 nothing. The test runs the CHF with direct-insert CDRs off and an unreachable event-bus broker (the
 `test_chf_diameter_rar.cpp` precedent); it needs the rating PostgreSQL (CI's service, a local
 container on 5434 here). Existing CHF suites (`ChfDiameterRar`, `ChfProtocolCeilings`) unchanged.
+
+**Rf built (2026-10-14).** `chf::DiameterServer::set_acr_observer` hands every received
+Accounting-Request (whole message as received + decoded AVPs) to the POI before it is processed;
+`ChfLiPoi::report_rf_acr` matches User-Name and Service-Information(873, vendor 10415)/Subscription-Id
+(END_USER_E164 -> MSISDN/GPSI-MSISDN, END_USER_IMSI -> IMSI/SUPI-IMSI, END_USER_NAI -> SUPI-NAI/
+GPSI-NAI; SIP URI unsupported) and emits ChargingDataEvent(rfChargingDataRequest: the ACR octets,
+rfChargingEvent from the *-Information AVP present -- codes taken from TS_32.299_j00.txt; M2M-
+Information(15) is a oneM2M AVP whose code TS 32.299 does not give, unmapped). Rf has no roamerInOut
+member, so nothing is withheld there -- a home-network Rf target IS reported. Location on Rf
+(binary 3GPP-User-Location-Info) is not decoded: omitted, disclosed. `li_core::xiri::ChargingDataEvent`
+now holds `std::variant<NchfChargingDataRequest, RfChargingDataRequest>`. Verified:
+`Xiri.ChargingDataEventRoundTripsConvergedOfflineAndRf`, `LiChfEndToEnd.RfAccountingRequestForATarget
+IsReportedWithItsOctets` (real CER/CEA then ACR/ACA against the real chf; the record's octets equal
+the ACR byte for byte); `ChfDiameterRar` / `ChfProtocolCeilings` unchanged. TS 32.299 j00 fetched.

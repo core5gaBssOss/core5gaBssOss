@@ -770,6 +770,11 @@ DiameterServer::~DiameterServer() {
     }
 }
 
+void DiameterServer::set_acr_observer(AcrObserver observer) {
+    const std::lock_guard<std::mutex> lock(acr_observer_mutex_);
+    acr_observer_ = std::move(observer);
+}
+
 void DiameterServer::set_tps_limit(double sustained_tps, double burst_capacity) {
     if (sustained_tps <= 0.0) {
         rate_limit_.store(nullptr, std::memory_order_release);
@@ -1109,6 +1114,17 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
         }
 
         if (next_header->command_code == dictionary::Command::kAccounting) {
+            // ADR-0488: the CHF IRI-POI sees every ACR as received (TS 33.128 7.19.3.9).
+            AcrObserver observer;
+            {
+                const std::lock_guard<std::mutex> lock(acr_observer_mutex_);
+                observer = acr_observer_;
+            }
+            if (observer) {
+                std::vector<std::uint8_t> message = next_header_bytes;
+                message.insert(message.end(), next_avps_bytes.begin(), next_avps_bytes.end());
+                observer(message, *next_avps);
+            }
             // P4.5/ADR-0059 Stage 4 (Rf half): real ACR dispatched onto
             // Nchf_OfflineOnlyCharging's own real Create/Update/Release (offline_charging_data_
             // store) -- no rating engine involved (Nchf_OfflineOnlyCharging never had one, see

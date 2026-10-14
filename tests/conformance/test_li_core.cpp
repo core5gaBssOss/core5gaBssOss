@@ -853,13 +853,15 @@ TEST(Xiri, AfSessionResponseCodeCoversExactlyTheEnumeratedStatuses) {
 
 // ADR-0488: XIRIEvent.chargingDataEvent [190] with the nchfChargingDataRequest choice (TS 33.128
 // tables 7.19.3.2-1, 7.19.3.4-1, 7.19.3.6-1).
-TEST(Xiri, ChargingDataEventRoundTripsConvergedAndOffline) {
-    xiri::ChargingDataEvent conv;
-    conv.charging_data = xiri::SbiType{
+TEST(Xiri, ChargingDataEventRoundTripsConvergedOfflineAndRf) {
+    xiri::NchfChargingDataRequest conv_req;
+    conv_req.charging_data = xiri::SbiType{
         "TS32291_Nchf_ConvergedCharging.yaml#/components/schemas/ChargingDataRequest",
         R"({"subscriberIdentifier":"imsi-001010000000001","nfConsumerIdentification":{}})"};
-    conv.charging_event = xiri::NchfChargingEvent::PduSessionChargingInformation;
-    conv.roamer_in_out = xiri::RoamerInOut::OutBound;
+    conv_req.charging_event = xiri::NchfChargingEvent::PduSessionChargingInformation;
+    conv_req.roamer_in_out = xiri::RoamerInOut::OutBound;
+    xiri::ChargingDataEvent conv;
+    conv.information = conv_req;
     auto enc = xiri::encode_xiri_payload(conv);
     ASSERT_TRUE(enc.has_value()) << enc.error();
     // [190] constructed, high-tag-number form: 0xBF 0x81 0x3E.
@@ -870,14 +872,25 @@ TEST(Xiri, ChargingDataEventRoundTripsConvergedAndOffline) {
     ASSERT_TRUE(std::holds_alternative<xiri::ChargingDataEvent>(dec->event));
     EXPECT_EQ(std::get<xiri::ChargingDataEvent>(dec->event), conv);
 
-    xiri::ChargingDataEvent off;
-    off.offline = true;
-    off.charging_data = xiri::SbiType{
+    xiri::NchfChargingDataRequest off_req;
+    off_req.offline = true;
+    off_req.charging_data = xiri::SbiType{
         "TS32291_Nchf_OfflineOnlyCharging.yaml#/components/schemas/ChargingDataRequest", "{}"};
-    off.roamer_in_out = xiri::RoamerInOut::InBound;
+    off_req.roamer_in_out = xiri::RoamerInOut::InBound;
+    xiri::ChargingDataEvent off;
+    off.information = off_req;
     auto enc2 = xiri::encode_xiri_payload(off);
     ASSERT_TRUE(enc2.has_value()) << enc2.error();
     auto dec2 = xiri::decode_xiri_payload(*enc2);
     ASSERT_TRUE(dec2.has_value()) << dec2.error();
     EXPECT_EQ(std::get<xiri::ChargingDataEvent>(dec2->event), off);
+
+    xiri::ChargingDataEvent rf;
+    rf.information = xiri::RfChargingDataRequest{{0x01, 0x00, 0x00, 0x14, 0x80, 0x00, 0x01, 0x0F},
+                                                 xiri::RfChargingEvent::PsInformation};
+    auto enc3 = xiri::encode_xiri_payload(rf);
+    ASSERT_TRUE(enc3.has_value()) << enc3.error();
+    auto dec3 = xiri::decode_xiri_payload(*enc3);
+    ASSERT_TRUE(dec3.has_value()) << dec3.error();
+    EXPECT_EQ(std::get<xiri::ChargingDataEvent>(dec3->event), rf);
 }
