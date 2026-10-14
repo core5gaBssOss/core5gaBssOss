@@ -115,7 +115,7 @@ void append_plmn_bcd(std::vector<std::uint8_t>& out,
 
 } // namespace
 
-std::vector<std::uint8_t> build_registration_request(const std::string& supi) {
+std::vector<std::uint8_t> build_registration_request(const std::string& supi, bool sms_requested) {
     // "imsi-<mcc(3)><mnc(2)><msin>" -- the only shape this lab seeds.
     const std::string digits = supi.substr(std::strlen("imsi-"));
     const std::string mcc = digits.substr(0, 3);
@@ -157,6 +157,13 @@ std::vector<std::uint8_t> build_registration_request(const std::string& supi) {
     out.push_back(0x02);
     out.push_back(0xE0); // 5G-EA0, 128-5G-EA1, 128-5G-EA2 supported
     out.push_back(0xE0); // 5G-IA0, 128-5G-IA1, 128-5G-IA2 supported
+    if (sms_requested) {
+        // 5GS update type (TS 24.501 §9.11.3.9A): TLV, octet 3 bit 1 = SMS requested. Placed after
+        // the UE security capability, the order §8.2.6.1's table lists them in.
+        out.push_back(0x53);
+        out.push_back(0x01);
+        out.push_back(0x01);
+    }
     return out;
 }
 
@@ -400,6 +407,35 @@ extract_dl_nas_payload_container(const std::vector<std::uint8_t>& plain_inner) {
     if (plain_inner.size() < 6 || plain_inner[0] != kEpdMobilityManagement ||
         plain_inner[2] != kMessageTypeDlNasTransport ||
         (plain_inner[3] & 0x0F) != kPayloadContainerTypeN1SmInformation) {
+        return std::nullopt;
+    }
+    const std::size_t len =
+        (static_cast<std::size_t>(plain_inner[4]) << 8) | static_cast<std::size_t>(plain_inner[5]);
+    if (6 + len > plain_inner.size()) {
+        return std::nullopt;
+    }
+    return std::vector<std::uint8_t>(plain_inner.begin() + 6,
+                                     plain_inner.begin() + 6 + static_cast<std::ptrdiff_t>(len));
+}
+
+std::vector<std::uint8_t> build_ul_nas_transport_sms(const NasKeys& keys,
+                                                     std::uint32_t uplink_count,
+                                                     const std::vector<std::uint8_t>& sms) {
+    std::vector<std::uint8_t> inner;
+    inner.push_back(kEpdMobilityManagement);
+    inner.push_back(kSecurityHeaderNotProtected);
+    inner.push_back(kMessageTypeUlNasTransport);
+    inner.push_back(0x02); // payload container type: SMS
+    inner.push_back(static_cast<std::uint8_t>((sms.size() >> 8) & 0xFF));
+    inner.push_back(static_cast<std::uint8_t>(sms.size() & 0xFF));
+    inner.insert(inner.end(), sms.begin(), sms.end());
+    return seal_uplink(keys, uplink_count, kShtIntegrityProtectedAndCiphered, inner);
+}
+
+std::optional<std::vector<std::uint8_t>>
+extract_dl_nas_sms(const std::vector<std::uint8_t>& plain_inner) {
+    if (plain_inner.size() < 6 || plain_inner[0] != kEpdMobilityManagement ||
+        plain_inner[2] != kMessageTypeDlNasTransport || (plain_inner[3] & 0x0F) != 0x02) {
         return std::nullopt;
     }
     const std::size_t len =

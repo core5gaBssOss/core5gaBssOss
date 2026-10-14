@@ -331,6 +331,25 @@ target_compile_definitions(li_smsf_e2e_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_smsf_e2e_integration_tests PROPERTIES TIMEOUT 300)
 
+# ADR-0486 increment 3a: Registration with SMS over NAS (TS 23.502 4.13.3.1) through the real AMF
+# over NGAP/NAS, with a real SMSF answering Nsmsf_SMService_Activate.
+add_executable(amf_sms_integration_tests
+    test_amf_sms_registration.cpp ngap_test_gnb.cpp ue_nas_driver.cpp)
+target_link_libraries(amf_sms_integration_tests PRIVATE
+    sms_core sbi_core ngap_core ngap_generated aka_crypto OpenSSL::SSL OpenSSL::Crypto
+    GTest::gtest GTest::gtest_main)
+add_dependencies(amf_sms_integration_tests nrf udr udm ausf pcf smsf amf)
+target_compile_definitions(amf_sms_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    UDR_PATH="$<TARGET_FILE:udr>"
+    UDM_PATH="$<TARGET_FILE:udm>"
+    AUSF_PATH="$<TARGET_FILE:ausf>"
+    PCF_PATH="$<TARGET_FILE:pcf>"
+    SMSF_PATH="$<TARGET_FILE:smsf>"
+    AMF_PATH="$<TARGET_FILE:amf>"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(amf_sms_integration_tests PROPERTIES TIMEOUT 300)
+
 # ADR-0400: the UDSF suite -- its own binary (depends only on nrf + udsf, like the MTLF suite), so
 # it builds without the whole NF estate. Also carries the UDSF logic unit tests (no processes).
 add_executable(udsf_integration_tests test_udsf.cpp)

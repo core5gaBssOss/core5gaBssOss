@@ -28,6 +28,10 @@ struct PeerEndpoints {
     // (TS 23.501 §5.15.11, TS 23.502 §4.2.2.2.2).
     std::string nsacf_base;
 
+    // ADR-0486: SMSF, for Nsmsf_SMService_Activate during Registration (TS 23.502 §4.13.3.1).
+    // Empty disables SMS over NAS: RegistrationAccept then always says "SMS over NAS not allowed".
+    std::string smsf_base;
+
     // AMF's OWN advertised base, not a peer. It is derived in main() from the same address and
     // port AMF registers with NRF rather than given its own config key -- a fifth key would have
     // to be kept in sync with `port` by hand, which is the exact drift this task removes.

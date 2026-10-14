@@ -61,6 +61,10 @@ public:
                                std::uint8_t pdu_session_id,
                                const std::vector<std::uint8_t>& n1_sm_container);
 
+    // ADR-0486: same, for an SMS payload (DL NAS TRANSPORT, payload container type SMS) -- the
+    // SMSF's CP-ACK / CP-DATA arriving as N1N2MessageTransfer n1MessageClass SMS.
+    bool send_dl_nas_sms(const std::string& supi, const std::vector<std::uint8_t>& sms);
+
     // ADR-0393: encodes (amf::nas::encode_deregistration_accept) and sends a secured
     // DEREGISTRATION ACCEPT over the registered UE's live association, get-and-incrementing its
     // next_downlink_count exactly as send_dl_nas_transport does -- the registry's own count is the

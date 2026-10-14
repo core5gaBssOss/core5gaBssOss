@@ -100,6 +100,8 @@ constexpr const char* kGutiMnc = "70";
 // (no paired field, so the high nibble is spare/0). Confirmed against
 // simulators/ransim/vendor/UERANSIM/src/lib/nas/enums.hpp's EPayloadContainerType.
 constexpr std::uint8_t kPayloadContainerTypeN1SmInformation = 0x01;
+// TS 24.501 §9.11.3.40: "0 0 1 0  SMS" (ADR-0486).
+constexpr std::uint8_t kPayloadContainerTypeSms = 0x02;
 
 // This project's only NAS access type in scope (single gNB, 3GPP access -- see ADR-0031), used as
 // the fixed BEARER input to 128-NEA2/128-NIA2 (aka_crypto::nea2_apply/nia2_mac). Confirmed against
@@ -315,18 +317,47 @@ decode_registration_request(const std::vector<std::uint8_t>& p) {
     // INITIAL_REGISTRATION); a Type-1 IE appearing here would desync this walk, not silently
     // misparse past it, since the length byte would then be read from the wrong offset and either
     // the loop bails out (out-of-range) or finds no match -- ue_security_capability stays empty.
+    //
+    // ADR-0486: the walk now continues past 0x2E to reach the 5GS update type (IEI 0x53), and
+    // honours the three IE formats the TS 24.501 §8.2.6.1 table actually uses for a Registration
+    // Request's optional IEs, so a UE that sends any of them no longer desyncs it: Type-1 TV
+    // (IEI 0x8-/0x9-/0xA-/0xB-/0xC-, one octet), TV 0x52 (Last visited registered TAI, 7 octets),
+    // TLV-E (0x70/0x71/0x72/0x74/0x77/0x7B, 2-octet length), everything else TLV.
+    constexpr std::uint8_t kIei5gsUpdateType = 0x53;
+    constexpr std::uint8_t kIeiLastVisitedTai = 0x52;
     std::size_t scan = off + id_len;
-    while (scan + 2 <= p.size()) {
+    while (scan < p.size()) {
         const std::uint8_t iei = p[scan];
-        const std::uint8_t len = p[scan + 1];
-        if (scan + 2 + len > p.size())
-            break;
-        if (iei == kIeiUeSecurityCapability) {
-            const auto* value = p.data() + scan + 2;
-            info.ue_security_capability.assign(value, value + len);
-            break;
+        if (iei >= 0x80) { // Type-1: IEI in the high nibble, value in the low nibble
+            scan += 1;
+            continue;
         }
-        scan += 2 + len;
+        if (iei == kIeiLastVisitedTai) {
+            scan += 7;
+            continue;
+        }
+        std::size_t len = 0;
+        std::size_t header = 0;
+        if ((iei & 0xF0) == 0x70) { // TLV-E
+            if (scan + 3 > p.size())
+                break;
+            len = (static_cast<std::size_t>(p[scan + 1]) << 8) | p[scan + 2];
+            header = 3;
+        } else {
+            if (scan + 2 > p.size())
+                break;
+            len = p[scan + 1];
+            header = 2;
+        }
+        if (scan + header + len > p.size())
+            break;
+        const auto* value = p.data() + scan + header;
+        if (iei == kIeiUeSecurityCapability) {
+            info.ue_security_capability.assign(value, value + len);
+        } else if (iei == kIei5gsUpdateType && len >= 1) {
+            info.sms_requested = (value[0] & 0x01) != 0;
+        }
+        scan += header + len;
     }
 
     return info;
@@ -497,22 +528,25 @@ std::vector<std::uint8_t> encode_registration_accept(const aka_crypto::NasIntKey
                                                      std::uint32_t tmsi,
                                                      std::uint8_t amf_region_id,
                                                      std::uint16_t amf_set_id,
-                                                     std::uint8_t amf_pointer) {
+                                                     std::uint8_t amf_pointer,
+                                                     bool sms_allowed) {
     // Inner plaintext message (TS 24.501 §8.2.7): own header, then the ONLY mandatory IE,
     // registrationResult (Type-4, 1 octet: smsOverNasAllowed bit3 | registrationResult bits0-2,
     // confirmed against
     // simulators/ransim/vendor/UERANSIM/src/lib/nas/ie4.cpp's IE5gsRegistrationResult::Encode).
-    // Fixed to THREEGPP_ACCESS (this project's only access type, ADR-0031) and
-    // smsOverNasAllowed=NOT_ALLOWED (no SMSF integration).
+    // Fixed to THREEGPP_ACCESS (this project's only access type, ADR-0031). SMS allowed (octet 3
+    // bit 4, TS 24.501 §9.11.3.6) is set only when the SMSF confirmed activation (ADR-0486,
+    // §5.5.1.2.4: "after the SMSF has confirmed that the activation of the SMS service was
+    // successful").
     constexpr std::uint8_t kRegistrationResultThreeGppAccess = 0b001;
-    constexpr std::uint8_t kSmsOverNasNotAllowed = 0;
+    const std::uint8_t sms_allowed_bit = sms_allowed ? 1 : 0;
     std::vector<std::uint8_t> inner;
     inner.push_back(kEpdMobilityManagement);
     inner.push_back(kSecurityHeaderNotProtected);
     inner.push_back(kMessageTypeRegistrationAccept);
     inner.push_back(0x01); // registrationResult IE length
-    inner.push_back(static_cast<std::uint8_t>((kSmsOverNasNotAllowed << 3) |
-                                              kRegistrationResultThreeGppAccess));
+    inner.push_back(
+        static_cast<std::uint8_t>((sms_allowed_bit << 3) | kRegistrationResultThreeGppAccess));
 
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #100/ADR-0075): real optional 5G-GUTI IE
     // -- see this function's own header comment for why this was a real, load-bearing
@@ -631,8 +665,10 @@ std::optional<UlNasTransportInfo> decode_ul_nas_transport(const aka_crypto::NasI
         out.mac_valid = false; // not a message this function decodes
         return out;
     }
-    if ((inner[3] & 0x0F) != kPayloadContainerTypeN1SmInformation) {
-        out.mac_valid = false; // SMS/LPP/UE policy container etc. -- out of scope
+    out.payload_container_type = inner[3] & 0x0F;
+    if (out.payload_container_type != kPayloadContainerTypeN1SmInformation &&
+        out.payload_container_type != kPayloadContainerTypeSms) {
+        out.mac_valid = false; // LPP/UE policy container etc. -- out of scope
         return out;
     }
 
@@ -746,6 +782,27 @@ encode_dl_nas_transport(const aka_crypto::NasIntKey& knas_int,
     inner.push_back(kIeiUlNasPduSessionId);
     inner.push_back(pdu_session_id);
 
+    return encode_secured_downlink(knas_int,
+                                   knas_enc,
+                                   kShtIntegrityProtectedAndCiphered,
+                                   /*ciphered=*/true,
+                                   downlink_count,
+                                   inner);
+}
+
+std::vector<std::uint8_t> encode_dl_nas_transport_sms(const aka_crypto::NasIntKey& knas_int,
+                                                      const aka_crypto::NasEncKey& knas_enc,
+                                                      std::uint32_t downlink_count,
+                                                      const std::vector<std::uint8_t>& sms) {
+    std::vector<std::uint8_t> inner;
+    inner.push_back(kEpdMobilityManagement);
+    inner.push_back(kSecurityHeaderNotProtected);
+    inner.push_back(kMessageTypeDlNasTransport);
+    inner.push_back(kPayloadContainerTypeSms);
+    const auto container_len = static_cast<std::uint16_t>(sms.size());
+    inner.push_back(static_cast<std::uint8_t>(container_len >> 8));
+    inner.push_back(static_cast<std::uint8_t>(container_len & 0xFF));
+    inner.insert(inner.end(), sms.begin(), sms.end());
     return encode_secured_downlink(knas_int,
                                    knas_enc,
                                    kShtIntegrityProtectedAndCiphered,

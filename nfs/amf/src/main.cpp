@@ -399,6 +399,7 @@ int main() {
     peers.smf_base = nf_config::require<std::string>(config, "smf_base_url", "AMF_SMF_BASE_URL");
     peers.nsacf_base =
         nf_config::require<std::string>(config, "nsacf_base_url", "AMF_NSACF_BASE_URL");
+    peers.smsf_base = nf_config::require<std::string>(config, "smsf_base_url", "AMF_SMSF_BASE_URL");
     // AMF's own advertised address. The HOST comes from config (`advertised_ipv4`), the PORT is
     // reused from `port` rather than given a key of its own -- a separate self-port key would have
     // to be hand-synced with the listener's, which is the drift this task removes. The same
@@ -766,6 +767,23 @@ int main() {
                                         "Missing binary part",
                                         "n1MessageContainer referenced but its binary part was "
                                         "not found in the multipart body");
+            }
+            // ADR-0486: TS 23.502 4.13.3.3 steps 2c-2d / 6a-6b -- the SMSF's CP-ACK and RP reply
+            // (n1MessageClass SMS) go to the UE as DL NAS TRANSPORT with payload container type
+            // SMS; no PDU session is involved. lastMsgIndication is accepted but its AMF
+            // behaviour is implementation specific (step 6a NOTE) and none is applied.
+            if (body->n1MessageContainer.has_value() &&
+                body->n1MessageContainer->n1MessageClass.value == sbi_gen::N1MessageClass::SMS) {
+                if (!ue_ngap_registry.send_dl_nas_sms(ue_context_id, *n1_bytes)) {
+                    return problem_response(404,
+                                            "Not Found",
+                                            "No live NGAP association registered for UE context " +
+                                                ue_context_id);
+                }
+                n1n2_counter->Add(1);
+                sbi_gen::N1N2MessageTransferRspData sms_resp;
+                sms_resp.cause.value = sbi_gen::N1N2MessageTransferCause::N1_N2_TRANSFER_INITIATED;
+                return sbi_core::http2::Response::json(200, json(sms_resp).dump());
             }
             if (!body->pduSessionId.has_value()) {
                 return problem_response(

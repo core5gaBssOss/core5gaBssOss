@@ -437,7 +437,7 @@ TEST(NasCodec, DecodeUlNasTransportRejectsNonN1SmPayloadContainerType) {
     knas_enc.fill(0x88);
 
     std::vector<std::uint8_t> plain_inner = {
-        0x7e, 0x00, 0x67, 0x02 /* SMS, not N1_SM_INFORMATION */, 0x00, 0x00};
+        0x7e, 0x00, 0x67, 0x03 /* LPP: neither N1 SM nor (ADR-0486) SMS */, 0x00, 0x00};
     const auto ciphered = aka_crypto::nea2_apply(knas_enc, 2, 1, 0, plain_inner);
     const auto mac = nia2_mac_with_seqno_prefix(knas_int, 2, 1, 0, ciphered);
     std::vector<std::uint8_t> nas_pdu = {0x7e,
@@ -641,4 +641,96 @@ TEST(NasCodec, EncodesServiceRejectPlainWithCorrectEnvelope) {
     EXPECT_EQ(nas_pdu[1], 0x00); // plain, unprotected
     EXPECT_EQ(nas_pdu[2], 0x4d); // SERVICE_REJECT
     EXPECT_EQ(nas_pdu[3], 0x09); // mmCause
+}
+
+// ADR-0486: TS 24.501 §8.2.6 / §9.11.3.9A -- "SMS requested" (5GS update type, IEI 0x53, octet 3
+// bit 1) is found past the UE security capability and past Type-1, TV-7 and TLV-E optional IEs.
+TEST(NasCodec, DecodesSmsRequestedPastMixedFormatOptionalIes) {
+    std::vector<std::uint8_t> base = {0x7e,
+                                      0x00,
+                                      0x41,
+                                      0x00,
+                                      0x00,
+                                      0x0d,
+                                      0x01,
+                                      0x99,
+                                      0xf9,
+                                      0x07,
+                                      0x00,
+                                      0x00,
+                                      0x00,
+                                      0x00,
+                                      0x00,
+                                      0x00,
+                                      0x00,
+                                      0x00,
+                                      0x10};
+    auto with = [&](std::vector<std::uint8_t> tail) {
+        auto p = base;
+        p.insert(p.end(), tail.begin(), tail.end());
+        return amf::nas::decode_registration_request(p);
+    };
+    const auto none = with({});
+    ASSERT_TRUE(none.has_value());
+    EXPECT_FALSE(none->sms_requested); // IE absent: not requested
+
+    const auto requested = with({
+        0x2E, 0x02, 0xF0, 0xF0,                   // UE security capability (TLV)
+        0x52, 0x99, 0xF9, 0x07, 0x00, 0x00, 0x01, // Last visited registered TAI (TV, 7)
+        0xB1,                                     // MICO indication (Type-1)
+        0x77, 0x00, 0x02, 0xF2, 0x00,             // Additional GUTI (TLV-E, shortened)
+        0x53, 0x01, 0x01,                         // 5GS update type: SMS requested
+    });
+    ASSERT_TRUE(requested.has_value());
+    EXPECT_TRUE(requested->sms_requested);
+    EXPECT_EQ(requested->ue_security_capability, (std::vector<std::uint8_t>{0xF0, 0xF0}));
+
+    const auto not_supported = with({0x53, 0x01, 0x02}); // NG-RAN-RCU only, SMS bit 0
+    ASSERT_TRUE(not_supported.has_value());
+    EXPECT_FALSE(not_supported->sms_requested);
+}
+
+// TS 24.501 §9.11.3.6: SMS allowed is octet 3 bit 4.
+TEST(NasCodec, RegistrationAcceptCarriesSmsAllowedOnlyWhenAsked) {
+    aka_crypto::NasIntKey knas_int{};
+    knas_int.fill(0xcc);
+    aka_crypto::NasEncKey knas_enc{};
+    knas_enc.fill(0xdd);
+    for (const bool allowed : {false, true}) {
+        const auto nas_pdu =
+            amf::nas::encode_registration_accept(knas_int, knas_enc, 1, 1, 0, 0, 0, allowed);
+        const std::vector<std::uint8_t> ciphered(nas_pdu.begin() + 7, nas_pdu.end());
+        const auto plain = aka_crypto::nea2_apply(knas_enc, 1, 1, 1, ciphered);
+        EXPECT_EQ(plain[4], allowed ? 0x09 : 0x01);
+    }
+}
+
+// ADR-0486: payload container type SMS (TS 24.501 §9.11.3.40, value 2) is decoded and reported;
+// a DL NAS TRANSPORT built for SMS carries type 2 and no PDU session ID IE.
+TEST(NasCodec, UlNasTransportSmsDecodesAndDlNasTransportSmsEncodes) {
+    aka_crypto::NasIntKey knas_int{};
+    knas_int.fill(0x21);
+    aka_crypto::NasEncKey knas_enc{};
+    knas_enc.fill(0x43);
+    const std::vector<std::uint8_t> inner = {0x7e, 0x00, 0x67, 0x02, 0x00, 0x02, 0x89, 0x04};
+    const auto ciphered = aka_crypto::nea2_apply(knas_enc, 5, 1, 0, inner);
+    const auto mac = nia2_mac_with_seqno_prefix(knas_int, 5, 1, 0, ciphered);
+    std::vector<std::uint8_t> pdu = {0x7e,
+                                     0x02,
+                                     static_cast<std::uint8_t>((mac >> 24) & 0xff),
+                                     static_cast<std::uint8_t>((mac >> 16) & 0xff),
+                                     static_cast<std::uint8_t>((mac >> 8) & 0xff),
+                                     static_cast<std::uint8_t>(mac & 0xff),
+                                     0x05};
+    pdu.insert(pdu.end(), ciphered.begin(), ciphered.end());
+    const auto ul = amf::nas::decode_ul_nas_transport(knas_int, knas_enc, 5, pdu);
+    ASSERT_TRUE(ul.has_value());
+    EXPECT_TRUE(ul->mac_valid);
+    EXPECT_EQ(ul->payload_container_type, 0x02);
+    EXPECT_EQ(ul->payload_container, (std::vector<std::uint8_t>{0x89, 0x04}));
+
+    const auto dl = amf::nas::encode_dl_nas_transport_sms(knas_int, knas_enc, 4, {0xB9, 0x04});
+    const std::vector<std::uint8_t> dl_ciphered(dl.begin() + 7, dl.end());
+    const auto plain = aka_crypto::nea2_apply(knas_enc, 4, 1, 1, dl_ciphered);
+    EXPECT_EQ(plain, (std::vector<std::uint8_t>{0x7e, 0x00, 0x68, 0x02, 0x00, 0x02, 0xB9, 0x04}));
 }

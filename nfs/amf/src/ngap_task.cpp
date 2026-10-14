@@ -6,6 +6,7 @@
 #include "sbi_core/multipart.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/tls_config.hpp"
+#include "sbi_core/uuid.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -267,6 +268,11 @@ struct UeAuthState {
     // replayed verbatim in Stage 4's SecurityModeCommand -- see
     // amf::nas::RegistrationRequestInfo::ue_security_capability's own comment for why.
     std::vector<std::uint8_t> ue_security_capability;
+    // ADR-0486: the RegistrationRequest's 5GS update type "SMS requested" bit, and whether the SMSF
+    // confirmed Nsmsf_SMService_Activate (TS 23.502 §4.13.3.1 steps 5-9) so RegistrationAccept
+    // may carry "SMS over NAS allowed".
+    bool sms_requested = false;
+    bool sms_allowed = false;
     // Allocated in Stage 2 (handle_initial_ue_message) and reused for every later
     // DownlinkNASTransport this association sends (Stage 4's SecurityModeCommand, and beyond) --
     // this lab's single-UE-at-a-time scope (ADR-0031) makes storing them here, once, correct.
@@ -1335,6 +1341,7 @@ void handle_initial_ue_message(const PeerEndpoints& peers,
     auth_state.amf_ue_id = g_next_amf_ue_ngap_id.fetch_add(1);
     auth_state.ran_ue_id = ran_ue_id;
     auth_state.ue_security_capability = reg_info->ue_security_capability;
+    auth_state.sms_requested = reg_info->sms_requested;
     auth_state.supi = reg_info->supi;
 
     initiate_5g_aka_authentication(peers, assoc, ausf_client, ausf_oauth, auth_state, std::nullopt);
@@ -1606,9 +1613,58 @@ bool report_ue_to_nsacf(const PeerEndpoints& peers,
     return true;
 }
 
+// ADR-0486: TS 23.502 §4.13.3.1 step 5, Nsmsf_SMService_Activate (TS29540_Nsmsf_SMService.yaml
+// PUT /ue-contexts/{supi}, UeSmsContextData: supi, amfId, accessType are the YAML's required
+// members). Returns true only on the SMSF's positive answer (201/204) -- the "SMS allowed" bit
+// may only be set "after the SMSF has confirmed that the activation of the SMS service was
+// successful" (TS 24.501 §5.5.1.2.4). Every failure returns false: unlike NSAC's fail-open, a
+// failed activation genuinely means SMS is not available, and §5.5.1.2.4 then says "SMS over NAS
+// not allowed" while the registration itself proceeds.
+//
+// Disclosed: the SMSF is this config's smsf_base_url (single-SMSF lab), not TS 23.501 §6.3.10
+// SMSF selection from the UDM's UE-context-in-SMSF data or NRF discovery; the SMS Subscription
+// data check of step 3 is not made (no Nudm_SDM_Get of sms-data from the AMF yet).
+bool activate_sms_at_smsf(const PeerEndpoints& peers,
+                          sbi_core::http2::Client& smsf_client,
+                          sbi_core::OAuth2Client& smsf_oauth,
+                          const std::string& amf_instance_id,
+                          const std::string& supi) {
+    if (peers.smsf_base.empty()) {
+        return false;
+    }
+    const auto token = smsf_oauth.get_bearer_token();
+    if (!token.has_value()) {
+        spdlog::warn("amf-ngap: no SMSF token, SMS over NAS not activated for SUPI {}: {}",
+                     supi,
+                     token.error());
+        return false;
+    }
+    sbi_core::http2::ClientRequest http_req;
+    http_req.method = "PUT";
+    http_req.url = peers.smsf_base + "/nsmsf-sms/v2/ue-contexts/" + supi;
+    http_req.headers.emplace("content-type", "application/json");
+    http_req.headers.emplace("authorization", "Bearer " + *token);
+    http_req.body =
+        nlohmann::json{{"supi", supi}, {"amfId", amf_instance_id}, {"accessType", "3GPP_ACCESS"}}
+            .dump();
+    const auto resp = smsf_client.send(http_req);
+    if (!resp.has_value() || (resp->status != 201 && resp->status != 204)) {
+        spdlog::warn("amf-ngap: Nsmsf_SMService_Activate failed for SUPI {} ({}) -- SMS over NAS "
+                     "not allowed",
+                     supi,
+                     resp.has_value() ? std::to_string(resp->status) : resp.error());
+        return false;
+    }
+    spdlog::info("amf-ngap: SMSF activated SMS over NAS for SUPI {}", supi);
+    return true;
+}
+
 void handle_uplink_nas_transport_smc_complete(const PeerEndpoints& peers,
                                               sbi_core::http2::Client& nsacf_client,
                                               sbi_core::OAuth2Client& nsacf_oauth,
+                                              sbi_core::http2::Client& smsf_client,
+                                              sbi_core::OAuth2Client& smsf_oauth,
+                                              const std::string& amf_instance_id,
                                               ngap_core::SctpSocket& assoc,
                                               UeSecurityContextStore& ue_security_contexts,
                                               AmfUeIdIndexStore& amf_ue_id_index,
@@ -1680,6 +1736,13 @@ void handle_uplink_nas_transport_smc_complete(const PeerEndpoints& peers,
         return;
     }
 
+    // ADR-0486: TS 23.502 §4.13.3.1 steps 5-9 -- activate at the SMSF before the Accept, and set
+    // "SMS over NAS allowed" only on its positive answer.
+    if (auth_state.sms_requested) {
+        auth_state.sms_allowed =
+            activate_sms_at_smsf(peers, smsf_client, smsf_oauth, amf_instance_id, auth_state.supi);
+    }
+
     const auto tmsi = ue_security_contexts.allocate_tmsi();
     const auto reg_accept_nas = amf::nas::encode_registration_accept(*auth_state.knas_int,
                                                                      *auth_state.knas_enc,
@@ -1687,7 +1750,8 @@ void handle_uplink_nas_transport_smc_complete(const PeerEndpoints& peers,
                                                                      tmsi,
                                                                      amf_region_id,
                                                                      amf_set_id,
-                                                                     amf_pointer);
+                                                                     amf_pointer,
+                                                                     auth_state.sms_allowed);
     send_downlink_nas_transport(assoc, auth_state.amf_ue_id, auth_state.ran_ue_id, reg_accept_nas);
     spdlog::info("amf-ngap: sent DownlinkNASTransport with RegistrationAccept ({} bytes, "
                  "tmsi={:08x}), AMF-UE-NGAP-ID={}",
@@ -1816,6 +1880,10 @@ void handle_uplink_nas_transport_registration_complete(const PeerEndpoints& peer
 
     spdlog::info("amf-ngap: RegistrationComplete verified OK for SUPI {}", auth_state.supi);
     auth_state.phase = UeAuthState::Phase::AwaitingPduSessionEstablishmentRequest;
+    // ADR-0486: SecurityModeComplete=0 and RegistrationComplete=1 are consumed; from here the
+    // uplink COUNT is tracked rather than fixed, because an SMS (any number of them) may now
+    // precede the PDU Session Establishment Request.
+    auth_state.next_uplink_count = 2;
 
     // Register this UE's live association so a later Namf_Communication N1N2MessageTransfer call
     // (arriving on the SBI HTTP/2 server's thread, from SMF once it has a real PDU Session
@@ -1923,6 +1991,81 @@ void handle_uplink_nas_transport_registration_complete(const PeerEndpoints& peer
 // real PDU Session Establishment Accept, handled by the N1N2MessageTransfer route in main.cpp, not
 // here) -- see ADR-0038, which closed the "no N1 SM Accept to forward" gap this comment used to
 // describe.
+// ADR-0486: TS 23.502 §4.13.3.3 steps 2a-2b -- an UL NAS TRANSPORT whose payload container type
+// is SMS (TS 24.501 §9.11.3.40) is forwarded to the SMSF as Nsmsf_SMService_UplinkSMS (this
+// API's `sendsms`, multipart: SmsRecordData + the SMS payload, content type
+// application/vnd.3gpp.sms per TS29540_Nsmsf_SMService.yaml). Returns true iff the message WAS such
+// an UL NAS TRANSPORT (its uplink COUNT is then consumed whether or not the relay succeeds); false
+// leaves it for the phase's own handler. The SMSF answers the UE (CP-ACK, RP reply) asynchronously
+// over N1N2MessageTransfer, which main.cpp's n1-n2-messages route turns into DL NAS TRANSPORT.
+//
+// Disclosed: only for a UE whose Registration got "SMS over NAS allowed" (otherwise dropped and
+// logged -- TS 24.501 gives the UE no SMS to send then); SmsRecordData carries smsRecordId,
+// smsPayload and accessType, not the optional gpsi/pei/ueLocation/ueTimeZone (step 2b's IMEISV,
+// ULI and time zone are not added yet).
+bool try_relay_uplink_sms(const PeerEndpoints& peers,
+                          sbi_core::http2::Client& smsf_client,
+                          sbi_core::OAuth2Client& smsf_oauth,
+                          UeAuthState& auth_state,
+                          const InitiatingMessage_t& msg) {
+    if (!auth_state.knas_int.has_value() || !auth_state.knas_enc.has_value()) {
+        return false;
+    }
+    const auto nas = extract_uplink_nas_pdu(msg);
+    if (!nas.has_value()) {
+        return false;
+    }
+    const auto ul = amf::nas::decode_ul_nas_transport(
+        *auth_state.knas_int, *auth_state.knas_enc, auth_state.next_uplink_count, *nas);
+    if (!ul.has_value() || !ul->mac_valid || ul->payload_container_type != 0x02) {
+        return false;
+    }
+    auth_state.next_uplink_count += 1;
+    if (!auth_state.sms_allowed || peers.smsf_base.empty()) {
+        spdlog::warn("amf-ngap: UL NAS TRANSPORT (SMS) from SUPI {} but SMS over NAS was not "
+                     "allowed at registration -- dropped",
+                     auth_state.supi);
+        return true;
+    }
+    const auto token = smsf_oauth.get_bearer_token();
+    if (!token.has_value()) {
+        spdlog::warn("amf-ngap: no SMSF token, uplink SMS from SUPI {} not relayed: {}",
+                     auth_state.supi,
+                     token.error());
+        return true;
+    }
+    sbi_core::multipart::Part json_part;
+    json_part.content_type = "application/json";
+    json_part.body = nlohmann::json{
+        {"smsRecordId", sbi_core::generate_uuid_v4()},
+        {"smsPayload", {{"contentId", "sms"}}},
+        {"accessType",
+         "3GPP_ACCESS"}}.dump();
+    sbi_core::multipart::Part bin_part;
+    bin_part.content_type = "application/vnd.3gpp.sms";
+    bin_part.content_id = "sms";
+    bin_part.body.assign(ul->payload_container.begin(), ul->payload_container.end());
+    const auto encoded = sbi_core::multipart::encode({json_part, bin_part});
+
+    sbi_core::http2::ClientRequest http_req;
+    http_req.method = "POST";
+    http_req.url = peers.smsf_base + "/nsmsf-sms/v2/ue-contexts/" + auth_state.supi + "/sendsms";
+    http_req.headers.emplace("content-type", encoded.content_type_header);
+    http_req.headers.emplace("authorization", "Bearer " + *token);
+    http_req.body = encoded.body;
+    const auto resp = smsf_client.send(http_req);
+    if (!resp.has_value() || resp->status != 200) {
+        spdlog::warn("amf-ngap: Nsmsf_SMService_UplinkSMS failed for SUPI {} ({})",
+                     auth_state.supi,
+                     resp.has_value() ? std::to_string(resp->status) : resp.error());
+        return true;
+    }
+    spdlog::info("amf-ngap: uplink SMS ({} octets) from SUPI {} relayed to the SMSF",
+                 ul->payload_container.size(),
+                 auth_state.supi);
+    return true;
+}
+
 void handle_uplink_nas_transport_pdu_session_establishment(const PeerEndpoints& peers,
                                                            sbi_core::http2::Client& smf_client,
                                                            sbi_core::OAuth2Client& smf_oauth,
@@ -1945,11 +2088,11 @@ void handle_uplink_nas_transport_pdu_session_establishment(const PeerEndpoints& 
     // UPDATE (gap-closure task #100/ADR-0075): uplink_count=2, not 1 -- SecurityModeComplete was
     // uplink_count=0, and RegistrationComplete (now genuinely sent by a real UE, see
     // UeAuthState::Phase's own updated comment) consumed uplink_count=1, so this UlNasTransport is
-    // genuinely the THIRD secured uplink message now, not the second.
-    const auto outcome = amf::nas::decode_ul_nas_transport(*auth_state.knas_int,
-                                                           *auth_state.knas_enc,
-                                                           /*uplink_count=*/2,
-                                                           *nas_pdu_bytes_opt);
+    // genuinely the THIRD secured uplink message now, not the second. ADR-0486: 2 is where
+    // next_uplink_count starts in this phase; each SMS relayed before this request advances it.
+    const std::uint32_t uplink_count = auth_state.next_uplink_count;
+    const auto outcome = amf::nas::decode_ul_nas_transport(
+        *auth_state.knas_int, *auth_state.knas_enc, uplink_count, *nas_pdu_bytes_opt);
     if (!outcome.has_value()) {
         spdlog::warn("amf-ngap: UplinkNASTransport's NAS-PDU is not shaped like a UlNasTransport "
                      "carrying N1 SM information, ignoring");
@@ -1961,11 +2104,15 @@ void handle_uplink_nas_transport_pdu_session_establishment(const PeerEndpoints& 
                      auth_state.supi);
         return;
     }
+    if (outcome->payload_container_type != 0x01) {
+        spdlog::warn("amf-ngap: UlNasTransport for SUPI {} is not N1 SM information, ignoring",
+                     auth_state.supi);
+        return;
+    }
     auth_state.phase = UeAuthState::Phase::Done;
-    // ADR-0393: this UlNasTransport just consumed uplink_count=2, so this association's next
-    // secured uplink message (a Deregistration, the only procedure reachable from Phase::Done)
-    // must verify against uplink_count=3.
-    auth_state.next_uplink_count = 3;
+    // ADR-0393: this UlNasTransport just consumed its uplink COUNT, so this association's next
+    // secured uplink message (a Deregistration or, ADR-0486, an SMS) verifies against the next one.
+    auth_state.next_uplink_count = uplink_count + 1;
 
     if (!outcome->dnn.has_value() || !outcome->snssai_sst.has_value()) {
         spdlog::error("amf-ngap: UlNasTransport for SUPI {} is missing DNN and/or S-NSSAI -- this "
@@ -2358,6 +2505,8 @@ void handle_association(const PeerEndpoints& peers,
                         ngap_core::SctpSocket assoc,
                         sbi_core::http2::Client& nsacf_client,
                         sbi_core::OAuth2Client& nsacf_oauth,
+                        sbi_core::http2::Client& smsf_client,
+                        sbi_core::OAuth2Client& smsf_oauth,
                         sbi_core::http2::Client& ausf_client,
                         sbi_core::OAuth2Client& ausf_oauth,
                         sbi_core::http2::Client& pcf_client,
@@ -2515,6 +2664,9 @@ void handle_association(const PeerEndpoints& peers,
                     handle_uplink_nas_transport_smc_complete(peers,
                                                              nsacf_client,
                                                              nsacf_oauth,
+                                                             smsf_client,
+                                                             smsf_oauth,
+                                                             amf_instance_id,
                                                              assoc,
                                                              ue_security_contexts,
                                                              amf_ue_id_index,
@@ -2536,6 +2688,14 @@ void handle_association(const PeerEndpoints& peers,
                         *pdu->choice.initiatingMessage);
                     break;
                 case UeAuthState::Phase::AwaitingPduSessionEstablishmentRequest:
+                    // ADR-0486: an SMS may arrive before (or instead of) the PDU session request.
+                    if (try_relay_uplink_sms(peers,
+                                             smsf_client,
+                                             smsf_oauth,
+                                             auth_state,
+                                             *pdu->choice.initiatingMessage)) {
+                        break;
+                    }
                     handle_uplink_nas_transport_pdu_session_establishment(
                         peers,
                         smf_client,
@@ -2547,6 +2707,14 @@ void handle_association(const PeerEndpoints& peers,
                         *pdu->choice.initiatingMessage);
                     break;
                 case UeAuthState::Phase::Done:
+                    // ADR-0486: SMS over NAS is the other post-establishment NAS procedure.
+                    if (try_relay_uplink_sms(peers,
+                                             smsf_client,
+                                             smsf_oauth,
+                                             auth_state,
+                                             *pdu->choice.initiatingMessage)) {
+                        break;
+                    }
                     // ADR-0393: the one post-establishment NAS procedure this AMF implements --
                     // UE-originating Deregistration. Its own decode call is what actually
                     // recognizes whether this really is one; a message that isn't logs and is
@@ -2615,6 +2783,21 @@ bool NgapUeRegistry::send_dl_nas_transport(const std::string& supi,
     Entry& entry = it->second;
     const auto nas_bytes = amf::nas::encode_dl_nas_transport(
         entry.knas_int, entry.knas_enc, entry.next_downlink_count, pdu_session_id, n1_sm_container);
+    send_downlink_nas_transport(*entry.socket, entry.amf_ue_id, entry.ran_ue_id, nas_bytes);
+    entry.next_downlink_count += 1;
+    return true;
+}
+
+bool NgapUeRegistry::send_dl_nas_sms(const std::string& supi,
+                                     const std::vector<std::uint8_t>& sms) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = entries_.find(supi);
+    if (it == entries_.end() || it->second.socket == nullptr) {
+        return false;
+    }
+    Entry& entry = it->second;
+    const auto nas_bytes = amf::nas::encode_dl_nas_transport_sms(
+        entry.knas_int, entry.knas_enc, entry.next_downlink_count, sms);
     send_downlink_nas_transport(*entry.socket, entry.amf_ue_id, entry.ran_ue_id, nas_bytes);
     entry.next_downlink_count += 1;
     return true;
@@ -2695,6 +2878,16 @@ void run_association_thread(ngap_core::SctpSocket assoc,
     sbi_core::OAuth2Client nsacf_oauth(
         nsacf_client, nrf_base + "/oauth2/token", amf_instance_id, "nnsacf-nsac", "NSACF");
 
+    // ADR-0486: this association's own SMSF client (Nsmsf_SMService_Activate at registration).
+    sbi_core::http2::TlsConfig smsf_client_tls{
+        .cert_path = CERTS_DIR "/amf/cert.pem",
+        .key_path = CERTS_DIR "/amf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    };
+    sbi_core::http2::Client smsf_client(std::move(smsf_client_tls));
+    sbi_core::OAuth2Client smsf_oauth(
+        smsf_client, nrf_base + "/oauth2/token", amf_instance_id, "nsmsf-sms", "SMSF");
+
     sbi_core::http2::TlsConfig smf_client_tls{
         .cert_path = CERTS_DIR "/amf/cert.pem",
         .key_path = CERTS_DIR "/amf/key.pem",
@@ -2708,6 +2901,8 @@ void run_association_thread(ngap_core::SctpSocket assoc,
                        std::move(assoc),
                        nsacf_client,
                        nsacf_oauth,
+                       smsf_client,
+                       smsf_oauth,
                        ausf_client,
                        ausf_oauth,
                        pcf_client,
