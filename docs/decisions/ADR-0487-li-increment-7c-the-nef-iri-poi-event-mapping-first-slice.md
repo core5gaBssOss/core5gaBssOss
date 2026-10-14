@@ -48,3 +48,27 @@ records anyway would invent sMFID/aFID or report an AF connection that never hap
 four store-only areas' records now: each would report a provisioning effect (a trigger delivered, a
 UE behaviour or 5G VN group changed in the UDM) that this NEF does not cause. Reporting today's
 `_npcfEventsNotification` relay as `userPlaneNotificationData`: false content in a mandatory field.
+
+**Increment 1 done (2026-10-14, `ac4849d`).** Verified by `Xiri.NefAfSessionWithQosProvisionRoundTrips`,
+`Xiri.AfSessionResponseCodeCoversExactlyTheEnumeratedStatuses` and `LiNefEndToEnd` (2 tests, real
+nef + nrf, real LI_X1, loopback MDF2: POST 201 / PUT 200 / PATCH 200 / DELETE 204 each give one
+record with the right op type, response code and SBIType; a non-target GPSI gives none).
+
+**Findings while scoping increment 2 (TS 29.522 j70 and TS 29.122 j70 now in `specs/3gpp/`).**
+1. The notification mapping IS specified: TS 29.522 4.4.9.2.0 / 4.4.9.2.2 -- PCF `QOS_NOTIF` ->
+   AF `QOS_GUARANTEED` / `QOS_NOT_GUARANTEED` (+ appliedQosRef), PCF
+   `SUCCESSFUL_RESOURCES_ALLOCATION` / `FAILED_RESOURCES_ALLOCATION` -> the same AF events, with
+   TS 29.122 4.4.13 for the rest; the bearer events (RELEASE/LOSS/RECOVERY_OF_BEARER) do not apply in
+   5GS. So increment 2's NEF fix has a spec basis.
+2. But nothing triggers it today: `nfs/pcf` never sends Npcf_PolicyAuthorization_Notify (no SMF
+   resource-allocation / QoS-notification reporting reaches it), so the NEF's `qos-notify` callback
+   is only ever called by a test. Increment 2 is deferred until the PCF emits those events, rather
+   than building another POI hook whose only caller is a test.
+3. Non-conformance found in the existing NEF (not introduced here, disclosed now): TS 29.522 4.4.9.3
+   says that for a UE identified by GPSI (not by UE address) "No direct interactions between the NEF
+   and the PCF shall take place" -- the NEF goes through the TSCTSF or stores the request in the UDR
+   as Application Data. `nfs/nef` calls Npcf_PolicyAuthorization directly whatever identifies the UE.
+   This is also the case the POI reports (gPSI is mandatory in the record).
+4. Tooling bug fixed: `tools/specs/fetch_3gpp_specs.py` converted only the shortest-named .docx of a
+   multi-part zip -- for TS 29.522 that was the cover page, so the "spec text" was a table of
+   contents. It now converts every part in order; 29.522 was the only multi-part zip on disk.
