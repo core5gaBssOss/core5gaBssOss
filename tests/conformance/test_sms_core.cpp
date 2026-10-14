@@ -1,0 +1,170 @@
+// libs/sms-core (ADR-0486): CP / RP / TP layers of SMS over NAS.
+// TS 24.011 clauses 7.2, 7.3, 8.1, 8.2; TS 23.040 clauses 9.1.2.5, 9.2.2.2, 9.2.2.2a, 9.2.2.4,
+// 9.2.3.1, 9.2.3.11; TS 24.007 clause 11.2.3.1.
+
+#include <chrono>
+
+#include "sms_core/sms.hpp"
+
+#include <gtest/gtest.h>
+
+using namespace sms_core;
+
+namespace {
+
+// The widely published SMS-SUBMIT example (no SMSC-address prefix): TP-MTI=01 with TP-VPF=10
+// (relative), TP-MR=0x00, TP-DA = 11 digits, TON international / NPI E.164 (0x91), "46708251358",
+// TP-PID=0, TP-DCS=0, TP-VP=0xAA, TP-UDL=10 septets, TP-UD "hellohello" (GSM 7-bit packed).
+const Bytes kSubmit = {0x11, 0x00, 0x0B, 0x91, 0x64, 0x07, 0x28, 0x15, 0x53, 0xF8, 0x00, 0x00,
+                       0xAA, 0x0A, 0xE8, 0x32, 0x9B, 0xFD, 0x46, 0x97, 0xD9, 0xEC, 0x37};
+
+Bytes rp_data_mo(std::uint8_t mr, const Bytes& tpdu) {
+    RpMessage rp;
+    rp.mti = RpMti::DataMsToNetwork;
+    rp.message_reference = mr;
+    rp.destination_address = {0x91, 0x44, 0x77, 0x58, 0x10, 0x06, 0x50}; // SC +447785016005
+    rp.user_data = tpdu;
+    return encode_rp(rp);
+}
+
+} // namespace
+
+TEST(SmsTp, DecodesPublishedSmsSubmitTpDa) {
+    auto t = decode_mo_tpdu(kSubmit);
+    ASSERT_TRUE(t.has_value()) << t.error();
+    EXPECT_EQ(t->type, TpduType::Submit);
+    ASSERT_TRUE(t->message_reference.has_value());
+    EXPECT_EQ(*t->message_reference, 0x00);
+    ASSERT_TRUE(t->destination.has_value());
+    EXPECT_EQ(t->destination->digits, "46708251358");
+    EXPECT_EQ(t->destination->type_of_address, 0x91);
+    EXPECT_EQ(t->destination->type_of_number(), 0b001); // international
+    // raw = Address-Length + TOA + 6 value octets (11 semi-octets, odd -> F filler).
+    EXPECT_EQ(t->destination->raw, (Bytes{0x0B, 0x91, 0x64, 0x07, 0x28, 0x15, 0x53, 0xF8}));
+}
+
+TEST(SmsTp, AddressEncodeIsTheInverseOfDecode) {
+    const auto enc = encode_tp_address("46708251358");
+    EXPECT_EQ(enc, (Bytes{0x0B, 0x91, 0x64, 0x07, 0x28, 0x15, 0x53, 0xF8}));
+    std::size_t used = 0;
+    auto dec = decode_tp_address(enc, used);
+    ASSERT_TRUE(dec.has_value());
+    EXPECT_EQ(used, enc.size());
+    EXPECT_EQ(dec->digits, "46708251358");
+    // Clause 9.1.2.3 extended semi-octets.
+    auto star = decode_tp_address(encode_tp_address("*12#"), used);
+    ASSERT_TRUE(star.has_value());
+    EXPECT_EQ(star->digits, "*12#");
+}
+
+TEST(SmsTp, TpMtiIsDirectionDependent) {
+    EXPECT_EQ(classify_tpdu(0x00, Direction::MsToSc), TpduType::DeliverReport);
+    EXPECT_EQ(classify_tpdu(0x00, Direction::ScToMs), TpduType::Deliver);
+    EXPECT_EQ(classify_tpdu(0x01, Direction::MsToSc), TpduType::Submit);
+    EXPECT_EQ(classify_tpdu(0x01, Direction::ScToMs), TpduType::SubmitReport);
+    EXPECT_EQ(classify_tpdu(0x02, Direction::MsToSc), TpduType::Command);
+    EXPECT_EQ(classify_tpdu(0x02, Direction::ScToMs), TpduType::StatusReport);
+    EXPECT_EQ(classify_tpdu(0x03, Direction::MsToSc), TpduType::Reserved);
+}
+
+TEST(SmsTp, SmsCommandTpDaFollowsPidCtMn) {
+    // flags(MTI=10), MR=7, PID=0, CT=1 (cancel status report), MN=3, TP-DA "1234", CDL=0
+    const Bytes cmd = {0x02, 0x07, 0x00, 0x01, 0x03, 0x04, 0x81, 0x21, 0x43, 0x00};
+    auto t = decode_mo_tpdu(cmd);
+    ASSERT_TRUE(t.has_value()) << t.error();
+    EXPECT_EQ(t->type, TpduType::Command);
+    EXPECT_EQ(*t->message_reference, 7);
+    EXPECT_EQ(t->destination->digits, "1234");
+    EXPECT_EQ(t->destination->type_of_address, 0x81);
+}
+
+TEST(SmsTp, TruncatedTpDaIsRejected) {
+    const Bytes bad = {0x01, 0x00, 0x0B, 0x91, 0x64};
+    EXPECT_FALSE(decode_mo_tpdu(bad).has_value());
+}
+
+TEST(SmsRp, RpDataMoRoundTrips) {
+    const auto bytes = rp_data_mo(0x2A, kSubmit);
+    // MTI 000, MR, OA LV with length 0 (MS->network), DA LV, UD LV.
+    EXPECT_EQ(bytes[0], 0x00);
+    EXPECT_EQ(bytes[1], 0x2A);
+    EXPECT_EQ(bytes[2], 0x00);
+    EXPECT_EQ(bytes[3], 0x07);
+    auto rp = decode_rp(bytes);
+    ASSERT_TRUE(rp.has_value()) << rp.error();
+    EXPECT_EQ(rp->mti, RpMti::DataMsToNetwork);
+    EXPECT_EQ(rp->message_reference, 0x2A);
+    EXPECT_TRUE(rp->originator_address.empty());
+    EXPECT_EQ(rp->destination_address.size(), 7u);
+    ASSERT_TRUE(rp->user_data.has_value());
+    EXPECT_EQ(*rp->user_data, kSubmit);
+}
+
+TEST(SmsRp, RpErrorCarriesCauseAndOptionalTpdu) {
+    const auto scts =
+        encode_scts(std::chrono::sys_days{std::chrono::year{2026} / std::chrono::October / 14} +
+                    std::chrono::hours{9} + std::chrono::minutes{5} + std::chrono::seconds{7});
+    EXPECT_EQ(scts, (Bytes{0x62, 0x01, 0x41, 0x90, 0x50, 0x70, 0x00}));
+
+    RpMessage err;
+    err.mti = RpMti::ErrorNetworkToMs;
+    err.message_reference = 0x2A;
+    err.cause = 38; // Network out of order (table 8.4 part 1)
+    err.user_data = encode_submit_report_error(0xC2, scts);
+    const auto bytes = encode_rp(err);
+    // MTI 101, MR, RP-Cause LV {len 1, 38}, IEI 0x41, LV TPDU
+    EXPECT_EQ(bytes[0], 0x05);
+    EXPECT_EQ(bytes[2], 0x01);
+    EXPECT_EQ(bytes[3], 38);
+    EXPECT_EQ(bytes[4], 0x41);
+    auto rp = decode_rp(bytes);
+    ASSERT_TRUE(rp.has_value()) << rp.error();
+    EXPECT_EQ(rp->mti, RpMti::ErrorNetworkToMs);
+    EXPECT_EQ(*rp->cause, 38);
+    ASSERT_TRUE(rp->user_data.has_value());
+    // SMS-SUBMIT-REPORT for RP-ERROR: MTI 01, FCS, PI=0, SCTS(7).
+    EXPECT_EQ(rp->user_data->size(), 10u);
+    EXPECT_EQ((*rp->user_data)[0], 0x01);
+    EXPECT_EQ((*rp->user_data)[1], 0xC2);
+    EXPECT_EQ(classify_tpdu((*rp->user_data)[0], Direction::ScToMs), TpduType::SubmitReport);
+}
+
+TEST(SmsRp, RpAckWithoutUserDataIsTwoOctets) {
+    RpMessage ack;
+    ack.mti = RpMti::AckNetworkToMs;
+    ack.message_reference = 9;
+    EXPECT_EQ(encode_rp(ack), (Bytes{0x03, 0x09}));
+    ack.user_data = encode_submit_report_ack(Bytes(7, 0x00));
+    auto rp = decode_rp(encode_rp(ack));
+    ASSERT_TRUE(rp.has_value());
+    EXPECT_EQ(rp->user_data->size(), 9u);
+}
+
+TEST(SmsCp, CpDataWrapsRpduAndAckFlipsTiFlag) {
+    CpMessage data;
+    data.ti_flag = false; // UE originates the TI
+    data.ti_value = 3;
+    data.rpdu = rp_data_mo(1, kSubmit);
+    const auto bytes = encode_cp(data);
+    EXPECT_EQ(bytes[0], 0x39); // TI flag 0, TIO 011, PD 1001
+    EXPECT_EQ(bytes[1], 0x01); // CP-DATA
+    EXPECT_EQ(bytes[2], data.rpdu.size());
+
+    auto cp = decode_cp(bytes);
+    ASSERT_TRUE(cp.has_value()) << cp.error();
+    EXPECT_EQ(cp->type, CpMessageType::Data);
+    EXPECT_EQ(cp->ti_value, 3);
+    EXPECT_EQ(cp->rpdu, data.rpdu);
+
+    const auto ack = encode_cp(make_cp_ack(*cp));
+    EXPECT_EQ(ack, (Bytes{0xB9, 0x04})); // TI flag 1 (to the originator), TIO 3, CP-ACK
+}
+
+TEST(SmsCp, RejectsWrongPdExtendedTiAndUnknownType) {
+    EXPECT_FALSE(decode_cp(Bytes{0x3E, 0x01, 0x00}).has_value()); // PD 1110
+    EXPECT_FALSE(decode_cp(Bytes{0x79, 0x04}).has_value());       // TIO 7
+    EXPECT_FALSE(decode_cp(Bytes{0x09, 0x02}).has_value());       // type 0x02
+    auto err = decode_cp(Bytes{0x09, 0x10, 0x6F});
+    ASSERT_TRUE(err.has_value());
+    EXPECT_EQ(err->cause, 111);
+}

@@ -46,3 +46,25 @@ project's real SMSF operations: would be fabricating a call flow, the project's 
 mode. Silently choosing option 2 without disclosure: would repeat the exact "nothing calls it yet"
 gap class this project already had to come back and close once (ADR-0463/0464 -> ADR-0484), not
 disclosed up front this time.
+
+**Update 2026-10-14 -- specs in hand, user directive "proceed with SMSF, don't wait for my approval".**
+TS 24.011 j00, TS 23.040 j00, TS 29.002 j10, TS 24.007 j50, TS 23.502 j90 and TS 24.501 j80 were
+fetched with `tools/specs/fetch_3gpp_specs.py` (official 3GPP archive) and committed to `specs/3gpp/`.
+Procedure list being built (TS 23.502 clause 4.13.3.3 MO SMS over NAS, TS 33.128 clause 6.2.5.3):
+
+1. **Increment 1 (done):** `libs/sms-core` -- CP layer (TS 24.011 8.1, PD/TI per TS 24.007
+   11.2.3.1), RP layer (TS 24.011 8.2: RP-DATA/ACK/ERROR/SMMA), TP layer as far as the SMSF needs
+   (TS 23.040 9.2.3.1 TP-MTI, TP-MR, 9.1.2.5 TP-DA for SMS-SUBMIT and SMS-COMMAND), SMS-SUBMIT-REPORT
+   for RP-ACK/RP-ERROR (9.2.2.2a) with TP-SCTS (9.2.3.11). `li_core::xiri` gains `SmsMessage` [12]
+   and `SmsReport` [56]. Tests: 10 `Sms*` codec tests (one against the widely published SMS-SUBMIT
+   example PDU, not only self round-trips) + 2 xIRI round-trips. Disclosed: extended TI (TIO=7)
+   rejected; SMS-DELIVER/STATUS-REPORT TP-OA/TP-RA not extracted (MT path); SMSMessage.peerNFAddress
+   and the truncatedSMSTPDU/3GPP2 SMSTPDUData choices not modelled.
+2. **Increment 2:** SMSF -- `SendSMS` (= `Nsmsf_SMService_UplinkSMS`) decodes CP-DATA/RP-DATA/TPDU;
+   returns CP-ACK (step 2c) and, since this project has no SMS-IWMSC, an RP-ERROR carrying an
+   SMS-SUBMIT-REPORT (steps 6a-6b) via `Namf_Communication_N1N2MessageTransfer`; IRI-POI emits
+   `SMSMessage` on the RP-DATA (linkTransferStatus = transferFailed per table 6.2.5.3-1 NOTE 5) and
+   `SMSReport` on the RP-ERROR.
+3. **Increment 3:** AMF -- UL NAS TRANSPORT payload container type SMS -> `UplinkSMS`; N1N2
+   n1MessageClass SMS -> DL NAS TRANSPORT; `Nsmsf_SMService_Activate` + "SMS allowed" in
+   Registration Accept (TS 23.502 clause 4.13.3.1).

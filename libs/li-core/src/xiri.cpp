@@ -42,6 +42,11 @@ extern "C" {
 #include <SMFPDUSessionRelease.h>
 #include <SMFStartOfInterceptionWithEstablishedPDUSession.h>
 #include <SMFUnsuccessfulProcedure.h>
+#include <SMSMessage.h>
+#include <SMSNFType.h>
+#include <SMSParty.h>
+#include <SMSReport.h>
+#include <SMSTPDUData.h>
 #include <SNSSAI.h>
 #include <SubscriberIdentifier.h>
 #include <TAI.h>
@@ -1413,6 +1418,226 @@ extract(const UDMUEAuthenticationResponse_t& src) {
     return out;
 }
 
+// ---- SMSF (ADR-0486) ----
+
+tl::expected<void, std::string> fill(SMSParty_t& out, const SmsParty& src) {
+    if (src.supi) {
+        out.sUPI = alloc_optional<SUPI_t>();
+        if (out.sUPI == nullptr) {
+            return tl::unexpected("SUPI allocation failed");
+        }
+        LI_TRY(fill_supi(*out.sUPI, *src.supi));
+    }
+    if (src.pei) {
+        out.pEI = alloc_optional<PEI_t>();
+        if (out.pEI == nullptr) {
+            return tl::unexpected("PEI allocation failed");
+        }
+        LI_TRY(fill_pei(*out.pEI, *src.pei));
+    }
+    if (src.gpsi) {
+        out.gPSI = alloc_optional<GPSI_t>();
+        if (out.gPSI == nullptr) {
+            return tl::unexpected("GPSI allocation failed");
+        }
+        LI_TRY(fill_gpsi(*out.gPSI, *src.gpsi));
+    }
+    if (src.sms_address) {
+        if (src.sms_address->size() < 2 || src.sms_address->size() > 12) {
+            return tl::unexpected("sMSAddress must be 2..12 octets");
+        }
+        out.sMSAddress = alloc_optional<SMSAddress_t>();
+        if (out.sMSAddress == nullptr ||
+            OCTET_STRING_fromBuf(out.sMSAddress,
+                                 reinterpret_cast<const char*>(src.sms_address->data()),
+                                 static_cast<int>(src.sms_address->size())) != 0) {
+            return tl::unexpected("sMSAddress allocation failed");
+        }
+    }
+    return {};
+}
+
+tl::expected<SmsParty, std::string> extract(const SMSParty_t& src) {
+    SmsParty out;
+    if (src.sUPI != nullptr) {
+        auto supi = extract_supi(*src.sUPI);
+        if (!supi) {
+            return tl::unexpected(supi.error());
+        }
+        out.supi = *supi;
+    }
+    if (src.pEI != nullptr) {
+        auto pei = extract_pei(*src.pEI);
+        if (!pei) {
+            return tl::unexpected(pei.error());
+        }
+        out.pei = *pei;
+    }
+    if (src.gPSI != nullptr) {
+        auto gpsi = extract_gpsi(*src.gPSI);
+        if (!gpsi) {
+            return tl::unexpected(gpsi.error());
+        }
+        out.gpsi = *gpsi;
+    }
+    if (src.sMSAddress != nullptr) {
+        out.sms_address = std::vector<std::uint8_t>(src.sMSAddress->buf,
+                                                    src.sMSAddress->buf + src.sMSAddress->size);
+    }
+    return out;
+}
+
+tl::expected<void, std::string> fill(SMSTPDUData_t& out, const SmsTpduData& src) {
+    if (src.tpdu.empty() || src.tpdu.size() > 270) {
+        return tl::unexpected("SMSTPDU must be 1..270 octets");
+    }
+    out.present = src.redacted ? SMSTPDUData_PR_redactedSMSTPDU : SMSTPDUData_PR_sMSTPDU;
+    OCTET_STRING_t& dst = src.redacted ? out.choice.redactedSMSTPDU : out.choice.sMSTPDU;
+    if (OCTET_STRING_fromBuf(&dst,
+                             reinterpret_cast<const char*>(src.tpdu.data()),
+                             static_cast<int>(src.tpdu.size())) != 0) {
+        return tl::unexpected("SMSTPDU allocation failed");
+    }
+    return {};
+}
+
+tl::expected<SmsTpduData, std::string> extract(const SMSTPDUData_t& src) {
+    SmsTpduData out;
+    const OCTET_STRING_t* octets = nullptr;
+    switch (src.present) {
+        case SMSTPDUData_PR_sMSTPDU:
+            octets = &src.choice.sMSTPDU;
+            break;
+        case SMSTPDUData_PR_redactedSMSTPDU:
+            out.redacted = true;
+            octets = &src.choice.redactedSMSTPDU;
+            break;
+        default:
+            return tl::unexpected(
+                "SMSTPDUData choice not modelled (only sMSTPDU, redactedSMSTPDU)");
+    }
+    out.tpdu.assign(octets->buf, octets->buf + octets->size);
+    return out;
+}
+
+tl::expected<void, std::string> fill(SMSMessage_t& out, const SmsMessage& src) {
+    LI_TRY(fill(out.originatingSMSParty, src.originating_party));
+    LI_TRY(fill(out.terminatingSMSParty, src.terminating_party));
+    out.direction = static_cast<long>(src.direction);
+    out.linkTransferStatus = static_cast<long>(src.link_transfer_status);
+    if (src.other_message) {
+        out.otherMessage = alloc_optional<SMSOtherMessageIndication_t>();
+        if (out.otherMessage == nullptr) {
+            return tl::unexpected("otherMessage allocation failed");
+        }
+        *out.otherMessage = *src.other_message ? 1 : 0;
+    }
+    if (src.location) {
+        out.location = alloc_optional<Location_t>();
+        if (out.location == nullptr) {
+            return tl::unexpected("Location allocation failed");
+        }
+        LI_TRY(fill_location(*out.location, *src.location));
+    }
+    if (src.peer_nf_type) {
+        out.peerNFType = alloc_optional<SMSNFType_t>();
+        if (out.peerNFType == nullptr) {
+            return tl::unexpected("peerNFType allocation failed");
+        }
+        *out.peerNFType = static_cast<long>(*src.peer_nf_type);
+    }
+    if (src.tpdu_data) {
+        out.sMSTPDUData = alloc_optional<SMSTPDUData_t>();
+        if (out.sMSTPDUData == nullptr) {
+            return tl::unexpected("SMSTPDUData allocation failed");
+        }
+        LI_TRY(fill(*out.sMSTPDUData, *src.tpdu_data));
+    }
+    if (src.message_type) {
+        out.messageType = alloc_optional<SMSMessageType_t>();
+        if (out.messageType == nullptr) {
+            return tl::unexpected("messageType allocation failed");
+        }
+        *out.messageType = static_cast<long>(*src.message_type);
+    }
+    if (src.rp_message_reference) {
+        out.rPMessageReference = alloc_optional<SMSRPMessageReference_t>();
+        if (out.rPMessageReference == nullptr) {
+            return tl::unexpected("rPMessageReference allocation failed");
+        }
+        *out.rPMessageReference = *src.rp_message_reference;
+    }
+    return {};
+}
+
+tl::expected<SmsMessage, std::string> extract(const SMSMessage_t& src) {
+    SmsMessage out;
+    auto orig = extract(src.originatingSMSParty);
+    if (!orig) {
+        return tl::unexpected(orig.error());
+    }
+    out.originating_party = *orig;
+    auto term = extract(src.terminatingSMSParty);
+    if (!term) {
+        return tl::unexpected(term.error());
+    }
+    out.terminating_party = *term;
+    out.direction = static_cast<SmsDirection>(src.direction);
+    out.link_transfer_status = static_cast<SmsTransferStatus>(src.linkTransferStatus);
+    if (src.otherMessage != nullptr) {
+        out.other_message = *src.otherMessage != 0;
+    }
+    if (src.location != nullptr) {
+        out.location = extract_location(*src.location);
+    }
+    if (src.peerNFType != nullptr) {
+        out.peer_nf_type = static_cast<SmsNfType>(*src.peerNFType);
+    }
+    if (src.sMSTPDUData != nullptr) {
+        auto tpdu = extract(*src.sMSTPDUData);
+        if (!tpdu) {
+            return tl::unexpected(tpdu.error());
+        }
+        out.tpdu_data = *tpdu;
+    }
+    if (src.messageType != nullptr) {
+        out.message_type = static_cast<SmsMessageType>(*src.messageType);
+    }
+    if (src.rPMessageReference != nullptr) {
+        out.rp_message_reference = static_cast<std::uint8_t>(*src.rPMessageReference);
+    }
+    return out;
+}
+
+tl::expected<void, std::string> fill(SMSReport_t& out, const SmsReport& src) {
+    if (src.location) {
+        out.location = alloc_optional<Location_t>();
+        if (out.location == nullptr) {
+            return tl::unexpected("Location allocation failed");
+        }
+        LI_TRY(fill_location(*out.location, *src.location));
+    }
+    LI_TRY(fill(out.sMSTPDUData, src.tpdu_data));
+    out.messageType = static_cast<long>(src.message_type);
+    out.rPMessageReference = src.rp_message_reference;
+    return {};
+}
+
+tl::expected<SmsReport, std::string> extract(const SMSReport_t& src) {
+    SmsReport out;
+    if (src.location != nullptr) {
+        out.location = extract_location(*src.location);
+    }
+    auto tpdu = extract(src.sMSTPDUData);
+    if (!tpdu) {
+        return tl::unexpected(tpdu.error());
+    }
+    out.tpdu_data = *tpdu;
+    out.message_type = static_cast<SmsMessageType>(src.messageType);
+    out.rp_message_reference = static_cast<std::uint8_t>(src.rPMessageReference);
+    return out;
+}
+
 #undef LI_TRY
 
 } // namespace
@@ -1462,6 +1687,12 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
             } else if constexpr (std::is_same_v<T, UdmUeAuthenticationResponse>) {
                 payload->event.present = XIRIEvent_PR_uDMUEAuthenticationResponse;
                 return fill(payload->event.choice.uDMUEAuthenticationResponse, variant_event);
+            } else if constexpr (std::is_same_v<T, SmsMessage>) {
+                payload->event.present = XIRIEvent_PR_sMSMessage;
+                return fill(payload->event.choice.sMSMessage, variant_event);
+            } else if constexpr (std::is_same_v<T, SmsReport>) {
+                payload->event.present = XIRIEvent_PR_sMSReport;
+                return fill(payload->event.choice.sMSReport, variant_event);
             } else if constexpr (std::is_same_v<T, SmfPduSessionEstablishment>) {
                 payload->event.present = XIRIEvent_PR_pDUSessionEstablishment;
                 return fill(payload->event.choice.pDUSessionEstablishment, variant_event);
@@ -1638,6 +1869,22 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
                 return tl::unexpected(smf.error());
             }
             out.event = *smf;
+            return out;
+        }
+        case XIRIEvent_PR_sMSMessage: {
+            auto sms = extract(payload->event.choice.sMSMessage);
+            if (!sms) {
+                return tl::unexpected(sms.error());
+            }
+            out.event = *sms;
+            return out;
+        }
+        case XIRIEvent_PR_sMSReport: {
+            auto sms = extract(payload->event.choice.sMSReport);
+            if (!sms) {
+                return tl::unexpected(sms.error());
+            }
+            out.event = *sms;
             return out;
         }
         case XIRIEvent_PR_unsuccessfulSMProcedure: {

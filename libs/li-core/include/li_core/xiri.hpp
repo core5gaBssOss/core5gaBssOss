@@ -478,6 +478,78 @@ struct UdmUeAuthenticationResponse {
     bool operator==(const UdmUeAuthenticationResponse&) const = default;
 };
 
+// ---- SMSF (TS 33.128 clause 6.2.5.3, ADR-0486) ----
+
+// SMSParty ::= SEQUENCE { sUPI, pEI, gPSI, sMSAddress } -- all OPTIONAL. sMSAddress holds the raw
+// TS 23.040 clause 9.1.2.5 address field octets (NOTE 2/3 of table 6.2.5.3-1), SIZE(2..12).
+struct SmsParty {
+    std::optional<Supi> supi;
+    std::optional<Pei> pei;
+    std::optional<Gpsi> gpsi;
+    std::optional<std::vector<std::uint8_t>> sms_address;
+    bool operator==(const SmsParty&) const = default;
+};
+
+// Direction ::= ENUMERATED { fromTarget(1), toTarget(2) }
+enum class SmsDirection : std::uint8_t { FromTarget = 1, ToTarget = 2 };
+
+// SMSTransferStatus ::= ENUMERATED { transferSucceeded(1), transferFailed(2), undefined(3) }
+enum class SmsTransferStatus : std::uint8_t {
+    TransferSucceeded = 1,
+    TransferFailed = 2,
+    Undefined = 3
+};
+
+// SMSMessageType ::= ENUMERATED -- table 6.2.5.3-4 maps (RP MTI, TP-MTI) onto these.
+enum class SmsMessageType : std::uint8_t {
+    Deliver = 1,
+    DeliverReportAck = 2,
+    DeliverReportError = 3,
+    StatusReport = 4,
+    Command = 5,
+    Submit = 6,
+    SubmitReportAck = 7,
+    SubmitReportError = 8,
+    Reserved = 9
+};
+
+// SMSNFType ::= ENUMERATED { sMSGMSC(1), iWMSC(2), sMSRouter(3) }
+enum class SmsNfType : std::uint8_t { SmsGmsc = 1, Iwmsc = 2, SmsRouter = 3 };
+
+// SMSTPDUData ::= CHOICE -- only the two 3GPP choices table 6.2.5.3-3 says to use are modelled:
+// sMSTPDU [1] and redactedSMSTPDU [3] (both SMSTPDU, SIZE(1..270)). truncatedSMSTPDU ("superseded,
+// backwards compatibility only") and the two 3GPP2 choices are not (disclosed).
+struct SmsTpduData {
+    bool redacted = false;
+    std::vector<std::uint8_t> tpdu;
+    bool operator==(const SmsTpduData&) const = default;
+};
+
+// XIRIEvent.sMSMessage [12] SMSMessage (table 6.2.5.3-1). NOT modelled (disclosed): peerNFAddress
+// -- this project has no SMS-GMSC/IWMSC/SMS-Router, so there is never one to report.
+struct SmsMessage {
+    SmsParty originating_party;
+    SmsParty terminating_party;
+    SmsDirection direction = SmsDirection::FromTarget;
+    SmsTransferStatus link_transfer_status = SmsTransferStatus::Undefined;
+    std::optional<bool> other_message;
+    std::optional<Location> location;
+    std::optional<SmsNfType> peer_nf_type;
+    std::optional<SmsTpduData> tpdu_data;
+    std::optional<SmsMessageType> message_type;
+    std::optional<std::uint8_t> rp_message_reference;
+    bool operator==(const SmsMessage&) const = default;
+};
+
+// XIRIEvent.sMSReport [56] SMSReport (table 6.2.5.3-2).
+struct SmsReport {
+    std::optional<Location> location;
+    SmsTpduData tpdu_data;
+    SmsMessageType message_type = SmsMessageType::Reserved;
+    std::uint8_t rp_message_reference = 0;
+    bool operator==(const SmsReport&) const = default;
+};
+
 using Event = std::variant<AmfRegistration,
                            AmfDeregistration,
                            AmfStartOfInterceptionWithRegisteredUE,
@@ -492,7 +564,9 @@ using Event = std::variant<AmfRegistration,
                            UdmServingSystemMessage,
                            UdmStartOfInterceptionWithRegisteredTarget,
                            UdmCancelLocationMessage,
-                           UdmUeAuthenticationResponse>;
+                           UdmUeAuthenticationResponse,
+                           SmsMessage,
+                           SmsReport>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the
