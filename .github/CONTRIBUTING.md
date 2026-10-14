@@ -76,7 +76,8 @@ These come from [`CLAUDE.md`](../CLAUDE.md), which governs every change here:
 
 ## Setting up and building
 
-Requirements: CMake 3.28+, Ninja, GCC 13 or Clang 18, `clang-format-18`, Docker (for service
+Requirements: CMake 3.28+, Ninja, GCC 15 (the project compiler; ADR-0482), `clang-18`,
+`clang-format-18` and `clang-tidy-18`, Docker (for service
 containers used by integration tests), and [vcpkg](https://github.com/microsoft/vcpkg) in manifest
 mode. A one-command installer (`scripts/bootstrap.sh`) with pinned, checksum-verified versions is
 **(planned)**; until it exists, install these yourself.
