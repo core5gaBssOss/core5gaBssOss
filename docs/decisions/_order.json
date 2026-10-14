@@ -451,7 +451,8 @@
   "ADR-0485-stop-claude-attribution-trailers-from-recurring-local-hook.md",
   "ADR-0486-li-increment-7b-the-smsf-iri-poi-event-list-for-approval-ts.md",
   "ADR-0487-li-increment-7c-the-nef-iri-poi-event-mapping-first-slice.md",
-  "ADR-0488-li-increment-7d-the-chf-iri-poi-ts-33-127-7-22-ts-33-128-7.md"
+  "ADR-0488-li-increment-7d-the-chf-iri-poi-ts-33-127-7-22-ts-33-128-7.md",
+  "ADR-0489-li-increment-7e-the-nwdaf-iri-poi-ts-33-127-7-18-ts-33-128.md"
  ],
  "split_commit": "0530e4f"
 }

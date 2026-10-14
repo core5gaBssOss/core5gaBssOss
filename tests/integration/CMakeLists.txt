@@ -357,6 +357,19 @@ target_compile_definitions(li_nef_e2e_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_nef_e2e_integration_tests PROPERTIES TIMEOUT 300)
 
+# ADR-0489: the NWDAF IRI-POI (TS 33.128 7.16 subscription / notification / analytics query) at
+# the real nwdaf process, with real LI_X1 provisioning and a loopback MDF2. Needs Valkey.
+add_executable(li_nwdaf_e2e_integration_tests test_li_nwdaf_e2e.cpp)
+target_link_libraries(li_nwdaf_e2e_integration_tests PRIVATE
+    li_core li_poi sbi_core sbi_generated OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+add_dependencies(li_nwdaf_e2e_integration_tests nrf nwdaf)
+target_compile_definitions(li_nwdaf_e2e_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    NWDAF_PATH="$<TARGET_FILE:nwdaf>"
+    NWDAF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/nwdaf.json"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_nwdaf_e2e_integration_tests PROPERTIES TIMEOUT 300)
+
 # ADR-0486 increment 3a: Registration with SMS over NAS (TS 23.502 4.13.3.1) through the real AMF
 # over NGAP/NAS, with a real SMSF answering Nsmsf_SMService_Activate.
 add_executable(amf_sms_integration_tests

@@ -668,6 +668,109 @@ struct ChargingDataEvent {
     bool operator==(const ChargingDataEvent&) const = default;
 };
 
+// NWDAFEvent ::= ENUMERATED (TS 33.128 clause 7.16): the UE-related analytics of TS 33.127 7.18.1.
+enum class NwdafEvent : std::uint8_t {
+    ServiceExperience = 1,
+    UeMobility = 2,
+    UeComm = 3,
+    AbnormalBehaviour = 4,
+    Dispersion = 5,
+    RelativeProximity = 6,
+    PduSessionTraffic = 7
+};
+
+// NWDAFConsumerNFType ::= ENUMERATED
+enum class NwdafConsumerNfType : std::uint8_t {
+    Pcf = 1,
+    Nssf = 2,
+    Amf = 3,
+    Smf = 4,
+    Nef = 5,
+    Af = 6,
+    Lmf = 7,
+    Oam = 8,
+    Nwdaf = 9,
+    Dccf = 10,
+    Cef = 11
+};
+
+// NWDAFEventsSubscriptionOpType ::= ENUMERATED { pOST(1), pUT(2), dELETE(3) }
+enum class NwdafEventsSubscriptionOpType : std::uint8_t { Post = 1, Put = 2, Delete = 3 };
+
+// NWDAFEventsSubscriptionResponseCode ::= ENUMERATED -- statuses without a value map to nullopt.
+enum class NwdafEventsSubscriptionResponseCode : std::uint8_t {
+    Ok200 = 1,
+    Created201 = 2,
+    NoContent204 = 3,
+    TemporaryRedirect307 = 4,
+    PermanentRedirect308 = 5,
+    BadRequest400 = 6,
+    Unauthorized401 = 7,
+    Forbidden403 = 8,
+    NotFound404 = 9,
+    NotAcceptable406 = 10,
+    LengthRequired411 = 11,
+    PayloadTooLarge413 = 12,
+    UnsupportedMediaType415 = 13,
+    TooManyRequests429 = 14,
+    InternalServerError500 = 15,
+    NotImplemented501 = 16,
+    BadGateway502 = 17,
+    ServiceUnavailable503 = 18
+};
+std::optional<NwdafEventsSubscriptionResponseCode>
+to_nwdaf_events_subscription_response_code(int http_status);
+
+// NWDAFAnalyticsInfoResponseCode ::= ENUMERATED -- statuses without a value map to nullopt.
+enum class NwdafAnalyticsInfoResponseCode : std::uint8_t {
+    Ok200 = 1,
+    NoContent204 = 2,
+    BadRequest400 = 3,
+    Unauthorized401 = 4,
+    Forbidden403 = 5,
+    NotFound404 = 6,
+    NotAcceptable406 = 7,
+    UriTooLong414 = 8,
+    TooManyRequests429 = 9,
+    InternalServerError500 = 10,
+    BadGateway502 = 11,
+    ServiceUnavailable503 = 12
+};
+std::optional<NwdafAnalyticsInfoResponseCode>
+to_nwdaf_analytics_info_response_code(int http_status);
+
+// XIRIEvent.nWDAFEventsSubscription [152] (TS 33.128 table 7.16.2.2-1).
+struct NwdafEventsSubscription {
+    Supi supi;
+    NwdafConsumerNfType consumer_nf_type = NwdafConsumerNfType::Pcf;
+    NwdafEventsSubscriptionOpType op_type = NwdafEventsSubscriptionOpType::Post;
+    std::vector<NwdafEvent> subscribed_events; // SIZE(1..MAX)
+    SbiType subscription;
+    std::optional<std::string> subscription_id;
+    NwdafEventsSubscriptionResponseCode response_code = NwdafEventsSubscriptionResponseCode::Ok200;
+    bool operator==(const NwdafEventsSubscription&) const = default;
+};
+
+// XIRIEvent.nWDAFEventsNotification [153] (TS 33.128 table 7.16.2.3-1).
+struct NwdafEventsNotification {
+    Supi supi;
+    std::vector<NwdafEvent> notified_events; // SIZE(1..MAX)
+    SbiType notification;
+    bool operator==(const NwdafEventsNotification&) const = default;
+};
+
+// XIRIEvent.nWDAFAnalyticsInfoQuery [154] (TS 33.128 table 7.16.2.4-1; nWDAFAnalyticsData is
+// SBIType in the j70 ASN.1, which is what is encoded).
+struct NwdafAnalyticsInfoQuery {
+    Supi supi;
+    NwdafEvent event = NwdafEvent::ServiceExperience;
+    std::optional<SbiType> reporting_requirement;
+    std::optional<SbiType> event_filter;
+    std::optional<SbiType> analytics_data;
+    NwdafAnalyticsInfoResponseCode response_code = NwdafAnalyticsInfoResponseCode::Ok200;
+    bool operator==(const NwdafAnalyticsInfoQuery&) const = default;
+};
+
 using Event = std::variant<AmfRegistration,
                            AmfDeregistration,
                            AmfStartOfInterceptionWithRegisteredUE,
@@ -686,7 +789,10 @@ using Event = std::variant<AmfRegistration,
                            SmsMessage,
                            SmsReport,
                            NefAfSessionWithQosProvision,
-                           ChargingDataEvent>;
+                           ChargingDataEvent,
+                           NwdafEventsSubscription,
+                           NwdafEventsNotification,
+                           NwdafAnalyticsInfoQuery>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the

@@ -65,7 +65,9 @@
 //   * Notifications are produced by a periodic thread on the interval in config; the YAML's
 //     NotificationMethod PERIODIC is honoured, THRESHOLD/ON_EVENT_DETECTION are treated as
 //     periodic in Phase A.
-//   * LI: TS 33.127 clause 7.18 requires an IRI-POI in NWDAF. Not built (blocker #0).
+//   * LI (ADR-0489): IRI-POI (li_poi.hpp) for TS 33.128 7.16 subscription / notification /
+//     analytics-info-query records, disabled unless config/nwdaf.json li_poi.enabled. Roaming
+//     analytics records are not produced (Nnwdaf_RoamingAnalytics is not served).
 
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
@@ -105,6 +107,7 @@
 #include "analytics.hpp"
 #include "collection_store.hpp"
 #include "feature_store.hpp"
+#include "li_poi.hpp"
 #include "ml_consumer.hpp"
 #include "ml_store.hpp"
 #include "model_runtime.hpp"
@@ -877,6 +880,32 @@ int main() {
     };
     sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
 
+    // LI IRI-POI (ADR-0489), disabled unless config/nwdaf.json's li_poi.enabled is true; nullptr
+    // keeps the NWDAF's behaviour unchanged, the convention of every POI in this project.
+    std::unique_ptr<nwdaf::NwdafLiPoi> li_poi;
+    if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
+        const auto& lp = config.at("li_poi");
+        li_poi::Config poi_cfg;
+        poi_cfg.x1_bind_address = lp.at("x1_bind_address").get<std::string>();
+        poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
+        poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"nwdaf-poi"});
+        poi_cfg.network_function_id = lp.value("network_function_id", instance_id);
+        poi_cfg.interception_point_id =
+            lp.value("interception_point_id", std::string{"NWDAF-IRI-POI-1"});
+        poi_cfg.mdf2_host = lp.at("mdf2_host").get<std::string>();
+        poi_cfg.mdf2_port = lp.at("mdf2_port").get<std::uint16_t>();
+        poi_cfg.mdf2_sni = lp.value("mdf2_sni", std::string{});
+        poi_cfg.cert_path = CERTS_DIR "/nwdaf/cert.pem";
+        poi_cfg.key_path = CERTS_DIR "/nwdaf/key.pem";
+        poi_cfg.ca_path = CERTS_DIR "/ca/ca.crt";
+        poi_cfg.x1_keepalive_p1_seconds = lp.value("x1_keepalive_p1_seconds", 60);
+        poi_cfg.x1_keepalive_p2_seconds = lp.value("x1_keepalive_p2_seconds", 180);
+        poi_cfg.x1_keepalive_p3_seconds = lp.value("x1_keepalive_p3_seconds", 300);
+        poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
+        li_poi = std::make_unique<nwdaf::NwdafLiPoi>(std::move(poi_cfg));
+        li_poi->start();
+    }
+
     // Outbound: NRF discovery for NF_LOAD, and notification delivery.
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/nwdaf/cert.pem",
@@ -1071,11 +1100,74 @@ int main() {
         server.set_tps_limit(tps_limit.sustained_tps, tps_limit.burst);
     }
 
+    // LI (ADR-0489, TS 33.128 7.16.2.2 / 7.16.2.4): each record once the NWDAF has its response.
+    const auto query_param = [](const sbi_core::http2::Request& req,
+                                const char* name) -> std::optional<std::string> {
+        const auto it = req.query_params.find(name);
+        return it == req.query_params.end() ? std::nullopt : std::optional{it->second};
+    };
+    const auto with_li_query = [&](auto handler) {
+        return [&, handler](const sbi_core::http2::Request& req) {
+            auto resp = handler(req);
+            if (li_poi) {
+                if (const auto ev = query_param(req, "event-id")) {
+                    li_poi->report_analytics_info_query(*ev,
+                                                        query_param(req, "tgt-ue"),
+                                                        query_param(req, "event-filter"),
+                                                        query_param(req, "ana-req"),
+                                                        resp.status,
+                                                        resp.body);
+                }
+            }
+            return resp;
+        };
+    };
+    using SubscriptionOp = nwdaf::NwdafLiPoi::SubscriptionOp;
+    const auto with_li_subscription = [&](SubscriptionOp op, auto handler) {
+        return [&, op, handler](const sbi_core::http2::Request& req) {
+            const auto id = req.path_params.find("subscriptionId");
+            // DELETE has no body: the record carries the subscription as it was before removal.
+            std::optional<std::string> stored;
+            if (li_poi && op == SubscriptionOp::Delete && id != req.path_params.end()) {
+                try {
+                    if (auto sub = store.get_subscription(id->second)) {
+                        stored = json(*sub).dump();
+                    }
+                } catch (const std::exception& e) {
+                    spdlog::warn(
+                        "nwdaf: LI could not read subscription {}: {}", id->second, e.what());
+                }
+            }
+            auto resp = handler(req);
+            if (!li_poi) {
+                return resp;
+            }
+            std::optional<std::string> resource_uri;
+            if (resp.status == 201) {
+                if (const auto loc = resp.headers.find("location"); loc != resp.headers.end()) {
+                    resource_uri = loc->second;
+                }
+            } else if (resp.status >= 200 && resp.status < 300 && id != req.path_params.end()) {
+                resource_uri =
+                    std::string(kEventsSubscriptionRoot) + "/subscriptions/" + id->second;
+            }
+            const auto ua = req.headers.find("user-agent");
+            const std::string user_agent = ua == req.headers.end() ? std::string{} : ua->second;
+            const auto& subscription =
+                op == SubscriptionOp::Delete ? stored : std::optional{req.body};
+            if (subscription) {
+                li_poi->report_events_subscription(
+                    *subscription, op, user_agent, resource_uri, resp.status);
+            }
+            return resp;
+        };
+    };
+
     // ---- Nnwdaf_AnalyticsInfo ----------------------------------------------------------------
     server.add_route(
         "GET",
         std::string(kAnalyticsInfoRoot) + "/analytics",
-        [&](const sbi_core::http2::Request& req) {
+        with_li_query([&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -1131,7 +1223,7 @@ int main() {
             resp.headers.emplace("content-type", "application/json");
             resp.body = json(*data).dump();
             return resp;
-        });
+        }));
 
     server.add_route("GET",
                      std::string(kAnalyticsInfoRoot) + "/context",
@@ -1153,7 +1245,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kEventsSubscriptionRoot) + "/subscriptions",
-        [&](const sbi_core::http2::Request& req) {
+        with_li_subscription(SubscriptionOp::Post, [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -1175,12 +1267,12 @@ int main() {
                                  std::string(kEventsSubscriptionRoot) + "/subscriptions/" + id);
             resp.body = json(*body).dump();
             return resp;
-        });
+        }));
 
     server.add_route(
         "PUT",
         std::string(kEventsSubscriptionRoot) + "/subscriptions/{subscriptionId}",
-        [&](const sbi_core::http2::Request& req) {
+        with_li_subscription(SubscriptionOp::Put, [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -1199,12 +1291,12 @@ int main() {
             resp.headers.emplace("content-type", "application/json");
             resp.body = json(*body).dump();
             return resp;
-        });
+        }));
 
     server.add_route(
         "DELETE",
         std::string(kEventsSubscriptionRoot) + "/subscriptions/{subscriptionId}",
-        [&](const sbi_core::http2::Request& req) {
+        with_li_subscription(SubscriptionOp::Delete, [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -1215,7 +1307,7 @@ int main() {
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
-        });
+        }));
 
     // /transfers -- stored, not transferred (see the header). Real resource semantics.
     server.add_route(
@@ -2048,6 +2140,11 @@ int main() {
                     if (auto resp = client.send(req); resp) {
                         status = resp->status;
                     }
+                }
+                // LI (ADR-0489, TS 33.128 7.16.2.3): the Notify was sent (a response came back,
+                // whatever it says).
+                if (li_poi && status) {
+                    li_poi->report_events_notification(json(sub), req.body);
                 }
                 if (status && *status >= 200 && *status < 300) {
                     notify_counter->Add(1);

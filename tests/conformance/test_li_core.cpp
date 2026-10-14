@@ -842,6 +842,72 @@ TEST(Xiri, NefAfSessionWithQosProvisionRoundTrips) {
     EXPECT_EQ(std::get<xiri::NefAfSessionWithQosProvision>(dec2->event), revoke);
 }
 
+// ADR-0489: the NWDAF records [152] / [153] / [154] (TS 33.128 tables 7.16.2.2-1, 7.16.2.3-1,
+// 7.16.2.4-1).
+TEST(Xiri, NwdafRecordsRoundTrip) {
+    xiri::NwdafEventsSubscription sub;
+    sub.supi = xiri::Imsi{"001010000000001"};
+    sub.consumer_nf_type = xiri::NwdafConsumerNfType::Pcf;
+    sub.op_type = xiri::NwdafEventsSubscriptionOpType::Post;
+    sub.subscribed_events = {xiri::NwdafEvent::AbnormalBehaviour, xiri::NwdafEvent::UeMobility};
+    sub.subscription = xiri::SbiType{
+        "TS29520_Nnwdaf_EventsSubscription.yaml#/components/schemas/NnwdafEventsSubscription",
+        R"({"eventSubscriptions":[{"event":"ABNORMAL_BEHAVIOUR"}]})"};
+    sub.subscription_id = "/nnwdaf-eventssubscription/v1/subscriptions/s-1";
+    sub.response_code = xiri::NwdafEventsSubscriptionResponseCode::Created201;
+    auto enc = xiri::encode_xiri_payload(sub);
+    ASSERT_TRUE(enc.has_value()) << enc.error();
+    // [152] constructed, high-tag-number form: 0xBF 0x81 0x18.
+    const std::vector<std::uint8_t> tag{0xBF, 0x81, 0x18};
+    EXPECT_NE(std::search(enc->begin(), enc->end(), tag.begin(), tag.end()), enc->end());
+    auto dec = xiri::decode_xiri_payload(*enc);
+    ASSERT_TRUE(dec.has_value()) << dec.error();
+    EXPECT_EQ(std::get<xiri::NwdafEventsSubscription>(dec->event), sub);
+
+    xiri::NwdafEventsNotification note;
+    note.supi = xiri::Nai{"user@example.net"};
+    note.notified_events = {xiri::NwdafEvent::ServiceExperience};
+    note.notification = xiri::SbiType{"TS29520_Nnwdaf_EventsSubscription.yaml#/components/schemas/"
+                                      "NnwdafEventsSubscriptionNotification",
+                                      R"({"subscriptionId":"s-1"})"};
+    auto enc2 = xiri::encode_xiri_payload(note);
+    ASSERT_TRUE(enc2.has_value()) << enc2.error();
+    auto dec2 = xiri::decode_xiri_payload(*enc2);
+    ASSERT_TRUE(dec2.has_value()) << dec2.error();
+    EXPECT_EQ(std::get<xiri::NwdafEventsNotification>(dec2->event), note);
+
+    xiri::NwdafAnalyticsInfoQuery query;
+    query.supi = xiri::Imsi{"001010000000001"};
+    query.event = xiri::NwdafEvent::AbnormalBehaviour;
+    query.event_filter =
+        xiri::SbiType{"TS29520_Nnwdaf_AnalyticsInfo.yaml#/components/schemas/EventFilter", R"({})"};
+    query.analytics_data =
+        xiri::SbiType{"TS29520_Nnwdaf_AnalyticsInfo.yaml#/components/schemas/AnalyticsData",
+                      R"({"abnorBehavrs":[]})"};
+    query.response_code = xiri::NwdafAnalyticsInfoResponseCode::Ok200;
+    auto enc3 = xiri::encode_xiri_payload(query);
+    ASSERT_TRUE(enc3.has_value()) << enc3.error();
+    auto dec3 = xiri::decode_xiri_payload(*enc3);
+    ASSERT_TRUE(dec3.has_value()) << dec3.error();
+    EXPECT_EQ(std::get<xiri::NwdafAnalyticsInfoQuery>(dec3->event), query);
+
+    // SIZE(1..MAX): an empty event list has no encoding.
+    xiri::NwdafEventsNotification empty = note;
+    empty.notified_events.clear();
+    EXPECT_FALSE(xiri::encode_xiri_payload(empty).has_value());
+}
+
+TEST(Xiri, NwdafResponseCodesCoverExactlyTheEnumeratedStatuses) {
+    EXPECT_EQ(xiri::to_nwdaf_events_subscription_response_code(201),
+              xiri::NwdafEventsSubscriptionResponseCode::Created201);
+    EXPECT_EQ(xiri::to_nwdaf_events_subscription_response_code(501),
+              xiri::NwdafEventsSubscriptionResponseCode::NotImplemented501);
+    EXPECT_FALSE(xiri::to_nwdaf_events_subscription_response_code(409).has_value());
+    EXPECT_EQ(xiri::to_nwdaf_analytics_info_response_code(414),
+              xiri::NwdafAnalyticsInfoResponseCode::UriTooLong414);
+    EXPECT_FALSE(xiri::to_nwdaf_analytics_info_response_code(201).has_value());
+}
+
 TEST(Xiri, AfSessionResponseCodeCoversExactlyTheEnumeratedStatuses) {
     EXPECT_EQ(xiri::to_af_session_response_code(201),
               xiri::AfSessionWithQosResponseCode::Created201);
