@@ -298,7 +298,7 @@ TEST(AmfMtIntegration, ProvideDomainSelectionInfo404ThenHonestlyEmpty200) {
     EXPECT_FALSE(ctx_info.supportVoPS.has_value());
 }
 
-TEST(AmfMtIntegration, EnableUeReachability404ThenRealAck) {
+TEST(AmfMtIntegration, EnableUeReachability404ThenUnreachableWithoutNgap) {
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_GT(nrf.pid(), 0) << "failed to fork nrf";
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -341,7 +341,11 @@ TEST(AmfMtIntegration, EnableUeReachability404ThenRealAck) {
     ASSERT_TRUE(found_resp.has_value());
     ASSERT_EQ(found_resp->status, 200);
     const auto ack = json::parse(found_resp->body).get<sbi_gen::EnableUeReachabilityRspData>();
-    EXPECT_EQ(ack.reachability.value, "REACHABLE");
+    // ADR-0486 increment 4: the context exists but the UE has no live NGAP association (it was
+    // created over SBI only), and this AMF does not page -- so UNREACHABLE, not an echo of the
+    // requested REACHABLE. The CM-CONNECTED REACHABLE case is covered by
+    // tests/integration/test_amf_sms_registration.cpp's MT SMS test.
+    EXPECT_EQ(ack.reachability.value, "UNREACHABLE");
 }
 
 TEST(AmfMtIntegration, EnableGroupReachabilityReturnsHonestlyEmptyList) {

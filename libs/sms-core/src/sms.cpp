@@ -350,6 +350,41 @@ tl::expected<MoTpdu, std::string> decode_mo_tpdu(std::span<const std::uint8_t> t
     return out;
 }
 
+tl::expected<MtTpdu, std::string> decode_mt_tpdu(std::span<const std::uint8_t> tpdu) {
+    if (tpdu.empty()) {
+        return fail("empty TPDU");
+    }
+    MtTpdu out;
+    out.type = classify_tpdu(tpdu[0], Direction::ScToMs);
+    std::size_t address_at = 0;
+    switch (out.type) {
+        case TpduType::Deliver: // octet 1: flags, 2..: TP-OA (clause 9.2.2.1)
+            address_at = 1;
+            break;
+        case TpduType::StatusReport: // flags, TP-MR, TP-RA (clause 9.2.2.3)
+            address_at = 2;
+            break;
+        default: // SMS-SUBMIT-REPORT carries no address
+            return out;
+    }
+    out.more_messages_to_send = (tpdu[0] & 0x04) == 0;
+    if (tpdu.size() < address_at + 2) {
+        return fail("TPDU truncated before its address field");
+    }
+    std::size_t consumed = 0;
+    auto address = decode_tp_address(tpdu.subspan(address_at), consumed);
+    if (!address) {
+        return tl::unexpected(std::string(out.type == TpduType::Deliver ? "TP-OA: " : "TP-RA: ") +
+                              address.error());
+    }
+    if (out.type == TpduType::Deliver) {
+        out.originating = std::move(*address);
+    } else {
+        out.recipient = std::move(*address);
+    }
+    return out;
+}
+
 namespace {
 
 enum class Alphabet { Gsm7, EightBit, Ucs2, Compressed };

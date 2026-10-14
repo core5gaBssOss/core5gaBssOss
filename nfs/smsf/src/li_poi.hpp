@@ -20,12 +20,19 @@
 // nullptr and the SMSF behaves exactly as without it. Delivery is best-effort, the convention of
 // every POI here: a dead MDF2 is logged, never allowed to break the SMSF procedure.
 //
-// Wired (clause 6.2.5.3): the SMS-MO case for a TARGET UE -- SMSMessage when the SMSF receives
-// CP-DATA/RP-DATA [SMS-SUBMIT, SMS-COMMAND] in Nsmsf_SMService_UplinkSMS, and SMSReport when it
-// sends the CP-DATA/RP-ERROR [SMS-SUBMIT-REPORT] back via Namf_Communication_N1N2MessageTransfer.
-// NOT wired (disclosed): the SMS-MT case (MAP MT-FORWARD-SHORT-MESSAGE -- no SMS-GMSC interworking
-// in this project yet), and "target non-Local ID" matching on TP-DA/TP-OA (NOTE 1: a different
-// identification method this project's X1 codec does not carry).
+// Wired (clause 6.2.5.3), for a TARGET UE:
+// - SMS-MO: SMSMessage when the SMSF receives CP-DATA/RP-DATA [SMS-SUBMIT, SMS-COMMAND] in
+//   Nsmsf_SMService_UplinkSMS, SMSReport when it sends the CP-DATA/RP-ERROR [SMS-SUBMIT-REPORT]
+//   back via Namf_Communication_N1N2MessageTransfer.
+// - SMS-MT: SMSMessage for the RP-DATA [SMS-DELIVER, SMS-STATUS-REPORT] received in
+//   Nsmsf_SMService_MtForwardSm, SMSReport for the UE's RP-ACK/RP-ERROR [SMS-DELIVER-REPORT] the
+//   SMSF returns in the MtForwardSm response. Disclosed interpretation: the clause names the MAP
+//   MT-FORWARD-SHORT-MESSAGE Request/Response; TS 23.540 clause 5.1.2 step 5 makes
+//   Nsmsf_SMService_MtForwardSm the SBI form of that same hand-over, so the events are taken from
+//   it (this project has no MAP interface on the SMSF).
+// NOT wired (disclosed): "target non-Local ID" matching on TP-DA/TP-OA/TP-RA (NOTE 1: a different
+// identification method this project's X1 codec does not carry); peerNFAddress/peerNFType (the
+// MtForwardSm consumer may be an SMS-GMSC, SMS Router or IP-SM-GW and does not say which).
 
 namespace smsf {
 
@@ -55,10 +62,22 @@ public:
                           const sms_core::MoTpdu& tpdu,
                           const std::optional<nlohmann::json>& ue_location);
 
-    // SMSReport for the RP-ACK/RP-ERROR the SMSF sent back. Skipped (logged) if the reply carries
-    // no TPDU -- sMSTPDUData is Mandatory in table 6.2.5.3-2 and is never fabricated.
+    // SMSMessage for an SMS-MT to a target UE (direction toTarget): the RP-DATA [SMS-DELIVER /
+    // SMS-STATUS-REPORT] received in Nsmsf_SMService_MtForwardSm. Generated once the outcome is
+    // known, because NOTE 5's linkTransferStatus is "whether the SMSF sends the response carrying
+    // the SMS-DELIVER-REPORT"; `transfer_succeeded` is exactly that.
+    std::vector<li_poi::Match> report_mt_sms_message(const LiIdentities& ids,
+                                                     const sms_core::RpMessage& rp_data,
+                                                     const sms_core::MtTpdu& tpdu,
+                                                     bool transfer_succeeded);
+
+    // SMSReport for an RP-ACK/RP-ERROR: the SMSF's reply to an SMS-MO [SMS-SUBMIT-REPORT], or
+    // the UE's delivery report for an SMS-MT [SMS-DELIVER-REPORT] as the SMSF sends it on in the
+    // MtForwardSm response. Skipped (logged) if it carries no TPDU -- sMSTPDUData is Mandatory in
+    // table 6.2.5.3-2 and is never fabricated. `ue_location` per NOTE 7 (UplinkSMS ueLocation).
     void report_sms_report(const std::vector<li_poi::Match>& matches,
-                           const sms_core::RpMessage& rp_reply);
+                           const sms_core::RpMessage& rp_reply,
+                           const std::optional<nlohmann::json>& ue_location = std::nullopt);
 
 private:
     struct Impl;

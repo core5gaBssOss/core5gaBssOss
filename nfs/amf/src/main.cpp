@@ -71,11 +71,11 @@
 // - TS29518_Namf_MT.yaml (api root /namf-mt/v1): all 3 operations. ProvideDomainSelectionInfo
 //   checks the real UeContextStore -- 404 if absent, else an honestly-empty UeContextInfo{} 200
 //   (same disclosed no-VoPS/RAT-data gap as Namf_Location's ProvideLocationInfo).
-//   EnableUeReachability checks UeContextStore -- 404 if absent, else a real ack (echoes the
-//   requested `reachability` back), disclosed: no real paging/reachability state machine exists to
-//   actually change UE reachability. EnableGroupReachability does real structural validation
-//   (ueInfoList+tmgi) then a real 200 with an honestly-empty ueConnectedList -- no real per-UE
-//   reachability tracking exists to populate it from.
+//   EnableUeReachability checks UeContextStore -- 404 if absent, else REACHABLE when the UE has a
+//   live NGAP association (CM-CONNECTED) and UNREACHABLE otherwise -- disclosed: no paging, so a
+//   CM-IDLE UE is never paged (ADR-0486 increment 4). EnableGroupReachability does real structural
+//   validation (ueInfoList+tmgi) then a real 200 with an honestly-empty ueConnectedList -- no real
+//   per-UE reachability tracking exists to populate it from.
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -1384,7 +1384,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kMtApiRoot) + "/ue-contexts/{ueContextId}/ue-reachind",
-        [&verifier, &ue_contexts, &mt_enable_reachability_counter](
+        [&verifier, &ue_contexts, &ue_ngap_registry, &mt_enable_reachability_counter](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return problem_response(401, "Unauthorized", auth->error);
@@ -1399,10 +1399,14 @@ int main() {
                 return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
             }
             mt_enable_reachability_counter->Add(1);
-            // Disclosed simplification: real ack (echoes the requested reachability back), but no
-            // real paging/reachability state machine exists to actually change UE reachability.
+            // ADR-0486 increment 4: a UE with a live NGAP association is CM-CONNECTED and so
+            // REACHABLE with no paging (TS 23.502 clause 4.13.3.7). Any other UE is reported
+            // UNREACHABLE -- disclosed: this AMF has no paging (TS 23.502 clause 4.2.3.3), so the
+            // CM-IDLE case of clause 4.13.3.6 step 4 ends here rather than in a page.
             sbi_gen::EnableUeReachabilityRspData resp_data;
-            resp_data.reachability = body->reachability;
+            resp_data.reachability.value = ue_ngap_registry.has_live_association(ue_context_id)
+                                               ? sbi_gen::UeReachability::REACHABLE
+                                               : sbi_gen::UeReachability::UNREACHABLE;
             json j = resp_data;
             return sbi_core::http2::Response::json(200, j.dump());
         });

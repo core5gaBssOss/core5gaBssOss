@@ -84,6 +84,41 @@ TEST(SmsTp, TruncatedTpDaIsRejected) {
     EXPECT_FALSE(decode_mo_tpdu(bad).has_value());
 }
 
+// TS 23.040 clause 9.2.2.1: SMS-DELIVER = flags, TP-OA, TP-PID, TP-DCS, TP-SCTS, TP-UDL, TP-UD.
+TEST(SmsTp, MtDeliverYieldsTpOaAndTpMms) {
+    // flags 0x04: TP-MTI=00, TP-MMS=1 ("no more messages", clause 9.2.3.2); TP-OA "46708251358".
+    const Bytes deliver = {0x04, 0x0B, 0x91, 0x64, 0x07, 0x28, 0x15, 0x53, 0xF8, 0x00,
+                           0x00, 0x62, 0x01, 0x41, 0x21, 0x43, 0x65, 0x00, 0x0A, 0xE8,
+                           0x32, 0x9B, 0xFD, 0x46, 0x97, 0xD9, 0xEC, 0x37};
+    auto t = decode_mt_tpdu(deliver);
+    ASSERT_TRUE(t.has_value()) << t.error();
+    EXPECT_EQ(t->type, TpduType::Deliver);
+    ASSERT_TRUE(t->originating.has_value());
+    EXPECT_EQ(t->originating->digits, "46708251358");
+    EXPECT_EQ(t->originating->raw, Bytes(deliver.begin() + 1, deliver.begin() + 9));
+    EXPECT_FALSE(t->recipient.has_value());
+    EXPECT_EQ(t->more_messages_to_send, false);
+
+    Bytes more = deliver;
+    more[0] = 0x00; // TP-MMS=0: more messages are waiting
+    EXPECT_EQ(decode_mt_tpdu(more)->more_messages_to_send, true);
+}
+
+// TS 23.040 clause 9.2.2.3: SMS-STATUS-REPORT = flags, TP-MR, TP-RA, TP-SCTS, TP-DT, TP-ST.
+TEST(SmsTp, MtStatusReportYieldsTpRaAfterTpMr) {
+    const Bytes report = {0x06, 0x2A, 0x04, 0x81, 0x21, 0x43, 0x62, 0x01, 0x41, 0x21, 0x43,
+                          0x65, 0x00, 0x62, 0x01, 0x41, 0x21, 0x53, 0x65, 0x00, 0x00};
+    auto t = decode_mt_tpdu(report);
+    ASSERT_TRUE(t.has_value()) << t.error();
+    EXPECT_EQ(t->type, TpduType::StatusReport);
+    ASSERT_TRUE(t->recipient.has_value());
+    EXPECT_EQ(t->recipient->digits, "1234");
+    EXPECT_FALSE(t->originating.has_value());
+
+    const Bytes truncated = {0x00, 0x0B, 0x91, 0x64};
+    EXPECT_FALSE(decode_mt_tpdu(truncated).has_value());
+}
+
 TEST(SmsRp, RpDataMoRoundTrips) {
     const auto bytes = rp_data_mo(0x2A, kSubmit);
     // MTI 000, MR, OA LV with length 0 (MS->network), DA LV, UD LV.

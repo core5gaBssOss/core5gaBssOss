@@ -15,10 +15,7 @@
 //
 // Sources in specs/3gpp/: TS_24.011_j00.txt, TS_23.040_j00.txt, TS_24.007_j50.txt.
 //
-// Disclosed limits: the extended TI (TIO = 7, TS 24.007 figure 11.9) is rejected, not decoded;
-// SMS-DELIVER / SMS-STATUS-REPORT TPDUs (the MT direction) are classified by TP-MTI but their
-// TP-OA / TP-RA are not extracted yet -- the MT path (MAP MT-FORWARD-SHORT-MESSAGE) is a later
-// increment.
+// Disclosed limit: the extended TI (TIO = 7, TS 24.007 figure 11.9) is rejected, not decoded.
 
 #include <chrono>
 #include <cstdint>
@@ -132,6 +129,18 @@ struct MoTpdu {
 };
 
 tl::expected<MoTpdu, std::string> decode_mo_tpdu(std::span<const std::uint8_t> tpdu);
+
+// What an SMSF needs from an SC-originated TPDU (the SMS-MT direction).
+struct MtTpdu {
+    TpduType type = TpduType::Deliver;
+    // TP-MMS, bit 2 of octet 1 of SMS-DELIVER and SMS-STATUS-REPORT (clause 9.2.3.2): 0 = more
+    // messages are waiting for the MS in this SC. Absent for the other SC->MS types.
+    std::optional<bool> more_messages_to_send;
+    std::optional<TpAddress> originating; // TP-OA (SMS-DELIVER, clause 9.2.2.1, octet 2 onwards)
+    std::optional<TpAddress> recipient;   // TP-RA (SMS-STATUS-REPORT, clause 9.2.2.3, after TP-MR)
+};
+
+tl::expected<MtTpdu, std::string> decode_mt_tpdu(std::span<const std::uint8_t> tpdu);
 
 // TS 33.128 clause 7.4.5.2.1 "3GPP SMS Redaction" of an SMS-SUBMIT (MS->SC) or SMS-DELIVER
 // (SC->MS) TPDU: the SM portion of TP-UD is replaced by "Space" in its original encoding for its

@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 
 #include "TS26510_CommonData_grp.hpp" // N1N2MessageTransferReqData (TS 29.518 schema)
+#include "TS29518_Namf_MT.hpp"        // EnableUeReachabilityReqData / RspData
 
 namespace smsf {
 
@@ -14,8 +15,9 @@ N1n2Sender::N1n2Sender(std::string amf_base_url,
                        std::string smsf_instance_id,
                        sbi_core::http2::TlsConfig tls)
     : amf_base_url_(std::move(amf_base_url)), client_(std::move(tls)),
-      oauth_(
-          client_, nrf_base_url + "/oauth2/token", std::move(smsf_instance_id), "namf-comm", "AMF"),
+      oauth_(client_, nrf_base_url + "/oauth2/token", smsf_instance_id, "namf-comm", "AMF"),
+      mt_oauth_(
+          client_, nrf_base_url + "/oauth2/token", std::move(smsf_instance_id), "namf-mt", "AMF"),
       worker_([this] { run(); }) {}
 
 N1n2Sender::~N1n2Sender() {
@@ -57,6 +59,36 @@ void N1n2Sender::run() {
                 break; // CM-layer order: never send the RP reply without its CP-ACK
             }
         }
+    }
+}
+
+tl::expected<std::string, std::string> N1n2Sender::enable_ue_reachability(const std::string& supi) {
+    auto token = mt_oauth_.get_bearer_token();
+    if (!token) {
+        return tl::unexpected("no namf-mt token: " + token.error());
+    }
+    sbi_gen::EnableUeReachabilityReqData req{};
+    req.reachability.value = sbi_gen::UeReachability::REACHABLE;
+
+    sbi_core::http2::ClientRequest http;
+    http.method = "PUT";
+    http.url = amf_base_url_ + "/namf-mt/v1/ue-contexts/" + supi + "/ue-reachind";
+    http.headers.emplace("content-type", "application/json");
+    http.headers.emplace("authorization", "Bearer " + *token);
+    http.body = nlohmann::json(req).dump();
+    auto resp = client_.send(http);
+    if (!resp) {
+        return tl::unexpected("AMF not reachable: " + resp.error());
+    }
+    if (resp->status != 200) {
+        return tl::unexpected("AMF answered HTTP " + std::to_string(resp->status));
+    }
+    try {
+        return nlohmann::json::parse(resp->body)
+            .get<sbi_gen::EnableUeReachabilityRspData>()
+            .reachability.value;
+    } catch (const nlohmann::json::exception& e) {
+        return tl::unexpected(std::string("malformed EnableUeReachabilityRspData: ") + e.what());
     }
 }
 

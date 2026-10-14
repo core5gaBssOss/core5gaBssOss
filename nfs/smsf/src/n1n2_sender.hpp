@@ -11,11 +11,13 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <tl/expected.hpp>
 #include <vector>
 
 // Downlink SMS delivery from the SMSF to the UE's AMF: Namf_Communication_N1N2MessageTransfer
 // (TS 29.518, TS29518_Namf_Communication.yaml) with n1MessageClass SMS -- TS 23.502 clause
-// 4.13.3.3 steps 2c (CP-ACK) and 6a (the submit report), ADR-0486.
+// 4.13.3.3 steps 2c (CP-ACK) and 6a (the submit report), and clause 4.13.3.6 steps 5a (the MT
+// CP-DATA) and 6c (the closing CP-ACK), ADR-0486.
 //
 // One worker thread, one FIFO: payloads for a UE leave in the order they were queued, so the
 // CP-ACK always precedes the CP-DATA carrying the RP reply (TS 24.011's CM-layer order). Sending
@@ -49,6 +51,12 @@ public:
 
     void enqueue(Job job);
 
+    // Namf_MT_EnableUEReachability (TS 23.502 clause 4.13.3.6 step 4; TS29518_Namf_MT.yaml
+    // PUT /ue-contexts/{ueContextId}/ue-reachind) asking for REACHABLE. Returns the AMF's
+    // reported reachability, or an error if the AMF refused or could not be reached. Synchronous,
+    // on the caller's thread (the MtForwardSm handler), not the FIFO worker.
+    tl::expected<std::string, std::string> enable_ue_reachability(const std::string& supi);
+
 private:
     void run();
     bool send_one(const std::string& supi, const std::vector<std::uint8_t>& payload, bool last);
@@ -56,6 +64,7 @@ private:
     std::string amf_base_url_;
     sbi_core::http2::Client client_;
     sbi_core::OAuth2Client oauth_;
+    sbi_core::OAuth2Client mt_oauth_; // scope namf-mt
     std::mutex mutex_;
     std::condition_variable cv_;
     std::deque<Job> queue_;

@@ -1,6 +1,6 @@
 ## ADR-0486: LI increment 7b -- the SMSF IRI-POI: event list for approval (TS 33.127 6.2.5, TS 33.128 6.2.5.3)
 
-**Date:** 2026-10-13. **Status:** Proposed -- option 1 chosen, blocked on missing specs (TS 24.011, TS 23.040, TS 29.002); no code written.
+**Date:** 2026-10-13. **Status:** Accepted -- option 1; increments 1-4 built (MO and MT SMS over NAS, SBI path). MAP MT-FORWARD-SHORT-MESSAGE not built.
 
 **Context.** The LI plan (ADR-0364) step 7 continues with the SMSF, next after the UDM (ADR-0475).
 TS 33.128 6.2.5.2/6.2.5.3 names exactly two xIRI record types the SMSF's IRI-POI generates:
@@ -117,3 +117,63 @@ after idle relies on its own count handling (same as after a PDU session). Verif
 `AmfSmsRegistration.MoSmsRoundTripsThroughAmfAndSmsf` -- a test UE's CP-DATA/RP-DATA/SMS-SUBMIT goes
 through the real AMF to the real SMSF, and the CP-ACK (DL COUNT 2) and CP-DATA/RP-ERROR (DL COUNT 3,
 same RP-MR) come back MAC-verified and deciphered with the UE's own keys.
+
+**Increment 4 (2026-10-14) -- MT SMS over NAS, SBI path.** TS 23.540 (j20), TS 29.540 (j60), TS
+29.577 (j40) and TS 29.579 (j40) fetched into `specs/3gpp/`. The REL-19 YAML already defines the
+MT operation: `SendMtSMS` (`POST .../ue-contexts/{supi}/send-mt-sms`, SmsData / SmsDeliveryData from
+TS29577) is the stage-3 form of Nsmsf_SMService_MtForwardSm (TS 23.540 6.4.2.2, consumers SMS-GMSC,
+SMS Router, IP-SM-GW). That is the path built; MAP MT-FORWARD-SHORT-MESSAGE (TS 29.002) is NOT --
+TS 23.540 5.1.2 step 5 makes the SBI operation the alternative to MAP/Diameter for an SMSF that
+supports SMS_SBI, and this SMSF has no SS7/MAP interface.
+
+Procedure (TS 23.502 4.13.3.6 steps 4-7, 4.13.3.7; TS 23.540 5.1.2 / 5.1.5), `nfs/smsf/src/mt_sms.*`:
+SendMtSMS validates the payload, calls Namf_MT_EnableUEReachability (step 4), sends the CP-DATA to the
+UE via N1N2MessageTransfer (5a), takes the UE's CP-ACK (5c) and CP-DATA(RP-ACK/RP-ERROR) (6a) from
+UplinkSMS (an uplink on a network-originated TI -- TI flag 1 -- goes to the MT transaction, not the
+MO path), sends the closing CP-ACK with lastMsgIndication (6c), and answers 200 with the delivery
+report (step 7). AMF: `ue-reachind` now reports REACHABLE only for a UE with a live NGAP association
+(CM-CONNECTED, 4.13.3.7) and UNREACHABLE otherwise; it used to echo the request back.
+`AmfMtIntegration.EnableUeReachability404ThenRealAck` became `...404ThenUnreachableWithoutNgap` (its
+UE context is SBI-created, with no NGAP).
+
+Disclosed interpretations (no clause states them; open for review):
+1. **Payload layer.** TS 29.540 6.1.6.4.2 (same text in 29.577/29.579) only says the vnd.3gpp.sms part
+   "may encode e.g. CP-DATA, CP-ACK, CP-ERROR". The request is taken as CP-DATA(RP-DATA network->MS
+   [SMS-DELIVER or SMS-STATUS-REPORT]); anything else is 400 SMS_PAYLOAD_ERROR. The RP-DATA (RP-MR,
+   RP-OA = SC address, TPDU) is relayed to the UE as received; only the CM-layer TI is the SMSF's own.
+   The delivery report is CP-DATA in the reply direction of the request's TI, carrying the UE's
+   RP-ACK/RP-ERROR unchanged.
+2. **Errors.** No Nsmsf/Nipsmgw/Nrouter application error covers "UE not reachable" or "no delivery
+   report" (TS 23.540 5.1.5 step 7 only says "with error cause"), so those are 504 ProblemDetails with
+   NO `cause`, never an invented value. A UE RP-ERROR (e.g. #22 memory capacity exceeded) is a
+   delivery report and returns 200 with that RP-ERROR -- the GMSC gets the real RP-Cause rather than a
+   status code that cannot carry it. CONTEXT_NOT_FOUND / SMS_PAYLOAD_MISSING / SMS_PAYLOAD_ERROR are
+   now sent as ProblemDetails.cause; over `mt_sms.max_concurrent` is 503 NF_CONGESTION (TS 29.500).
+3. **TR1N.** TS 24.011 clause 10 fixes TR1M (35-45 s) for the MS but no network value; TR1N is
+   `config/smsf.json` `mt_sms.tr1n_seconds` (40). TC1* CP-DATA retransmission is not implemented.
+4. **One MT transfer per UE at a time** (TS 24.011 3.2, "parallel message transfer in the same
+   direction is prohibited"): a second waits for the first within its own TR1N.
+5. **LI.** TS 33.128 6.2.5.3 names MAP MT-FORWARD-SHORT-MESSAGE Request/Response as the MT triggers;
+   they are taken from MtForwardSm, its SBI equivalent. SMSMessage (toTarget, originating sMSAddress =
+   TP-OA / TP-RA octets per NOTE 2, terminating = the target's SUPI/PEI/GPSI, otherMessage from
+   TP-MMS per NOTE 6, redactedSMSTPDU for an SMS-DELIVER under TruncateTPUserData) is generated once
+   the outcome is known, because NOTE 5's linkTransferStatus is whether the SMSF sends the response
+   carrying the SMS-DELIVER-REPORT; a failed attempt still yields one (transferFailed), a 503
+   (no attempt) does not. SMSReport (deliverReportAck/Error, the UE's SMS-DELIVER-REPORT, location from
+   the carrying UplinkSMS per NOTE 7) is sent with the 200; an RP-ACK without RP-User-data has no
+   TPDU and yields no SMSReport (sMSTPDUData is mandatory, never fabricated).
+
+Disclosed limits: the SBI server has no deferred-response API, so each MT SMS in flight holds one
+SMSF server thread for up to TR1N (capped by `max_concurrent`, default 4); no paging, so a CM-IDLE UE
+fails at step 4; no SMS management subscription data check (step 4's first sentence); the AMF is
+`amf_base_url`, not UeSmsContextData.amfId; nothing in the project is an SMS-GMSC, SMS Router or
+IP-SM-GW, and no Nudm_UECM_SendRoutingInfoForSM / Nudm_ReportSMDeliveryStatus consumer exists, so
+SendMtSMS is driven only by tests; peerNFAddress/peerNFType are not reported (the consumer type is
+not signalled); MT over non-3GPP access (4.13.3.8) is not built.
+
+Verified: 2 `SmsTp.Mt*` decoder tests and 7 `SmsfMtSms` tests (payload parsing, TI handling, success,
+RP-ERROR, AMF refusal / CP-ERROR / TR1N failures, TI rotation, congestion and per-UE serialisation);
+`AmfSmsRegistration.MtSmsRoundTripsThroughSmsfAndAmf` (test as SMS-GMSC; real SMSF + AMF; the UE
+deciphers the MT CP-DATA with its own keys, answers, gets the closing CP-ACK, and the GMSC's 200
+carries the UE's RP-ACK under its own TI) and `...MtSmsToAUeWithNoNgapAssociationFails` (504, no
+cause; 400 SMS_PAYLOAD_ERROR); `LiSmsfEndToEnd.MtSmsToATargetReportsSmsMessageAndSmsReport`.

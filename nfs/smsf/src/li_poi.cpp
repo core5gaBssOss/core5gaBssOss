@@ -160,7 +160,33 @@ std::optional<xiri::SmsMessageType> message_type(sms_core::RpMti rp, sms_core::T
     if (rp == RpMti::ErrorNetworkToMs && tp == TpduType::SubmitReport) {
         return xiri::SmsMessageType::SubmitReportError;
     }
+    if (rp == RpMti::DataNetworkToMs && tp == TpduType::Deliver) {
+        return xiri::SmsMessageType::Deliver;
+    }
+    if (rp == RpMti::DataNetworkToMs && tp == TpduType::StatusReport) {
+        return xiri::SmsMessageType::StatusReport;
+    }
+    if (rp == RpMti::AckMsToNetwork && tp == TpduType::DeliverReport) {
+        return xiri::SmsMessageType::DeliverReportAck;
+    }
+    if (rp == RpMti::ErrorMsToNetwork && tp == TpduType::DeliverReport) {
+        return xiri::SmsMessageType::DeliverReportError;
+    }
     return std::nullopt;
+}
+
+// The TP-MTI is direction-dependent (TS 23.040 clause 9.2.3.1); the RP MTI says which way.
+sms_core::Direction tpdu_direction(sms_core::RpMti rp) {
+    using sms_core::RpMti;
+    switch (rp) {
+        case RpMti::DataMsToNetwork:
+        case RpMti::AckMsToNetwork:
+        case RpMti::ErrorMsToNetwork:
+        case RpMti::SmmaMsToNetwork:
+            return sms_core::Direction::MsToSc;
+        default:
+            return sms_core::Direction::ScToMs;
+    }
 }
 
 } // namespace
@@ -278,8 +304,66 @@ SmsfLiPoi::report_mo_sms_message(const LiIdentities& ids,
     return reported;
 }
 
+std::vector<li_poi::Match> SmsfLiPoi::report_mt_sms_message(const LiIdentities& ids,
+                                                            const sms_core::RpMessage& rp_data,
+                                                            const sms_core::MtTpdu& tpdu,
+                                                            bool transfer_succeeded) {
+    auto found = impl_->matches(ids);
+    if (found.empty() || !rp_data.user_data) {
+        return {};
+    }
+    xiri::SmsMessage rec;
+    // NOTE 2: for SMS-MT the originating party comes from TP-OA (SMS-DELIVER) or TP-RA
+    // (SMS-STATUS-REPORT) -- not a SUPI/PEI/GPSI, so sMSAddress carries the field's octets.
+    if (tpdu.originating) {
+        rec.originating_party.sms_address = tpdu.originating->raw;
+    } else if (tpdu.recipient) {
+        rec.originating_party.sms_address = tpdu.recipient->raw;
+    }
+    // NOTE 3: the terminating party is the UE the SMSF sends the CP-DATA_RP-DATA to.
+    rec.terminating_party.supi = to_xiri_supi(ids.supi);
+    rec.terminating_party.pei = to_xiri_pei(ids.pei);
+    rec.terminating_party.gpsi = to_xiri_gpsi(ids.gpsi);
+    rec.direction = xiri::SmsDirection::ToTarget; // NOTE 4: terminated to the target UE
+    // NOTE 5 (SMS-MT): transferSucceeded when the SMSF sends the response carrying the
+    // SMS-DELIVER-REPORT to the SMS-GMSC, transferFailed otherwise.
+    rec.link_transfer_status = transfer_succeeded ? xiri::SmsTransferStatus::TransferSucceeded
+                                                  : xiri::SmsTransferStatus::TransferFailed;
+    // NOTE 6: otherMessage from TP-MMS of the TPDU sent to the UE.
+    rec.other_message = tpdu.more_messages_to_send;
+    rec.message_type = message_type(rp_data.mti, tpdu.type);
+    rec.rp_message_reference = rp_data.message_reference;
+
+    std::vector<li_poi::Match> reported;
+    for (const auto& m : found) {
+        const auto task = impl_->runtime.task(m.xid);
+        if (!task) {
+            continue;
+        }
+        xiri::SmsTpduData data{false, *rp_data.user_data};
+        // Clause 6.2.5.3: TruncateTPUserData -> redactedSMSTPDU for SMS-DELIVER (an
+        // SMS-STATUS-REPORT keeps the sMSTPDU choice -- the clause names SUBMIT and DELIVER only).
+        if (task->truncate_tp_user_data && tpdu.type == sms_core::TpduType::Deliver) {
+            auto redacted = sms_core::redact_tpdu(*rp_data.user_data, sms_core::Direction::ScToMs);
+            if (!redacted) {
+                spdlog::error("smsf-li-poi: task {} requires TP-UD redaction but the TPDU could "
+                              "not be redacted ({}) -- SMSMessage withheld",
+                              m.xid,
+                              redacted.error());
+                continue;
+            }
+            data = xiri::SmsTpduData{true, *redacted};
+        }
+        rec.tpdu_data = data;
+        impl_->emit(m, rec, li_core::PayloadDirection::ToTarget, "SMSMessage");
+        reported.push_back(m);
+    }
+    return reported;
+}
+
 void SmsfLiPoi::report_sms_report(const std::vector<li_poi::Match>& matches,
-                                  const sms_core::RpMessage& rp_reply) {
+                                  const sms_core::RpMessage& rp_reply,
+                                  const std::optional<nlohmann::json>& ue_location) {
     if (matches.empty()) {
         return;
     }
@@ -288,20 +372,27 @@ void SmsfLiPoi::report_sms_report(const std::vector<li_poi::Match>& matches,
                      "skipped, not fabricated");
         return;
     }
-    const auto tp = sms_core::classify_tpdu((*rp_reply.user_data)[0], sms_core::Direction::ScToMs);
+    const auto tp = sms_core::classify_tpdu((*rp_reply.user_data)[0], tpdu_direction(rp_reply.mti));
     const auto type = message_type(rp_reply.mti, tp);
     if (!type) {
-        spdlog::warn("smsf-li-poi: RP reply is not an RP-ACK/RP-ERROR [SMS-SUBMIT-REPORT] -- "
-                     "SMSReport skipped");
+        spdlog::warn("smsf-li-poi: RP reply is not an RP-ACK/RP-ERROR [SMS-SUBMIT-REPORT / "
+                     "SMS-DELIVER-REPORT] -- SMSReport skipped");
         return;
     }
     xiri::SmsReport rec;
+    if (ue_location) {
+        rec.location = location_from(*ue_location);
+    }
     // Table 6.2.5.3-3: "The sMSTPDUData.sMSTPDU field shall always be used for SMSReport records".
     rec.tpdu_data = xiri::SmsTpduData{false, *rp_reply.user_data};
     rec.message_type = *type;
     rec.rp_message_reference = rp_reply.message_reference;
+    // The MO reply goes to the target UE; the MT delivery report comes from it.
+    const auto direction = tpdu_direction(rp_reply.mti) == sms_core::Direction::MsToSc
+                               ? li_core::PayloadDirection::FromTarget
+                               : li_core::PayloadDirection::ToTarget;
     for (const auto& m : matches) {
-        impl_->emit(m, rec, li_core::PayloadDirection::ToTarget, "SMSReport");
+        impl_->emit(m, rec, direction, "SMSReport");
     }
 }
 
