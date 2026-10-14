@@ -195,9 +195,10 @@ public:
                boost::asio::ip::tcp::socket socket,
                boost::asio::ssl::context& ssl_ctx,
                const std::vector<Route>& routes,
-               TokenBucket* rate_limit)
+               TokenBucket* rate_limit,
+               const std::vector<TlsExport>& exporters)
         : ioc_(ioc), socket_(std::move(socket), ssl_ctx), strand_(ioc.get_executor()),
-          routes_(routes), rate_limit_(rate_limit) {}
+          routes_(routes), rate_limit_(rate_limit), exporters_(exporters) {}
 
     ~Connection() {
         if (session_ != nullptr) {
@@ -223,6 +224,23 @@ private:
     // Reads the verified peer certificate once per connection (every stream on it shares the same
     // TLS identity). verify_fail_if_no_peer_cert means a completed handshake always has one.
     void capture_peer_identity() {
+        // ADR-0493: exported keying material (empty context: use_context=1 with a zero-length
+        // context, the RFC 8446 7.5 / RFC 5705 meaning of "the empty string").
+        for (const auto& e : exporters_) {
+            std::vector<std::uint8_t> out(e.length);
+            if (SSL_export_keying_material(socket_.native_handle(),
+                                           out.data(),
+                                           out.size(),
+                                           e.label.data(),
+                                           e.label.size(),
+                                           nullptr,
+                                           0,
+                                           1) == 1) {
+                tls_exports_.emplace(e.label, std::move(out));
+            } else {
+                spdlog::warn("sbi-core: TLS exporter '{}' failed", e.label);
+            }
+        }
         boost::system::error_code ep_ec;
         const auto ep = socket_.lowest_layer().remote_endpoint(ep_ec);
         if (!ep_ec) {
@@ -409,6 +427,7 @@ private:
         req->peer_cert_cn = peer_cert_cn_;
         req->peer_address = peer_address_;
         req->peer_cert_dns_names = peer_cert_dns_names_;
+        req->tls_exports = tls_exports_;
 
         const auto path_only = ctx.path.substr(0, ctx.path.find('?'));
         const auto segments = split_path(path_only);
@@ -695,6 +714,8 @@ private:
     std::string peer_cert_cn_;
     std::string peer_address_;
     std::vector<std::string> peer_cert_dns_names_;
+    const std::vector<TlsExport>& exporters_;
+    std::map<std::string, std::vector<std::uint8_t>> tls_exports_;
     std::unordered_map<std::int32_t, StreamContext> streams_;
 };
 
@@ -769,6 +790,8 @@ public:
         routes_.push_back(Route{std::move(method), split_path(path_pattern), std::move(handler)});
     }
 
+    void set_tls_exporters(std::vector<TlsExport> exporters) { exporters_ = std::move(exporters); }
+
     void start() { do_accept(); }
 
     unsigned short local_port() const { return acceptor_.local_endpoint().port(); }
@@ -797,7 +820,7 @@ private:
                         spdlog::warn("sbi: could not set TCP_NODELAY: {}", nodelay_ec.message());
                     }
                     auto conn = std::make_shared<Connection>(
-                        ioc_, std::move(socket), ssl_ctx_, routes_, rate_limit_.get());
+                        ioc_, std::move(socket), ssl_ctx_, routes_, rate_limit_.get(), exporters_);
                     conn->start();
                 }
                 do_accept();
@@ -808,6 +831,7 @@ private:
     boost::asio::ip::tcp::acceptor acceptor_;
     boost::asio::ssl::context ssl_ctx_;
     std::vector<Route> routes_;
+    std::vector<TlsExport> exporters_;
     std::unique_ptr<TokenBucket> rate_limit_;
 
 public:
@@ -838,6 +862,10 @@ void Server::set_tps_limit(double sustained_tps, double burst_capacity) {
 
 std::uint64_t Server::shed_count() const {
     return impl_->shed_count();
+}
+
+void Server::set_tls_exporters(std::vector<TlsExport> exporters) {
+    impl_->set_tls_exporters(std::move(exporters));
 }
 
 void Server::add_route(std::string method, std::string path_pattern, Handler handler) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -41,6 +42,7 @@ struct PeerConfig {
 
 // One N32-c context with TLS security negotiated.
 struct Context {
+    std::string security = "TLS"; // the negotiated SecurityCapability: "TLS" or "PRINS"
     std::string peer_fqdn;
     std::string peer_domain; // the peer PLMN's Home Network Domain
     std::string n32_api_root;
@@ -72,6 +74,12 @@ struct NegotiationPolicy {
     std::string own_mnc;
     std::vector<std::string> allowed_purposes;
     std::vector<PeerConfig> peers;
+    // Local preference order (5.2.2 "selects, based on its local policy"); offered as-is.
+    std::vector<std::string> security_capabilities = {"TLS"};
+    // TS 33.210 6.3.2: A128GCM shall, A256GCM should be supported; JWS ES256 only (13.2.4.9).
+    std::vector<std::string> jwe_cipher_suites = {"A128GCM", "A256GCM"};
+    std::vector<std::string> jws_cipher_suites = {"ES256"};
+    sbi_gen::ProtectionPolicy protection_policy; // this SEPP's, sent in 5.2.3.3
 };
 
 // What the responding SEPP answers to an exchange-capability request (TS 29.573 5.2.2 step 2a/2b,
@@ -113,6 +121,78 @@ std::optional<Context> correlate(const std::vector<Context>& contexts,
                                  const std::string& via,
                                  const std::optional<std::string>& handshake_id,
                                  const std::optional<std::string>& purpose);
+
+// ---- PRINS: parameter exchange and the N32-f context (TS 29.573 5.2.3, TS 33.501 13.2.2;
+// ADR-0493)
+// ----------------------------------------------------------------------------------------
+
+// TS 33.501 13.2.4.4.1: label of the TLS exporter giving the 64-octet N32-f master key.
+inline constexpr const char* kN32MasterExporterLabel = "EXPORTER_3GPP_N32_MASTER";
+inline constexpr std::size_t kN32MasterKeyLength = 64;
+
+struct PrinsContext {
+    std::string peer_fqdn;
+    std::string local_id;   // the n32fContextId this SEPP issued (the peer uses it towards us)
+    std::string peer_id;    // the n32fContextId the peer issued (we use it towards the peer)
+    bool initiator = false; // this SEPP initiated the N32-c connection (the "parallel" side)
+    std::string jwe_cipher;
+    std::optional<std::string> jws_cipher;
+    std::vector<std::uint8_t> master_key;
+    std::optional<sbi_gen::ProtectionPolicy> peer_policy;     // what the peer sent (5.2.3.3)
+    std::optional<sbi_gen::ProtectionPolicy> selected_policy; // what the responder selected
+};
+
+class PrinsStore {
+public:
+    void put(PrinsContext c);
+    std::optional<PrinsContext> by_peer(const std::string& peer_fqdn) const;
+    std::optional<PrinsContext> by_local_id(const std::string& id) const;
+    bool erase_local_id(const std::string& id);
+    std::vector<PrinsContext> all() const;
+    void set_outgoing(const std::string& peer_fqdn, bool in_progress);
+    bool outgoing(const std::string& peer_fqdn) const;
+
+private:
+    mutable std::mutex mutex_;
+    std::vector<PrinsContext> contexts_;
+    std::set<std::string> outgoing_;
+};
+
+// A random n32fContextId ('^[A-Fa-f0-9]{16}$'; TS 33.501 13.2.2.4.1: "a random value").
+std::string random_n32f_context_id();
+
+// RFC 5869 HKDF-Expand (SHA-256), as N32-KDF uses it.
+std::vector<std::uint8_t>
+hkdf_expand(const std::vector<std::uint8_t>& prk, const std::string& info, std::size_t length);
+
+// TS 33.501 13.2.4.4.1: N32-KDF(label, L) = HKDF-Expand(master, "N32" || N32-Context-ID || label,
+// L).
+std::vector<std::uint8_t> n32_kdf(const std::vector<std::uint8_t>& master_key,
+                                  const std::string& n32f_context_id,
+                                  const std::string& label,
+                                  std::size_t length);
+
+// A short non-reversible fingerprint of the master key, logged by both SEPPs so key agreement can
+// be confirmed without the key ever being logged.
+std::string key_fingerprint(const std::vector<std::uint8_t>& key);
+
+struct ParamDecision {
+    int status = 200;
+    std::optional<sbi_gen::SecParamExchRspData> response;
+    std::optional<std::string> cause;
+    std::string detail;
+    std::optional<PrinsContext> context; // to store
+};
+
+// The responding SEPP's answer to exchange-params (5.2.3.2 cipher suites / 5.2.3.3 protection
+// policy). `capability` is the N32-c context with that peer, `existing` its PRINS context if any,
+// `master_key` the exporter output of the TLS connection the request arrived on.
+ParamDecision exchange_params(const NegotiationPolicy& policy,
+                              const std::optional<Context>& capability,
+                              const std::optional<PrinsContext>& existing,
+                              const sbi_gen::SecParamExchReqData& request,
+                              const std::optional<std::vector<std::uint8_t>>& master_key,
+                              bool outgoing_in_progress);
 
 // ---- Telescopic FQDN (TS 23.003 28.5.2, TS 29.573 5.4, TS 29.500 6.1.4.3.2; ADR-0492) ----------
 

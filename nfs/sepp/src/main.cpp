@@ -7,8 +7,9 @@
 //
 //   N32-c  {apiRoot}/n32c-handshake/v1/exchange-capability  5.2.2 Security Capability Negotiation
 //                                                          (TLS; NONE tears the context down)
-//          {apiRoot}/n32c-handshake/v1/n32f-terminate      5.2.4 (no n32fContextId exists under
-//                                                          TLS -- always 404, see below)
+//          {apiRoot}/n32c-handshake/v1/exchange-params     5.2.3 PRINS parameter exchange
+//                                                          (cipher suites, protection policy)
+//          {apiRoot}/n32c-handshake/v1/n32f-terminate      5.2.4 (PRINS N32-f contexts)
 //          {apiRoot}/n32c-handshake/v1/n32f-error          5.2.5 (logged, 204)
 //   N32-f  any other path on the N32 port                  5.3.3 forwarding with TLS security
 //   NF side any path on the SBI port                       6.1.4.3.3: an NF in this PLMN sends the
@@ -20,10 +21,10 @@
 // TLS 1.3 + mTLS (the N32-c "end to end TLS" of 5.2.1 is the N32 port's TLS).
 //
 // DISCLOSED, not hidden:
-//   * TLS security only. PRINS (5.2.3 parameter exchange, 5.3.2 JOSE-protected forwarding) is not
-//     built: an offer of PRINS alone is refused 403 NEGOTIATION_NOT_ALLOWED; exchange-params is
-//     answered the same way. Hence no n32fContextId ever exists, and n32f-terminate always
-//     answers 404.
+//   * PRINS (ADR-0493): selectable in 5.2.2 by `security_capabilities`; 5.2.3 cipher suites with
+//     the N32-f master key exported from the TLS connection carrying the request, and the
+//     protection policy exchange; 5.2.4 termination. JOSE-protected forwarding (5.3.2) is NOT built
+//     yet: traffic towards a PRINS peer gets 504. No RI security information, no security profiles.
 //   * N32-f always carries 3gpp-Sbi-Target-apiRoot (both SEPPs indicate support -- this one
 //     always does); forwarding to a peer that does not support the header (the target URI itself
 //     on N32-f) is not built. Telescopic FQDNs (ADR-0492): served; only the Location header of a
@@ -296,6 +297,13 @@ int main() {
     policy.own_mcc = nf_config::require<std::string>(config, "mcc", "SEPP_MCC");
     policy.own_mnc = nf_config::require<std::string>(config, "mnc", "SEPP_MNC");
     policy.allowed_purposes = config.at("allowed_purposes").get<std::vector<std::string>>();
+    if (config.contains("security_capabilities")) {
+        policy.security_capabilities =
+            config.at("security_capabilities").get<std::vector<std::string>>();
+    }
+    if (config.contains("protection_policy")) {
+        policy.protection_policy = config.at("protection_policy").get<sbi_gen::ProtectionPolicy>();
+    }
     for (const auto& p : config.at("peers")) {
         policy.peers.push_back(sepp::PeerConfig{lower(p.at("fqdn").get<std::string>()),
                                                 p.at("mcc").get<std::string>(),
@@ -331,6 +339,10 @@ int main() {
     boost::asio::io_context ioc;
     http2::Server sbi(ioc, bind, port, sepp_tls());
     http2::Server n32(ioc, bind, n32_port, sepp_tls());
+    // ADR-0493: every N32-c connection exports the N32-f master key candidate (TS 33.501
+    // 13.2.4.4.1); exchange-params uses the one of the connection it arrived on.
+    n32.set_tls_exporters({{sepp::kN32MasterExporterLabel, sepp::kN32MasterKeyLength}});
+    sepp::PrinsStore prins;
 
     // ---- N32-c (TS 29.573 6.1) ----------------------------------------------------------------
     n32.add_route(
@@ -369,14 +381,60 @@ int main() {
             }
             return http2::Response::json(200, json(*d.response).dump());
         });
+    // 5.2.3 Parameter Exchange (PRINS only; ADR-0493).
     n32.add_route(
-        "POST", std::string(kHandshakeRoot) + "/exchange-params", [&](const http2::Request&) {
-            return problem(403,
-                           "Forbidden",
-                           "parameter exchange applies to PRINS, which this SEPP does "
-                           "not support (TLS security only)",
-                           "NEGOTIATION_NOT_ALLOWED",
-                           policy.own_fqdn);
+        "POST", std::string(kHandshakeRoot) + "/exchange-params", [&](const http2::Request& req) {
+            sbi_gen::SecParamExchReqData body;
+            try {
+                body = json::parse(req.body).get<sbi_gen::SecParamExchReqData>();
+            } catch (const std::exception& e) {
+                return problem(400, "Bad Request", e.what(), "INVALID_MSG_FORMAT", policy.own_fqdn);
+            }
+            // The peer: the sender IE, else the one N32-c context this certificate names.
+            std::optional<sepp::Context> capability;
+            if (body.sender) {
+                capability = contexts.by_peer(lower(*body.sender));
+            } else {
+                capability = sepp::correlate(contexts.all(),
+                                             req.peer_cert_dns_names,
+                                             header(req, "via").value_or(""),
+                                             std::nullopt,
+                                             std::nullopt);
+            }
+            std::optional<std::vector<std::uint8_t>> master;
+            if (const auto it = req.tls_exports.find(sepp::kN32MasterExporterLabel);
+                it != req.tls_exports.end()) {
+                master = it->second;
+            }
+            const auto peer_fqdn = capability ? capability->peer_fqdn : std::string{};
+            const auto d = sepp::exchange_params(policy,
+                                                 capability,
+                                                 prins.by_peer(peer_fqdn),
+                                                 body,
+                                                 master,
+                                                 prins.outgoing(peer_fqdn));
+            if (!d.response) {
+                spdlog::warn(
+                    "sepp: exchange-params refused: {} ({})", d.cause.value_or(""), d.detail);
+                return problem(d.status,
+                               d.status == 400   ? "Bad Request"
+                               : d.status == 409 ? "Conflict"
+                               : d.status == 500 ? "Internal Server Error"
+                                                 : "Forbidden",
+                               d.detail,
+                               d.cause,
+                               policy.own_fqdn);
+            }
+            if (d.context) {
+                prins.put(*d.context);
+                spdlog::info("sepp: PRINS N32-f context with {}: local {} peer {} {} master {}",
+                             d.context->peer_fqdn,
+                             d.context->local_id,
+                             d.context->peer_id,
+                             d.context->jwe_cipher,
+                             sepp::key_fingerprint(d.context->master_key));
+            }
+            return http2::Response::json(200, json(*d.response).dump());
         });
     n32.add_route(
         "POST", std::string(kHandshakeRoot) + "/n32f-terminate", [&](const http2::Request& req) {
@@ -386,13 +444,24 @@ int main() {
             } catch (const std::exception& e) {
                 return problem(400, "Bad Request", e.what(), "INVALID_MSG_FORMAT", policy.own_fqdn);
             }
-            // n32fContextIds come from the PRINS parameter exchange only (5.2.3/5.2.4).
-            return problem(404,
-                           "Not Found",
-                           "no N32-f context " + body.n32fContextId +
-                               " (this SEPP negotiates TLS security, which has none)",
-                           std::nullopt,
-                           policy.own_fqdn);
+            // 5.2.4: the request names the context this SEPP issued; the answer carries the
+            // initiating SEPP's id this SEPP stored.
+            const auto ctx = prins.by_local_id(body.n32fContextId);
+            if (!ctx) {
+                return problem(404,
+                               "Not Found",
+                               "no N32-f context " + body.n32fContextId,
+                               "CONTEXT_NOT_FOUND",
+                               policy.own_fqdn);
+            }
+            prins.erase_local_id(ctx->local_id);
+            contexts.erase(ctx->peer_fqdn);
+            spdlog::info("sepp: PRINS N32-f context {} with {} terminated by the peer",
+                         ctx->local_id,
+                         ctx->peer_fqdn);
+            sbi_gen::N32fContextInfo out;
+            out.n32fContextId = ctx->peer_id;
+            return http2::Response::json(200, json(out).dump());
         });
     n32.add_route(
         "POST", std::string(kHandshakeRoot) + "/n32f-error", [&](const http2::Request& req) {
@@ -414,7 +483,14 @@ int main() {
     // ---- N32-f, receiving SEPP (5.3.3, TS 29.500 6.1.4.3.4) ----------------------------------
     n32.add_route("*", "/**", [&](const http2::Request& req) {
         const auto via = header(req, "via").value_or("");
-        const auto ctx = sepp::correlate(contexts.all(),
+        std::vector<sepp::Context> tls_contexts;
+        for (auto& c : contexts.all()) {
+            if (c.security == "TLS") {
+                tls_contexts.push_back(std::move(c));
+            }
+        }
+        // Plain forwarding exists only for TLS security; PRINS uses the JOSE API (5.3.2).
+        const auto ctx = sepp::correlate(tls_contexts,
                                          req.peer_cert_dns_names,
                                          via,
                                          header(req, kHandshakeIdHeader),
@@ -547,6 +623,15 @@ int main() {
                            policy.own_fqdn);
         }
         const auto ctx = contexts.by_domain(*domain);
+        if (ctx && ctx->security != "TLS") {
+            return problem(
+                504,
+                "Gateway Timeout",
+                "PRINS is negotiated with " + *domain +
+                    "; JOSE-protected forwarding (TS 29.573 5.3.2) is the next increment",
+                "TARGET_NF_NOT_REACHABLE",
+                policy.own_fqdn);
+        }
         if (!ctx) {
             return problem(504,
                            "Gateway Timeout",
@@ -609,6 +694,90 @@ int main() {
                            policy.own_mcc,
                            policy.own_mnc,
                            std::cref(running));
+    // 5.2.3 as initiating SEPP: cipher suites (exporting the master key from the connection the
+    // request travels on), then the protection policy exchange. The responder must already hold the
+    // PRINS capability context, so the capability context here is stored only after this succeeds.
+    const auto run_param_exchange = [&](http2::Client& c, const sepp::PeerConfig& peer) -> bool {
+        const std::string url = peer.n32_api_root + kHandshakeRoot + "/exchange-params";
+        sbi_gen::SecParamExchReqData ciphers;
+        ciphers.n32fContextId = sepp::random_n32f_context_id();
+        ciphers.jweCipherSuiteList = policy.jwe_cipher_suites;
+        ciphers.jwsCipherSuiteList = policy.jws_cipher_suites;
+        ciphers.sender = policy.own_fqdn;
+        http2::ClientRequest req;
+        req.method = "POST";
+        req.url = url;
+        req.headers.emplace("content-type", "application/json");
+        req.body = json(ciphers).dump();
+        req.tls_exports = {{sepp::kN32MasterExporterLabel, sepp::kN32MasterKeyLength}};
+        prins.set_outgoing(peer.fqdn, true);
+        const auto r = c.send(req);
+        prins.set_outgoing(peer.fqdn, false);
+        if (!r || r->status != 200) {
+            spdlog::warn("sepp: exchange-params (cipher suites) to {} failed ({})",
+                         peer.fqdn,
+                         r ? std::to_string(r->status) + " " + r->body : r.error());
+            return false;
+        }
+        const auto master = r->tls_exports.find(sepp::kN32MasterExporterLabel);
+        if (master == r->tls_exports.end()) {
+            spdlog::error("sepp: no TLS exporter output for the N32-c connection to {}", peer.fqdn);
+            return false;
+        }
+        sepp::PrinsContext ctx;
+        try {
+            const auto rsp = json::parse(r->body).get<sbi_gen::SecParamExchRspData>();
+            if (!rsp.selectedJweCipherSuite) {
+                spdlog::error("sepp: {} selected no JWE cipher suite", peer.fqdn);
+                return false;
+            }
+            ctx.peer_fqdn = peer.fqdn;
+            ctx.local_id = ciphers.n32fContextId;
+            ctx.peer_id = lower(rsp.n32fContextId);
+            ctx.initiator = true;
+            ctx.jwe_cipher = *rsp.selectedJweCipherSuite;
+            ctx.jws_cipher = rsp.selectedJwsCipherSuite;
+            ctx.master_key = master->second;
+        } catch (const std::exception& e) {
+            spdlog::error("sepp: bad exchange-params response from {}: {}", peer.fqdn, e.what());
+            return false;
+        }
+        // 5.2.3.3 protection policy exchange, on the N32-f context just created.
+        sbi_gen::SecParamExchReqData pol;
+        pol.n32fContextId = ctx.local_id;
+        pol.protectionPolicyInfo = policy.protection_policy;
+        pol.sender = policy.own_fqdn;
+        http2::ClientRequest preq;
+        preq.method = "POST";
+        preq.url = url;
+        preq.headers.emplace("content-type", "application/json");
+        preq.body = json(pol).dump();
+        if (const auto pr = c.send(preq); pr && pr->status == 200) {
+            try {
+                const auto prsp = json::parse(pr->body).get<sbi_gen::SecParamExchRspData>();
+                ctx.selected_policy = prsp.selProtectionPolicyInfo;
+                ctx.peer_policy = prsp.selProtectionPolicyInfo;
+            } catch (const std::exception& e) {
+                spdlog::warn(
+                    "sepp: bad protection policy response from {}: {}", peer.fqdn, e.what());
+            }
+        } else {
+            spdlog::warn(
+                "sepp: protection policy exchange with {} failed ({}); continuing with the "
+                "cipher suite only",
+                peer.fqdn,
+                pr ? std::to_string(pr->status) : pr.error());
+        }
+        prins.put(ctx);
+        spdlog::info("sepp: PRINS N32-f context with {}: local {} peer {} {} master {}",
+                     ctx.peer_fqdn,
+                     ctx.local_id,
+                     ctx.peer_id,
+                     ctx.jwe_cipher,
+                     sepp::key_fingerprint(ctx.master_key));
+        return true;
+    };
+
     std::thread initiator([&] {
         http2::Client c(sepp_tls());
         while (running.load()) {
@@ -634,13 +803,17 @@ int main() {
                 try {
                     const auto rsp = json::parse(r->body).get<sbi_gen::SecNegotiateRspData>();
                     if (const auto ctx = sepp::context_from_response(peer, rsp, id)) {
+                        if (ctx->security == "PRINS" && !run_param_exchange(c, peer)) {
+                            continue; // retried on the next round, capability included
+                        }
                         contexts.put(*ctx);
                         handshakes->Add(1);
-                        spdlog::info("sepp: N32 context with {} (TLS, handshake id {})",
+                        spdlog::info("sepp: N32 context with {} ({}, handshake id {})",
                                      ctx->peer_fqdn,
+                                     ctx->security,
                                      ctx->handshake_id.value_or("-"));
                     } else {
-                        spdlog::error("sepp: {} selected {}, not TLS -- no context",
+                        spdlog::error("sepp: {} selected {} -- no context",
                                       peer.fqdn,
                                       rsp.selectedSecCapability.value);
                     }
@@ -667,9 +840,17 @@ int main() {
             }
             http2::ClientRequest req;
             req.method = "POST";
-            req.url = ctx.n32_api_root + kHandshakeRoot + "/exchange-capability";
             req.headers.emplace("content-type", "application/json");
-            req.body = json(sepp::make_request(policy, *peer, ctx.handshake_id, true)).dump();
+            if (const auto p = prins.by_peer(ctx.peer_fqdn); ctx.security == "PRINS" && p) {
+                // 5.2.4: name the context the peer issued.
+                sbi_gen::N32fContextInfo info;
+                info.n32fContextId = p->peer_id;
+                req.url = ctx.n32_api_root + kHandshakeRoot + "/n32f-terminate";
+                req.body = json(info).dump();
+            } else {
+                req.url = ctx.n32_api_root + kHandshakeRoot + "/exchange-capability";
+                req.body = json(sepp::make_request(policy, *peer, ctx.handshake_id, true)).dump();
+            }
             (void)c.send(req);
         }
     });

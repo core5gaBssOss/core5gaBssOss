@@ -1,6 +1,7 @@
 #include "sbi_core/http2_client.hpp"
 
 #include <curl/curl.h>
+#include <openssl/ssl.h>
 
 #include <cstdlib>
 #include <mutex>
@@ -44,6 +45,34 @@ std::size_t write_header_callback(char* ptr, std::size_t size, std::size_t nmemb
         headers->emplace(std::move(name), std::move(value));
     }
     return size * nmemb;
+}
+
+struct ExportJob {
+    CURL* curl;
+    const std::vector<std::pair<std::string, std::size_t>>* wanted;
+    std::map<std::string, std::vector<std::uint8_t>>* out;
+};
+
+int prereq_export_callback(void* clientp,
+                           char* /*conn_primary_ip*/,
+                           char* /*conn_local_ip*/,
+                           int /*primary*/,
+                           int /*local*/) {
+    auto* job = static_cast<ExportJob*>(clientp);
+    curl_tlssessioninfo* info = nullptr;
+    if (curl_easy_getinfo(job->curl, CURLINFO_TLS_SSL_PTR, &info) != CURLE_OK || info == nullptr ||
+        info->backend != CURLSSLBACKEND_OPENSSL || info->internals == nullptr) {
+        return CURL_PREREQFUNC_OK; // no export: the caller sees an empty tls_exports
+    }
+    auto* ssl = static_cast<SSL*>(info->internals);
+    for (const auto& [label, length] : *job->wanted) {
+        std::vector<std::uint8_t> bytes(length);
+        if (SSL_export_keying_material(
+                ssl, bytes.data(), bytes.size(), label.data(), label.size(), nullptr, 0, 1) == 1) {
+            (*job->out)[label] = std::move(bytes);
+        }
+    }
+    return CURL_PREREQFUNC_OK;
 }
 
 } // namespace
@@ -161,6 +190,15 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, write_header_callback);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response.headers);
+
+    // ADR-0493: keying material from the TLS session this request actually travels on. Taken in
+    // the pre-request callback -- the connection is up and its TLS session live -- because after
+    // the transfer curl no longer reliably exposes the session of a cached HTTP/2 connection.
+    ExportJob export_job{curl, &request.tls_exports, &response.tls_exports};
+    if (!request.tls_exports.empty()) {
+        curl_easy_setopt(curl, CURLOPT_PREREQFUNCTION, &prereq_export_callback);
+        curl_easy_setopt(curl, CURLOPT_PREREQDATA, &export_job);
+    }
 
     const CURLcode res = curl_easy_perform(curl);
 

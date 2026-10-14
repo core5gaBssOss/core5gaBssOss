@@ -5,6 +5,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -56,6 +57,16 @@ struct Request {
     // The TCP peer's IP address (ADR-0423: the operator GUI's audit trail records "from where").
     // Empty if the socket could not report it.
     std::string peer_address;
+    // TLS keying material exported from this connection's session (RFC 8446 7.5 / RFC 5705), one
+    // entry per label registered with Server::set_tls_exporters; empty otherwise. ADR-0493: the
+    // SEPP's N32-f master key ("EXPORTER_3GPP_N32_MASTER", TS 33.501 13.2.4.4.1).
+    std::map<std::string, std::vector<std::uint8_t>> tls_exports;
+};
+
+// A TLS exporter to run on every accepted connection: label, empty context, `length` octets.
+struct TlsExport {
+    std::string label;
+    std::size_t length = 0;
 };
 
 struct Response {
@@ -102,6 +113,10 @@ public:
     // Not called, or called with sustained_tps <= 0, means no ceiling: every NF that has not
     // opted in behaves exactly as it did before.
     void set_tps_limit(double sustained_tps, double burst_capacity);
+
+    // Keying material to export from every connection's TLS session once its handshake completes,
+    // handed to handlers as Request::tls_exports (ADR-0493). Call before start().
+    void set_tls_exporters(std::vector<TlsExport> exporters);
 
     // Requests shed by the limit above. 0 when no limit is set.
     std::uint64_t shed_count() const;
