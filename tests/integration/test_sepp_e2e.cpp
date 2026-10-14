@@ -11,6 +11,9 @@
 
 #include <chrono>
 #include <fstream>
+#include <iterator>
+#include <memory>
+#include <regex>
 #include <string>
 #include <thread>
 
@@ -36,9 +39,10 @@ sbi_core::http2::TlsConfig tls(const char* nf) {
 }
 
 // PLMN A's SEPP is config/sepp.json as checked in; PLMN B's is derived from it.
-std::string write_config_b() {
+std::string write_config_b(const json& capabilities = json::array({"TLS"})) {
     std::ifstream in(SEPP_CONFIG_TEMPLATE);
     json cfg = json::parse(in);
+    cfg["security_capabilities"] = capabilities;
     cfg["port"] = 7822;
     cfg["n32_port"] = 7823;
     cfg["metrics_bind_address"] = "0.0.0.0:9495";
@@ -202,4 +206,80 @@ TEST(SeppEndToEnd, TelescopicFqdnReachesTheNrfOfPlmnB) {
     ASSERT_TRUE(u.has_value());
     EXPECT_EQ(u->status, 404);
     EXPECT_EQ(json::parse(u->body).value("cause", ""), "RESOURCE_URI_STRUCTURE_NOT_FOUND");
+}
+
+// ADR-0493: with PRINS preferred at both SEPPs, 5.2.2 selects PRINS and 5.2.3 runs: each SEPP
+// exports the N32-f master key from the same N32-c TLS connection (the one carrying the cipher
+// suite exchange) -- the two logged key fingerprints must be equal -- the context ids are swapped
+// between them, and SEPP A's shutdown terminates the context at SEPP B (5.2.4).
+TEST(SeppEndToEnd, PrinsParameterExchangeAgreesOnOneMasterKey) {
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    const std::string log_a = std::string(::testing::TempDir()) + "sepp_a_prins.log";
+    const std::string log_b = std::string(::testing::TempDir()) + "sepp_b_prins.log";
+    std::string cfg_a;
+    {
+        std::ifstream in(SEPP_CONFIG_TEMPLATE);
+        json cfg = json::parse(in);
+        cfg["security_capabilities"] = json::array({"PRINS", "TLS"});
+        cfg_a = std::string(::testing::TempDir()) + "sepp_a_prins.json";
+        std::ofstream(cfg_a) << cfg.dump(2);
+    }
+    const auto cfg_b = write_config_b(json::array({"PRINS", "TLS"}));
+    ::setenv("SEPP_CONFIG_FILE", cfg_b.c_str(), 1);
+    auto sepp_b = std::make_unique<nf_test::SpawnedProcess>(SEPP_PATH, log_b.c_str());
+    ::setenv("SEPP_CONFIG_FILE", cfg_a.c_str(), 1);
+    auto sepp_a = std::make_unique<nf_test::SpawnedProcess>(SEPP_PATH, log_a.c_str());
+    ::unsetenv("SEPP_CONFIG_FILE");
+
+    const auto read = [](const std::string& path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    };
+    // "PRINS N32-f context with <peer>: local <id> peer <id> <cipher> master <fingerprint>"
+    const std::regex line(R"(PRINS N32-f context with (\S+): local ([0-9a-f]{16}) peer )"
+                          R"(([0-9a-f]{16}) (\S+) master ([0-9a-f]{8}))");
+    std::smatch ma;
+    std::smatch mb;
+    std::string a;
+    std::string b;
+    const auto deadline = std::chrono::steady_clock::now() + 30s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        a = read(log_a);
+        b = read(log_b);
+        if (std::regex_search(a, ma, line) && std::regex_search(b, mb, line)) {
+            break;
+        }
+        std::this_thread::sleep_for(200ms);
+    }
+    ASSERT_FALSE(ma.empty()) << a;
+    ASSERT_FALSE(mb.empty()) << b;
+    EXPECT_EQ(ma[1].str(), kSeppB);
+    EXPECT_EQ(mb[1].str(), kSeppA);
+    EXPECT_EQ(ma[2].str(), mb[3].str()); // A's own id is B's peer id
+    EXPECT_EQ(ma[3].str(), mb[2].str()); // and vice versa
+    EXPECT_EQ(ma[4].str(), "A128GCM");
+    EXPECT_EQ(mb[4].str(), "A128GCM");
+    EXPECT_EQ(ma[5].str(), mb[5].str()) << "the two SEPPs exported different master keys";
+    EXPECT_NE(a.find("N32 context with " + std::string(kSeppB) + " (PRINS"), std::string::npos);
+
+    // Forwarding over PRINS is the next increment: refused honestly, not sent in the clear.
+    sbi_core::http2::Client consumer(tls("hello-nf"));
+    sbi_core::http2::ClientRequest req;
+    req.method = "GET";
+    req.url = "https://127.0.0.1:7820/bootstrapping";
+    req.headers.emplace("3gpp-sbi-target-apiroot", kNrfB);
+    const auto r = consumer.send(req);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 504);
+
+    sepp_a.reset(); // SIGTERM: A terminates its PRINS context at B
+    const auto stop_deadline = std::chrono::steady_clock::now() + 10s;
+    while (std::chrono::steady_clock::now() < stop_deadline &&
+           read(log_b).find("terminated by the peer") == std::string::npos) {
+        std::this_thread::sleep_for(200ms);
+    }
+    EXPECT_NE(read(log_b).find("PRINS N32-f context " + mb[2].str() + " with " +
+                               std::string(kSeppA) + " terminated by the peer"),
+              std::string::npos)
+        << read(log_b);
 }

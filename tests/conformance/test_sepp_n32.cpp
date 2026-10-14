@@ -200,3 +200,98 @@ TEST(SeppN32, TelescopicLabelsAreSingleStableLabels) {
     EXPECT_FALSE(sepp::telescopic_label_of_host("a.b." + std::string(kA), kA).has_value());
     EXPECT_FALSE(sepp::telescopic_label_of_host("127.0.0.1", kA).has_value());
 }
+
+// ADR-0493: PRINS parameter exchange and the N32-f key hierarchy.
+namespace {
+std::vector<std::uint8_t> from_hex(const std::string& h) {
+    std::vector<std::uint8_t> out;
+    for (std::size_t i = 0; i + 1 < h.size(); i += 2) {
+        out.push_back(static_cast<std::uint8_t>(std::stoi(h.substr(i, 2), nullptr, 16)));
+    }
+    return out;
+}
+} // namespace
+
+TEST(SeppN32, HkdfExpandMatchesRfc5869TestCase1) {
+    // RFC 5869 A.1: PRK, info and the 42-octet OKM (the Expand step alone).
+    const auto prk = from_hex("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
+    const auto info = from_hex("f0f1f2f3f4f5f6f7f8f9");
+    const auto okm = sepp::hkdf_expand(prk, std::string(info.begin(), info.end()), 42);
+    EXPECT_EQ(okm,
+              from_hex("3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf"
+                       "34007208d5b887185865"));
+    // N32-KDF: the info is "N32" || context id || label; keys differ per label and per context.
+    const std::vector<std::uint8_t> master(64, 0x42);
+    EXPECT_EQ(sepp::n32_kdf(master, "0123456789abcdef", "parallel_request_key", 16),
+              sepp::hkdf_expand(master, "N320123456789abcdefparallel_request_key", 16));
+    EXPECT_NE(sepp::n32_kdf(master, "0123456789abcdef", "parallel_request_key", 16),
+              sepp::n32_kdf(master, "0123456789abcdef", "parallel_response_key", 16));
+    EXPECT_NE(sepp::n32_kdf(master, "0123456789abcdef", "parallel_request_key", 16),
+              sepp::n32_kdf(master, "fedcba9876543210", "parallel_request_key", 16));
+    EXPECT_TRUE(sepp::is_handshake_id(sepp::random_n32f_context_id()));
+}
+
+TEST(SeppN32, PrinsIsSelectedByLocalPreference) {
+    auto pa = policy_a();
+    pa.security_capabilities = {"PRINS", "TLS"};
+    auto pb = policy_b();
+    pb.security_capabilities = {"PRINS", "TLS"};
+    const auto req = sepp::make_request(pa, pa.peers[0], std::nullopt, false);
+    auto d = sepp::negotiate(pb, req, false);
+    ASSERT_EQ(d.status, 200) << d.detail;
+    EXPECT_EQ(d.response->selectedSecCapability.value, "PRINS");
+    EXPECT_FALSE(d.response->n3GppSbiTargetApiRootSupported.has_value()); // only with TLS
+    EXPECT_EQ(d.context->security, "PRINS");
+    pb.security_capabilities = {"TLS", "PRINS"};
+    EXPECT_EQ(sepp::negotiate(pb, req, false).response->selectedSecCapability.value, "TLS");
+}
+
+TEST(SeppN32, ParameterExchangeNegotiatesCiphersThenPolicy) {
+    auto pb = policy_b();
+    pb.jwe_cipher_suites = {"A256GCM", "A128GCM"};
+    pb.protection_policy.dataTypeEncPolicy = std::vector<sbi_gen::IeType>{{"UEID"}, {"LOCATION"}};
+    sepp::Context cap;
+    cap.security = "PRINS";
+    cap.peer_fqdn = kA;
+    const std::vector<std::uint8_t> master(64, 7);
+
+    sbi_gen::SecParamExchReqData req;
+    req.n32fContextId = "0123456789abcdef";
+    req.jweCipherSuiteList = std::vector<std::string>{"A128GCM"};
+    req.jwsCipherSuiteList = std::vector<std::string>{"ES256"};
+    // No PRINS capability context: refused.
+    EXPECT_EQ(sepp::exchange_params(pb, std::nullopt, std::nullopt, req, master, false).status,
+              403);
+
+    auto d = sepp::exchange_params(pb, cap, std::nullopt, req, master, false);
+    ASSERT_EQ(d.status, 200) << d.detail;
+    write_sample("sec_param_exch_req.json", nlohmann::json(req));
+    write_sample("sec_param_exch_rsp.json", nlohmann::json(*d.response));
+    EXPECT_EQ(d.response->selectedJweCipherSuite, "A128GCM"); // the only one in common
+    EXPECT_EQ(d.response->selectedJwsCipherSuite, "ES256");
+    ASSERT_TRUE(d.context.has_value());
+    EXPECT_EQ(d.context->peer_id, "0123456789abcdef");
+    EXPECT_EQ(d.response->n32fContextId, d.context->local_id);
+    EXPECT_EQ(d.context->master_key, master);
+
+    // No JWE suite in common.
+    auto none = req;
+    none.jweCipherSuiteList = std::vector<std::string>{"A192GCM"};
+    EXPECT_EQ(sepp::exchange_params(pb, cap, std::nullopt, none, master, false).cause,
+              "NEGOTIATION_NOT_ALLOWED");
+    // No exporter output: the key cannot be agreed.
+    EXPECT_EQ(sepp::exchange_params(pb, cap, std::nullopt, req, std::nullopt, false).status, 500);
+
+    // 5.2.3.3 on the context just created.
+    sbi_gen::SecParamExchReqData pol;
+    pol.n32fContextId = "0123456789abcdef";
+    pol.protectionPolicyInfo = sbi_gen::ProtectionPolicy{};
+    const auto p = sepp::exchange_params(pb, cap, d.context, pol, std::nullopt, false);
+    ASSERT_EQ(p.status, 200) << p.detail;
+    ASSERT_TRUE(p.response->selProtectionPolicyInfo.has_value());
+    EXPECT_EQ(p.response->selProtectionPolicyInfo->dataTypeEncPolicy->size(), 2U);
+    EXPECT_TRUE(p.context->peer_policy.has_value());
+    // Unknown context id for the policy exchange.
+    pol.n32fContextId = "ffffffffffffffff";
+    EXPECT_EQ(sepp::exchange_params(pb, cap, d.context, pol, std::nullopt, false).status, 403);
+}

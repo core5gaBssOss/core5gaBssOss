@@ -2,6 +2,7 @@
 
 #include "sbi_core/tls_config.hpp"
 
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <string>
@@ -52,12 +53,16 @@ struct ClientRequest {
     // `host:port` while TLS still verifies `host`. Stands in for DNS of 3gppnetwork.org FQDNs the
     // lab does not run (e.g. a telescopic FQDN served by the SEPP, ADR-0492). Empty = normal DNS.
     std::vector<std::string> resolve;
+    // TLS exporters (label, octets; empty context) to run on the connection this request used,
+    // results in ClientResponse::tls_exports (ADR-0493, the SEPP's N32-f master key).
+    std::vector<std::pair<std::string, std::size_t>> tls_exports;
 };
 
 struct ClientResponse {
     long status = 0;
     std::multimap<std::string, std::string> headers;
     std::string body;
+    std::map<std::string, std::vector<std::uint8_t>> tls_exports;
 };
 
 class Client {

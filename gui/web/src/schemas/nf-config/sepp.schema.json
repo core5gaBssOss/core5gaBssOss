@@ -50,6 +50,60 @@
         "type": "string"
       }
     },
+    "security_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "protection_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "apiIeMappingList": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "apiSignature": {
+                "type": "string"
+              },
+              "apiMethod": {
+                "type": "string"
+              },
+              "IeList": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "ieLoc": {
+                      "type": "string"
+                    },
+                    "ieType": {
+                      "type": "string"
+                    },
+                    "reqIe": {
+                      "type": "string"
+                    },
+                    "rspIe": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "dataTypeEncPolicy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "handshake_retry_seconds": {
       "type": "integer"
     },
@@ -103,6 +157,9 @@
   ],
   "x-apply": "restart",
   "x-review": [
+    "protection_policy: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "protection_policy.apiIeMappingList[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "protection_policy.apiIeMappingList[].IeList[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "peers[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "local_nf_routes: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]

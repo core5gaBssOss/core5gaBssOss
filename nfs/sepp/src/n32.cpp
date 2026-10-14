@@ -1,10 +1,13 @@
 #include "n32.hpp"
 
 #include <openssl/evp.h>
+#include <openssl/kdf.h>
+#include <openssl/rand.h>
 
 #include <algorithm>
 #include <cctype>
 #include <regex>
+#include <stdexcept>
 
 namespace sepp {
 
@@ -171,9 +174,18 @@ Decision negotiate(const NegotiationPolicy& policy,
                       "this SEPP's own exchange-capability request to " + request.sender +
                           " is in progress and takes precedence");
     }
-    if (!has(sbi_gen::SecurityCapability::TLS)) {
-        // PRINS is not supported by this SEPP (ADR-0491 increment 1).
-        return reject(403, "NEGOTIATION_NOT_ALLOWED", "this SEPP supports TLS security only");
+    // The first capability in this SEPP's own preference order that the initiator supports.
+    std::string selected;
+    for (const auto& c : policy.security_capabilities) {
+        if (has(c)) {
+            selected = c;
+            break;
+        }
+    }
+    if (selected.empty()) {
+        return reject(403,
+                      "NEGOTIATION_NOT_ALLOWED",
+                      "no security capability offered is configured at this SEPP");
     }
 
     // Purposes: none exchanged means roaming and inter-PLMN mobility (5.2.2, 6.1.5.3.9).
@@ -210,11 +222,16 @@ Decision negotiate(const NegotiationPolicy& policy,
         }
     }
 
-    rsp.selectedSecCapability.value = sbi_gen::SecurityCapability::TLS;
-    rsp.n3GppSbiTargetApiRootSupported = true;
+    rsp.selectedSecCapability.value = selected;
+    if (selected == sbi_gen::SecurityCapability::TLS) {
+        // "Whether the 3gpp-Sbi-Target-apiRoot HTTP header is supported, if TLS security is
+        // selected" (5.2.2 step 2a).
+        rsp.n3GppSbiTargetApiRootSupported = true;
+    }
     rsp.n32HandshakeId = request.n32HandshakeId;
 
     Context ctx;
+    ctx.security = selected;
     ctx.peer_fqdn = lower(peer->fqdn);
     ctx.peer_domain = home_network_domain(peer->mcc, peer->mnc);
     ctx.n32_api_root = peer->n32_api_root;
@@ -235,10 +252,20 @@ sbi_gen::SecNegotiateReqData make_request(const NegotiationPolicy& policy,
     sbi_gen::SecNegotiateReqData req;
     req.sender = policy.own_fqdn;
     sbi_gen::SecurityCapability cap;
-    cap.value = teardown ? sbi_gen::SecurityCapability::NONE : sbi_gen::SecurityCapability::TLS;
-    req.supportedSecCapabilityList = {cap};
+    if (teardown) {
+        cap.value = sbi_gen::SecurityCapability::NONE;
+        req.supportedSecCapabilityList = {cap};
+    } else {
+        for (const auto& c : policy.security_capabilities) {
+            cap.value = c;
+            req.supportedSecCapabilityList.push_back(cap);
+        }
+    }
     if (!teardown) {
-        req.n3GppSbiTargetApiRootSupported = true;
+        if (std::ranges::find(policy.security_capabilities, sbi_gen::SecurityCapability::TLS) !=
+            policy.security_capabilities.end()) {
+            req.n3GppSbiTargetApiRootSupported = true;
+        }
         req.plmnIdList = std::vector<sbi_gen::PlmnId_CommonData>{{policy.own_mcc, policy.own_mnc}};
         req.targetPlmnId = sbi_gen::PlmnId_CommonData{peer.mcc, peer.mnc};
         std::vector<sbi_gen::IntendedN32Purpose> purposes;
@@ -258,10 +285,12 @@ sbi_gen::SecNegotiateReqData make_request(const NegotiationPolicy& policy,
 std::optional<Context> context_from_response(const PeerConfig& peer,
                                              const sbi_gen::SecNegotiateRspData& response,
                                              const std::optional<std::string>& handshake_id) {
-    if (response.selectedSecCapability.value != sbi_gen::SecurityCapability::TLS) {
+    const auto& sel = response.selectedSecCapability.value;
+    if (sel != sbi_gen::SecurityCapability::TLS && sel != sbi_gen::SecurityCapability::PRINS) {
         return std::nullopt;
     }
     Context ctx;
+    ctx.security = sel;
     ctx.peer_fqdn = lower(peer.fqdn);
     ctx.peer_domain = home_network_domain(peer.mcc, peer.mnc);
     ctx.n32_api_root = peer.n32_api_root;
@@ -327,6 +356,195 @@ std::optional<Context> correlate(const std::vector<Context>& contexts,
         }
     }
     return match;
+}
+
+void PrinsStore::put(PrinsContext c) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    std::erase_if(contexts_, [&](const PrinsContext& x) { return x.peer_fqdn == c.peer_fqdn; });
+    contexts_.push_back(std::move(c));
+}
+
+std::optional<PrinsContext> PrinsStore::by_peer(const std::string& peer_fqdn) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = std::ranges::find_if(
+        contexts_, [&](const PrinsContext& x) { return x.peer_fqdn == peer_fqdn; });
+    return it == contexts_.end() ? std::nullopt : std::optional{*it};
+}
+
+std::optional<PrinsContext> PrinsStore::by_local_id(const std::string& id) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = std::ranges::find_if(
+        contexts_, [&](const PrinsContext& x) { return lower(x.local_id) == lower(id); });
+    return it == contexts_.end() ? std::nullopt : std::optional{*it};
+}
+
+bool PrinsStore::erase_local_id(const std::string& id) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return std::erase_if(contexts_,
+                         [&](const PrinsContext& x) { return lower(x.local_id) == lower(id); }) > 0;
+}
+
+std::vector<PrinsContext> PrinsStore::all() const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return contexts_;
+}
+
+void PrinsStore::set_outgoing(const std::string& peer_fqdn, bool in_progress) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (in_progress) {
+        outgoing_.insert(peer_fqdn);
+    } else {
+        outgoing_.erase(peer_fqdn);
+    }
+}
+
+bool PrinsStore::outgoing(const std::string& peer_fqdn) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return outgoing_.contains(peer_fqdn);
+}
+
+std::string random_n32f_context_id() {
+    std::uint8_t buf[8];
+    if (RAND_bytes(buf, sizeof(buf)) != 1) {
+        throw std::runtime_error("sepp: RAND_bytes failed");
+    }
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string out;
+    for (const auto b : buf) {
+        out += kHex[b >> 4];
+        out += kHex[b & 0x0F];
+    }
+    return out;
+}
+
+std::vector<std::uint8_t>
+hkdf_expand(const std::vector<std::uint8_t>& prk, const std::string& info, std::size_t length) {
+    std::vector<std::uint8_t> out(length);
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, nullptr);
+    const bool ok =
+        ctx != nullptr && EVP_PKEY_derive_init(ctx) == 1 &&
+        EVP_PKEY_CTX_set_hkdf_mode(ctx, EVP_PKEY_HKDEF_MODE_EXPAND_ONLY) == 1 &&
+        EVP_PKEY_CTX_set_hkdf_md(ctx, EVP_sha256()) == 1 &&
+        EVP_PKEY_CTX_set1_hkdf_key(ctx, prk.data(), static_cast<int>(prk.size())) == 1 &&
+        EVP_PKEY_CTX_add1_hkdf_info(ctx,
+                                    reinterpret_cast<const unsigned char*>(info.data()),
+                                    static_cast<int>(info.size())) == 1 &&
+        EVP_PKEY_derive(ctx, out.data(), &length) == 1;
+    EVP_PKEY_CTX_free(ctx);
+    if (!ok) {
+        throw std::runtime_error("sepp: HKDF-Expand failed");
+    }
+    return out;
+}
+
+std::vector<std::uint8_t> n32_kdf(const std::vector<std::uint8_t>& master_key,
+                                  const std::string& n32f_context_id,
+                                  const std::string& label,
+                                  std::size_t length) {
+    return hkdf_expand(master_key, "N32" + n32f_context_id + label, length);
+}
+
+std::string key_fingerprint(const std::vector<std::uint8_t>& key) {
+    std::vector<std::uint8_t> in{'f', 'p'};
+    in.insert(in.end(), key.begin(), key.end());
+    unsigned char md[EVP_MAX_MD_SIZE];
+    unsigned int len = 0;
+    EVP_Digest(in.data(), in.size(), md, &len, EVP_sha256(), nullptr);
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string out;
+    for (unsigned int i = 0; i < 4 && i < len; ++i) {
+        out += kHex[md[i] >> 4];
+        out += kHex[md[i] & 0x0F];
+    }
+    return out;
+}
+
+ParamDecision exchange_params(const NegotiationPolicy& policy,
+                              const std::optional<Context>& capability,
+                              const std::optional<PrinsContext>& existing,
+                              const sbi_gen::SecParamExchReqData& request,
+                              const std::optional<std::vector<std::uint8_t>>& master_key,
+                              bool outgoing_in_progress) {
+    ParamDecision d;
+    const auto fail = [&](int status, std::string cause, std::string detail) {
+        d.status = status;
+        d.cause = std::move(cause);
+        d.detail = std::move(detail);
+        return d;
+    };
+    if (!capability || capability->security != sbi_gen::SecurityCapability::PRINS) {
+        return fail(403,
+                    "NEGOTIATION_NOT_ALLOWED",
+                    "PRINS was not selected in a security capability negotiation with this SEPP");
+    }
+    if (!is_handshake_id(request.n32fContextId)) { // same 16-hex-digit pattern
+        return fail(400, "MANDATORY_IE_INCORRECT", "n32fContextId must be 16 hexadecimal digits");
+    }
+    sbi_gen::SecParamExchRspData rsp;
+    rsp.sender = policy.own_fqdn;
+
+    if (request.jweCipherSuiteList) {
+        // 5.2.3.2 collision: the lexicographically preceding FQDN continues its own procedure.
+        if (outgoing_in_progress && lower(policy.own_fqdn) < capability->peer_fqdn) {
+            return fail(409,
+                        "SECURITY_PARAM_EXCHANGE_COLLISION",
+                        "this SEPP's own parameter exchange takes precedence");
+        }
+        std::optional<std::string> jwe;
+        for (const auto& c : policy.jwe_cipher_suites) {
+            if (contains(*request.jweCipherSuiteList, c)) {
+                jwe = c;
+                break;
+            }
+        }
+        if (!jwe) {
+            return fail(403, "NEGOTIATION_NOT_ALLOWED", "no JWE cipher suite in common");
+        }
+        if (!master_key || master_key->size() != kN32MasterKeyLength) {
+            return fail(500, "SYSTEM_FAILURE", "no TLS exporter output for this N32-c connection");
+        }
+        PrinsContext ctx;
+        ctx.peer_fqdn = capability->peer_fqdn;
+        ctx.local_id = random_n32f_context_id();
+        ctx.peer_id = lower(request.n32fContextId);
+        ctx.initiator = false;
+        ctx.jwe_cipher = *jwe;
+        if (request.jwsCipherSuiteList) {
+            for (const auto& c : policy.jws_cipher_suites) {
+                if (contains(*request.jwsCipherSuiteList, c)) {
+                    ctx.jws_cipher = c;
+                    break;
+                }
+            }
+        }
+        ctx.master_key = *master_key;
+        rsp.n32fContextId = ctx.local_id;
+        rsp.selectedJweCipherSuite = ctx.jwe_cipher;
+        rsp.selectedJwsCipherSuite = ctx.jws_cipher;
+        d.response = rsp;
+        d.context = std::move(ctx);
+        return d;
+    }
+    if (request.protectionPolicyInfo) {
+        // 5.2.3.3: after the cipher suite negotiation, on the N32-f context it created.
+        if (!existing || lower(existing->peer_id) != lower(request.n32fContextId)) {
+            return fail(403,
+                        "NEGOTIATION_NOT_ALLOWED",
+                        "no cipher suite has been negotiated for this n32fContextId");
+        }
+        PrinsContext ctx = *existing;
+        ctx.peer_policy = *request.protectionPolicyInfo;
+        ctx.selected_policy = policy.protection_policy;
+        rsp.n32fContextId = ctx.local_id;
+        rsp.selProtectionPolicyInfo = policy.protection_policy;
+        d.response = rsp;
+        d.context = std::move(ctx);
+        return d;
+    }
+    return fail(400,
+                "MANDATORY_IE_MISSING",
+                "neither jweCipherSuiteList nor protectionPolicyInfo (security profiles and RI "
+                "security information are not supported)");
 }
 
 std::string telescopic_label(const std::string& foreign_fqdn) {

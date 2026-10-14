@@ -455,7 +455,8 @@
   "ADR-0489-li-increment-7e-the-nwdaf-iri-poi-ts-33-127-7-18-ts-33-128.md",
   "ADR-0490-sbi-user-agent-every-nf-s-requests-carry-its-ts-29-510.md",
   "ADR-0491-sepp-increment-1-n32-c-security-capability-negotiation-and.md",
-  "ADR-0492-sepp-increment-2-telescopic-fqdn-nsepp-telescopic-fqdn.md"
+  "ADR-0492-sepp-increment-2-telescopic-fqdn-nsepp-telescopic-fqdn.md",
+  "ADR-0493-sepp-increment-3a-prins-parameter-exchange-and-the-n32-f.md"
  ],
  "split_commit": "0530e4f"
 }
