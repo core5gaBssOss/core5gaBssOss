@@ -43,6 +43,17 @@ else
     echo "  ${CERTS_DIR}/ca/ca.key already exists, reusing (delete certs/ to force regeneration)"
 fi
 
+# ADR-0491: the SEPP is identified on N32 by its PLMN FQDN (TS 23.003 28.2), and the peer SEPP
+# correlates an N32-f connection by the FQDN in this certificate (TS 29.573 5.3.3.2). The lab runs
+# both partner SEPPs (PLMN 001/01 and 001/02) from one certificate, which therefore names both --
+# the "common certificate" case of 5.3.3.2.1's NOTE, resolved by the Via header.
+LAB_SEPP_FQDNS="${LAB_SEPP_FQDNS:-sepp.5gc.mnc001.mcc001.3gppnetwork.org sepp.5gc.mnc002.mcc001.3gppnetwork.org}"
+extra_sans() {
+    if [ "$1" = "sepp" ]; then
+        for f in ${LAB_SEPP_FQDNS}; do printf ',DNS:%s' "${f}"; done
+    fi
+}
+
 for nf in "${NF_NAMES[@]}"; do
     nf_dir="${CERTS_DIR}/${nf}"
     mkdir -p "${nf_dir}"
@@ -87,13 +98,13 @@ for nf in "${NF_NAMES[@]}"; do
 basicConstraints=CA:false
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth,clientAuth
-subjectAltName=DNS:${nf},DNS:localhost,IP:127.0.0.1
+subjectAltName=DNS:${nf},DNS:localhost,IP:127.0.0.1$(extra_sans "${nf}")
 EOF
 ) \
         -out "${nf_dir}/cert.pem"
 
     rm -f "${nf_dir}/csr.pem"
-    echo "  generated ${nf_dir}/{key,cert}.pem (serverAuth+clientAuth, SAN=127.0.0.1/localhost/${nf})"
+    echo "  generated ${nf_dir}/{key,cert}.pem (serverAuth+clientAuth, SAN=127.0.0.1/localhost/${nf}$(extra_sans "${nf}"))"
 done
 
 echo "== NRF OAuth2 JWT signing key (ES256) =="

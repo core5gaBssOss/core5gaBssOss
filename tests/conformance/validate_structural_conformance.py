@@ -86,13 +86,28 @@ def main() -> int:
     if not (open_string_branch and isinstance(nftype_value, str)):
         all_errors.append("NFType: expected an anyOf[enum,string] schema accepting any string")
 
+    # ADR-0491: the SEPP's N32-c bodies as the SEPP builds them (tests/conformance/test_sepp_n32.cpp),
+    # request AND response, against TS29573_N32_Handshake.yaml.
+    registry.load_file("TS29573_N32_Handshake.yaml")
+    for sample, schema_name in (("sec_negotiate_req.json", "SecNegotiateReqData"),
+                                ("sec_negotiate_rsp.json", "SecNegotiateRspData")):
+        sample_path = samples_dir / sample
+        if not sample_path.exists():
+            print(f"FAIL: {sample_path} not found", file=sys.stderr)
+            return 1
+        schema = registry.schemas[("TS29573_N32_Handshake.yaml", schema_name)]
+        all_errors.extend(
+            check_object(schema, json.loads(sample_path.read_text()), registry,
+                         "TS29573_N32_Handshake.yaml", schema_name)
+        )
+
     if all_errors:
         print("FAIL: structural conformance violations:", file=sys.stderr)
         for e in all_errors:
             print(f"  - {e}", file=sys.stderr)
         return 1
 
-    print("PASS: all samples structurally conform to specs/5G_APIs-REL-19/TS29571_CommonData.yaml")
+    print("PASS: all samples structurally conform to their specs/5G_APIs-REL-19 schemas")
     return 0
 
 
