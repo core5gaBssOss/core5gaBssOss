@@ -331,6 +331,19 @@ target_compile_definitions(li_smsf_e2e_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_smsf_e2e_integration_tests PROPERTIES TIMEOUT 300)
 
+# ADR-0488: the CHF IRI-POI (TS 33.128 7.19 ChargingDataEvent) at the real chf process, with real
+# LI_X1 provisioning (ChargingDataEvents extension) and a loopback MDF2.
+add_executable(li_chf_e2e_integration_tests test_li_chf_e2e.cpp)
+target_link_libraries(li_chf_e2e_integration_tests PRIVATE
+    li_core li_poi sbi_core sbi_generated OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+add_dependencies(li_chf_e2e_integration_tests nrf chf)
+target_compile_definitions(li_chf_e2e_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    CHF_PATH="$<TARGET_FILE:chf>"
+    CHF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/chf.json"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_chf_e2e_integration_tests PROPERTIES TIMEOUT 300)
+
 # ADR-0487 increment 1: the NEF IRI-POI (TS 33.128 7.7.6.1.2 NEFAFSessionWithQoSProvision) at the
 # real nef process, with real LI_X1 provisioning and a loopback MDF2.
 add_executable(li_nef_e2e_integration_tests test_li_nef_e2e.cpp)

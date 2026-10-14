@@ -132,7 +132,8 @@ struct PoiRuntime::Impl {
                                    details.identifier_association_events,
                                    details.delivery,
                                    details.dids,
-                                   details.truncate_tp_user_data});
+                                   details.truncate_tp_user_data,
+                                   details.charging_data_events});
         }
         enqueue_added(details.xid, details.targets);
         return std::nullopt;
@@ -165,7 +166,8 @@ struct PoiRuntime::Impl {
                                           details.identifier_association_events,
                                           details.delivery,
                                           details.dids,
-                                          details.truncate_tp_user_data};
+                                          details.truncate_tp_user_data,
+                                          details.charging_data_events};
         }
         enqueue_added(details.xid, added);
         return std::nullopt;

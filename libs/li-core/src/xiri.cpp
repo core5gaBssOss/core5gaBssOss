@@ -24,6 +24,7 @@ extern "C" {
 #include <AMFRegistration.h>
 #include <AMFStartOfInterceptionWithRegisteredUE.h>
 #include <BIT_STRING.h>
+#include <ChargingDataEvent.h>
 #include <ECGI.h>
 #include <EUTRALocation.h>
 #include <FTEID.h>
@@ -1698,6 +1699,65 @@ extract(const NEFAFSessionWithQoSProvision_t& src) {
     return out;
 }
 
+tl::expected<void, std::string> fill(ChargingDataEvent_t& out, const ChargingDataEvent& src) {
+    if (src.location) {
+        out.location = alloc_optional<Location_t>();
+        if (out.location == nullptr) {
+            return tl::unexpected("Location allocation failed");
+        }
+        LI_TRY(fill_location(*out.location, *src.location));
+    }
+    out.chargingDataInformation.present = ChargingDataInformation_PR_nchfChargingDataRequest;
+    auto& req = out.chargingDataInformation.choice.nchfChargingDataRequest;
+    req.sBIchargingData.present = SBIChargingData_PR_fullSBIChargingData;
+    auto& enc = req.sBIchargingData.choice.fullSBIChargingData;
+    if (src.offline) {
+        enc.present = EncapsulatedSBIChargingData_PR_encapsulatedSBIOfflineChargingData;
+        LI_TRY(fill_sbi(enc.choice.encapsulatedSBIOfflineChargingData, src.charging_data));
+    } else {
+        enc.present = EncapsulatedSBIChargingData_PR_encapsulatedSBIConvergedChargingData;
+        LI_TRY(fill_sbi(enc.choice.encapsulatedSBIConvergedChargingData, src.charging_data));
+    }
+    if (src.charging_event) {
+        req.nchfChargingEvent = alloc_optional<NchfChargingEvent_t>();
+        if (req.nchfChargingEvent == nullptr) {
+            return tl::unexpected("NchfChargingEvent allocation failed");
+        }
+        *req.nchfChargingEvent = static_cast<long>(*src.charging_event);
+    }
+    req.roamerInOut = static_cast<long>(src.roamer_in_out);
+    return {};
+}
+
+tl::expected<ChargingDataEvent, std::string> extract(const ChargingDataEvent_t& src) {
+    ChargingDataEvent out;
+    if (src.location != nullptr) {
+        out.location = extract_location(*src.location);
+    }
+    if (src.chargingDataInformation.present != ChargingDataInformation_PR_nchfChargingDataRequest) {
+        return tl::unexpected(
+            "ChargingDataInformation alternative is not modelled (only nchfChargingDataRequest)");
+    }
+    const auto& req = src.chargingDataInformation.choice.nchfChargingDataRequest;
+    const auto& enc = req.sBIchargingData.choice.fullSBIChargingData;
+    switch (enc.present) {
+        case EncapsulatedSBIChargingData_PR_encapsulatedSBIConvergedChargingData:
+            out.charging_data = extract_sbi(enc.choice.encapsulatedSBIConvergedChargingData);
+            break;
+        case EncapsulatedSBIChargingData_PR_encapsulatedSBIOfflineChargingData:
+            out.offline = true;
+            out.charging_data = extract_sbi(enc.choice.encapsulatedSBIOfflineChargingData);
+            break;
+        default:
+            return tl::unexpected("EncapsulatedSBIChargingData has no alternative");
+    }
+    if (req.nchfChargingEvent != nullptr) {
+        out.charging_event = static_cast<NchfChargingEvent>(*req.nchfChargingEvent);
+    }
+    out.roamer_in_out = static_cast<RoamerInOut>(req.roamerInOut);
+    return out;
+}
+
 #undef LI_TRY
 
 } // namespace
@@ -1791,6 +1851,9 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
             } else if constexpr (std::is_same_v<T, SmsReport>) {
                 payload->event.present = XIRIEvent_PR_sMSReport;
                 return fill(payload->event.choice.sMSReport, variant_event);
+            } else if constexpr (std::is_same_v<T, ChargingDataEvent>) {
+                payload->event.present = XIRIEvent_PR_chargingDataEvent;
+                return fill(payload->event.choice.chargingDataEvent, variant_event);
             } else if constexpr (std::is_same_v<T, NefAfSessionWithQosProvision>) {
                 payload->event.present = XIRIEvent_PR_nEFAFSessionWithQoSProvision;
                 return fill(payload->event.choice.nEFAFSessionWithQoSProvision, variant_event);
@@ -1986,6 +2049,14 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
                 return tl::unexpected(sms.error());
             }
             out.event = *sms;
+            return out;
+        }
+        case XIRIEvent_PR_chargingDataEvent: {
+            auto rec = extract(payload->event.choice.chargingDataEvent);
+            if (!rec) {
+                return tl::unexpected(rec.error());
+            }
+            out.event = *rec;
             return out;
         }
         case XIRIEvent_PR_nEFAFSessionWithQoSProvision: {

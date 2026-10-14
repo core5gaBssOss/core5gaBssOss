@@ -850,3 +850,34 @@ TEST(Xiri, AfSessionResponseCodeCoversExactlyTheEnumeratedStatuses) {
     EXPECT_FALSE(xiri::to_af_session_response_code(409).has_value()); // not in the ENUMERATED
     EXPECT_FALSE(xiri::to_af_session_response_code(502).has_value());
 }
+
+// ADR-0488: XIRIEvent.chargingDataEvent [190] with the nchfChargingDataRequest choice (TS 33.128
+// tables 7.19.3.2-1, 7.19.3.4-1, 7.19.3.6-1).
+TEST(Xiri, ChargingDataEventRoundTripsConvergedAndOffline) {
+    xiri::ChargingDataEvent conv;
+    conv.charging_data = xiri::SbiType{
+        "TS32291_Nchf_ConvergedCharging.yaml#/components/schemas/ChargingDataRequest",
+        R"({"subscriberIdentifier":"imsi-001010000000001","nfConsumerIdentification":{}})"};
+    conv.charging_event = xiri::NchfChargingEvent::PduSessionChargingInformation;
+    conv.roamer_in_out = xiri::RoamerInOut::OutBound;
+    auto enc = xiri::encode_xiri_payload(conv);
+    ASSERT_TRUE(enc.has_value()) << enc.error();
+    // [190] constructed, high-tag-number form: 0xBF 0x81 0x3E.
+    const std::vector<std::uint8_t> tag{0xBF, 0x81, 0x3E};
+    EXPECT_NE(std::search(enc->begin(), enc->end(), tag.begin(), tag.end()), enc->end());
+    auto dec = xiri::decode_xiri_payload(*enc);
+    ASSERT_TRUE(dec.has_value()) << dec.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::ChargingDataEvent>(dec->event));
+    EXPECT_EQ(std::get<xiri::ChargingDataEvent>(dec->event), conv);
+
+    xiri::ChargingDataEvent off;
+    off.offline = true;
+    off.charging_data = xiri::SbiType{
+        "TS32291_Nchf_OfflineOnlyCharging.yaml#/components/schemas/ChargingDataRequest", "{}"};
+    off.roamer_in_out = xiri::RoamerInOut::InBound;
+    auto enc2 = xiri::encode_xiri_payload(off);
+    ASSERT_TRUE(enc2.has_value()) << enc2.error();
+    auto dec2 = xiri::decode_xiri_payload(*enc2);
+    ASSERT_TRUE(dec2.has_value()) << dec2.error();
+    EXPECT_EQ(std::get<xiri::ChargingDataEvent>(dec2->event), off);
+}

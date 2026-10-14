@@ -271,6 +271,35 @@ bool read_truncate_tp_user_data(xmlNodePtr td) {
     return false;
 }
 
+// TS 33.128 table 7.19.1-1: X1Extension choice ChargingDataEvents { ChargingDataEventsGenerated },
+// carried inside <X1Extensions> like SMSFExtensions (ADR-0488).
+std::optional<ChargingDataEventsGenerated> read_charging_data_events(xmlNodePtr td) {
+    for (xmlNodePtr ext = td->children; ext != nullptr; ext = ext->next) {
+        if (!is(ext, "taskDetailsExtensions")) {
+            continue;
+        }
+        for (xmlNodePtr n = ext->children; n != nullptr; n = n->next) {
+            if (!is_ns(n, k3gppX1ExtNs, "X1Extensions")) {
+                continue;
+            }
+            for (xmlNodePtr e = n->children; e != nullptr; e = e->next) {
+                if (!is_ns(e, k3gppX1ExtNs, "ChargingDataEvents")) {
+                    continue;
+                }
+                xmlNodePtr g = child_ns(e, k3gppX1ExtNs, "ChargingDataEventsGenerated");
+                const std::string v = g != nullptr ? node_text(g) : std::string{};
+                if (v == "DefaultChargingDataInformation") {
+                    return ChargingDataEventsGenerated::DefaultChargingDataInformation;
+                }
+                if (v == "TranslatedChargingDataInformation") {
+                    return ChargingDataEventsGenerated::TranslatedChargingDataInformation;
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 DeliveryType read_delivery(const std::string& s) {
     if (s == "X2Only") {
         return DeliveryType::X2Only;
@@ -334,6 +363,7 @@ TaskDetails read_task_details(xmlNodePtr td) {
     }
     task.identifier_association_events = read_task_gating(td);
     task.truncate_tp_user_data = read_truncate_tp_user_data(td);
+    task.charging_data_events = read_charging_data_events(td);
     return task;
 }
 
@@ -903,6 +933,26 @@ void write_task_details(xmlNodePtr parent, const TaskDetails& t) {
         xmlNodePtr smsf =
             xmlNewChild(x1ext, tgpp, reinterpret_cast<const xmlChar*>("SMSFExtensions"), nullptr);
         xmlNewChild(smsf, tgpp, reinterpret_cast<const xmlChar*>("TruncateTPUserData"), nullptr);
+    }
+    if (t.charging_data_events) {
+        // TS 33.128 table 7.19.1-1 (see read_charging_data_events).
+        xmlNodePtr ext = add_node(td, "taskDetailsExtensions");
+        add_text(ext, "Owner", "3GPP");
+        xmlNsPtr tgpp = xmlNewNs(ext,
+                                 reinterpret_cast<const xmlChar*>(k3gppX1ExtNs),
+                                 reinterpret_cast<const xmlChar*>("tgpp"));
+        xmlNodePtr x1ext =
+            xmlNewChild(ext, tgpp, reinterpret_cast<const xmlChar*>("X1Extensions"), nullptr);
+        xmlNodePtr cde = xmlNewChild(
+            x1ext, tgpp, reinterpret_cast<const xmlChar*>("ChargingDataEvents"), nullptr);
+        xmlNewTextChild(cde,
+                        tgpp,
+                        reinterpret_cast<const xmlChar*>("ChargingDataEventsGenerated"),
+                        reinterpret_cast<const xmlChar*>(
+                            *t.charging_data_events ==
+                                    ChargingDataEventsGenerated::DefaultChargingDataInformation
+                                ? "DefaultChargingDataInformation"
+                                : "TranslatedChargingDataInformation"));
     }
 }
 

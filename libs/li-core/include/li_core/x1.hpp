@@ -137,6 +137,12 @@ enum class IdentifierAssociationEventsGenerated : std::uint8_t {
 // TS 103 221-1 6.2.1.2 TaskDetails, the members the NE side reads (the optional
 // mediation/policy/service lists are preserved verbatim as raw XML fragments in `extra` so a
 // ModifyTask round-trips what it was given without this codec having to model every branch).
+// TS 33.128 table 7.19.1-2 / urn_3GPP_ns_li_3GPPX1Extensions.xsd ChargingDataEventsGenerated.
+enum class ChargingDataEventsGenerated : std::uint8_t {
+    DefaultChargingDataInformation,
+    TranslatedChargingDataInformation,
+};
+
 struct TaskDetails {
     std::string xid;
     std::vector<TargetIdentifier> targets;
@@ -157,6 +163,10 @@ struct TaskDetails {
     // TruncateTPUserData present -- SMS content delivery is not authorised, so the SMSF IRI-POI
     // must use sMSTPDUData.redactedSMSTPDU for SMS-SUBMIT/SMS-DELIVER (ADR-0486).
     bool truncate_tp_user_data = false;
+    // TS 33.128 table 7.19.1-1/-2: taskDetailsExtensions/X1Extensions/ChargingDataEvents/
+    // ChargingDataEventsGenerated. nullopt = absent: "ChargingDataEvent records shall not be
+    // generated" (ADR-0488).
+    std::optional<ChargingDataEventsGenerated> charging_data_events;
 };
 
 // TS 103 221-1 6.3.1.2 DeliveryAddress oneOf.

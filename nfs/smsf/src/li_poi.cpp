@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include "li_core/xiri.hpp"
+#include "li_poi/user_location.hpp"
 
 namespace smsf {
 
@@ -73,75 +74,6 @@ std::optional<xiri::Gpsi> to_xiri_gpsi(const std::optional<std::string>& gpsi) {
     const std::string bare = bare_identity(*gpsi);
     return starts_with(*gpsi, "msisdn-") ? xiri::Gpsi{xiri::Msisdn{bare}}
                                          : xiri::Gpsi{xiri::Nai{bare}};
-}
-
-// ---- TS 29.571 UserLocation JSON -> xIRI Location (NOTE 7: Location.locationInfo.userLocation) --
-
-std::optional<xiri::Plmnid> plmn_from(const json& j) {
-    if (!j.is_object() || !j.contains("mcc") || !j.contains("mnc")) {
-        return std::nullopt;
-    }
-    return xiri::Plmnid{j.at("mcc").get<std::string>(), j.at("mnc").get<std::string>()};
-}
-
-std::optional<std::vector<std::uint8_t>> hex_octets(const std::string& hex) {
-    if (hex.size() % 2 != 0) {
-        return std::nullopt;
-    }
-    std::vector<std::uint8_t> out;
-    for (std::size_t i = 0; i < hex.size(); i += 2) {
-        try {
-            out.push_back(static_cast<std::uint8_t>(std::stoul(hex.substr(i, 2), nullptr, 16)));
-        } catch (const std::exception&) {
-            return std::nullopt;
-        }
-    }
-    return out;
-}
-
-// TS 29.571 Tai: plmnId + tac (4 or 6 hex digits).
-std::optional<xiri::Tai> tai_from(const json& j) {
-    if (!j.is_object() || !j.contains("plmnId") || !j.contains("tac")) {
-        return std::nullopt;
-    }
-    auto plmn = plmn_from(j.at("plmnId"));
-    auto tac = hex_octets(j.at("tac").get<std::string>());
-    if (!plmn || !tac || (tac->size() != 2 && tac->size() != 3)) {
-        return std::nullopt;
-    }
-    return xiri::Tai{*plmn, *tac};
-}
-
-std::optional<xiri::Location> location_from(const json& ul) {
-    try {
-        xiri::UserLocation out;
-        if (ul.contains("nrLocation")) {
-            const auto& nr = ul.at("nrLocation");
-            auto tai = tai_from(nr.at("tai"));
-            auto plmn = plmn_from(nr.at("ncgi").at("plmnId"));
-            const auto cell = nr.at("ncgi").at("nrCellId").get<std::string>(); // 9 hex digits
-            if (tai && plmn && cell.size() == 9) {
-                out.nr = xiri::NrLocation{*tai, xiri::Ncgi{*plmn, std::stoull(cell, nullptr, 16)}};
-            }
-        }
-        if (ul.contains("eutraLocation")) {
-            const auto& eu = ul.at("eutraLocation");
-            auto tai = tai_from(eu.at("tai"));
-            auto plmn = plmn_from(eu.at("ecgi").at("plmnId"));
-            const auto cell = eu.at("ecgi").at("eutraCellId").get<std::string>(); // 7 hex digits
-            if (tai && plmn && cell.size() == 7) {
-                out.eutra = xiri::EutraLocation{
-                    *tai,
-                    xiri::Ecgi{*plmn, static_cast<std::uint32_t>(std::stoul(cell, nullptr, 16))}};
-            }
-        }
-        if (!out.nr && !out.eutra) {
-            return std::nullopt;
-        }
-        return xiri::Location{out};
-    } catch (const std::exception&) {
-        return std::nullopt; // malformed location: omitted (C field), never guessed
-    }
 }
 
 // TS 33.128 table 6.2.5.3-4: (RP MTI, TP-MTI) -> SMSMessageType.
@@ -270,7 +202,7 @@ SmsfLiPoi::report_mo_sms_message(const LiIdentities& ids,
     // (none exists in this project) but still generates the record.
     rec.link_transfer_status = xiri::SmsTransferStatus::TransferFailed;
     if (ue_location) {
-        rec.location = location_from(*ue_location);
+        rec.location = li_poi::location_from_user_location(*ue_location);
     }
     rec.message_type = message_type(rp_data.mti, tpdu.type);
     rec.rp_message_reference = rp_data.message_reference;
@@ -381,7 +313,7 @@ void SmsfLiPoi::report_sms_report(const std::vector<li_poi::Match>& matches,
     }
     xiri::SmsReport rec;
     if (ue_location) {
-        rec.location = location_from(*ue_location);
+        rec.location = li_poi::location_from_user_location(*ue_location);
     }
     // Table 6.2.5.3-3: "The sMSTPDUData.sMSTPDU field shall always be used for SMSReport records".
     rec.tpdu_data = xiri::SmsTpduData{false, *rp_reply.user_data};
