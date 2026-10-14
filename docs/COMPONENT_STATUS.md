@@ -50,7 +50,7 @@ Last updated: 2026-10-14.
 | 26 | NSSAAF | 🕒 Already in Pipeline |
 | 27 | AAnF | 🕒 Already in Pipeline |
 | 28 | UDSF | ✅ Built |
-| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491); PRINS, telescopic FQDN, roaming intermediaries in pipeline |
+| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492); PRINS, roaming intermediaries in pipeline |
 
 ## 5G Core, Tier 3: all 18 already in pipeline
 

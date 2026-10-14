@@ -49,8 +49,10 @@ std::string write_config_b() {
                                      {"mnc", "01"},
                                      {"n32_api_root", "https://127.0.0.1:7821"},
                                      {"initiate", false}}});
+    // The second key serves a target apiRoot without a port (rebuilt from a telescopic FQDN).
     cfg["local_nf_routes"] =
-        json{{"nrf.5gc.mnc002.mcc001.3gppnetwork.org:7777", "https://127.0.0.1:7777"}};
+        json{{"nrf.5gc.mnc002.mcc001.3gppnetwork.org:7777", "https://127.0.0.1:7777"},
+             {"nrf.5gc.mnc002.mcc001.3gppnetwork.org", "https://127.0.0.1:7777"}};
     const std::string path = std::string(::testing::TempDir()) + "sepp_b.json";
     std::ofstream(path) << cfg.dump(2);
     return path;
@@ -147,4 +149,57 @@ TEST(SeppEndToEnd, AnN32fRequestFromAPeerWithoutAContextIsRefused) {
     ASSERT_TRUE(n.has_value());
     EXPECT_EQ(n->status, 403);
     EXPECT_EQ(json::parse(n->body).value("cause", ""), "NEGOTIATION_NOT_ALLOWED");
+}
+
+// ADR-0492: the NF asks its SEPP for the telescopic form of PLMN B's NRF (TS 29.573 5.4.2), then
+// reaches it as <label>.<SEPP A's FQDN> (TS 29.500 6.1.4.3.2) -- TLS to SEPP A verified against
+// the SEPP's wildcard certificate -- and the label maps back (5.4.3).
+TEST(SeppEndToEnd, TelescopicFqdnReachesTheNrfOfPlmnB) {
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    ::setenv("SEPP_CONFIG_FILE", SEPP_CONFIG_TEMPLATE, 1);
+    nf_test::SpawnedProcess sepp_a{SEPP_PATH};
+    const auto cfg_b = write_config_b();
+    ::setenv("SEPP_CONFIG_FILE", cfg_b.c_str(), 1);
+    nf_test::SpawnedProcess sepp_b{SEPP_PATH};
+    ::unsetenv("SEPP_CONFIG_FILE");
+
+    sbi_core::http2::Client consumer(tls("hello-nf"));
+    sbi_core::http2::ClientRequest map;
+    map.method = "GET";
+    map.url = "https://127.0.0.1:7820/nsepp-telescopic/v1/mapping?foreign-fqdn="
+              "nrf.5gc.mnc002.mcc001.3gppnetwork.org";
+    const auto m = send_retrying(consumer, map, 200, 20s);
+    ASSERT_EQ(m.status, 200) << m.body;
+    const auto mapping = json::parse(m.body);
+    const std::string label = mapping.at("telescopicLabel");
+    EXPECT_EQ(mapping.at("seppDomain"), kSeppA);
+    const std::string telescopic = label + "." + kSeppA;
+
+    sbi_core::http2::ClientRequest req;
+    req.method = "GET";
+    req.url = "https://" + telescopic + ":7820/bootstrapping";
+    req.resolve = {telescopic + ":7820:127.0.0.1"}; // the lab's stand-in for DNS
+    const auto r = send_retrying(consumer, req, 200, 30s);
+    ASSERT_EQ(r.status, 200) << r.body;
+    EXPECT_TRUE(json::parse(r.body).contains("_links")) << r.body;
+    const auto via = r.headers.find("via");
+    ASSERT_NE(via, r.headers.end());
+    EXPECT_NE(via->second.find(std::string("SEPP-") + kSeppB), std::string::npos) << via->second;
+
+    sbi_core::http2::ClientRequest back = map;
+    back.url = "https://127.0.0.1:7820/nsepp-telescopic/v1/mapping?telescopic-label=" + label;
+    const auto b = consumer.send(back);
+    ASSERT_TRUE(b.has_value());
+    ASSERT_EQ(b->status, 200) << b->body;
+    EXPECT_EQ(json::parse(b->body).at("foreignFqdn"), "nrf.5gc.mnc002.mcc001.3gppnetwork.org");
+
+    // A label this SEPP never handed out.
+    sbi_core::http2::ClientRequest unknown = req;
+    const std::string bogus = std::string("tel-0000000000000000.") + kSeppA;
+    unknown.url = "https://" + bogus + ":7820/bootstrapping";
+    unknown.resolve = {bogus + ":7820:127.0.0.1"};
+    const auto u = consumer.send(unknown);
+    ASSERT_TRUE(u.has_value());
+    EXPECT_EQ(u->status, 404);
+    EXPECT_EQ(json::parse(u->body).value("cause", ""), "RESOURCE_URI_STRUCTURE_NOT_FOUND");
 }

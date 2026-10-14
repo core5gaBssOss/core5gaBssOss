@@ -36,6 +36,9 @@ namespace sbi_core::http2 {
 struct Request {
     std::string method;
     std::string path;
+    // The :authority pseudo-header as received ("host[:port]"), e.g. a telescopic FQDN a SEPP
+    // must route on (TS 29.500 6.1.4.3.2, ADR-0492). Empty if the client sent none.
+    std::string authority;
     std::multimap<std::string, std::string> headers;
     std::map<std::string, std::string> path_params;
     // Real query-string parsing (added for bss/balance-management's AccumulatedBalance filter,

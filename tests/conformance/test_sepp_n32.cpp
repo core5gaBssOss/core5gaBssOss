@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "TS29573_SeppTelescopicFqdnMapping.hpp"
 #include "n32.hpp"
 
 #include <gtest/gtest.h>
@@ -169,4 +170,33 @@ TEST(SeppN32, CorrelationFollowsClause5332) {
     ASSERT_TRUE(by_id.has_value());
     EXPECT_EQ(by_id->peer_fqdn, c.peer_fqdn);
     EXPECT_FALSE(sepp::correlate({a, c}, {}, "", std::nullopt, std::nullopt));
+}
+
+// ADR-0492: telescopic FQDN (TS 23.003 28.5.2, TS 29.573 5.4).
+TEST(SeppN32, TelescopicLabelsAreSingleStableLabels) {
+    const std::string fqdn = "nrf.5gc.mnc002.mcc001.3gppnetwork.org";
+    const auto label = sepp::telescopic_label(fqdn);
+    EXPECT_EQ(label.size(), 20U); // "tel-" + 16 hex
+    EXPECT_EQ(label.find('.'), std::string::npos);
+    EXPECT_EQ(label, sepp::telescopic_label("NRF.5gc.mnc002.mcc001.3gppnetwork.org")); // case-free
+    EXPECT_NE(label, sepp::telescopic_label("nssf.5gc.mnc002.mcc001.3gppnetwork.org"));
+
+    sepp::TelescopicTable table;
+    EXPECT_FALSE(table.foreign_for(label).has_value()); // never handed out
+    EXPECT_EQ(table.label_for(fqdn), label);
+    EXPECT_EQ(table.foreign_for(label), fqdn);
+
+    // The two TelescopicMapping bodies the SEPP returns (5.4.2 / 5.4.3), for the schema check.
+    sbi_gen::TelescopicMapping to_label;
+    to_label.telescopicLabel = label;
+    to_label.seppDomain = kA;
+    write_sample("telescopic_mapping_label.json", nlohmann::json(to_label));
+    sbi_gen::TelescopicMapping to_fqdn;
+    to_fqdn.foreignFqdn = fqdn;
+    write_sample("telescopic_mapping_fqdn.json", nlohmann::json(to_fqdn));
+
+    EXPECT_EQ(sepp::telescopic_label_of_host(label + "." + kA, kA), label);
+    EXPECT_FALSE(sepp::telescopic_label_of_host(kA, kA).has_value());
+    EXPECT_FALSE(sepp::telescopic_label_of_host("a.b." + std::string(kA), kA).has_value());
+    EXPECT_FALSE(sepp::telescopic_label_of_host("127.0.0.1", kA).has_value());
 }

@@ -50,7 +50,8 @@ fi
 LAB_SEPP_FQDNS="${LAB_SEPP_FQDNS:-sepp.5gc.mnc001.mcc001.3gppnetwork.org sepp.5gc.mnc002.mcc001.3gppnetwork.org}"
 extra_sans() {
     if [ "$1" = "sepp" ]; then
-        for f in ${LAB_SEPP_FQDNS}; do printf ',DNS:%s' "${f}"; done
+        # The wildcard serves telescopic FQDNs "<label>.<SEPP FQDN>" (TS 33.501 13.1, ADR-0492).
+        for f in ${LAB_SEPP_FQDNS}; do printf ',DNS:%s,DNS:*.%s' "${f}" "${f}"; done
     fi
 }
 
