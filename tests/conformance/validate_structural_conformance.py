@@ -89,16 +89,23 @@ def main() -> int:
     # ADR-0491: the SEPP's N32-c bodies as the SEPP builds them (tests/conformance/test_sepp_n32.cpp),
     # request AND response, against TS29573_N32_Handshake.yaml.
     registry.load_file("TS29573_N32_Handshake.yaml")
-    for sample, schema_name in (("sec_negotiate_req.json", "SecNegotiateReqData"),
-                                ("sec_negotiate_rsp.json", "SecNegotiateRspData")):
+    registry.load_file("TS29573_SeppTelescopicFqdnMapping.yaml")
+    for sample, yaml_file, schema_name in (
+            ("sec_negotiate_req.json", "TS29573_N32_Handshake.yaml", "SecNegotiateReqData"),
+            ("sec_negotiate_rsp.json", "TS29573_N32_Handshake.yaml", "SecNegotiateRspData"),
+            # ADR-0492: both TelescopicMapping forms (5.4.2 / 5.4.3).
+            ("telescopic_mapping_label.json", "TS29573_SeppTelescopicFqdnMapping.yaml",
+             "TelescopicMapping"),
+            ("telescopic_mapping_fqdn.json", "TS29573_SeppTelescopicFqdnMapping.yaml",
+             "TelescopicMapping")):
         sample_path = samples_dir / sample
         if not sample_path.exists():
             print(f"FAIL: {sample_path} not found", file=sys.stderr)
             return 1
-        schema = registry.schemas[("TS29573_N32_Handshake.yaml", schema_name)]
+        schema = registry.schemas[(yaml_file, schema_name)]
         all_errors.extend(
             check_object(schema, json.loads(sample_path.read_text()), registry,
-                         "TS29573_N32_Handshake.yaml", schema_name)
+                         yaml_file, schema_name)
         )
 
     if all_errors:

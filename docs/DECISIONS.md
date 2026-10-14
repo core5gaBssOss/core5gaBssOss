@@ -457,6 +457,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0489](decisions/ADR-0489-li-increment-7e-the-nwdaf-iri-poi-ts-33-127-7-18-ts-33-128.md) LI increment 7e -- the NWDAF IRI-POI (TS 33.127 7.18, TS 33.128 7.16)
 - [0490](decisions/ADR-0490-sbi-user-agent-every-nf-s-requests-carry-its-ts-29-510.md) SBI User-Agent: every NF's requests carry its TS 29.510 NFType (TS 29.500 5.2.2.2)
 - [0491](decisions/ADR-0491-sepp-increment-1-n32-c-security-capability-negotiation-and.md) SEPP increment 1 -- N32-c Security Capability Negotiation and N32-f forwarding with TLS security (TS 29.573)
+- [0492](decisions/ADR-0492-sepp-increment-2-telescopic-fqdn-nsepp-telescopic-fqdn.md) SEPP increment 2 -- telescopic FQDN: Nsepp_Telescopic_FQDN_Mapping and routing (TS 29.573 5.4, TS 29.500 6.1.4.3.2)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

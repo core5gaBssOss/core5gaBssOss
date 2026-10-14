@@ -1,5 +1,7 @@
 #include "n32.hpp"
 
+#include <openssl/evp.h>
+
 #include <algorithm>
 #include <cctype>
 #include <regex>
@@ -325,6 +327,48 @@ std::optional<Context> correlate(const std::vector<Context>& contexts,
         }
     }
     return match;
+}
+
+std::string telescopic_label(const std::string& foreign_fqdn) {
+    const std::string in = lower(foreign_fqdn);
+    unsigned char md[EVP_MAX_MD_SIZE];
+    unsigned int len = 0;
+    EVP_Digest(in.data(), in.size(), md, &len, EVP_sha256(), nullptr);
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string out = "tel-";
+    for (unsigned int i = 0; i < 8 && i < len; ++i) {
+        out += kHex[md[i] >> 4];
+        out += kHex[md[i] & 0x0F];
+    }
+    return out;
+}
+
+std::string TelescopicTable::label_for(const std::string& foreign_fqdn) {
+    const std::string label = telescopic_label(foreign_fqdn);
+    const std::lock_guard<std::mutex> lock(mutex_);
+    by_label_[label] = lower(foreign_fqdn);
+    return label;
+}
+
+std::optional<std::string> TelescopicTable::foreign_for(const std::string& label) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = by_label_.find(lower(label));
+    return it == by_label_.end() ? std::nullopt : std::optional{it->second};
+}
+
+std::optional<std::string> telescopic_label_of_host(std::string_view host,
+                                                    const std::string& sepp_fqdn) {
+    const std::string h = lower(host);
+    const std::string suffix = "." + lower(sepp_fqdn);
+    if (h.size() <= suffix.size() ||
+        h.compare(h.size() - suffix.size(), suffix.size(), suffix) != 0) {
+        return std::nullopt;
+    }
+    std::string label = h.substr(0, h.size() - suffix.size());
+    if (label.find('.') != std::string::npos) {
+        return std::nullopt;
+    }
+    return label;
 }
 
 } // namespace sepp

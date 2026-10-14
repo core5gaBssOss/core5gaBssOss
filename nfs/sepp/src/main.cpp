@@ -12,7 +12,9 @@
 //          {apiRoot}/n32c-handshake/v1/n32f-error          5.2.5 (logged, 204)
 //   N32-f  any other path on the N32 port                  5.3.3 forwarding with TLS security
 //   NF side any path on the SBI port                       6.1.4.3.3: an NF in this PLMN sends the
-//                                                          request with 3gpp-Sbi-Target-apiRoot
+//                                                          request with 3gpp-Sbi-Target-apiRoot, or
+//                                                          6.1.4.3.2: to <label>.<this SEPP's FQDN>
+//           {apiRoot}/nsepp-telescopic/v1/mapping          5.4.2 / 5.4.3 (ADR-0492)
 //
 // Two servers: the SBI port faces the NFs of this PLMN, the N32 port faces partner SEPPs. Both are
 // TLS 1.3 + mTLS (the N32-c "end to end TLS" of 5.2.1 is the N32 port's TLS).
@@ -22,9 +24,11 @@
 //     built: an offer of PRINS alone is refused 403 NEGOTIATION_NOT_ALLOWED; exchange-params is
 //     answered the same way. Hence no n32fContextId ever exists, and n32f-terminate always
 //     answers 404.
-//   * Forwarding needs 3gpp-Sbi-Target-apiRoot on both legs (both SEPPs indicate support -- this
-//     one always does). Telescopic FQDNs (5.4, TS 29.500 6.1.4.3.2) and forwarding to a peer that
-//     does not support the header (the target URI itself on N32-f) are not built.
+//   * N32-f always carries 3gpp-Sbi-Target-apiRoot (both SEPPs indicate support -- this one
+//     always does); forwarding to a peer that does not support the header (the target URI itself
+//     on N32-f) is not built. Telescopic FQDNs (ADR-0492): served; only the Location header of a
+//     response is rewritten into telescopic form, not URIs inside bodies (NF profiles, callbacks),
+//     and an unknown label is not looked up at other SEPPs of this PLMN (single SEPP here).
 //   * The receiving SEPP reaches an NF of its own PLMN through `local_nf_routes` in config (the
 //     target authority -> a reachable apiRoot): it stands in for the DNS resolution of the
 //     3gppnetwork.org FQDN, which this lab does not run.
@@ -58,6 +62,7 @@
 #include <thread>
 #include <vector>
 
+#include "TS29573_SeppTelescopicFqdnMapping.hpp"
 #include "n32.hpp"
 #include "nf_config/nf_config.hpp"
 
@@ -320,6 +325,7 @@ int main() {
         "sepp: {} serving PLMN {} ({} peer(s))", policy.own_fqdn, own_domain, policy.peers.size());
 
     sepp::ContextStore contexts;
+    sepp::TelescopicTable telescopic;
     http2::Client client(sepp_tls());
 
     boost::asio::io_context ioc;
@@ -439,7 +445,12 @@ int main() {
                            policy.own_fqdn);
         }
         const auto [authority, prefix] = split_api_root(*target);
-        const auto route = local_nf_routes.find(authority);
+        // A target apiRoot without a port is the https default (e.g. one rebuilt from a telescopic
+        // FQDN, which carries no port): "host" or "host:443" in config.
+        auto route = local_nf_routes.find(authority);
+        if (route == local_nf_routes.end() && authority.find(':') == std::string::npos) {
+            route = local_nf_routes.find(authority + ":443");
+        }
         if (route == local_nf_routes.end()) {
             refused->Add(1);
             return problem(504,
@@ -459,14 +470,71 @@ int main() {
                      policy.own_fqdn);
     });
 
-    // ---- NF side, sending SEPP (TS 29.500 6.1.4.3.3 / 6.1.4.3.4) ------------------------------
+    // ---- Nsepp_Telescopic_FQDN_Mapping (TS 29.573 5.4, ADR-0492) ------------------------------
+    sbi.add_route("GET", "/nsepp-telescopic/v1/mapping", [&](const http2::Request& req) {
+        const auto fqdn = req.query_params.find("foreign-fqdn");
+        const auto label = req.query_params.find("telescopic-label");
+        const bool has_fqdn = fqdn != req.query_params.end();
+        const bool has_label = label != req.query_params.end();
+        if (has_fqdn == has_label) {
+            return problem(400,
+                           "Bad Request",
+                           "exactly one of foreign-fqdn and telescopic-label is required",
+                           "INVALID_QUERY_PARAM",
+                           policy.own_fqdn);
+        }
+        sbi_gen::TelescopicMapping mapping;
+        if (has_fqdn) {
+            // 5.4.2: only an FQDN of another PLMN has a telescopic form.
+            const auto domain = sepp::network_domain_of_host(fqdn->second);
+            if (!domain || *domain == own_domain) {
+                return problem(400,
+                               "Bad Request",
+                               "foreign-fqdn " + fqdn->second + " is not an FQDN of another PLMN",
+                               "INVALID_QUERY_PARAM",
+                               policy.own_fqdn);
+            }
+            mapping.telescopicLabel = telescopic.label_for(fqdn->second);
+            mapping.seppDomain = policy.own_fqdn;
+        } else {
+            const auto foreign = telescopic.foreign_for(label->second);
+            if (!foreign) {
+                return problem(404,
+                               "Not Found",
+                               "telescopic label " + label->second + " is not known to this SEPP",
+                               "RESOURCE_URI_STRUCTURE_NOT_FOUND",
+                               policy.own_fqdn);
+            }
+            mapping.foreignFqdn = *foreign;
+        }
+        return http2::Response::json(200, json(mapping).dump());
+    });
+
+    // ---- NF side, sending SEPP (TS 29.500 6.1.4.3.2 / 6.1.4.3.3 / 6.1.4.3.4) ------------------
     sbi.add_route("*", "/**", [&](const http2::Request& req) {
-        const auto target = header(req, kTargetApiRoot);
+        // A telescopic FQDN in the request URI wins over a 3gpp-Sbi-Target-apiRoot header
+        // (6.1.4.3.3 NOTE 1: the header is then ignored).
+        std::optional<std::string> target;
+        bool via_telescopic = false;
+        if (const auto tl =
+                sepp::telescopic_label_of_host(sepp::host_of(req.authority), policy.own_fqdn)) {
+            const auto foreign = telescopic.foreign_for(*tl);
+            if (!foreign) {
+                return problem(404,
+                               "Not Found",
+                               "telescopic label " + *tl + " is not known to this SEPP",
+                               "RESOURCE_URI_STRUCTURE_NOT_FOUND",
+                               policy.own_fqdn);
+            }
+            target = "https://" + *foreign;
+            via_telescopic = true;
+        } else {
+            target = header(req, kTargetApiRoot);
+        }
         if (!target) {
             return problem(400,
                            "Bad Request",
-                           "3gpp-Sbi-Target-apiRoot is required (telescopic FQDNs are not "
-                           "supported by this SEPP)",
+                           "neither a telescopic FQDN nor 3gpp-Sbi-Target-apiRoot names the target",
                            "MANDATORY_IE_MISSING",
                            policy.own_fqdn);
         }
@@ -498,13 +566,37 @@ int main() {
         if (ctx->handshake_id) {
             extra.emplace_back(kHandshakeIdHeader, *ctx->handshake_id);
         }
+        std::vector<std::string> drop;
+        if (via_telescopic) {
+            // 6.1.4.3.4 second case: the sending SEPP inserts the header, set to the target
+            // apiRoot derived from the telescopic FQDN (any header the NF sent is ignored).
+            drop.emplace_back(kTargetApiRoot);
+            extra.emplace_back(kTargetApiRoot, *target);
+        }
         forwarded->Add(1);
-        // Both SEPPs support the header: HTTPS to the peer SEPP's apiRoot, header unmodified.
+        // Both SEPPs support the header: HTTPS to the peer SEPP's apiRoot.
         auto api_root = ctx->n32_api_root;
         while (!api_root.empty() && api_root.back() == '/') {
             api_root.pop_back();
         }
-        return relay(client, req, api_root + req.path, {}, extra, policy.own_fqdn);
+        auto resp = relay(client, req, api_root + req.path, drop, extra, policy.own_fqdn);
+        if (via_telescopic) {
+            // 6.1.4.3.2: a link relation URI of the other PLMN goes back to the NF in telescopic
+            // form (here: the Location header; URIs inside bodies are not rewritten, ADR-0492).
+            const auto loc = resp.headers.find("location");
+            if (loc != resp.headers.end()) {
+                const std::string host = sepp::host_of(loc->second);
+                if (sepp::network_domain_of_host(host) &&
+                    *sepp::network_domain_of_host(host) != own_domain) {
+                    const auto at = loc->second.find(host);
+                    std::string rewritten = loc->second;
+                    rewritten.replace(
+                        at, host.size(), telescopic.label_for(host) + "." + policy.own_fqdn);
+                    loc->second = rewritten;
+                }
+            }
+        }
+        return resp;
     });
 
     // ---- initiating SEPP: 5.2.2 towards every peer configured with initiate -------------------

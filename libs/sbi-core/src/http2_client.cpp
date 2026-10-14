@@ -148,6 +148,14 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
     }
 
+    curl_slist* resolve_list = nullptr;
+    for (const auto& entry : request.resolve) {
+        resolve_list = curl_slist_append(resolve_list, entry.c_str());
+    }
+    if (resolve_list != nullptr) {
+        curl_easy_setopt(curl, CURLOPT_RESOLVE, resolve_list);
+    }
+
     ClientResponse response;
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
@@ -158,6 +166,9 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
 
     if (header_list != nullptr) {
         curl_slist_free_all(header_list);
+    }
+    if (resolve_list != nullptr) {
+        curl_slist_free_all(resolve_list);
     }
 
     if (res != CURLE_OK) {

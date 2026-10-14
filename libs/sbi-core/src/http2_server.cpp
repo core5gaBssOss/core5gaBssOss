@@ -180,6 +180,7 @@ namespace {
 struct StreamContext {
     std::string method;
     std::string path;
+    std::string authority;
     std::multimap<std::string, std::string> headers;
     std::string body;
     std::string response_body;
@@ -401,6 +402,7 @@ private:
         auto req = std::make_shared<Request>();
         req->method = ctx.method;
         req->path = ctx.path;
+        req->authority = ctx.authority;
         req->headers = ctx.headers;
         req->body = ctx.body;
         req->query_params = parse_query_string(ctx.path);
@@ -633,6 +635,8 @@ private:
             it->second.method = value_str;
         } else if (name_str == ":path") {
             it->second.path = value_str;
+        } else if (name_str == ":authority") {
+            it->second.authority = value_str;
         } else if (!name_str.empty() && name_str.front() != ':') {
             it->second.headers.emplace(name_str, value_str);
         }

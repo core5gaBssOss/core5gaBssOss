@@ -48,6 +48,10 @@ struct ClientRequest {
     std::string url;
     std::multimap<std::string, std::string> headers;
     std::string body;
+    // Optional "host:port:address" entries (curl's CURLOPT_RESOLVE): connect to `address` for
+    // `host:port` while TLS still verifies `host`. Stands in for DNS of 3gppnetwork.org FQDNs the
+    // lab does not run (e.g. a telescopic FQDN served by the SEPP, ADR-0492). Empty = normal DNS.
+    std::vector<std::string> resolve;
 };
 
 struct ClientResponse {

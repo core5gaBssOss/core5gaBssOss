@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -112,5 +113,27 @@ std::optional<Context> correlate(const std::vector<Context>& contexts,
                                  const std::string& via,
                                  const std::optional<std::string>& handshake_id,
                                  const std::optional<std::string>& purpose);
+
+// ---- Telescopic FQDN (TS 23.003 28.5.2, TS 29.573 5.4, TS 29.500 6.1.4.3.2; ADR-0492) ----------
+
+// The single label replacing a foreign FQDN: "tel-" + 16 hex digits of SHA-256(lower-case FQDN).
+// TS 23.003 28.5.2 NOTE 1 leaves the construction to the implementation; a hash makes every SEPP
+// replica derive the same label without sharing state, and stays well inside 63 octets.
+std::string telescopic_label(const std::string& foreign_fqdn);
+
+// Labels this SEPP has handed out (5.4.2), resolvable back to the foreign FQDN (5.4.3).
+class TelescopicTable {
+public:
+    std::string label_for(const std::string& foreign_fqdn); // records the mapping
+    std::optional<std::string> foreign_for(const std::string& label) const;
+
+private:
+    mutable std::mutex mutex_;
+    std::map<std::string, std::string> by_label_;
+};
+
+// "<label>.<sepp_fqdn>" -> the label (one DNS label, nothing else in front), else nullopt.
+std::optional<std::string> telescopic_label_of_host(std::string_view host,
+                                                    const std::string& sepp_fqdn);
 
 } // namespace sepp
