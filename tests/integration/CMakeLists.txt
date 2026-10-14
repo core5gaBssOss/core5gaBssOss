@@ -331,6 +331,19 @@ target_compile_definitions(li_smsf_e2e_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_smsf_e2e_integration_tests PROPERTIES TIMEOUT 300)
 
+# ADR-0487 increment 1: the NEF IRI-POI (TS 33.128 7.7.6.1.2 NEFAFSessionWithQoSProvision) at the
+# real nef process, with real LI_X1 provisioning and a loopback MDF2.
+add_executable(li_nef_e2e_integration_tests test_li_nef_e2e.cpp)
+target_link_libraries(li_nef_e2e_integration_tests PRIVATE
+    li_core li_poi sbi_core sbi_generated OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+add_dependencies(li_nef_e2e_integration_tests nrf nef)
+target_compile_definitions(li_nef_e2e_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    NEF_PATH="$<TARGET_FILE:nef>"
+    NEF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/nef.json"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_nef_e2e_integration_tests PROPERTIES TIMEOUT 300)
+
 # ADR-0486 increment 3a: Registration with SMS over NAS (TS 23.502 4.13.3.1) through the real AMF
 # over NGAP/NAS, with a real SMSF answering Nsmsf_SMService_Activate.
 add_executable(amf_sms_integration_tests

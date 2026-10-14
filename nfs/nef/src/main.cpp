@@ -131,6 +131,10 @@
 // live verification (fabricated nested-object field shapes in the new test file's own bodies, and
 // the resulting `400`s re-triggering the known `ASSERT`-before-cleanup leaked-process bug class
 // from ADR-0204).
+//
+// UPDATE (ADR-0487): LI IRI-POI (li_poi.hpp), disabled unless config/nef.json li_poi.enabled --
+// NEFAFSessionWithQoSProvision (TS 33.128 clause 7.7.6.1.2) on the AsSessionWithQoS
+// create/update/patch/revoke handlers; the other NEF LI cases and why they wait are in ADR-0487.
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -212,6 +216,7 @@
 #include "TS29591_Nnef_UEId.hpp"
 #include "TS29591_Nnef_VFLInference.hpp"
 #include "TS29591_Nnef_VFLTraining.hpp"
+#include "li_poi.hpp"
 #include "nf_config/nf_config.hpp"
 #include "stores.hpp"
 
@@ -718,6 +723,47 @@ int main() {
     };
 
     sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
+
+    // LI IRI-POI (ADR-0487), disabled unless config/nef.json's li_poi.enabled is true; nullptr
+    // keeps the NEF's behaviour unchanged, the convention of every POI in this project.
+    std::unique_ptr<nef::NefLiPoi> li_poi;
+    if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
+        const auto& lp = config.at("li_poi");
+        li_poi::Config poi_cfg;
+        poi_cfg.x1_bind_address = lp.at("x1_bind_address").get<std::string>();
+        poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
+        poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"nef-poi"});
+        poi_cfg.network_function_id = lp.value("network_function_id", nef_instance_id);
+        poi_cfg.interception_point_id =
+            lp.value("interception_point_id", std::string{"NEF-IRI-POI-1"});
+        poi_cfg.mdf2_host = lp.at("mdf2_host").get<std::string>();
+        poi_cfg.mdf2_port = lp.at("mdf2_port").get<std::uint16_t>();
+        poi_cfg.mdf2_sni = lp.value("mdf2_sni", std::string{});
+        poi_cfg.cert_path = CERTS_DIR "/nef/cert.pem";
+        poi_cfg.key_path = CERTS_DIR "/nef/key.pem";
+        poi_cfg.ca_path = CERTS_DIR "/ca/ca.crt";
+        poi_cfg.x1_keepalive_p1_seconds = lp.value("x1_keepalive_p1_seconds", 60);
+        poi_cfg.x1_keepalive_p2_seconds = lp.value("x1_keepalive_p2_seconds", 180);
+        poi_cfg.x1_keepalive_p3_seconds = lp.value("x1_keepalive_p3_seconds", 300);
+        poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
+        li_poi = std::make_unique<nef::NefLiPoi>(std::move(poi_cfg));
+        li_poi->start();
+    }
+    // TS 33.128 clause 7.7.6.1.2: NEFAFSessionWithQoSProvision once the NEF has its response to
+    // the AF. Only a subscription that names a GPSI can be reported (gPSI is mandatory; ADR-0487).
+    const auto report_qos_provision = [&li_poi](const std::optional<json>& sub_for_gpsi,
+                                                const std::string& af_id,
+                                                li_core::xiri::AfSessionWithQosOpType op,
+                                                const std::optional<json>& subscription,
+                                                const std::optional<json>& patch,
+                                                int status) {
+        if (!li_poi || !sub_for_gpsi || !sub_for_gpsi->contains("gpsi") ||
+            !sub_for_gpsi->at("gpsi").is_string()) {
+            return;
+        }
+        li_poi->report_af_session_with_qos_provision(
+            sub_for_gpsi->at("gpsi").get<std::string>(), af_id, op, subscription, patch, status);
+    };
 
     nef::AfTrafficInfluenceSubStore af_traffic_influence_subs;
     nef::AfQosSubStore af_qos_subs;
@@ -8110,7 +8156,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_qos_subs, &pcf_client, pcf_base_url, self_base_url](
+        [&verifier, &af_qos_subs, &pcf_client, pcf_base_url, self_base_url, &report_qos_provision](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -8145,6 +8191,12 @@ int main() {
                                  std::string(kAfAsSessionWithQosApiRoot) + "/" + af_id +
                                      "/subscriptions/" + sub_id);
             resp.body = j.dump();
+            report_qos_provision(std::optional<json>(j),
+                                 af_id,
+                                 li_core::xiri::AfSessionWithQosOpType::Post,
+                                 std::optional<json>(j),
+                                 std::nullopt,
+                                 resp.status);
             return resp;
         });
 
@@ -8167,7 +8219,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_qos_subs](const sbi_core::http2::Request& req) {
+        [&verifier, &af_qos_subs, &report_qos_provision](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -8178,11 +8230,23 @@ int main() {
                 return err;
             }
             json j = *body;
-            if (!af_qos_subs.put(
-                    req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j)) {
+            const auto af_id = req.path_params.at("scsAsId");
+            if (!af_qos_subs.put(af_id, req.path_params.at("subscriptionId"), j)) {
+                report_qos_provision(std::optional<json>(j),
+                                     af_id,
+                                     li_core::xiri::AfSessionWithQosOpType::Put,
+                                     std::optional<json>(j),
+                                     std::nullopt,
+                                     404);
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such AsSessionWithQoS subscription");
             }
+            report_qos_provision(std::optional<json>(j),
+                                 af_id,
+                                 li_core::xiri::AfSessionWithQosOpType::Put,
+                                 std::optional<json>(j),
+                                 std::nullopt,
+                                 200);
             // Disclosed: the PCF app-session is NOT updated to match. Npcf_PolicyAuthorization
             // modifies a session via PATCH with its own AppSessionContextUpdateData shape, which
             // is a different translation from the one above and is not attempted here rather than
@@ -8194,7 +8258,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_qos_subs](const sbi_core::http2::Request& req) {
+        [&verifier, &af_qos_subs, &report_qos_provision](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -8205,27 +8269,38 @@ int main() {
             if (!patch_dto.has_value()) {
                 return err;
             }
-            auto patched = af_qos_subs.merge_patch(req.path_params.at("scsAsId"),
-                                                   req.path_params.at("subscriptionId"),
-                                                   json::parse(req.body));
+            const auto af_id = req.path_params.at("scsAsId");
+            const json patch = json::parse(req.body);
+            auto patched =
+                af_qos_subs.merge_patch(af_id, req.path_params.at("subscriptionId"), patch);
             if (!patched.has_value()) {
+                // No stored subscription, so no GPSI to report under (the patch carries none).
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such AsSessionWithQoS subscription");
             }
+            report_qos_provision(std::optional<json>(*patched),
+                                 af_id,
+                                 li_core::xiri::AfSessionWithQosOpType::Patch,
+                                 std::nullopt,
+                                 std::optional<json>(patch),
+                                 200);
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
     server.add_route(
         "DELETE",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_qos_subs, &pcf_client, pcf_base_url](const sbi_core::http2::Request& req) {
+        [&verifier, &af_qos_subs, &pcf_client, pcf_base_url, &report_qos_provision](
+            const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             const auto af_id = req.path_params.at("scsAsId");
             const auto sub_id = req.path_params.at("subscriptionId");
-            // Read the app-session id BEFORE removing the subscription -- remove() erases it.
+            // Read the app-session id BEFORE removing the subscription -- remove() erases it. The
+            // stored subscription is read too: it is where the revoke's GPSI comes from.
             const auto app_session = af_qos_subs.app_session(af_id, sub_id);
+            const auto stored = af_qos_subs.get(af_id, sub_id);
             if (!af_qos_subs.remove(af_id, sub_id)) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such AsSessionWithQoS subscription");
@@ -8234,6 +8309,12 @@ int main() {
             if (app_session.has_value()) {
                 delete_pcf_app_session(pcf_client, pcf_base_url, *app_session);
             }
+            report_qos_provision(stored,
+                                 af_id,
+                                 li_core::xiri::AfSessionWithQosOpType::Delete,
+                                 std::nullopt,
+                                 std::nullopt,
+                                 204);
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;

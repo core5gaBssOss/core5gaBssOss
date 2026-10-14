@@ -449,7 +449,8 @@
   "ADR-0483-pin-gcc-13-for-asn1c-s-own-compiler-build-gcc-15-2.md",
   "ADR-0484-upf-cc-poi-real-packet-capture-wiring-the-ebpf-ring-buffer.md",
   "ADR-0485-stop-claude-attribution-trailers-from-recurring-local-hook.md",
-  "ADR-0486-li-increment-7b-the-smsf-iri-poi-event-list-for-approval-ts.md"
+  "ADR-0486-li-increment-7b-the-smsf-iri-poi-event-list-for-approval-ts.md",
+  "ADR-0487-li-increment-7c-the-nef-iri-poi-event-mapping-first-slice.md"
  ],
  "split_commit": "0530e4f"
 }

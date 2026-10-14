@@ -550,6 +550,49 @@ struct SmsReport {
     bool operator==(const SmsReport&) const = default;
 };
 
+// SBIType ::= SEQUENCE { sBIReference UTF8String, sBIValue UTF8String } -- an SBI resource carried
+// as JSON text, with the "<yaml file>#/components/schemas/<name>" it conforms to.
+struct SbiType {
+    std::string reference;
+    std::string value;
+    bool operator==(const SbiType&) const = default;
+};
+
+// AForASSessionWithQoSOpType ::= ENUMERATED { pOST(1), pUT(2), pATCH(3), dELETE(4) }
+enum class AfSessionWithQosOpType : std::uint8_t { Post = 1, Put = 2, Patch = 3, Delete = 4 };
+
+// AForASSessionWithQoSResponseCode ::= ENUMERATED -- only these HTTP statuses have a value; any
+// other status has no encoding (to_af_session_response_code returns nullopt).
+enum class AfSessionWithQosResponseCode : std::uint8_t {
+    Ok200 = 1,
+    Created201 = 2,
+    NoContent204 = 3,
+    TemporaryRedirect307 = 4,
+    PermanentRedirect308 = 5,
+    BadRequest400 = 6,
+    Unauthorized401 = 7,
+    Forbidden403 = 8,
+    NotFound404 = 9,
+    NotAcceptable406 = 10,
+    LengthRequired411 = 11,
+    UnsupportedMediaType415 = 12,
+    TooManyRequests429 = 13,
+    InternalServerError500 = 14,
+    ServiceUnavailable503 = 15
+};
+std::optional<AfSessionWithQosResponseCode> to_af_session_response_code(int http_status);
+
+// XIRIEvent.nEFAFSessionWithQoSProvision [135] (TS 33.128 table 7.7.6.1.2-1).
+struct NefAfSessionWithQosProvision {
+    Gpsi gpsi;
+    std::string af_id;
+    AfSessionWithQosOpType op_type = AfSessionWithQosOpType::Post;
+    std::optional<SbiType> subscription;       // POST / PUT
+    std::optional<SbiType> subscription_patch; // PATCH
+    AfSessionWithQosResponseCode response_code = AfSessionWithQosResponseCode::Ok200;
+    bool operator==(const NefAfSessionWithQosProvision&) const = default;
+};
+
 using Event = std::variant<AmfRegistration,
                            AmfDeregistration,
                            AmfStartOfInterceptionWithRegisteredUE,
@@ -566,7 +609,8 @@ using Event = std::variant<AmfRegistration,
                            UdmCancelLocationMessage,
                            UdmUeAuthenticationResponse,
                            SmsMessage,
-                           SmsReport>;
+                           SmsReport,
+                           NefAfSessionWithQosProvision>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the

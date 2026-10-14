@@ -809,3 +809,44 @@ TEST(Xiri, SmsReportRoundTripsAndRejectsEmptyTpdu) {
     empty.message_type = xiri::SmsMessageType::SubmitReportAck;
     EXPECT_FALSE(xiri::encode_xiri_payload(empty).has_value()); // SMSTPDU SIZE(1..270)
 }
+
+// ADR-0487: XIRIEvent.nEFAFSessionWithQoSProvision [135] (TS 33.128 table 7.7.6.1.2-1).
+TEST(Xiri, NefAfSessionWithQosProvisionRoundTrips) {
+    xiri::NefAfSessionWithQosProvision post;
+    post.gpsi = xiri::Msisdn{"491701234567"};
+    post.af_id = "af-qos-1";
+    post.op_type = xiri::AfSessionWithQosOpType::Post;
+    post.subscription = xiri::SbiType{
+        "TS29122_AsSessionWithQoS.yaml#/components/schemas/AsSessionWithQoSSubscription",
+        R"({"gpsi":"msisdn-491701234567","qosReference":"qos-a"})"};
+    post.response_code = xiri::AfSessionWithQosResponseCode::Created201;
+    auto enc = xiri::encode_xiri_payload(post);
+    ASSERT_TRUE(enc.has_value()) << enc.error();
+    // [135] constructed, high-tag-number form: 0xBF 0x81 0x07.
+    const std::vector<std::uint8_t> tag{0xBF, 0x81, 0x07};
+    EXPECT_NE(std::search(enc->begin(), enc->end(), tag.begin(), tag.end()), enc->end());
+    auto dec = xiri::decode_xiri_payload(*enc);
+    ASSERT_TRUE(dec.has_value()) << dec.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::NefAfSessionWithQosProvision>(dec->event));
+    EXPECT_EQ(std::get<xiri::NefAfSessionWithQosProvision>(dec->event), post);
+
+    xiri::NefAfSessionWithQosProvision revoke;
+    revoke.gpsi = xiri::Nai{"user@example.net"};
+    revoke.af_id = "af-qos-1";
+    revoke.op_type = xiri::AfSessionWithQosOpType::Delete;
+    revoke.response_code = xiri::AfSessionWithQosResponseCode::NoContent204;
+    auto enc2 = xiri::encode_xiri_payload(revoke);
+    ASSERT_TRUE(enc2.has_value()) << enc2.error();
+    auto dec2 = xiri::decode_xiri_payload(*enc2);
+    ASSERT_TRUE(dec2.has_value()) << dec2.error();
+    EXPECT_EQ(std::get<xiri::NefAfSessionWithQosProvision>(dec2->event), revoke);
+}
+
+TEST(Xiri, AfSessionResponseCodeCoversExactlyTheEnumeratedStatuses) {
+    EXPECT_EQ(xiri::to_af_session_response_code(201),
+              xiri::AfSessionWithQosResponseCode::Created201);
+    EXPECT_EQ(xiri::to_af_session_response_code(503),
+              xiri::AfSessionWithQosResponseCode::ServiceUnavailable503);
+    EXPECT_FALSE(xiri::to_af_session_response_code(409).has_value()); // not in the ENUMERATED
+    EXPECT_FALSE(xiri::to_af_session_response_code(502).has_value());
+}
