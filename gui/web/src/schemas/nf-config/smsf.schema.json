@@ -42,6 +42,18 @@
         }
       }
     },
+    "mt_sms": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tr1n_seconds": {
+          "type": "integer"
+        },
+        "max_concurrent": {
+          "type": "integer"
+        }
+      }
+    },
     "li_poi": {
       "type": "object",
       "additionalProperties": false,
@@ -103,6 +115,7 @@
   "x-review": [
     "self_base_url: present in the file but no source line visibly reads it",
     "mo_sms: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "mt_sms: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

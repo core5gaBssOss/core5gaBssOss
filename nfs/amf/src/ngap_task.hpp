@@ -54,6 +54,10 @@ public:
     void register_ue(const std::string& supi, Entry entry);
     void unregister_ue(const std::string& supi);
 
+    // ADR-0486 increment 4: whether this SUPI has a live NGAP association right now -- the
+    // CM-CONNECTED case of Namf_MT_EnableUEReachability (TS 23.502 clause 4.13.3.7).
+    bool has_live_association(const std::string& supi);
+
     // Encodes (amf::nas::encode_dl_nas_transport) and sends a secured DlNasTransport carrying
     // n1_sm_container over the registered UE's live association, incrementing its downlink_count.
     // Returns false if no live association is registered for this SUPI.

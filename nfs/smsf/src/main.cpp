@@ -25,15 +25,19 @@
 // via Namf_Communication_N1N2MessageTransfer (n1n2_sender.hpp). The SMSF's LI IRI-POI (li_poi.hpp,
 // TS 33.128 clause 6.2.5.3) reports SMSMessage and SMSReport for a target UE.
 //
+// `SendMtSMS` is the stage-3 form of Nsmsf_SMService_MtForwardSm (TS 23.540 clause 6.4.2.2). Since
+// ADR-0486 increment 4 it implements TS 23.502 clauses 4.13.3.6-4.13.3.7 (MT SMS over NAS, SMSF
+// side): Namf_MT_EnableUEReachability, the CP-DATA(RP-DATA) to the UE via N1N2MessageTransfer, the
+// UE's CP-ACK and delivery report back through UplinkSMS, the closing CP-ACK, and the delivery
+// report in the 200 response (mt_sms.hpp, which also lists its disclosed interpretations).
+//
 // Real, disclosed limits: this project has no SMS-IWMSC/SMS-GMSC, so an SMS-SUBMIT is answered with
 // an RP-ERROR + SMS-SUBMIT-REPORT (configurable causes, config/smsf.json `mo_sms`), never an RP-ACK
 // that would claim a Service Centre took it; `SendSMS` still answers SMS_DELIVERY_SMSF_ACCEPTED
-// ("accepted for further processing", not "delivered"). `SendMtSMS` (the IP-SM-GW-facing API) still
-// returns an empty binary part in place of an SMS-DELIVER-REPORT -- the MT path (MAP
-// MT-FORWARD-SHORT-MESSAGE, TS 29.002) is a later increment. The AMF's own side (relaying UL NAS
-// TRANSPORT SMS to `SendSMS`, Nsmsf_SMService_Activate during Registration, DL NAS TRANSPORT for
-// n1MessageClass SMS) is ADR-0486 increment 3; until then nothing in this project calls `SendSMS`
-// except tests/integration/test_li_smsf_e2e.cpp.
+// ("accepted for further processing", not "delivered"). Nothing in this project calls `SendMtSMS`
+// except tests: there is no SMS-GMSC (and no Nudm_UECM_SendRoutingInfoForSM consumer). The AMF
+// address is configuration (`amf_base_url`), not UeSmsContextData.amfId. The SMS management
+// subscription data check of TS 23.502 clause 4.13.3.6 step 4 is not made.
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -45,6 +49,7 @@
 #include "sbi_core/multipart.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
+#include "sbi_core/problem_details.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
 #include "sbi_core/uuid.hpp"
@@ -58,9 +63,11 @@
 #include <string>
 #include <thread>
 
+#include "TS29518_Namf_MT.hpp"
 #include "TS29540_Nsmsf_SMService.hpp"
 #include "TS29577_Nipsmgw_SMService.hpp"
 #include "li_poi.hpp"
+#include "mt_sms.hpp"
 #include "n1n2_sender.hpp"
 #include "nf_config/nf_config.hpp"
 #include "sms_procedures.hpp"
@@ -101,6 +108,38 @@ std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::R
         return r;
     }
     return verifier.verify(value.substr(kPrefix.size()));
+}
+
+// ProblemDetails with an application error `cause` (TS 29.540 table 6.1.7.3-1, TS 29.500 table
+// 5.2.7.2-1).
+sbi_core::http2::Response problem_with_cause(int status,
+                                             const std::string& title,
+                                             const std::string& detail,
+                                             const std::string& cause) {
+    sbi_core::http2::Response r;
+    r.status = status;
+    r.headers.emplace("content-type", "application/problem+json");
+    r.body = json(sbi_core::make_problem_details(status, title, detail, cause)).dump();
+    return r;
+}
+
+// LI identities for a UE: the SUPI, and pei/gpsi from the request if it has them, else from the
+// UE SMS context the AMF activated.
+smsf::LiIdentities li_identities(const std::string& supi,
+                                 const json& ue_context,
+                                 std::optional<std::string> pei,
+                                 std::optional<std::string> gpsi) {
+    const auto ctx_str = [&](const char* key) -> std::optional<std::string> {
+        if (ue_context.contains(key) && ue_context.at(key).is_string()) {
+            return ue_context.at(key).get<std::string>();
+        }
+        return std::nullopt;
+    };
+    smsf::LiIdentities ids;
+    ids.supi = supi;
+    ids.pei = pei ? pei : ctx_str("pei");
+    ids.gpsi = gpsi ? gpsi : ctx_str("gpsi");
+    return ids;
 }
 
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
@@ -228,6 +267,15 @@ int main() {
         mo_sms_policy.no_iwmsc_tp_failure_cause =
             mo.value("no_iwmsc_tp_failure_cause", mo_sms_policy.no_iwmsc_tp_failure_cause);
     }
+    // ADR-0486 increment 4: MT SMS (mt_sms.hpp). TR1N and the in-flight cap are configuration.
+    smsf::MtSmsPolicy mt_sms_policy;
+    if (config.contains("mt_sms")) {
+        const auto& mt = config.at("mt_sms");
+        mt_sms_policy.tr1n = std::chrono::milliseconds(
+            static_cast<long long>(mt.value("tr1n_seconds", 40.0) * 1000.0));
+        mt_sms_policy.max_concurrent = mt.value("max_concurrent", mt_sms_policy.max_concurrent);
+    }
+    smsf::MtTransactions mt_transactions(mt_sms_policy);
     // LI IRI-POI (ADR-0486), disabled unless config/smsf.json's li_poi.enabled is true; nullptr
     // keeps the SMSF's behaviour unchanged, the convention of every POI in this project.
     std::unique_ptr<smsf::SmsfLiPoi> li_poi;
@@ -377,8 +425,13 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{supi}/sendsms",
-        [&verifier, &contexts, &send_sms_counter, &mo_sms_policy, &n1n2_sender, &li_poi](
-            const sbi_core::http2::Request& req) {
+        [&verifier,
+         &contexts,
+         &send_sms_counter,
+         &mo_sms_policy,
+         &mt_transactions,
+         &n1n2_sender,
+         &li_poi](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -435,28 +488,33 @@ int main() {
 
             // TS 33.128 6.2.5.3: SMSMessage on CP-DATA_RP-DATA [SMS-SUBMIT, SMS-COMMAND] from a
             // target UE. Identities: the request's own pei/gpsi, else the UE SMS context's.
+            std::optional<json> location;
+            if (jsonData.ueLocation) {
+                location = json(*jsonData.ueLocation);
+            }
             std::vector<li_poi::Match> li_matches;
             if (li_poi && outcome->rp && outcome->tpdu) {
-                smsf::LiIdentities ids;
-                ids.supi = supi;
-                const auto ctx_str = [&](const char* key) -> std::optional<std::string> {
-                    if (ue_context->contains(key) && ue_context->at(key).is_string()) {
-                        return ue_context->at(key).get<std::string>();
-                    }
-                    return std::nullopt;
-                };
-                ids.pei = jsonData.pei
-                              ? std::optional<std::string>(json(*jsonData.pei).get<std::string>())
-                              : ctx_str("pei");
-                ids.gpsi = jsonData.gpsi
-                               ? std::optional<std::string>(json(*jsonData.gpsi).get<std::string>())
-                               : ctx_str("gpsi");
-                std::optional<json> location;
-                if (jsonData.ueLocation) {
-                    location = json(*jsonData.ueLocation);
-                }
+                const auto ids = li_identities(
+                    supi,
+                    *ue_context,
+                    jsonData.pei
+                        ? std::optional<std::string>(json(*jsonData.pei).get<std::string>())
+                        : std::nullopt,
+                    jsonData.gpsi
+                        ? std::optional<std::string>(json(*jsonData.gpsi).get<std::string>())
+                        : std::nullopt);
                 li_matches =
                     li_poi->report_mo_sms_message(ids, *outcome->rp, *outcome->tpdu, location);
+            }
+
+            // TS 23.502 4.13.3.6 steps 5c-6b: the UE's CP-ACK / delivery report for an MT SMS
+            // (TI flag 1 -- a network-originated TI). The delivery report's CP-ACK is the last
+            // message of the transfer (step 6c).
+            bool mt_delivery_report = false;
+            if (outcome->cp.ti_flag &&
+                mt_transactions.on_uplink(
+                    supi, outcome->cp, outcome->rp, location ? location->dump() : std::string{})) {
+                mt_delivery_report = outcome->cp.type == sms_core::CpMessageType::Data;
             }
 
             // TS 23.502 4.13.3.3 steps 2c and 6a: CP-ACK, then the RP reply, to the UE via the AMF.
@@ -464,7 +522,7 @@ int main() {
                 smsf::N1n2Sender::Job job;
                 job.supi = supi;
                 job.payloads = std::move(outcome->downlink);
-                job.last_is_final = outcome->rp_reply.has_value();
+                job.last_is_final = outcome->rp_reply.has_value() || mt_delivery_report;
                 if (outcome->rp_reply && !li_matches.empty()) {
                     const std::size_t reply_index = job.payloads.size() - 1;
                     job.on_sent = [&li_poi,
@@ -492,14 +550,16 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{supi}/send-mt-sms",
-        [&verifier, &contexts, &send_mt_sms_counter](const sbi_core::http2::Request& req) {
+        [&verifier, &contexts, &send_mt_sms_counter, &mt_transactions, &n1n2_sender, &li_poi](
+            const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             const auto supi = req.path_params.at("supi");
-            if (!contexts.get(supi).has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE SMS context for supi " + supi);
+            const auto ue_context = contexts.get(supi);
+            if (!ue_context.has_value()) {
+                return problem_with_cause(
+                    404, "Not Found", "No UE SMS context for supi " + supi, "CONTEXT_NOT_FOUND");
             }
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
@@ -517,32 +577,104 @@ int main() {
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(400, "Invalid Service Request", e.what());
             }
-            bool found_payload = false;
+            const sbi_core::multipart::Part* payload_part = nullptr;
             for (const auto& part : *parts) {
                 if (part.content_id.has_value() &&
                     *part.content_id == jsonData.smsPayload.contentId) {
-                    found_payload = true;
+                    payload_part = &part;
                     break;
                 }
             }
-            if (!found_payload) {
+            if (payload_part == nullptr) {
+                return problem_with_cause(400,
+                                          "Invalid Service Request",
+                                          "smsPayload binary part not found",
+                                          "SMS_PAYLOAD_MISSING");
+            }
+            const std::vector<std::uint8_t> payload(payload_part->body.begin(),
+                                                    payload_part->body.end());
+            auto request = smsf::parse_mt_forward_payload(payload);
+            if (!request) {
+                return problem_with_cause(
+                    400, "Invalid Service Request", request.error(), "SMS_PAYLOAD_ERROR");
+            }
+            send_mt_sms_counter->Add(1);
+
+            const auto ids = li_identities(supi, *ue_context, std::nullopt, std::nullopt);
+            // TS 33.128 6.2.5.3: an SMSMessage whenever delivery to a target UE was attempted,
+            // with linkTransferStatus per NOTE 5.
+            const auto report_failed_attempt = [&] {
+                if (li_poi) {
+                    li_poi->report_mt_sms_message(ids, request->rp, request->tpdu, false);
+                }
+            };
+            // TS 29.540 table 6.1.7.3-1 has no application error for an undeliverable MT SMS
+            // (TS 23.540 clause 5.1.5 step 7 only says "with error cause"), so these failures are
+            // a 504 ProblemDetails WITHOUT a cause -- disclosed, never an invented cause value.
+            const auto not_delivered = [&](const std::string& why) {
+                spdlog::warn("smsf: MT SMS for {} not delivered: {}", supi, why);
+                report_failed_attempt();
                 return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "smsPayload binary part not found");
+                    504, "MT SMS not delivered", "MT SMS for " + supi + " not delivered: " + why);
+            };
+
+            // Step 4: Namf_MT_EnableUEReachability.
+            const auto reachability = n1n2_sender.enable_ue_reachability(supi);
+            if (!reachability) {
+                return not_delivered("Namf_MT_EnableUEReachability failed: " +
+                                     reachability.error());
+            }
+            if (*reachability != sbi_gen::UeReachability::REACHABLE) {
+                return not_delivered("the AMF reports the UE " + *reachability);
             }
 
-            send_mt_sms_counter->Add(1);
-            // Real, disclosed simplification -- see this file's own top comment: this project has
-            // no real TS 24.011 SMS-DELIVER-REPORT encoder, so the binary delivery-report part is
-            // an honest empty placeholder, not a fabricated PDU.
+            // Steps 5a-6b: CP-DATA to the UE; wait for its delivery report (TR1N).
+            auto outcome = mt_transactions.run(supi, [&](std::uint8_t ti) {
+                smsf::N1n2Sender::Job job;
+                job.supi = supi;
+                job.payloads.push_back(smsf::make_mt_cp_data(*request, ti));
+                job.on_sent = [&mt_transactions, supi, ti](std::size_t, bool accepted) {
+                    mt_transactions.downlink_result(supi, ti, accepted);
+                };
+                n1n2_sender.enqueue(std::move(job));
+            });
+            if (!outcome) {
+                switch (outcome.error()) {
+                    case smsf::MtFailure::Congestion:
+                        return problem_with_cause(503,
+                                                  "Service Unavailable",
+                                                  "MT SMS transactions in flight at the limit",
+                                                  "NF_CONGESTION");
+                    case smsf::MtFailure::NotDelivered:
+                        return not_delivered("the AMF did not accept the downlink CP-DATA");
+                    case smsf::MtFailure::CpError:
+                        return not_delivered("the UE answered CP-ERROR");
+                    case smsf::MtFailure::Timeout:
+                        return not_delivered("TR1N expired without a delivery report");
+                }
+                return not_delivered("unrecognised MT failure");
+            }
+
+            // Step 7: the delivery report (RP-ACK or RP-ERROR from the UE) in the 200 response.
+            if (li_poi) {
+                const auto matches =
+                    li_poi->report_mt_sms_message(ids, request->rp, request->tpdu, true);
+                std::optional<json> location;
+                if (!outcome->ue_location_json.empty()) {
+                    location = json::parse(outcome->ue_location_json, nullptr, false);
+                }
+                li_poi->report_sms_report(matches, outcome->rp, location);
+            }
             sbi_gen::SmsDeliveryData resp_json;
             resp_json.smsPayload.contentId = "smsPayload";
-
             sbi_core::multipart::Part json_part;
             json_part.content_type = "application/json";
             json_part.body = json(resp_json).dump();
             sbi_core::multipart::Part bin_part;
             bin_part.content_type = "application/vnd.3gpp.sms";
             bin_part.content_id = "smsPayload";
+            const auto report = smsf::make_delivery_report_payload(*request, outcome->rpdu);
+            bin_part.body.assign(report.begin(), report.end());
             const auto encoded = sbi_core::multipart::encode({json_part, bin_part});
 
             sbi_core::http2::Response resp;

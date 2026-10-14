@@ -9,6 +9,10 @@
     "no_iwmsc_rp_cause": 38,
     "no_iwmsc_tp_failure_cause": 194
   },
+  "mt_sms": {
+    "tr1n_seconds": 40,
+    "max_concurrent": 4
+  },
   "li_poi": {
     "enabled": false,
     "x1_bind_address": "0.0.0.0",

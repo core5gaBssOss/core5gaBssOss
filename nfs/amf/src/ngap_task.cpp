@@ -2772,6 +2772,11 @@ void NgapUeRegistry::unregister_ue(const std::string& supi) {
     entries_.erase(supi);
 }
 
+bool NgapUeRegistry::has_live_association(const std::string& supi) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return entries_.contains(supi);
+}
+
 bool NgapUeRegistry::send_dl_nas_transport(const std::string& supi,
                                            std::uint8_t pdu_session_id,
                                            const std::vector<std::uint8_t>& n1_sm_container) {
