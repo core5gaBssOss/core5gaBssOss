@@ -138,6 +138,17 @@ jobs:
             fail=1
           fi
           exit "$fail"
+      # ADR-0485 follow-up: the range scan above only sees NEW commits, which is how 24 older
+      # `Claude-Session:` lines survived a history rewrite unnoticed. Scan the whole history too.
+      - name: Scan full history for AI attribution trailers
+        run: |
+          pattern='co-authored-by:.*(claude|anthropic)|claude-session:|generated[[:space:]]+with[[:space:]]+\[?claude[[:space:]]+code'
+          bad=$(git log --format='%H %B' HEAD | grep -ciE "$pattern" || true)
+          if [ "$bad" != "0" ]; then
+            echo "::error::$bad AI attribution line(s) remain in this branch's history -- forbidden, see CLAUDE.md"
+            git log --format='%h %s%n%B' HEAD | grep -iE "$pattern" | sort | uniq -c
+            exit 1
+          fi
 
   build:
     # ADR-0469: after `lint` (fast, catches formatting/tidy/diagram drift first) and only when code changed.
