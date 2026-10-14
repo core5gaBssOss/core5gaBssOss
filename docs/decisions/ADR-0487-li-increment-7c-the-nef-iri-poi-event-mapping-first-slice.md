@@ -1,6 +1,6 @@
 ## ADR-0487: LI increment 7c -- the NEF IRI-POI: event mapping, first slice AF session with QoS (TS 33.127 7.9, TS 33.128 7.7)
 
-**Date:** 2026-10-14. **Status:** Accepted -- increment 1 (AF session with QoS provision) in progress; user directive "proceed, don't wait for my commands".
+**Date:** 2026-10-14. **Status:** Accepted -- increment 1 (AF session with QoS provision) built; increment 2 (notification) deferred until the PCF emits Npcf_PolicyAuthorization_Notify (see findings).
 
 **Context.** The LI plan (ADR-0364) step 7 continues with the NEF, after the UDM (ADR-0475) and the
 SMSF (ADR-0486). TS 33.128 clause 7.7 (stage 2: TS 33.127 clause 7.9) defines six NEF LI areas.
