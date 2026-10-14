@@ -63,9 +63,11 @@
 #include <thread>
 #include <vector>
 
+#include "TS29573_JOSEProtectedMessageForwarding.hpp"
 #include "TS29573_SeppTelescopicFqdnMapping.hpp"
 #include "n32.hpp"
 #include "nf_config/nf_config.hpp"
+#include "prins_codec.hpp"
 
 namespace {
 
@@ -276,6 +278,39 @@ void run_nrf_lifecycle(const std::string& instance_id,
     }
 }
 
+// The consumer PLMN in a Bearer token's claims, if the token carries one (TS 29.510 6.3.5.2.4
+// AccessTokenClaims.consumerPlmnId). The token's signature is the producer's to verify; this only
+// reads the claim for the N32-f PLMN check (TS 29.573 5.3.2.1 step 6).
+std::optional<std::pair<std::string, std::string>> token_consumer_plmn(const std::string& auth) {
+    constexpr std::string_view kBearer = "Bearer ";
+    if (auth.compare(0, kBearer.size(), kBearer) != 0) {
+        return std::nullopt;
+    }
+    const auto parts = auth.substr(kBearer.size());
+    const auto a = parts.find('.');
+    const auto b = parts.find('.', a == std::string::npos ? a : a + 1);
+    if (a == std::string::npos || b == std::string::npos) {
+        return std::nullopt;
+    }
+    const auto raw = sepp::base64url_decode(parts.substr(a + 1, b - a - 1));
+    if (!raw) {
+        return std::nullopt;
+    }
+    const json claims = json::parse(raw->begin(), raw->end(), nullptr, false);
+    if (!claims.is_object() || !claims.contains("consumerPlmnId") ||
+        !claims.at("consumerPlmnId").is_object()) {
+        return std::nullopt;
+    }
+    const auto& plmn = claims.at("consumerPlmnId");
+    return std::pair{plmn.value("mcc", std::string{}), plmn.value("mnc", std::string{})};
+}
+
+std::string hex64(std::uint64_t v) {
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(v));
+    return buf;
+}
+
 } // namespace
 
 int main() {
@@ -343,6 +378,14 @@ int main() {
     // 13.2.4.4.1); exchange-params uses the one of the connection it arrived on.
     n32.set_tls_exporters({{sepp::kN32MasterExporterLabel, sepp::kN32MasterKeyLength}});
     sepp::PrinsStore prins;
+    // TS 33.501 13.2.4.4.1: "A different sequence counter shall be maintained for each IV salt".
+    std::mutex seq_mutex;
+    std::map<std::string, std::uint32_t> seqs;
+    const auto next_seq = [&](const std::string& context_id, sepp::KeyUse use) {
+        const std::lock_guard<std::mutex> lock(seq_mutex);
+        return seqs[context_id + "/" + std::to_string(static_cast<int>(use))]++;
+    };
+    std::atomic<std::uint64_t> message_counter{1};
 
     // ---- N32-c (TS 29.573 6.1) ----------------------------------------------------------------
     n32.add_route(
@@ -479,6 +522,179 @@ int main() {
             r.status = 204;
             return r;
         });
+
+    // ---- N32-f with PRINS, receiving SEPP (TS 29.573 5.3.2, TS 33.501 13.2.4.7; ADR-0494) -------
+    // 5.2.5: the error goes to the peer over N32-c, best effort, off the request's thread.
+    const auto report_n32f_error =
+        [&](const sepp::PrinsContext& pc, const std::string& message_id, const char* error_type) {
+            const auto cap = contexts.by_peer(pc.peer_fqdn);
+            if (!cap) {
+                return;
+            }
+            sbi_gen::N32fErrorInfo info;
+            info.n32fMessageId = message_id;
+            info.n32fErrorType.value = error_type;
+            info.n32fContextId = pc.peer_id;
+            http2::ClientRequest er;
+            er.method = "POST";
+            er.url = cap->n32_api_root + kHandshakeRoot + "/n32f-error";
+            er.headers.emplace("content-type", "application/json");
+            er.body = json(info).dump();
+            std::thread([er = std::move(er)] {
+                http2::Client c(sepp_tls());
+                (void)c.send(er);
+            }).detach();
+        };
+    n32.add_route("POST", "/n32f-forward/v1/n32f-process", [&](const http2::Request& req) {
+        sbi_gen::N32fReformattedReqMsg body;
+        try {
+            body = json::parse(req.body).get<sbi_gen::N32fReformattedReqMsg>();
+        } catch (const std::exception& e) {
+            return problem(400, "Bad Request", e.what(), "INVALID_MSG_FORMAT", policy.own_fqdn);
+        }
+        const auto meta = sepp::peek_metadata(body.reformattedData);
+        if (!meta) {
+            return problem(400,
+                           "Bad Request",
+                           "no metaData in the reformatted message",
+                           "MANDATORY_IE_INCORRECT",
+                           policy.own_fqdn);
+        }
+        const auto pc = prins.by_local_id(meta->n32fContextId);
+        if (!pc) {
+            refused->Add(1);
+            return problem(403,
+                           "Forbidden",
+                           "n32fContextId " + meta->n32fContextId + " is unknown",
+                           "CONTEXT_NOT_FOUND",
+                           policy.own_fqdn);
+        }
+        if (body.modificationsBlock) {
+            // No roaming intermediary is configured, so no RI modification can be verified.
+            refused->Add(1);
+            return problem(403,
+                           "Forbidden",
+                           "modificationsBlock present but no roaming intermediary is authorized",
+                           "UNSPECIFIED",
+                           policy.own_fqdn);
+        }
+        const auto keys = sepp::derive_keys(
+            pc->master_key, pc->local_id, sepp::key_use(!pc->initiator, false), pc->jwe_cipher);
+        const auto opened = sepp::open(
+            body.reformattedData, pc->jwe_cipher, keys, false, [&](const sepp::HttpMessage& m) {
+                return sepp::select(
+                    pc->selected_policy, m.method, m.path.substr(0, m.path.find('?')), false);
+            });
+        if (!opened) {
+            refused->Add(1);
+            if (opened.error().error == sepp::OpenError::PolicyMismatch) {
+                return problem(
+                    403, "Forbidden", opened.error().detail, "POLICY_MISMATCH", policy.own_fqdn);
+            }
+            report_n32f_error(*pc,
+                              meta->messageId,
+                              opened.error().error == sepp::OpenError::IntegrityCheckFailed
+                                  ? "INTEGRITY_CHECK_FAILED"
+                                  : "MESSAGE_RECONSTRUCTION_FAILED");
+            return problem(403, "Forbidden", opened.error().detail, "UNSPECIFIED", policy.own_fqdn);
+        }
+        const sepp::HttpMessage& in = *opened;
+
+        // 5.3.2.1 step 6: the consumer PLMN in a Bearer token must be the context's remote PLMN.
+        const auto peer_cfg = std::ranges::find_if(
+            policy.peers, [&](const sepp::PeerConfig& x) { return x.fqdn == pc->peer_fqdn; });
+        for (const auto& [name, value] : in.headers) {
+            if (name != "authorization" || peer_cfg == policy.peers.end()) {
+                continue;
+            }
+            const auto plmn = token_consumer_plmn(value);
+            if (plmn && sepp::home_network_domain(plmn->first, plmn->second) !=
+                            sepp::home_network_domain(peer_cfg->mcc, peer_cfg->mnc)) {
+                refused->Add(1);
+                return problem(403,
+                               "Forbidden",
+                               "the Bearer token's consumer PLMN is not the N32-f context's",
+                               "PLMNID_MISMATCH",
+                               policy.own_fqdn);
+            }
+        }
+
+        // The NF of this PLMN: requestLine.authority, through local_nf_routes as for TLS.
+        sepp::HttpMessage out;
+        const std::string authority = lower(in.authority);
+        if (sepp::network_domain_of_host(sepp::host_of(authority)) != own_domain) {
+            out.status = 400;
+            out.headers = {{"content-type", "application/problem+json"},
+                           {"server", "SEPP-" + policy.own_fqdn}};
+            out.body = json(sbi_core::make_problem_details(400,
+                                                           "Bad Request",
+                                                           "authority " + authority +
+                                                               " is not in " + own_domain,
+                                                           std::string("MANDATORY_IE_INCORRECT")))
+                           .dump();
+        } else {
+            auto route = local_nf_routes.find(authority);
+            if (route == local_nf_routes.end() && authority.find(':') == std::string::npos) {
+                route = local_nf_routes.find(authority + ":443");
+            }
+            std::optional<http2::ClientResponse> nf_rsp;
+            if (route != local_nf_routes.end()) {
+                http2::ClientRequest fwd;
+                fwd.method = in.method;
+                fwd.url = route->second + in.path;
+                for (const auto& [name, value] : in.headers) {
+                    if (!hop_by_hop(name) && name != "via") {
+                        fwd.headers.emplace(name, value);
+                    }
+                }
+                fwd.headers.emplace("via", "2.0 SEPP-" + policy.own_fqdn);
+                fwd.body = in.body;
+                if (auto r = client.send(fwd)) {
+                    nf_rsp = std::move(*r);
+                }
+            }
+            if (!nf_rsp) {
+                out.status = 504;
+                out.headers = {{"content-type", "application/problem+json"},
+                               {"server", "SEPP-" + policy.own_fqdn}};
+                out.body =
+                    json(sbi_core::make_problem_details(504,
+                                                        "Gateway Timeout",
+                                                        "no route to " + authority,
+                                                        std::string("TARGET_NF_NOT_REACHABLE")))
+                        .dump();
+            } else {
+                out.status = static_cast<int>(nf_rsp->status);
+                for (const auto& [name, value] : nf_rsp->headers) {
+                    const std::string n = lower(name);
+                    if (!hop_by_hop(n)) {
+                        out.headers.emplace_back(n, value);
+                    }
+                }
+                out.headers.emplace_back("via", "2.0 SEPP-" + policy.own_fqdn);
+                out.body = std::move(nf_rsp->body);
+            }
+        }
+        forwarded->Add(1);
+        const auto use = sepp::key_use(pc->initiator, true);
+        const auto rsp_keys = sepp::derive_keys(pc->master_key, pc->peer_id, use, pc->jwe_cipher);
+        const auto sel = sepp::select(
+            pc->selected_policy, in.method, in.path.substr(0, in.path.find('?')), true);
+        auto jwe = sepp::protect(out,
+                                 sel,
+                                 pc->jwe_cipher,
+                                 rsp_keys,
+                                 next_seq(pc->local_id, use),
+                                 pc->peer_id,
+                                 meta->messageId);
+        if (!jwe) {
+            return problem(
+                500, "Internal Server Error", jwe.error(), "SYSTEM_FAILURE", policy.own_fqdn);
+        }
+        sbi_gen::N32fReformattedRspMsg rsp;
+        rsp.reformattedData = std::move(*jwe);
+        return http2::Response::json(200, json(rsp).dump());
+    });
 
     // ---- N32-f, receiving SEPP (5.3.3, TS 29.500 6.1.4.3.4) ----------------------------------
     n32.add_route("*", "/**", [&](const http2::Request& req) {
@@ -624,13 +840,126 @@ int main() {
         }
         const auto ctx = contexts.by_domain(*domain);
         if (ctx && ctx->security != "TLS") {
-            return problem(
-                504,
-                "Gateway Timeout",
-                "PRINS is negotiated with " + *domain +
-                    "; JOSE-protected forwarding (TS 29.573 5.3.2) is the next increment",
-                "TARGET_NF_NOT_REACHABLE",
-                policy.own_fqdn);
+            // PRINS (TS 29.573 5.3.2.3 / 5.3.2.4, TS 33.501 13.2.4.8 steps 1-3; ADR-0494).
+            const auto pc = prins.by_peer(ctx->peer_fqdn);
+            if (!pc) {
+                return problem(504,
+                               "Gateway Timeout",
+                               "no PRINS N32-f context with " + *domain,
+                               "TARGET_NF_NOT_REACHABLE",
+                               policy.own_fqdn);
+            }
+            const auto [authority, prefix] = split_api_root(*target);
+            sepp::HttpMessage m;
+            m.method = req.method;
+            m.authority = authority;
+            m.path = prefix + req.path;
+            for (const auto& [name, value] : req.headers) {
+                const std::string n = lower(name);
+                if (!hop_by_hop(n) && n != "via" && n != kTargetApiRoot &&
+                    n != kHandshakeIdHeader) {
+                    m.headers.emplace_back(n, value);
+                }
+            }
+            m.body = req.body;
+            const std::string api_path = m.path.substr(0, m.path.find('?'));
+            const auto use = sepp::key_use(pc->initiator, false);
+            const auto keys = sepp::derive_keys(pc->master_key, pc->peer_id, use, pc->jwe_cipher);
+            const std::string message_id = hex64(message_counter++);
+            auto jwe = sepp::protect(m,
+                                     sepp::select(pc->selected_policy, m.method, api_path, false),
+                                     pc->jwe_cipher,
+                                     keys,
+                                     next_seq(pc->local_id, use),
+                                     pc->peer_id,
+                                     message_id);
+            if (!jwe) {
+                return problem(
+                    500, "Internal Server Error", jwe.error(), "SYSTEM_FAILURE", policy.own_fqdn);
+            }
+            sbi_gen::N32fReformattedReqMsg msg;
+            msg.reformattedData = std::move(*jwe);
+            http2::ClientRequest out;
+            out.method = "POST";
+            out.url = ctx->n32_api_root + "/n32f-forward/v1/n32f-process";
+            out.headers.emplace("content-type", "application/json");
+            out.headers.emplace("via", "2.0 SEPP-" + policy.own_fqdn);
+            if (const auto prio = header(req, "3gpp-sbi-message-priority")) {
+                out.headers.emplace("3gpp-sbi-message-priority", *prio); // 5.3.2.4
+            }
+            out.body = json(msg).dump();
+            forwarded->Add(1);
+            const auto r = client.send(out);
+            if (!r) {
+                return problem(504,
+                               "Gateway Timeout",
+                               "peer SEPP not reachable: " + r.error(),
+                               "TARGET_NF_NOT_REACHABLE",
+                               policy.own_fqdn);
+            }
+            if (r->status != 200) {
+                // An error of the peer SEPP itself (CONTEXT_NOT_FOUND, POLICY_MISMATCH, ...).
+                http2::Response e;
+                e.status = static_cast<int>(r->status);
+                for (const auto& [name, value] : r->headers) {
+                    if (!hop_by_hop(lower(name))) {
+                        e.headers.emplace(lower(name), value);
+                    }
+                }
+                e.headers.emplace("via", "2.0 SEPP-" + policy.own_fqdn);
+                e.body = r->body;
+                return e;
+            }
+            sbi_gen::N32fReformattedRspMsg rsp;
+            try {
+                rsp = json::parse(r->body).get<sbi_gen::N32fReformattedRspMsg>();
+            } catch (const std::exception& ex) {
+                return problem(
+                    502, "Bad Gateway", ex.what(), "INBOUND_SERVER_ERROR", policy.own_fqdn);
+            }
+            const auto rmeta = sepp::peek_metadata(rsp.reformattedData);
+            if (!rmeta || lower(rmeta->n32fContextId) != pc->local_id ||
+                rmeta->messageId != message_id) {
+                return problem(502,
+                               "Bad Gateway",
+                               "the protected response names another context or message",
+                               "INBOUND_SERVER_ERROR",
+                               policy.own_fqdn);
+            }
+            const auto rkeys = sepp::derive_keys(
+                pc->master_key, pc->local_id, sepp::key_use(!pc->initiator, true), pc->jwe_cipher);
+            const auto opened = sepp::open(
+                rsp.reformattedData, pc->jwe_cipher, rkeys, true, [&](const sepp::HttpMessage&) {
+                    return sepp::select(pc->selected_policy, m.method, api_path, true);
+                });
+            if (!opened) {
+                report_n32f_error(*pc,
+                                  message_id,
+                                  opened.error().error == sepp::OpenError::IntegrityCheckFailed
+                                      ? "INTEGRITY_CHECK_FAILED"
+                                  : opened.error().error == sepp::OpenError::PolicyMismatch
+                                      ? "POLICY_MISMATCH"
+                                      : "MESSAGE_RECONSTRUCTION_FAILED");
+                return problem(502,
+                               "Bad Gateway",
+                               opened.error().detail,
+                               "INBOUND_SERVER_ERROR",
+                               policy.own_fqdn);
+            }
+            http2::Response back;
+            back.status = opened->status;
+            std::string via_chain;
+            for (const auto& [name, value] : opened->headers) {
+                if (name == "via") {
+                    via_chain = via_chain.empty() ? value : via_chain + ", " + value;
+                } else {
+                    back.headers.emplace(name, value);
+                }
+            }
+            const std::string me = "2.0 SEPP-" + policy.own_fqdn;
+            back.headers.emplace("via", via_chain.empty() ? me : via_chain + ", " + me);
+            back.body = opened->body;
+            return back;
         }
         if (!ctx) {
             return problem(504,

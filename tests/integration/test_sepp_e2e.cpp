@@ -212,7 +212,7 @@ TEST(SeppEndToEnd, TelescopicFqdnReachesTheNrfOfPlmnB) {
 // exports the N32-f master key from the same N32-c TLS connection (the one carrying the cipher
 // suite exchange) -- the two logged key fingerprints must be equal -- the context ids are swapped
 // between them, and SEPP A's shutdown terminates the context at SEPP B (5.2.4).
-TEST(SeppEndToEnd, PrinsParameterExchangeAgreesOnOneMasterKey) {
+TEST(SeppEndToEnd, PrinsAgreesOnOneKeyAndForwardsJoseProtected) {
     nf_test::SpawnedProcess nrf{NRF_PATH};
     const std::string log_a = std::string(::testing::TempDir()) + "sepp_a_prins.log";
     const std::string log_b = std::string(::testing::TempDir()) + "sepp_b_prins.log";
@@ -262,15 +262,53 @@ TEST(SeppEndToEnd, PrinsParameterExchangeAgreesOnOneMasterKey) {
     EXPECT_EQ(ma[5].str(), mb[5].str()) << "the two SEPPs exported different master keys";
     EXPECT_NE(a.find("N32 context with " + std::string(kSeppB) + " (PRINS"), std::string::npos);
 
-    // Forwarding over PRINS is the next increment: refused honestly, not sent in the clear.
+    // ADR-0494: the consumer's request crosses N32-f JOSE-protected (A128GCM) and PLMN B's real
+    // NRF answers; the Authorization header travels encrypted (TS 33.501 5.9.3.3).
     sbi_core::http2::Client consumer(tls("hello-nf"));
     sbi_core::http2::ClientRequest req;
     req.method = "GET";
     req.url = "https://127.0.0.1:7820/bootstrapping";
     req.headers.emplace("3gpp-sbi-target-apiroot", kNrfB);
-    const auto r = consumer.send(req);
-    ASSERT_TRUE(r.has_value());
-    EXPECT_EQ(r->status, 504);
+    req.headers.emplace("authorization", "Bearer opaque-lab-token");
+    const auto r = send_retrying(consumer, req, 200, 20s);
+    ASSERT_EQ(r.status, 200) << r.body;
+    EXPECT_TRUE(json::parse(r.body).contains("_links")) << r.body;
+    const auto via = r.headers.find("via");
+    ASSERT_NE(via, r.headers.end());
+    EXPECT_NE(via->second.find(std::string("SEPP-") + kSeppB), std::string::npos) << via->second;
+
+    // 5.3.2.1 step 6: a token whose consumer PLMN is not PLMN A is refused by SEPP B.
+    const auto b64 = [](const std::string& s) {
+        static constexpr char kA[] =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        std::string out;
+        std::size_t i = 0;
+        for (; i + 2 < s.size(); i += 3) {
+            const unsigned n = (static_cast<unsigned char>(s[i]) << 16) |
+                               (static_cast<unsigned char>(s[i + 1]) << 8) |
+                               static_cast<unsigned char>(s[i + 2]);
+            out += {kA[(n >> 18) & 63], kA[(n >> 12) & 63], kA[(n >> 6) & 63], kA[n & 63]};
+        }
+        if (s.size() - i == 1) {
+            const unsigned n = static_cast<unsigned char>(s[i]) << 16;
+            out += {kA[(n >> 18) & 63], kA[(n >> 12) & 63]};
+        } else if (s.size() - i == 2) {
+            const unsigned n = (static_cast<unsigned char>(s[i]) << 16) |
+                               (static_cast<unsigned char>(s[i + 1]) << 8);
+            out += {kA[(n >> 18) & 63], kA[(n >> 12) & 63], kA[(n >> 6) & 63]};
+        }
+        return out;
+    };
+    sbi_core::http2::ClientRequest foreign = req;
+    foreign.headers.erase("authorization");
+    foreign.headers.emplace(
+        "authorization",
+        "Bearer " + b64(R"({"alg":"ES256"})") + "." +
+            b64(R"({"consumerPlmnId":{"mcc":"001","mnc":"09"},"scope":"nnrf-disc"})") + ".c2ln");
+    const auto f = consumer.send(foreign);
+    ASSERT_TRUE(f.has_value());
+    EXPECT_EQ(f->status, 403) << f->body;
+    EXPECT_EQ(json::parse(f->body).value("cause", ""), "PLMNID_MISMATCH") << f->body;
 
     sepp_a.reset(); // SIGTERM: A terminates its PRINS context at B
     const auto stop_deadline = std::chrono::steady_clock::now() + 10s;

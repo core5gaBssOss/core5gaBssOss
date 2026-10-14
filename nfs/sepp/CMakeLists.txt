@@ -1,5 +1,5 @@
 # SEPP -- TS 29.573 N32-c / N32-f, increment 1: TLS security (ADR-0491). See src/main.cpp.
-add_library(sepp_n32 STATIC src/n32.cpp)
+add_library(sepp_n32 STATIC src/n32.cpp src/prins_codec.cpp)
 target_include_directories(sepp_n32 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(sepp_n32 PUBLIC sbi_generated OpenSSL::Crypto)

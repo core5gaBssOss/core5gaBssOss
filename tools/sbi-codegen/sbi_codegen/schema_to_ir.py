@@ -31,9 +31,21 @@ _PRIMITIVE_MAP = {
 # C++ keywords (including the alternative-operator spellings like 'and'/'or',
 # easy to forget but reserved) that collide with legitimate 3GPP field/schema
 # names observed in the R19 YAML.
+# ADR-0494: extended to every C++23 keyword after TS29573_JOSEProtectedMessageForwarding.yaml's
+# FlatJweJson.protected (an RFC 7516 member name) generated a member named `protected`. Names not
+# on the earlier list could never have compiled, so the extension renames nothing that did.
 _CPP_RESERVED = {
-    "and", "and_eq", "bitand", "bitor", "class", "compl", "delete", "new",
-    "not", "not_eq", "operator", "or", "or_eq", "template", "xor", "xor_eq",
+    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break",
+    "case", "catch", "char", "char8_t", "char16_t", "char32_t", "class", "co_await", "co_return",
+    "co_yield", "compl", "concept", "const", "consteval", "constexpr", "constinit", "const_cast",
+    "continue", "decltype", "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
+    "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline",
+    "int", "long", "mutable", "namespace", "new", "noexcept", "not", "not_eq", "nullptr",
+    "operator", "or", "or_eq", "private", "protected", "public", "register", "reinterpret_cast",
+    "requires", "return", "short", "signed", "sizeof", "static", "static_assert", "static_cast",
+    "struct", "switch", "template", "this", "thread_local", "throw", "true", "try", "typedef",
+    "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t",
+    "while", "xor", "xor_eq",
 }
 
 
