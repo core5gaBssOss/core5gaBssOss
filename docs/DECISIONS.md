@@ -459,6 +459,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0491](decisions/ADR-0491-sepp-increment-1-n32-c-security-capability-negotiation-and.md) SEPP increment 1 -- N32-c Security Capability Negotiation and N32-f forwarding with TLS security (TS 29.573)
 - [0492](decisions/ADR-0492-sepp-increment-2-telescopic-fqdn-nsepp-telescopic-fqdn.md) SEPP increment 2 -- telescopic FQDN: Nsepp_Telescopic_FQDN_Mapping and routing (TS 29.573 5.4, TS 29.500 6.1.4.3.2)
 - [0493](decisions/ADR-0493-sepp-increment-3a-prins-parameter-exchange-and-the-n32-f.md) SEPP increment 3a -- PRINS parameter exchange and the N32-f master key (TS 29.573 5.2.3, TS 33.501 13.2.2)
+- [0494](decisions/ADR-0494-sepp-increment-3b-prins-jose-protected-message-forwarding.md) SEPP increment 3b -- PRINS JOSE-protected message forwarding on N32-f (TS 29.573 5.3.2, TS 33.501 13.2.4)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

@@ -90,12 +90,16 @@ def main() -> int:
     # request AND response, against TS29573_N32_Handshake.yaml.
     registry.load_file("TS29573_N32_Handshake.yaml")
     registry.load_file("TS29573_SeppTelescopicFqdnMapping.yaml")
+    registry.load_file("TS29573_JOSEProtectedMessageForwarding.yaml")
     for sample, yaml_file, schema_name in (
             ("sec_negotiate_req.json", "TS29573_N32_Handshake.yaml", "SecNegotiateReqData"),
             ("sec_negotiate_rsp.json", "TS29573_N32_Handshake.yaml", "SecNegotiateRspData"),
             # ADR-0493: the PRINS parameter exchange.
             ("sec_param_exch_req.json", "TS29573_N32_Handshake.yaml", "SecParamExchReqData"),
             ("sec_param_exch_rsp.json", "TS29573_N32_Handshake.yaml", "SecParamExchRspData"),
+            # ADR-0494: the PRINS N32-f request body.
+            ("n32f_reformatted_req.json", "TS29573_JOSEProtectedMessageForwarding.yaml",
+             "N32fReformattedReqMsg"),
             # ADR-0492: both TelescopicMapping forms (5.4.2 / 5.4.3).
             ("telescopic_mapping_label.json", "TS29573_SeppTelescopicFqdnMapping.yaml",
              "TelescopicMapping"),

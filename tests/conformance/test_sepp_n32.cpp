@@ -11,6 +11,7 @@
 
 #include "TS29573_SeppTelescopicFqdnMapping.hpp"
 #include "n32.hpp"
+#include "prins_codec.hpp"
 
 #include <gtest/gtest.h>
 
@@ -294,4 +295,157 @@ TEST(SeppN32, ParameterExchangeNegotiatesCiphersThenPolicy) {
     // Unknown context id for the policy exchange.
     pol.n32fContextId = "ffffffffffffffff";
     EXPECT_EQ(sepp::exchange_params(pb, cap, d.context, pol, std::nullopt, false).status, 403);
+}
+
+// ADR-0494: PRINS message protection (TS 33.501 13.2.4, TS 29.573 6.2.5).
+namespace {
+
+sbi_gen::ProtectionPolicy ausf_policy() {
+    return nlohmann::json::parse(R"({
+      "apiIeMappingList": [{
+        "apiSignature": "/nausf-auth/v1/ue-authentications", "apiMethod": "POST",
+        "IeList": [
+          {"ieLoc": "BODY", "ieType": "UEID", "reqIe": "supiOrSuci"},
+          {"ieLoc": "BODY", "ieType": "AUTHENTICATION_MATERIAL", "rspIe": "5gAuthData"}]}],
+      "dataTypeEncPolicy": ["UEID"]})")
+        .get<sbi_gen::ProtectionPolicy>();
+}
+
+sepp::HttpMessage ausf_request() {
+    sepp::HttpMessage m;
+    m.method = "POST";
+    m.authority = "ausf.5gc.mnc002.mcc001.3gppnetwork.org";
+    m.path = "/nausf-auth/v1/ue-authentications?x=1";
+    m.headers = {{"content-type", "application/json"}, {"authorization", "Bearer secret-token"}};
+    m.body =
+        R"({"supiOrSuci":"suci-0-001-02-0000-0-0-0123456789","servingNetworkName":"5G:mnc002.mcc001.3gppnetwork.org","list":[1,{"a":2}]})";
+    return m;
+}
+
+std::string decoded_aad(const sbi_gen::FlatJweJson& jwe) {
+    const auto raw = sepp::base64url_decode(*jwe.aad);
+    return {raw->begin(), raw->end()};
+}
+
+} // namespace
+
+TEST(SeppN32, PrinsRequestRoundTripsAndHidesProtectedValues) {
+    const std::vector<std::uint8_t> master(64, 0x5a);
+    const auto keys =
+        sepp::derive_keys(master, "0123456789abcdef", sepp::KeyUse::ParallelRequest, "A128GCM");
+    EXPECT_EQ(keys.key.size(), 16U);
+    EXPECT_EQ(keys.iv_salt.size(), 8U);
+    const auto msg = ausf_request();
+    const auto sel =
+        sepp::select(ausf_policy(), "POST", "/nausf-auth/v1/ue-authentications", false);
+    EXPECT_EQ(sel.body_pointers, std::vector<std::string>{"/supiOrSuci"});
+    EXPECT_TRUE(sel.headers.contains("authorization"));
+
+    const auto jwe =
+        sepp::protect(msg, sel, "A128GCM", keys, 7, "0123456789abcdef", "00000000000000a1");
+    ASSERT_TRUE(jwe.has_value()) << jwe.error();
+    sbi_gen::N32fReformattedReqMsg wire;
+    wire.reformattedData = *jwe;
+    write_sample("n32f_reformatted_req.json", nlohmann::json(wire));
+    // Nonce = IV salt || SEQ (7).
+    const auto iv = sepp::base64url_decode(*jwe->iv);
+    ASSERT_TRUE(iv.has_value());
+    EXPECT_EQ(std::vector<std::uint8_t>(iv->begin(), iv->begin() + 8), keys.iv_salt);
+    EXPECT_EQ((*iv)[11], 7);
+    // The integrity-only part carries neither the SUCI nor the token.
+    const auto aad = decoded_aad(*jwe);
+    EXPECT_EQ(aad.find("suci-0-001-02"), std::string::npos) << aad;
+    EXPECT_EQ(aad.find("secret-token"), std::string::npos) << aad;
+    EXPECT_NE(aad.find("servingNetworkName"), std::string::npos);
+    EXPECT_NE(aad.find("\"n32fContextId\":\"0123456789abcdef\""), std::string::npos);
+
+    const auto meta = sepp::peek_metadata(*jwe);
+    ASSERT_TRUE(meta.has_value());
+    EXPECT_EQ(meta->messageId, "00000000000000a1");
+    EXPECT_EQ(meta->authorizedIpxId, "NULL");
+
+    const auto policy = ausf_policy();
+    const auto opened = sepp::open(*jwe, "A128GCM", keys, false, [&](const sepp::HttpMessage& m) {
+        return sepp::select(policy, m.method, m.path.substr(0, m.path.find('?')), false);
+    });
+    ASSERT_TRUE(opened.has_value()) << opened.error().detail;
+    EXPECT_EQ(opened->method, "POST");
+    EXPECT_EQ(opened->authority, msg.authority);
+    EXPECT_EQ(opened->path, msg.path);
+    EXPECT_EQ(opened->headers, msg.headers);
+    EXPECT_EQ(nlohmann::json::parse(opened->body), nlohmann::json::parse(msg.body));
+
+    // Tampering with the clear part or the ciphertext fails the AEAD tag.
+    auto tampered = *jwe;
+    auto raw = sepp::base64url_decode(*tampered.aad).value();
+    std::string text(raw.begin(), raw.end());
+    text.replace(text.find("mnc002"), 6, "mnc009");
+    tampered.aad = sepp::base64url_encode(std::vector<std::uint8_t>(text.begin(), text.end()));
+    const auto bad = sepp::open(tampered, "A128GCM", keys, false, [](const sepp::HttpMessage&) {
+        return sepp::Selection{};
+    });
+    ASSERT_FALSE(bad.has_value());
+    EXPECT_EQ(bad.error().error, sepp::OpenError::IntegrityCheckFailed);
+    auto flipped = *jwe;
+    flipped.ciphertext[0] = flipped.ciphertext[0] == 'A' ? 'B' : 'A';
+    EXPECT_FALSE(sepp::open(flipped, "A128GCM", keys, false, [](const sepp::HttpMessage&) {
+                     return sepp::Selection{};
+                 }).has_value());
+    // Wrong key (another context id): rejected.
+    const auto other =
+        sepp::derive_keys(master, "fedcba9876543210", sepp::KeyUse::ParallelRequest, "A128GCM");
+    EXPECT_FALSE(sepp::open(*jwe, "A128GCM", other, false, [](const sepp::HttpMessage&) {
+                     return sepp::Selection{};
+                 }).has_value());
+}
+
+TEST(SeppN32, PrinsPolicyMismatchAndResponses) {
+    const std::vector<std::uint8_t> master(64, 1);
+    const auto keys =
+        sepp::derive_keys(master, "0123456789abcdef", sepp::KeyUse::ParallelResponse, "A256GCM");
+    EXPECT_EQ(keys.key.size(), 32U);
+    // A sender that encrypted nothing: the receiver's policy wants supiOrSuci encrypted.
+    const auto jwe = sepp::protect(
+        ausf_request(), sepp::Selection{}, "A256GCM", keys, 0, "0123456789abcdef", "1");
+    ASSERT_TRUE(jwe.has_value());
+    const auto policy = ausf_policy();
+    const auto mismatch = sepp::open(*jwe, "A256GCM", keys, false, [&](const sepp::HttpMessage& m) {
+        return sepp::select(policy, m.method, m.path.substr(0, m.path.find('?')), false);
+    });
+    ASSERT_FALSE(mismatch.has_value());
+    EXPECT_EQ(mismatch.error().error, sepp::OpenError::PolicyMismatch);
+
+    // A response: 5gAuthData (AUTHENTICATION_MATERIAL, always encrypted) in the clear part? No.
+    sepp::HttpMessage rsp;
+    rsp.status = 201;
+    rsp.headers = {{"content-type", "application/3gppHal+json"}};
+    rsp.body = R"({"authType":"5G_AKA","5gAuthData":{"rand":"00112233","hxresStar":"aa"}})";
+    const auto rsel = sepp::select(policy, "POST", "/nausf-auth/v1/ue-authentications", true);
+    const auto rj = sepp::protect(rsp, rsel, "A256GCM", keys, 1, "0123456789abcdef", "1");
+    ASSERT_TRUE(rj.has_value());
+    EXPECT_EQ(decoded_aad(*rj).find("00112233"), std::string::npos);
+    const auto ro =
+        sepp::open(*rj, "A256GCM", keys, true, [&](const sepp::HttpMessage&) { return rsel; });
+    ASSERT_TRUE(ro.has_value()) << ro.error().detail;
+    EXPECT_EQ(ro->status, 201);
+    EXPECT_EQ(nlohmann::json::parse(ro->body), nlohmann::json::parse(rsp.body));
+
+    // Key directions (TS 33.501 13.2.4.4.1).
+    EXPECT_EQ(sepp::key_use(true, false), sepp::KeyUse::ParallelRequest);
+    EXPECT_EQ(sepp::key_use(false, true), sepp::KeyUse::ParallelResponse);
+    EXPECT_EQ(sepp::key_use(false, false), sepp::KeyUse::ReverseRequest);
+    EXPECT_EQ(sepp::key_use(true, true), sepp::KeyUse::ReverseResponse);
+}
+
+TEST(SeppN32, Base64UrlRoundTrips) {
+    for (std::size_t n = 0; n < 8; ++n) {
+        std::vector<std::uint8_t> in;
+        for (std::size_t i = 0; i < n; ++i) {
+            in.push_back(static_cast<std::uint8_t>(0xF0 + i));
+        }
+        const auto enc = sepp::base64url_encode(in);
+        EXPECT_EQ(enc.find_first_of("+/="), std::string::npos);
+        EXPECT_EQ(sepp::base64url_decode(enc), in);
+    }
+    EXPECT_EQ(sepp::base64url_encode({'f', 'o', 'o', 'b'}), "Zm9vYg"); // RFC 4648 vector, no pad
 }

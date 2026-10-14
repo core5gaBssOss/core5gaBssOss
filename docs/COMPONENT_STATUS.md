@@ -50,7 +50,7 @@ Last updated: 2026-10-14.
 | 26 | NSSAAF | 🕒 Already in Pipeline |
 | 27 | AAnF | 🕒 Already in Pipeline |
 | 28 | UDSF | ✅ Built |
-| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492), PRINS parameter exchange + key agreement (ADR-0493); PRINS JOSE forwarding, roaming intermediaries in pipeline |
+| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492), PRINS with JOSE-protected forwarding (ADR-0493/0494); roaming intermediaries in pipeline |
 
 ## 5G Core, Tier 3: all 18 already in pipeline
 
@@ -113,5 +113,5 @@ Last updated: 2026-10-14.
 | LI functions | 3 complete, 2 partial | 1 (SIRF) |
 | Charging/BSS and platform | 9 of 9 | 0 |
 
-The SEPP now carries inter-PLMN SBI traffic over N32 with TLS security; PRINS (application-layer
-security) is the remaining N32 gap.
+The SEPP now carries inter-PLMN SBI traffic over N32 with TLS security or PRINS (application-layer
+security); roaming intermediaries are the remaining N32 gap.
