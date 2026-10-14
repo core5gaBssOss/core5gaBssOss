@@ -1,6 +1,6 @@
 ## ADR-0488: LI increment 7d -- the CHF IRI-POI (TS 33.127 7.22, TS 33.128 7.19): plan, and the roamerInOut schema contradiction
 
-**Date:** 2026-10-14. **Status:** Proposed -- blocked on one user decision (below); no code written.
+**Date:** 2026-10-14. **Status:** Accepted -- option B (user decision, 2026-10-14); Nchf increment built; Rf record next.
 
 **Context.** Next LI step-7 item (ADR-0364) after the NEF (ADR-0487). TS 33.127 7.22.3 / TS 33.128
 7.19.3: one record, `ChargingDataEvent` [190], whenever the charging function receives a Charging
@@ -21,7 +21,9 @@ Nchf_ConvergedCharging Create/Update/Release during PDU sessions, and `nfs/chf` 
    subscriberIdentifier and the service-specific UserInformation) on all six Create/Update/Release
    handlers. TranslatedChargingDataInformation tasks: not supported in this increment (the
    TranslatedChargingDataInfo structure is large) -- such a task would get NO records and a logged
-   error, disclosed; Rf: this CHF has no Rf interface.
+   error, disclosed. Rf: this CHF DOES serve Rf ACR/ACA (ADR-0059; an earlier draft of this ADR
+   wrongly said it had none) -- the RfChargingDataRequest record (full ACR octets + rfChargingEvent,
+   no roamerInOut member) is the next increment.
 
 **The blocker: TS 33.128 j70 contradicts itself on `roamerInOut`.**
 - Table 7.19.3.4-1: `roamerInOut`, cardinality 0..1, C -- "Shall be included when contained in the
@@ -43,7 +45,29 @@ Options:
 
 Never acceptable: putting `in-bound` / `out-bound` into a record for a non-roaming subscriber.
 
-**Decision:** pending (asked 2026-10-14).
+**Decision:** **B, strict ASN.1** (user decision, 2026-10-14). A ChargingDataEvent is generated only
+for a Charging Data Request whose service-specific UserInformation carries `roamerInOut`; any other
+request for a target is withheld and logged as such. Consequence, stated plainly: with today's SMF
+(which never sends roamerInOut) a home-network target produces no CHF xIRIs.
 
 **Rejected alternatives.** Picking A or B silently: either one breaks a normative text (interop
 risk, or no interception), which is the user's call, not an implementation detail.
+
+**Built (2026-10-14).** X1 `ChargingDataEvents` parsed/serialised (`TaskDetails::charging_data_events`,
+carried by `li_poi::TaskInfo`); `li_core::xiri::ChargingDataEvent` [190] (nchfChargingDataRequest
+only; `NchfChargingEvent`, `RoamerInOut`); `nfs/chf/src/li_poi.*` hooked on all six Nchf
+Create/Update/Release handlers right after authorisation (`config/chf.json` `li_poi`, disabled by
+default, X1 7816). The TS 29.571 UserLocation -> xIRI Location converter moved from the SMSF POI to
+`libs/li-poi` (`user_location.hpp`) and is shared. nchfChargingEvent comes from the first
+service-specific member present in table 7.19.3.7-1 order; `n2ConnectionChargingInformation(5)` has no
+R19 ChargingDataRequest member. roamerInOut is read from that member's `userInformation` only (table
+7.19.3.4-1 wording) -- SMSChargingInformation's own top-level roamerInOut is not used (disclosed).
+
+Verified: `LiX1Client.ChargingDataEventsRoundTripThroughTheSchema` (both values through the XSD),
+`Xiri.ChargingDataEventRoundTripsConvergedAndOffline` (529 conformance pass); `LiChfEndToEnd` (2,
+real chf + nrf, real LI_X1, loopback MDF2): a converged OUT_BOUND request and an offline IN_BOUND
+request are reported with the unmodified payload, the right SBIReference, nchfChargingEvent and
+location; a request without roamerInOut is withheld (logged); a task without the extension gets
+nothing. The test runs the CHF with direct-insert CDRs off and an unreachable event-bus broker (the
+`test_chf_diameter_rar.cpp` precedent); it needs the rating PostgreSQL (CI's service, a local
+container on 5434 here). Existing CHF suites (`ChfDiameterRar`, `ChfProtocolCeilings`) unchanged.

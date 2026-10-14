@@ -60,6 +60,8 @@ struct TaskInfo {
     std::vector<std::string> dids;
     // TS 33.128 table 6.2.5.1-2 TruncateTPUserData (the SMSF POI's redaction switch, ADR-0486).
     bool truncate_tp_user_data = false;
+    // TS 33.128 table 7.19.1-1 ChargingDataEvents (the CHF POI's switch, ADR-0488).
+    std::optional<li_core::x1::ChargingDataEventsGenerated> charging_data_events;
 };
 
 struct Hooks {

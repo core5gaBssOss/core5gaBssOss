@@ -365,3 +365,29 @@ TEST(LiX1Client, SmsfTruncateTpUserDataRoundTripsThroughTheSchema) {
     ASSERT_TRUE(parsed_plain.has_value());
     EXPECT_FALSE(std::get<ActivateTask>(parsed_plain->requests[0].body).task.truncate_tp_user_data);
 }
+
+// ADR-0488: TS 33.128 table 7.19.1-1 ChargingDataEvents/ChargingDataEventsGenerated, both values,
+// through the real XSD validation, alongside the other taskDetailsExtensions.
+TEST(LiX1Client, ChargingDataEventsRoundTripThroughTheSchema) {
+    for (const auto value : {ChargingDataEventsGenerated::DefaultChargingDataInformation,
+                             ChargingDataEventsGenerated::TranslatedChargingDataInformation}) {
+        TaskDetails t = full_task();
+        t.charging_data_events = value;
+        t.truncate_tp_user_data = true;
+        const auto xml = serialise_request({make(MessageType::ActivateTask, ActivateTask{t})});
+        ASSERT_TRUE(xml.has_value()) << xml.error();
+        EXPECT_NE(xml->find("ChargingDataEventsGenerated"), std::string::npos);
+        const auto parsed = parse_request(*xml);
+        ASSERT_TRUE(parsed.has_value()) << parsed.error().detail;
+        const auto& got = std::get<ActivateTask>(parsed->requests[0].body).task;
+        EXPECT_EQ(got.charging_data_events, value);
+        EXPECT_TRUE(got.truncate_tp_user_data);
+    }
+    const auto plain =
+        serialise_request({make(MessageType::ActivateTask, ActivateTask{full_task()})});
+    ASSERT_TRUE(plain.has_value());
+    const auto parsed_plain = parse_request(*plain);
+    ASSERT_TRUE(parsed_plain.has_value());
+    EXPECT_FALSE(std::get<ActivateTask>(parsed_plain->requests[0].body)
+                     .task.charging_data_events.has_value());
+}

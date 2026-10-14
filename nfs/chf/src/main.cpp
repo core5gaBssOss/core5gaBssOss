@@ -153,6 +153,7 @@
 #include "charging_information.hpp"
 #include "diameter_core/header.hpp"
 #include "diameter_server.hpp"
+#include "li_poi.hpp"
 #include "rating_decision_store.hpp"
 #include "ss7_core/m3ua_dictionary.hpp"
 #include "stores.hpp"
@@ -472,6 +473,32 @@ int main() {
     sbi_core::init_metrics(metrics_bind_address);
 
     const std::string chf_instance_id = sbi_core::generate_uuid_v4();
+
+    // LI IRI-POI (ADR-0488), disabled unless config/chf.json's li_poi.enabled is true; nullptr
+    // keeps the CHF's behaviour unchanged, the convention of every POI in this project.
+    std::unique_ptr<chf::ChfLiPoi> li_poi;
+    if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
+        const auto& lp = config.at("li_poi");
+        li_poi::Config poi_cfg;
+        poi_cfg.x1_bind_address = lp.at("x1_bind_address").get<std::string>();
+        poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
+        poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"chf-poi"});
+        poi_cfg.network_function_id = lp.value("network_function_id", chf_instance_id);
+        poi_cfg.interception_point_id =
+            lp.value("interception_point_id", std::string{"CHF-IRI-POI-1"});
+        poi_cfg.mdf2_host = lp.at("mdf2_host").get<std::string>();
+        poi_cfg.mdf2_port = lp.at("mdf2_port").get<std::uint16_t>();
+        poi_cfg.mdf2_sni = lp.value("mdf2_sni", std::string{});
+        poi_cfg.cert_path = CERTS_DIR "/chf/cert.pem";
+        poi_cfg.key_path = CERTS_DIR "/chf/key.pem";
+        poi_cfg.ca_path = CERTS_DIR "/ca/ca.crt";
+        poi_cfg.x1_keepalive_p1_seconds = lp.value("x1_keepalive_p1_seconds", 60);
+        poi_cfg.x1_keepalive_p2_seconds = lp.value("x1_keepalive_p2_seconds", 180);
+        poi_cfg.x1_keepalive_p3_seconds = lp.value("x1_keepalive_p3_seconds", 300);
+        poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
+        li_poi = std::make_unique<chf::ChfLiPoi>(std::move(poi_cfg));
+        li_poi->start();
+    }
     spdlog::info("chf: starting, nfInstanceId={}", chf_instance_id);
 
     // Task #109 (ADR-0274): touch both peer base URLs now so a missing/misspelled key in
@@ -1118,7 +1145,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/chargingdata",
-        [&verifier,
+        [&li_poi,
+         &verifier,
          &charging_data_store,
          &idempotency_store,
          &create_counter,
@@ -1134,6 +1162,11 @@ int main() {
          &chf_instance_id](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
+            // interface for a target" (ADR-0488).
+            if (li_poi) {
+                li_poi->report_charging_data_request(req.body, /*offline=*/false);
             }
             // TS 29.500 clause 5.2.8. The key is CLAIMED before any processing happens, so a
             // retransmission that arrives while the original is still executing is still caught --
@@ -1261,7 +1294,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/chargingdata/{ChargingDataRef}/update",
-        [&verifier,
+        [&li_poi,
+         &verifier,
          &charging_data_store,
          &idempotency_store,
          &update_counter,
@@ -1277,6 +1311,11 @@ int main() {
          &chf_instance_id](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
+            // interface for a target" (ADR-0488).
+            if (li_poi) {
+                li_poi->report_charging_data_request(req.body, /*offline=*/false);
             }
             // TS 29.500 clause 5.2.8. The key is CLAIMED before any processing happens, so a
             // retransmission that arrives while the original is still executing is still caught --
@@ -1437,7 +1476,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/chargingdata/{ChargingDataRef}/release",
-        [&verifier,
+        [&li_poi,
+         &verifier,
          &charging_data_store,
          &idempotency_store,
          &release_counter,
@@ -1447,6 +1487,11 @@ int main() {
          &chf_instance_id](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
+            // interface for a target" (ADR-0488).
+            if (li_poi) {
+                li_poi->report_charging_data_request(req.body, /*offline=*/false);
             }
             // TS 29.500 clause 5.2.8. The key is CLAIMED before any processing happens, so a
             // retransmission that arrives while the original is still executing is still caught --
@@ -1660,10 +1705,15 @@ int main() {
     server.add_route(
         "POST",
         std::string(kOfflineApiRoot) + "/offlinechargingdata",
-        [&verifier, &offline_charging_data_store, &offline_create_counter](
+        [&li_poi, &verifier, &offline_charging_data_store, &offline_create_counter](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
+            // interface for a target" (ADR-0488).
+            if (li_poi) {
+                li_poi->report_charging_data_request(req.body, /*offline=*/true);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
@@ -1694,10 +1744,15 @@ int main() {
     server.add_route(
         "POST",
         std::string(kOfflineApiRoot) + "/offlinechargingdata/{OfflineChargingDataRef}/update",
-        [&verifier, &offline_charging_data_store, &offline_update_counter](
+        [&li_poi, &verifier, &offline_charging_data_store, &offline_update_counter](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
+            // interface for a target" (ADR-0488).
+            if (li_poi) {
+                li_poi->report_charging_data_request(req.body, /*offline=*/true);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
@@ -1730,10 +1785,15 @@ int main() {
     server.add_route(
         "POST",
         std::string(kOfflineApiRoot) + "/offlinechargingdata/{OfflineChargingDataRef}/release",
-        [&verifier, &offline_charging_data_store, &offline_release_counter](
+        [&li_poi, &verifier, &offline_charging_data_store, &offline_release_counter](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
+            // interface for a target" (ADR-0488).
+            if (li_poi) {
+                li_poi->report_charging_data_request(req.body, /*offline=*/true);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<

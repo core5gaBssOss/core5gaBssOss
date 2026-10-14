@@ -593,6 +593,49 @@ struct NefAfSessionWithQosProvision {
     bool operator==(const NefAfSessionWithQosProvision&) const = default;
 };
 
+// NchfChargingEvent ::= ENUMERATED (TS 33.128 table 7.19.3.7-1).
+enum class NchfChargingEvent : std::uint8_t {
+    PduSessionChargingInformation = 1,
+    SmsChargingInformation = 2,
+    NefChargingInformation = 3,
+    RegistrationChargingInformation = 4,
+    N2ConnectionChargingInformation = 5,
+    LocationReportingChargingInformation = 6,
+    NspaChargingInformation = 7,
+    NsmChargingInformation = 8,
+    MmTelChargingInformation = 9,
+    ImsChargingInformation = 10,
+    EdgeInfrastructureUsageChargingInformation = 11,
+    EasDeploymentChargingInformation = 12,
+    DirectEdgeEnablingServiceChargingInformation = 13,
+    ExposedEdgeEnablingServiceChargingInformation = 14,
+    ProSeChargingInformation = 15,
+    MmsChargingInformation = 16,
+    MbsSessionChargingInformation = 17,
+    TsnChargingInformation = 18,
+    NsacfChargingInformation = 19,
+    NssaaChargingInformation = 20,
+    RangingSlChargingInformation = 21
+};
+
+// RoamerInOut ::= ENUMERATED { in-bound(1), out-bound(2) }
+enum class RoamerInOut : std::uint8_t { InBound = 1, OutBound = 2 };
+
+// XIRIEvent.chargingDataEvent [190] ChargingDataEvent (TS 33.128 table 7.19.3.2-1), with the
+// nchfChargingDataRequest choice only -- rfChargingDataRequest (no Rf here) and
+// translatedChargingDataInfo are not modelled (ADR-0488). roamer_in_out is MANDATORY in the j70
+// ASN.1 although table 7.19.3.4-1 says 0..1 -- see ADR-0488 for why it is never defaulted.
+struct ChargingDataEvent {
+    std::optional<Location> location;
+    // fullSBIChargingData: encapsulatedSBIOfflineChargingData when true, else
+    // encapsulatedSBIConvergedChargingData.
+    bool offline = false;
+    SbiType charging_data;
+    std::optional<NchfChargingEvent> charging_event;
+    RoamerInOut roamer_in_out = RoamerInOut::InBound;
+    bool operator==(const ChargingDataEvent&) const = default;
+};
+
 using Event = std::variant<AmfRegistration,
                            AmfDeregistration,
                            AmfStartOfInterceptionWithRegisteredUE,
@@ -610,7 +653,8 @@ using Event = std::variant<AmfRegistration,
                            UdmUeAuthenticationResponse,
                            SmsMessage,
                            SmsReport,
-                           NefAfSessionWithQosProvision>;
+                           NefAfSessionWithQosProvision,
+                           ChargingDataEvent>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the
