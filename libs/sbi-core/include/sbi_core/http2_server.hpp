@@ -86,7 +86,9 @@ public:
     Server(const Server&) = delete;
     Server& operator=(const Server&) = delete;
 
-    // path_pattern segments wrapped in {} are captured into Request::path_params.
+    // path_pattern segments wrapped in {} are captured into Request::path_params. A final "**"
+    // segment matches any remaining path (any depth) and method "*" matches any method -- for a
+    // relay (the SEPP, ADR-0491); routes are tried in registration order, so specific ones first.
     void add_route(std::string method, std::string path_pattern, Handler handler);
 
     // P15 / P4.12 (ADR-0280): a TPS ceiling for this server. Beyond it, requests are shed with a

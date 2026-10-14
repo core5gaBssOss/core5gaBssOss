@@ -31,7 +31,7 @@ Last updated: 2026-10-14.
 | 12 | BSF | ✅ Built |
 | 13 | CHF | ✅ Built |
 
-## 5G Core, Tier 2: 10 built, 6 already in pipeline
+## 5G Core, Tier 2: 10 built, 1 partial, 5 already in pipeline
 
 | # | Component | Status |
 |---|---|---|
@@ -50,7 +50,7 @@ Last updated: 2026-10-14.
 | 26 | NSSAAF | 🕒 Already in Pipeline |
 | 27 | AAnF | 🕒 Already in Pipeline |
 | 28 | UDSF | ✅ Built |
-| 29 | SEPP (vSEPP / hSEPP, N32) | 🕒 Already in Pipeline |
+| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491); PRINS, telescopic FQDN, roaming intermediaries in pipeline |
 
 ## 5G Core, Tier 3: all 18 already in pipeline
 
@@ -109,9 +109,9 @@ Last updated: 2026-10-14.
 
 | Group | Built | Already in pipeline |
 |---|---|---|
-| Network functions, Tiers 1–3 | 23 of 48 | 25 |
+| Network functions, Tiers 1–3 | 23 of 48 (+ SEPP partial) | 24 |
 | LI functions | 3 complete, 2 partial | 1 (SIRF) |
 | Charging/BSS and platform | 9 of 9 | 0 |
 
-The most consequential gap is the SEPP: without it there is no N32, so no inter-PLMN roaming over
-the SBI.
+The SEPP now carries inter-PLMN SBI traffic over N32 with TLS security; PRINS (application-layer
+security) is the remaining N32 gap.

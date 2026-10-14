@@ -434,6 +434,18 @@ target_link_libraries(sbi_tls_min_version_tests PRIVATE sbi_core GTest::gtest GT
 target_compile_definitions(sbi_tls_min_version_tests PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(sbi_tls_min_version_tests PROPERTIES TIMEOUT 60)
 
+# ADR-0491: two real SEPPs (PLMN 001/01 and 001/02) negotiate N32-c with TLS security and relay a
+# consumer's request to PLMN B's real NRF over N32-f. Fixed ports 7820-7823, 7777.
+add_executable(sepp_e2e_integration_tests test_sepp_e2e.cpp)
+target_link_libraries(sepp_e2e_integration_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+add_dependencies(sepp_e2e_integration_tests nrf sepp)
+target_compile_definitions(sepp_e2e_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    SEPP_PATH="$<TARGET_FILE:sepp>"
+    SEPP_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/sepp.json"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(sepp_e2e_integration_tests PROPERTIES TIMEOUT 120)
+
 # ADR-0490: TS 29.500 User-Agent from nf_config::load through the SBI client. Ephemeral port.
 add_executable(sbi_user_agent_tests test_sbi_user_agent.cpp)
 target_link_libraries(sbi_user_agent_tests PRIVATE sbi_core nf_config GTest::gtest GTest::gtest_main)

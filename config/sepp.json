@@ -1,0 +1,23 @@
+{
+  "port": 7820,
+  "n32_port": 7821,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9494",
+  "fqdn": "sepp.5gc.mnc001.mcc001.3gppnetwork.org",
+  "mcc": "001",
+  "mnc": "01",
+  "allowed_purposes": ["ROAMING", "INTER_PLMN_MOBILITY"],
+  "handshake_retry_seconds": 2,
+  "peers": [
+    {
+      "fqdn": "sepp.5gc.mnc002.mcc001.3gppnetwork.org",
+      "mcc": "001",
+      "mnc": "02",
+      "n32_api_root": "https://127.0.0.1:7823",
+      "initiate": true
+    }
+  ],
+  "local_nf_routes": {
+    "nrf.5gc.mnc001.mcc001.3gppnetwork.org:7777": "https://127.0.0.1:7777"
+  }
+}

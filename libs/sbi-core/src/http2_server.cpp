@@ -128,14 +128,19 @@ bool try_match(const Route& route,
                const std::string& method,
                const std::vector<std::string>& path_segments,
                std::map<std::string, std::string>& params_out) {
-    if (route.method != method) {
+    if (route.method != "*" && route.method != method) {
         return false;
     }
-    if (route.pattern_segments.size() != path_segments.size()) {
+    // A final "**" segment matches the rest of the path, any depth (ADR-0491: a relay such as the
+    // SEPP serves every API path); everything before it must still match.
+    const bool tail = !route.pattern_segments.empty() && route.pattern_segments.back() == "**";
+    const std::size_t fixed = route.pattern_segments.size() - (tail ? 1 : 0);
+    if (tail ? path_segments.size() < fixed
+             : route.pattern_segments.size() != path_segments.size()) {
         return false;
     }
     std::map<std::string, std::string> params;
-    for (std::size_t i = 0; i < route.pattern_segments.size(); ++i) {
+    for (std::size_t i = 0; i < fixed; ++i) {
         const auto& pat = route.pattern_segments[i];
         if (pat.size() >= 2 && pat.front() == '{' && pat.back() == '}') {
             params.emplace(pat.substr(1, pat.size() - 2), path_segments[i]);
