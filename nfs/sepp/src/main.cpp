@@ -50,8 +50,8 @@
 #include <spdlog/spdlog.h>
 
 #include <atomic>
-#include <functional>
 #include <chrono>
+#include <functional>
 #include <map>
 #include <random>
 #include <string>
