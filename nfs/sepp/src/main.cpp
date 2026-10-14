@@ -31,6 +31,8 @@
 //   * Roaming intermediaries (5.5), N32-f keepalive PINGs (5.3.3.5), TLSCOR OPTIONS (5.3.3.2.2),
 //     SNDN32F (senderN32fFqdn / port), topology hiding and message filtering are not built.
 //   * The SEPP does not validate the NFs' OAuth2 tokens (they are for the target producer).
+//   * NRF: registered as nfType SEPP (fqdn, plmnList) with heartbeat; no SeppInfo (ports / N32
+//     purposes) is advertised, and NFs do not discover the SEPP through the NRF here.
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -48,6 +50,7 @@
 #include <spdlog/spdlog.h>
 
 #include <atomic>
+#include <functional>
 #include <chrono>
 #include <map>
 #include <random>
@@ -198,6 +201,75 @@ std::pair<std::string, std::string> split_api_root(const std::string& api_root) 
     return {lower(s.substr(0, slash)), prefix};
 }
 
+// NRF registration + heartbeat (TS 29.510 NFRegister / NFUpdate), same shape as every NF here
+// (e.g. nfs/eir run_nrf_lifecycle); on its own thread, never on the server's io_context.
+void run_nrf_lifecycle(const std::string& instance_id,
+                       const std::string& nrf_base,
+                       const std::string& fqdn,
+                       const std::string& mcc,
+                       const std::string& mnc,
+                       const std::atomic<bool>& running) {
+    http2::Client http_client(sepp_tls());
+    sbi_core::OAuth2Client oauth(
+        http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
+    constexpr int kHeartbeatSeconds = 30;
+    const json profile{
+        {"nfInstanceId", instance_id},
+        {"nfType", "SEPP"},
+        {"nfStatus", "REGISTERED"},
+        {"fqdn", fqdn},
+        {"plmnList", json::array({json{{"mcc", mcc}, {"mnc", mnc}}})},
+        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        {"heartBeatTimer", kHeartbeatSeconds},
+    };
+    const auto pause = [&](int seconds) {
+        for (int i = 0; i < seconds * 10 && running.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        return running.load();
+    };
+    bool registered = false;
+    while (!registered && running.load()) {
+        auto token = oauth.get_bearer_token();
+        if (token) {
+            http2::ClientRequest put;
+            put.method = "PUT";
+            put.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
+            put.headers.emplace("content-type", "application/json");
+            put.headers.emplace("authorization", "Bearer " + *token);
+            put.headers.emplace(
+                sbi_core::headers::kSenderTimestamp,
+                sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
+            put.body = profile.dump();
+            const auto r = http_client.send(put);
+            registered = r && (r->status == 200 || r->status == 201);
+            if (registered) {
+                spdlog::info("sepp: registered with NRF (HTTP {})", r->status);
+                break;
+            }
+        }
+        spdlog::warn("sepp: NRF registration attempt failed, retrying in 5s");
+        pause(5);
+    }
+    while (pause(kHeartbeatSeconds / 2)) {
+        auto token = oauth.get_bearer_token();
+        if (!token) {
+            continue;
+        }
+        http2::ClientRequest patch;
+        patch.method = "PATCH";
+        patch.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
+        patch.headers.emplace("content-type", "application/json-patch+json");
+        patch.headers.emplace("authorization", "Bearer " + *token);
+        patch.body =
+            json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
+                .dump();
+        if (const auto r = http_client.send(patch); !r || r->status != 200) {
+            spdlog::warn("sepp: NRF heartbeat failed");
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -211,6 +283,8 @@ int main() {
     const auto metrics_bind_address = nf_config::require<std::string>(
         config, "metrics_bind_address", "SEPP_METRICS_BIND_ADDRESS");
     const auto retry_seconds = config.value("handshake_retry_seconds", 2);
+    const auto nrf_base =
+        nf_config::require<std::string>(config, "nrf_base_url", "SEPP_NRF_BASE_URL");
 
     sepp::NegotiationPolicy policy;
     policy.own_fqdn = lower(nf_config::require<std::string>(config, "fqdn", "SEPP_FQDN"));
@@ -435,6 +509,14 @@ int main() {
 
     // ---- initiating SEPP: 5.2.2 towards every peer configured with initiate -------------------
     std::atomic<bool> running{true};
+    const std::string instance_id = sbi_core::generate_uuid_v4();
+    std::thread nrf_thread(run_nrf_lifecycle,
+                           instance_id,
+                           nrf_base,
+                           policy.own_fqdn,
+                           policy.own_mcc,
+                           policy.own_mnc,
+                           std::cref(running));
     std::thread initiator([&] {
         http2::Client c(sepp_tls());
         while (running.load()) {
@@ -510,5 +592,6 @@ int main() {
     sbi_core::run_multi_threaded(ioc);
     running = false;
     initiator.join();
+    nrf_thread.join();
     return 0;
 }

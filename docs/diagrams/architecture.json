@@ -151,7 +151,7 @@
     "discovers peers (Nnrf_NFDiscovery) and fetches OAuth2 tokens",
     "(Nnrf_AccessToken, ES256-signed JWT verified per request).",
     "SCP: Nscp_EventExposure served; indirect routing is not on the",
-    "wired path today. SEPP/N32, AKMA and NSSAA are in scope, not built."
+    "wired path today. SEPP: N32-c/N32-f with TLS (no PRINS). AKMA, NSSAA: not built."
    ]
   }
  ],
@@ -600,7 +600,8 @@
    ],
    "glyph": "lock",
    "color": "#7c3aed",
-   "planned": true
+   "chip": "1 svc",
+   "source": "nfs/sepp"
   },
   {
    "id": "aanf",
