@@ -434,6 +434,12 @@ target_link_libraries(sbi_tls_min_version_tests PRIVATE sbi_core GTest::gtest GT
 target_compile_definitions(sbi_tls_min_version_tests PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(sbi_tls_min_version_tests PROPERTIES TIMEOUT 60)
 
+# ADR-0490: TS 29.500 User-Agent from nf_config::load through the SBI client. Ephemeral port.
+add_executable(sbi_user_agent_tests test_sbi_user_agent.cpp)
+target_link_libraries(sbi_user_agent_tests PRIVATE sbi_core nf_config GTest::gtest GTest::gtest_main)
+target_compile_definitions(sbi_user_agent_tests PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(sbi_user_agent_tests PROPERTIES TIMEOUT 60)
+
 # ADR-0484: LI stage 4 -- the pure logic datapath.cpp pulls out of its ring-buffer handling
 # (TUN write + CC-POI dispatch, datapath_internal.hpp). Compiles the real datapath.cpp (same file
 # the upf binary links) so no behaviour is duplicated; needs libbpf/libcap to compile (datapath.cpp

@@ -455,6 +455,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0487](decisions/ADR-0487-li-increment-7c-the-nef-iri-poi-event-mapping-first-slice.md) LI increment 7c -- the NEF IRI-POI: event mapping, first slice AF session with QoS (TS 33.127 7.9, TS 33.128 7.7)
 - [0488](decisions/ADR-0488-li-increment-7d-the-chf-iri-poi-ts-33-127-7-22-ts-33-128-7.md) LI increment 7d -- the CHF IRI-POI (TS 33.127 7.22, TS 33.128 7.19): plan, and the roamerInOut schema contradiction
 - [0489](decisions/ADR-0489-li-increment-7e-the-nwdaf-iri-poi-ts-33-127-7-18-ts-33-128.md) LI increment 7e -- the NWDAF IRI-POI (TS 33.127 7.18, TS 33.128 7.16)
+- [0490](decisions/ADR-0490-sbi-user-agent-every-nf-s-requests-carry-its-ts-29-510.md) SBI User-Agent: every NF's requests carry its TS 29.510 NFType (TS 29.500 5.2.2.2)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

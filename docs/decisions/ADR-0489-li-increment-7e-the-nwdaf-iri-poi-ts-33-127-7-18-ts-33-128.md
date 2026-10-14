@@ -71,3 +71,8 @@ NF_LOAD), the resource URI and the body (DELETE: the stored one); the 2 s notifi
 NWDAFEventsNotification; an ABNORMAL_BEHAVIOUR query gives NWDAFAnalyticsInfoQuery with the status
 returned; no User-Agent, a `UDM-...` User-Agent, a two-SUPI tgtUe and a non-target SUPI give nothing.
 The NWDAF needs its Doris feature store to start (CI's service; a temporary local container here).
+
+**Update (ADR-0490, 2026-10-14).** Every NF now sends its NFType as User-Agent (set by
+`nf_config::load`), so the "no NF in this repo sends User-Agent" disclosure above no longer holds:
+a subscription from this repo's DCCF is recorded with dCCF(10). The ADRF is not in the
+NWDAFConsumerNFType ENUMERATED, so its subscriptions are still withheld (logged).

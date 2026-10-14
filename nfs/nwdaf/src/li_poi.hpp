@@ -27,7 +27,8 @@
 //
 // nWDAFConsumerNFType (mandatory) is the NF type the request's User-Agent starts with (TS 29.500
 // 5.2.2.2). Absent or outside the ENUMERATED -> the subscription record is withheld and logged,
-// never defaulted. No NF in this repo sends User-Agent today (disclosed in ADR-0489).
+// never defaulted. Every NF here sends its NFType since ADR-0490; the ADRF is outside the
+// ENUMERATED, so its subscriptions are withheld.
 
 namespace nwdaf {
 
