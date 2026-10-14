@@ -453,6 +453,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0485](decisions/ADR-0485-stop-claude-attribution-trailers-from-recurring-local-hook.md) Stop Claude attribution trailers from recurring: local hook, settings.json, CI detection job
 - [0486](decisions/ADR-0486-li-increment-7b-the-smsf-iri-poi-event-list-for-approval-ts.md) LI increment 7b -- the SMSF IRI-POI: event list for approval (TS 33.127 6.2.5, TS 33.128 6.2.5.3)
 - [0487](decisions/ADR-0487-li-increment-7c-the-nef-iri-poi-event-mapping-first-slice.md) LI increment 7c -- the NEF IRI-POI: event mapping, first slice AF session with QoS (TS 33.127 7.9, TS 33.128 7.7)
+- [0488](decisions/ADR-0488-li-increment-7d-the-chf-iri-poi-ts-33-127-7-22-ts-33-128-7.md) LI increment 7d -- the CHF IRI-POI (TS 33.127 7.22, TS 33.128 7.19): plan, and the roamerInOut schema contradiction
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
