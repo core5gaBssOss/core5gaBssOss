@@ -3,5 +3,25 @@
   "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9481",
   "nrf_base_url": "https://127.0.0.1:7777",
-  "self_base_url": "https://127.0.0.1:7793"
+  "self_base_url": "https://127.0.0.1:7793",
+  "amf_base_url": "https://127.0.0.1:7778",
+  "mo_sms": {
+    "no_iwmsc_rp_cause": 38,
+    "no_iwmsc_tp_failure_cause": 194
+  },
+  "li_poi": {
+    "enabled": false,
+    "x1_bind_address": "0.0.0.0",
+    "x1_port": 7814,
+    "ne_identifier": "smsf-poi-01",
+    "network_function_id": "smsf-01.5gc.example.net",
+    "interception_point_id": "SMSF-IRI-POI-1",
+    "mdf2_host": "127.0.0.1",
+    "mdf2_port": 7806,
+    "mdf2_sni": "localhost",
+    "x1_keepalive_p1_seconds": 60,
+    "x1_keepalive_p2_seconds": 180,
+    "x1_keepalive_p3_seconds": 300,
+    "x1_allow_deactivate_all": true
+  }
 }

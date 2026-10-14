@@ -343,3 +343,25 @@ TEST(LiX1Client, AnAdmfServerHandlesReportsThroughItsCallbacksAndAnNeAnswers1080
 }
 
 } // namespace
+
+// ADR-0486: TS 33.128 table 6.2.5.1-2 SMSFExtensions/TruncateTPUserData survives a schema-validated
+// serialise -> parse, alongside the IdentifierAssociation extension, and is absent by default.
+TEST(LiX1Client, SmsfTruncateTpUserDataRoundTripsThroughTheSchema) {
+    TaskDetails t = full_task();
+    t.truncate_tp_user_data = true;
+    const auto xml = serialise_request({make(MessageType::ActivateTask, ActivateTask{t})});
+    ASSERT_TRUE(xml.has_value()) << xml.error();
+    EXPECT_NE(xml->find("TruncateTPUserData"), std::string::npos);
+    const auto parsed = parse_request(*xml);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error().detail;
+    const auto& got = std::get<ActivateTask>(parsed->requests[0].body).task;
+    EXPECT_TRUE(got.truncate_tp_user_data);
+    EXPECT_EQ(got.identifier_association_events, IdentifierAssociationEventsGenerated::All);
+
+    const auto plain =
+        serialise_request({make(MessageType::ActivateTask, ActivateTask{full_task()})});
+    ASSERT_TRUE(plain.has_value());
+    const auto parsed_plain = parse_request(*plain);
+    ASSERT_TRUE(parsed_plain.has_value());
+    EXPECT_FALSE(std::get<ActivateTask>(parsed_plain->requests[0].body).task.truncate_tp_user_data);
+}

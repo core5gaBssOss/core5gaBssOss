@@ -153,6 +153,10 @@ struct TaskDetails {
     // absent, AMFIdentifierAssociation and AMFIdentifierDeassociation records shall not be
     // generated." Other taskDetailsExtensions content is schema-validated and otherwise ignored.
     std::optional<IdentifierAssociationEventsGenerated> identifier_association_events;
+    // TS 33.128 table 6.2.5.1-2: taskDetailsExtensions/X1Extensions/SMSFExtensions/
+    // TruncateTPUserData present -- SMS content delivery is not authorised, so the SMSF IRI-POI
+    // must use sMSTPDUData.redactedSMSTPDU for SMS-SUBMIT/SMS-DELIVER (ADR-0486).
+    bool truncate_tp_user_data = false;
 };
 
 // TS 103 221-1 6.3.1.2 DeliveryAddress oneOf.

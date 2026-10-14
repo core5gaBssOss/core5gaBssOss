@@ -1,5 +1,6 @@
 #include "sms_core/sms.hpp"
 
+#include <algorithm>
 #include <ctime>
 #include <format>
 
@@ -346,6 +347,164 @@ tl::expected<MoTpdu, std::string> decode_mo_tpdu(std::span<const std::uint8_t> t
         return tl::unexpected("TP-DA: " + da.error());
     }
     out.destination = std::move(*da);
+    return out;
+}
+
+namespace {
+
+enum class Alphabet { Gsm7, EightBit, Ucs2, Compressed };
+
+// TS 23.038 clause 4. Reserved codings "shall be assumed to be the GSM 7 bit default alphabet".
+Alphabet alphabet_of(std::uint8_t dcs) {
+    const std::uint8_t group = dcs >> 4;
+    if (group <= 0x07) { // 00xx, 01xx: general data coding / automatic deletion
+        if ((dcs & 0x20) != 0) {
+            return Alphabet::Compressed;
+        }
+        switch ((dcs >> 2) & 0x03) {
+            case 0b01:
+                return Alphabet::EightBit;
+            case 0b10:
+                return Alphabet::Ucs2;
+            default:
+                return Alphabet::Gsm7;
+        }
+    }
+    if (group == 0x0E) { // message waiting, UCS2
+        return Alphabet::Ucs2;
+    }
+    if (group == 0x0F) { // data coding / message class: bit 2
+        return (dcs & 0x04) != 0 ? Alphabet::EightBit : Alphabet::Gsm7;
+    }
+    return Alphabet::Gsm7; // 1000..1011 reserved, 1100/1101 message waiting (GSM 7 bit)
+}
+
+// TS 23.040 clause 9.2.3.24 IEI table, "SMS Control" classification.
+bool is_sms_control_iei(std::uint8_t iei) {
+    return iei == 0x00 || iei == 0x01 || (iei >= 0x04 && iei <= 0x09) ||
+           (iei >= 0x20 && iei <= 0x26) || (iei >= 0x70 && iei <= 0x9F) ||
+           (iei >= 0xC0 && iei <= 0xDF);
+}
+
+void set_septet(Bytes& ud, std::size_t index, std::uint8_t value) {
+    for (std::size_t b = 0; b < 7; ++b) {
+        const std::size_t bit = index * 7 + b;
+        const std::size_t octet = bit / 8;
+        if (octet >= ud.size()) {
+            return;
+        }
+        const auto mask = static_cast<std::uint8_t>(1U << (bit % 8));
+        if (((value >> b) & 1U) != 0) {
+            ud[octet] = static_cast<std::uint8_t>(ud[octet] | mask);
+        } else {
+            ud[octet] = static_cast<std::uint8_t>(ud[octet] & ~mask);
+        }
+    }
+}
+
+} // namespace
+
+tl::expected<Bytes, std::string> redact_tpdu(std::span<const std::uint8_t> tpdu, Direction dir) {
+    if (tpdu.empty()) {
+        return fail("empty TPDU");
+    }
+    const TpduType type = classify_tpdu(tpdu[0], dir);
+    std::size_t pos = 1;
+    std::size_t consumed = 0;
+    std::uint8_t dcs = 0;
+    if (type == TpduType::Submit) { // clause 9.2.2.2: MR, DA, PID, DCS, [VP], UDL, UD
+        pos = 2;
+        if (!decode_tp_address(tpdu.subspan(std::min(pos, tpdu.size())), consumed)) {
+            return fail("SMS-SUBMIT: bad TP-DA");
+        }
+        pos += consumed;
+        if (pos + 2 > tpdu.size()) {
+            return fail("SMS-SUBMIT truncated before TP-DCS");
+        }
+        dcs = tpdu[pos + 1];
+        pos += 2;
+        switch ((tpdu[0] >> 3) & 0x03) { // TP-VPF, clause 9.2.3.3
+            case 0b10:
+                pos += 1; // relative
+                break;
+            case 0b01:
+            case 0b11:
+                pos += 7; // enhanced / absolute
+                break;
+            default:
+                break;
+        }
+    } else if (type == TpduType::Deliver) { // clause 9.2.2.1: OA, PID, DCS, SCTS, UDL, UD
+        if (!decode_tp_address(tpdu.subspan(1), consumed)) {
+            return fail("SMS-DELIVER: bad TP-OA");
+        }
+        pos = 1 + consumed;
+        if (pos + 2 > tpdu.size()) {
+            return fail("SMS-DELIVER truncated before TP-DCS");
+        }
+        dcs = tpdu[pos + 1];
+        pos += 2 + 7;
+    } else {
+        return fail("redaction applies to SMS-SUBMIT and SMS-DELIVER only");
+    }
+    if (pos >= tpdu.size()) {
+        return fail("TPDU truncated before TP-UDL");
+    }
+    Bytes out(tpdu.begin(), tpdu.end());
+    const std::size_t udl = tpdu[pos];
+    const std::size_t ud_at = pos + 1;
+    Bytes ud(out.begin() + static_cast<std::ptrdiff_t>(std::min(ud_at, out.size())), out.end());
+    const bool udhi = (tpdu[0] & 0x40) != 0;
+
+    std::size_t header_octets = 0; // UDHL + the header itself
+    if (udhi && !ud.empty()) {
+        const std::size_t udhl = ud[0];
+        header_octets = 1 + udhl;
+        if (header_octets > ud.size()) {
+            return fail("TP-UDH length exceeds TP-UD");
+        }
+        for (std::size_t i = 1; i + 1 < header_octets;) {
+            const std::size_t len = ud[i + 1];
+            if (i + 2 + len > header_octets) {
+                return fail("TP-UDH information element overruns the header");
+            }
+            if (!is_sms_control_iei(ud[i])) {
+                ud[i] = 0x26; // Filler, clause 9.2.3.24.17
+                std::fill(ud.begin() + static_cast<std::ptrdiff_t>(i + 2),
+                          ud.begin() + static_cast<std::ptrdiff_t>(i + 2 + len),
+                          std::uint8_t{0});
+            }
+            i += 2 + len;
+        }
+    }
+
+    switch (alphabet_of(dcs)) {
+        case Alphabet::Gsm7: {
+            // UDL counts septets, header included; the SM starts on the first septet boundary after
+            // the header (fill bits, clause 9.2.3.24).
+            const std::size_t first = (header_octets * 8 + 6) / 7;
+            for (std::size_t s = first; s < udl; ++s) {
+                set_septet(ud, s, 0x20);
+            }
+            break;
+        }
+        case Alphabet::Ucs2:
+            for (std::size_t i = header_octets; i < std::min(udl, ud.size()); ++i) {
+                ud[i] = ((i - header_octets) % 2 == 0) ? 0x00 : 0x20;
+            }
+            break;
+        case Alphabet::EightBit:
+            for (std::size_t i = header_octets; i < std::min(udl, ud.size()); ++i) {
+                ud[i] = 0x20;
+            }
+            break;
+        case Alphabet::Compressed:
+            for (std::size_t i = header_octets; i < std::min(udl, ud.size()); ++i) {
+                ud[i] = 0x00;
+            }
+            break;
+    }
+    std::copy(ud.begin(), ud.end(), out.begin() + static_cast<std::ptrdiff_t>(ud_at));
     return out;
 }
 

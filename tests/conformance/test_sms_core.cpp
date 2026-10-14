@@ -2,6 +2,7 @@
 // TS 24.011 clauses 7.2, 7.3, 8.1, 8.2; TS 23.040 clauses 9.1.2.5, 9.2.2.2, 9.2.2.2a, 9.2.2.4,
 // 9.2.3.1, 9.2.3.11; TS 24.007 clause 11.2.3.1.
 
+#include <algorithm>
 #include <chrono>
 
 #include "sms_core/sms.hpp"
@@ -167,4 +168,60 @@ TEST(SmsCp, RejectsWrongPdExtendedTiAndUnknownType) {
     auto err = decode_cp(Bytes{0x09, 0x10, 0x6F});
     ASSERT_TRUE(err.has_value());
     EXPECT_EQ(err->cause, 111);
+}
+
+namespace {
+std::vector<std::uint8_t> unpack_septets(const Bytes& ud, std::size_t count) {
+    std::vector<std::uint8_t> out;
+    for (std::size_t s = 0; s < count; ++s) {
+        std::uint8_t v = 0;
+        for (std::size_t b = 0; b < 7; ++b) {
+            const std::size_t bit = s * 7 + b;
+            v |= static_cast<std::uint8_t>(((ud[bit / 8] >> (bit % 8)) & 1U) << b);
+        }
+        out.push_back(v);
+    }
+    return out;
+}
+} // namespace
+
+// TS 33.128 clause 7.4.5.2.1.
+TEST(SmsRedact, Gsm7SubmitBecomesSpacesWithEveryLengthKept) {
+    // "hellohello" in GSM 7 bit default alphabet (h=0x68 e=0x65 l=0x6C o=0x6F) decodes as such.
+    const Bytes ud_in(kSubmit.begin() + 14, kSubmit.end());
+    EXPECT_EQ(
+        unpack_septets(ud_in, 10),
+        (std::vector<std::uint8_t>{0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x68, 0x65, 0x6C, 0x6C, 0x6F}));
+
+    auto red = redact_tpdu(kSubmit, Direction::MsToSc);
+    ASSERT_TRUE(red.has_value()) << red.error();
+    ASSERT_EQ(red->size(), kSubmit.size());
+    // Header fields (flags .. TP-UDL) untouched.
+    EXPECT_TRUE(std::equal(kSubmit.begin(), kSubmit.begin() + 14, red->begin()));
+    const Bytes ud_out(red->begin() + 14, red->end());
+    EXPECT_EQ(unpack_septets(ud_out, 10), std::vector<std::uint8_t>(10, 0x20));
+}
+
+TEST(SmsRedact, UdhNonControlIesBecomeFillerAndEightBitSmBecomesSpaces) {
+    // SMS-SUBMIT, TP-UDHI=1, TP-VPF=00, MR=1, DA "1234", PID 0, DCS 0x04 (8 bit), UDL 14:
+    // UDH (UDHL=10): IE 00 concatenation {2A 02 01} (SMS Control), IE 0A text formatting {00 05 01}
+    // (EMS Control); then SM "abc".
+    const Bytes in = {0x41, 0x01, 0x04, 0x81, 0x21, 0x43, 0x00, 0x04, 0x0E, 0x0A, 0x00, 0x03,
+                      0x2A, 0x02, 0x01, 0x0A, 0x03, 0x00, 0x05, 0x01, 'a',  'b',  'c'};
+    auto red = redact_tpdu(in, Direction::MsToSc);
+    ASSERT_TRUE(red.has_value()) << red.error();
+    const Bytes expect = {0x41, 0x01, 0x04, 0x81, 0x21, 0x43, 0x00, 0x04, 0x0E, 0x0A, 0x00, 0x03,
+                          0x2A, 0x02, 0x01, 0x26, 0x03, 0x00, 0x00, 0x00, 0x20, 0x20, 0x20};
+    EXPECT_EQ(*red, expect);
+}
+
+TEST(SmsRedact, Ucs2SmBecomesU0020AndOtherTpdusAreRefused) {
+    // SMS-SUBMIT, VPF relative, MR 2, DA "12", PID 0, DCS 0x08 (UCS2), VP 0xAA, UDL 4, "Hi".
+    const Bytes in = {0x11, 0x02, 0x02, 0x81, 0x21, 0x00, 0x08, 0xAA, 0x04, 0x00, 'H', 0x00, 'i'};
+    auto red = redact_tpdu(in, Direction::MsToSc);
+    ASSERT_TRUE(red.has_value()) << red.error();
+    EXPECT_EQ(Bytes(red->end() - 4, red->end()), (Bytes{0x00, 0x20, 0x00, 0x20}));
+    EXPECT_FALSE(redact_tpdu(Bytes{0x02, 0x07, 0x00, 0x01, 0x03, 0x02, 0x81, 0x21, 0x00},
+                             Direction::MsToSc)
+                     .has_value()); // SMS-COMMAND
 }

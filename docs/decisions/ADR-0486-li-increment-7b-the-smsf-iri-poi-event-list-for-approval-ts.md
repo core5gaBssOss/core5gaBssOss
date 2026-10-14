@@ -68,3 +68,19 @@ Procedure list being built (TS 23.502 clause 4.13.3.3 MO SMS over NAS, TS 33.128
 3. **Increment 3:** AMF -- UL NAS TRANSPORT payload container type SMS -> `UplinkSMS`; N1N2
    n1MessageClass SMS -> DL NAS TRANSPORT; `Nsmsf_SMService_Activate` + "SMS allowed" in
    Registration Accept (TS 23.502 clause 4.13.3.1).
+
+**Increment 2 (done, 2026-10-14).** `nfs/smsf`: `SendSMS` decodes CP/RP/TPDU (`sms_procedures.cpp`),
+answers CP-ACK then CP-DATA/RP-ERROR [SMS-SUBMIT-REPORT] (`lastMsgIndication` on the latter) through
+an ordered single-worker `N1n2Sender` to `amf_base_url`; RP-Cause/TP-FCS from `config/smsf.json`
+`mo_sms` (#38, 0xC2). IRI-POI (`li_poi.cpp`): SMSMessage (fromTarget, transferFailed per NOTE 5,
+terminatingSMSParty.sMSAddress = TP-DA field octets, location from the request's ueLocation) and,
+once the AMF accepted the RP reply, SMSReport under the same tasks. TruncateTPUserData: the X1 codec
+now parses/serialises `X1Extensions/SMSFExtensions/TruncateTPUserData` (it was schema-valid but
+silently ignored before -- a task forbidding content would have received full TP-UD), the POI
+runtime carries it per task, and `sms_core::redact_tpdu` implements TS 33.128 7.4.5.2.1 (TS 23.038
+encodings; non-"SMS Control" UDH IEs -> Filler); if a TPDU cannot be redacted the SMSMessage is
+withheld, never sent unredacted. Disclosed interpretations: "Space" for 8-bit data = 0x20; a
+compressed TP-UD is zeroed. Verified: 5 `SmsfMoSms` unit tests, 3 `LiSmsfEndToEnd` tests through
+the real smsf + nrf processes (target, TruncateTPUserData, non-target), full conformance suite (513).
+Also fixed: the UDM POI's default LI_X1 port 7811 (ADR-0475) collided with li-mdf3's X1 port; the
+UDM POI now defaults to 7813 and the SMSF POI to 7814.
