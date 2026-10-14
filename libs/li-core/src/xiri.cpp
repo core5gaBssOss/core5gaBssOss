@@ -34,6 +34,9 @@ extern "C" {
 #include <NCGI.h>
 #include <NEFAFSessionWithQoSProvision.h>
 #include <NRLocation.h>
+#include <NWDAFAnalyticsInfoQuery.h>
+#include <NWDAFEventsNotification.h>
+#include <NWDAFEventsSubscription.h>
 #include <NumericString.h>
 #include <OBJECT_IDENTIFIER.h>
 #include <OCTET_STRING.h>
@@ -1796,6 +1799,136 @@ tl::expected<ChargingDataEvent, std::string> extract(const ChargingDataEvent_t& 
     return out;
 }
 
+// SEQUENCE SIZE(1..MAX) OF NWDAFEvent (asn1c: a struct holding an A_SEQUENCE_OF(long) list).
+template <typename ListOwner>
+tl::expected<void, std::string> fill_nwdaf_events(ListOwner& owner,
+                                                  const std::vector<NwdafEvent>& events) {
+    if (events.empty()) {
+        return tl::unexpected("NWDAFEvent list requires at least one entry (SIZE(1..MAX))");
+    }
+    for (const auto e : events) {
+        auto* entry = alloc_optional<NWDAFEvent_t>();
+        if (entry == nullptr) {
+            return tl::unexpected("NWDAFEvent allocation failed");
+        }
+        *entry = static_cast<long>(e);
+        if (ASN_SEQUENCE_ADD(&owner.list, entry) != 0) {
+            std::free(entry);
+            return tl::unexpected("NWDAFEvent list allocation failed");
+        }
+    }
+    return {};
+}
+
+template <typename ListOwner> std::vector<NwdafEvent> extract_nwdaf_events(const ListOwner& owner) {
+    std::vector<NwdafEvent> out;
+    for (int i = 0; i < owner.list.count; ++i) {
+        out.push_back(static_cast<NwdafEvent>(*owner.list.array[i]));
+    }
+    return out;
+}
+
+tl::expected<void, std::string> fill(NWDAFEventsSubscription_t& out,
+                                     const NwdafEventsSubscription& src) {
+    LI_TRY(fill_supi(out.sUPI, src.supi));
+    out.nWDAFConsumerNFType = static_cast<long>(src.consumer_nf_type);
+    out.nWDAFEventsSubscriptionOpType = static_cast<long>(src.op_type);
+    LI_TRY(fill_nwdaf_events(out.nWDAFSubscribedEventList, src.subscribed_events));
+    LI_TRY(fill_sbi(out.nWDAFEventsSubscription, src.subscription));
+    if (src.subscription_id) {
+        out.nWDAFEventsSubscriptionID = alloc_optional<UTF8String_t>();
+        if (out.nWDAFEventsSubscriptionID == nullptr ||
+            OCTET_STRING_fromBuf(out.nWDAFEventsSubscriptionID,
+                                 src.subscription_id->data(),
+                                 static_cast<int>(src.subscription_id->size())) != 0) {
+            return tl::unexpected("nWDAFEventsSubscriptionID allocation failed");
+        }
+    }
+    out.nWDAFEventsSubscriptionResponseCode = static_cast<long>(src.response_code);
+    return {};
+}
+
+tl::expected<NwdafEventsSubscription, std::string> extract(const NWDAFEventsSubscription_t& src) {
+    NwdafEventsSubscription out;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    out.consumer_nf_type = static_cast<NwdafConsumerNfType>(src.nWDAFConsumerNFType);
+    out.op_type = static_cast<NwdafEventsSubscriptionOpType>(src.nWDAFEventsSubscriptionOpType);
+    out.subscribed_events = extract_nwdaf_events(src.nWDAFSubscribedEventList);
+    out.subscription = extract_sbi(src.nWDAFEventsSubscription);
+    if (src.nWDAFEventsSubscriptionID != nullptr) {
+        out.subscription_id = octet_string_to_std(*src.nWDAFEventsSubscriptionID);
+    }
+    out.response_code =
+        static_cast<NwdafEventsSubscriptionResponseCode>(src.nWDAFEventsSubscriptionResponseCode);
+    return out;
+}
+
+tl::expected<void, std::string> fill(NWDAFEventsNotification_t& out,
+                                     const NwdafEventsNotification& src) {
+    LI_TRY(fill_supi(out.sUPI, src.supi));
+    LI_TRY(fill_nwdaf_events(out.nWDAFNotifiedEventList, src.notified_events));
+    LI_TRY(fill_sbi(out.nWDAFEventsNotification, src.notification));
+    return {};
+}
+
+tl::expected<NwdafEventsNotification, std::string> extract(const NWDAFEventsNotification_t& src) {
+    NwdafEventsNotification out;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    out.notified_events = extract_nwdaf_events(src.nWDAFNotifiedEventList);
+    out.notification = extract_sbi(src.nWDAFEventsNotification);
+    return out;
+}
+
+tl::expected<void, std::string> fill(NWDAFAnalyticsInfoQuery_t& out,
+                                     const NwdafAnalyticsInfoQuery& src) {
+    LI_TRY(fill_supi(out.sUPI, src.supi));
+    out.nWDAFEvent = static_cast<long>(src.event);
+    for (auto [dst, from] :
+         {std::pair{&out.nWDAFEventReportingRequirement, &src.reporting_requirement},
+          std::pair{&out.nWDAFEventFilter, &src.event_filter},
+          std::pair{&out.nWDAFAnalyticsData, &src.analytics_data}}) {
+        if (*from) {
+            *dst = alloc_optional<SBIType_t>();
+            if (*dst == nullptr) {
+                return tl::unexpected("SBIType allocation failed");
+            }
+            LI_TRY(fill_sbi(**dst, **from));
+        }
+    }
+    out.nWDAFAnalyticsInfoResponseCode = static_cast<long>(src.response_code);
+    return {};
+}
+
+tl::expected<NwdafAnalyticsInfoQuery, std::string> extract(const NWDAFAnalyticsInfoQuery_t& src) {
+    NwdafAnalyticsInfoQuery out;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    out.event = static_cast<NwdafEvent>(src.nWDAFEvent);
+    if (src.nWDAFEventReportingRequirement != nullptr) {
+        out.reporting_requirement = extract_sbi(*src.nWDAFEventReportingRequirement);
+    }
+    if (src.nWDAFEventFilter != nullptr) {
+        out.event_filter = extract_sbi(*src.nWDAFEventFilter);
+    }
+    if (src.nWDAFAnalyticsData != nullptr) {
+        out.analytics_data = extract_sbi(*src.nWDAFAnalyticsData);
+    }
+    out.response_code =
+        static_cast<NwdafAnalyticsInfoResponseCode>(src.nWDAFAnalyticsInfoResponseCode);
+    return out;
+}
+
 #undef LI_TRY
 
 } // namespace
@@ -1831,6 +1964,84 @@ std::optional<AfSessionWithQosResponseCode> to_af_session_response_code(int http
             return C::TooManyRequests429;
         case 500:
             return C::InternalServerError500;
+        case 503:
+            return C::ServiceUnavailable503;
+        default:
+            return std::nullopt;
+    }
+}
+
+std::optional<NwdafEventsSubscriptionResponseCode>
+to_nwdaf_events_subscription_response_code(int http_status) {
+    using C = NwdafEventsSubscriptionResponseCode;
+    switch (http_status) {
+        case 200:
+            return C::Ok200;
+        case 201:
+            return C::Created201;
+        case 204:
+            return C::NoContent204;
+        case 307:
+            return C::TemporaryRedirect307;
+        case 308:
+            return C::PermanentRedirect308;
+        case 400:
+            return C::BadRequest400;
+        case 401:
+            return C::Unauthorized401;
+        case 403:
+            return C::Forbidden403;
+        case 404:
+            return C::NotFound404;
+        case 406:
+            return C::NotAcceptable406;
+        case 411:
+            return C::LengthRequired411;
+        case 413:
+            return C::PayloadTooLarge413;
+        case 415:
+            return C::UnsupportedMediaType415;
+        case 429:
+            return C::TooManyRequests429;
+        case 500:
+            return C::InternalServerError500;
+        case 501:
+            return C::NotImplemented501;
+        case 502:
+            return C::BadGateway502;
+        case 503:
+            return C::ServiceUnavailable503;
+        default:
+            return std::nullopt;
+    }
+}
+
+std::optional<NwdafAnalyticsInfoResponseCode>
+to_nwdaf_analytics_info_response_code(int http_status) {
+    using C = NwdafAnalyticsInfoResponseCode;
+    switch (http_status) {
+        case 200:
+            return C::Ok200;
+        case 204:
+            return C::NoContent204;
+        case 400:
+            return C::BadRequest400;
+        case 401:
+            return C::Unauthorized401;
+        case 403:
+            return C::Forbidden403;
+        case 404:
+            return C::NotFound404;
+        case 406:
+            return C::NotAcceptable406;
+        case 414:
+            return C::UriTooLong414;
+        case 429:
+            return C::TooManyRequests429;
+        case 500:
+            return C::InternalServerError500;
+        case 502:
+            return C::BadGateway502;
         case 503:
             return C::ServiceUnavailable503;
         default:
@@ -1892,6 +2103,15 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
             } else if constexpr (std::is_same_v<T, ChargingDataEvent>) {
                 payload->event.present = XIRIEvent_PR_chargingDataEvent;
                 return fill(payload->event.choice.chargingDataEvent, variant_event);
+            } else if constexpr (std::is_same_v<T, NwdafEventsSubscription>) {
+                payload->event.present = XIRIEvent_PR_nWDAFEventsSubscription;
+                return fill(payload->event.choice.nWDAFEventsSubscription, variant_event);
+            } else if constexpr (std::is_same_v<T, NwdafEventsNotification>) {
+                payload->event.present = XIRIEvent_PR_nWDAFEventsNotification;
+                return fill(payload->event.choice.nWDAFEventsNotification, variant_event);
+            } else if constexpr (std::is_same_v<T, NwdafAnalyticsInfoQuery>) {
+                payload->event.present = XIRIEvent_PR_nWDAFAnalyticsInfoQuery;
+                return fill(payload->event.choice.nWDAFAnalyticsInfoQuery, variant_event);
             } else if constexpr (std::is_same_v<T, NefAfSessionWithQosProvision>) {
                 payload->event.present = XIRIEvent_PR_nEFAFSessionWithQoSProvision;
                 return fill(payload->event.choice.nEFAFSessionWithQoSProvision, variant_event);
@@ -2099,6 +2319,30 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
         }
         case XIRIEvent_PR_nEFAFSessionWithQoSProvision: {
             auto rec = extract(payload->event.choice.nEFAFSessionWithQoSProvision);
+            if (!rec) {
+                return tl::unexpected(rec.error());
+            }
+            out.event = *rec;
+            return out;
+        }
+        case XIRIEvent_PR_nWDAFEventsSubscription: {
+            auto rec = extract(payload->event.choice.nWDAFEventsSubscription);
+            if (!rec) {
+                return tl::unexpected(rec.error());
+            }
+            out.event = *rec;
+            return out;
+        }
+        case XIRIEvent_PR_nWDAFEventsNotification: {
+            auto rec = extract(payload->event.choice.nWDAFEventsNotification);
+            if (!rec) {
+                return tl::unexpected(rec.error());
+            }
+            out.event = *rec;
+            return out;
+        }
+        case XIRIEvent_PR_nWDAFAnalyticsInfoQuery: {
+            auto rec = extract(payload->event.choice.nWDAFAnalyticsInfoQuery);
             if (!rec) {
                 return tl::unexpected(rec.error());
             }
