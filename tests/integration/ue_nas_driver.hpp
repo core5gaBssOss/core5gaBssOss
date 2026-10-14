@@ -36,7 +36,10 @@ struct AuthChallenge {
 
 // Plain (unprotected) RegistrationRequest carrying a null-protection-scheme SUCI for `supi`, plus
 // a UE Security Capability IE. TS 24.501 §8.2.6.
-std::vector<std::uint8_t> build_registration_request(const std::string& supi);
+// ADR-0486: sms_requested adds the 5GS update type IE (IEI 0x53, TS 24.501 §9.11.3.9A) with the
+// "SMS over NAS supported" bit set.
+std::vector<std::uint8_t> build_registration_request(const std::string& supi,
+                                                     bool sms_requested = false);
 
 // Pulls RAND and AUTN out of a plain AuthenticationRequest (TS 24.501 §8.2.1). std::nullopt if the
 // PDU is not one.
@@ -122,6 +125,16 @@ std::optional<std::vector<std::uint8_t>> open_secured_downlink(
 // message is not a DlNasTransport carrying an N1 SM container.
 std::optional<std::vector<std::uint8_t>>
 extract_dl_nas_payload_container(const std::vector<std::uint8_t>& plain_inner);
+
+// ADR-0486: SMS over NAS. UlNasTransport (TS 24.501 §8.2.10) with payload container type SMS
+// (§9.11.3.40, value 2) carrying `sms` (a TS 24.011 CP message), secured like every other
+// post-registration uplink (security header type 0x02).
+std::vector<std::uint8_t> build_ul_nas_transport_sms(const NasKeys& keys,
+                                                     std::uint32_t uplink_count,
+                                                     const std::vector<std::uint8_t>& sms);
+// The SMS payload container of a plain DlNasTransport, std::nullopt if it carries anything else.
+std::optional<std::vector<std::uint8_t>>
+extract_dl_nas_sms(const std::vector<std::uint8_t>& plain_inner);
 
 // ADR-0393: pulls the real 5G-GUTI value bytes (11 octets: identity-type byte, PLMN(3),
 // AMF Region ID(1), AMF Set ID/Pointer packed(2), 5G-TMSI(4)) out of a deciphered

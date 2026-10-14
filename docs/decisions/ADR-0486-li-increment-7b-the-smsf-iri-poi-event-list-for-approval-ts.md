@@ -84,3 +84,36 @@ compressed TP-UD is zeroed. Verified: 5 `SmsfMoSms` unit tests, 3 `LiSmsfEndToEn
 the real smsf + nrf processes (target, TruncateTPUserData, non-target), full conformance suite (513).
 Also fixed: the UDM POI's default LI_X1 port 7811 (ADR-0475) collided with li-mdf3's X1 port; the
 UDM POI now defaults to 7813 and the SMSF POI to 7814.
+
+**Increment 3a (done, 2026-10-14).** AMF Registration supporting SMS over NAS (TS 23.502 4.13.3.1):
+`decode_registration_request` reads the 5GS update type "SMS requested" bit (IEI 0x53, octet 3 bit
+1); its optional-IE walk now continues past the UE security capability and honours the three formats
+TS 24.501 8.2.6.1 uses (Type-1 0x8-..0xC-, TV-7 0x52, TLV-E 0x7-), so a UE sending any of them no
+longer desyncs it. When requested, `activate_sms_at_smsf` calls Nsmsf_SMService_Activate (PUT
+ue-contexts/{supi}; supi, amfId, accessType) BEFORE RegistrationAccept, and the Accept's SMS allowed
+bit (9.11.3.6 octet 3 bit 4) is set only on 201/204 -- a failed activation gives "not allowed" and the
+registration proceeds (TS 24.501 5.5.1.2.4). Disclosed: the SMSF is `config/amf.json`
+`smsf_base_url`, not TS 23.501 6.3.10 selection; step 3's SMS Subscription data check (Nudm_SDM_Get
+sms-data) is not made; step 2's UDM "UE context in SMSF data" is not read. Verified: 2 new
+`NasCodec` tests, `AmfSmsRegistration` (2 tests, real AMF over NGAP/NAS + real SMSF/AUSF/UDM/UDR/NRF;
+the Accept is MAC-verified/deciphered with UE-side keys and the SMSF context checked on the SMSF).
+Remaining, increment 3b: UL NAS TRANSPORT payload container type SMS -> UplinkSMS, and the AMF's
+n1-n2-messages route accepting n1MessageClass SMS -> DL NAS TRANSPORT.
+
+**Increment 3b (done, 2026-10-14).** AMF relay for MO SMS over NAS (TS 23.502 4.13.3.3): an UL NAS
+TRANSPORT with payload container type SMS (TS 24.501 9.11.3.40) is forwarded to the SMSF as
+Nsmsf_SMService_UplinkSMS (`try_relay_uplink_sms`, tried before the PDU-session and deregistration
+handlers in their phases, no phase change); the AMF's n1-n2-messages route turns n1MessageClass SMS
+into a secured DL NAS TRANSPORT (SMS) via `NgapUeRegistry::send_dl_nas_sms`. The post-registration
+uplink COUNT is now tracked in `next_uplink_count` from RegistrationComplete on (it was a fixed 2 for
+the PDU Session Establishment Request), so any number of SMS may precede it. An existing conformance
+test that used payload type SMS as its "unsupported type" example now uses LPP (3) -- SMS is
+supported by design. Disclosed: SMS is relayed only for a UE that got "SMS allowed"; UplinkSMS
+carries no gpsi/pei/ueLocation/ueTimeZone yet (step 2b's IMEISV, ULI, time zone); lastMsgIndication
+is accepted with no AMF behaviour (step 6a NOTE: implementation specific); the MT path (4.13.3.6-8)
+and SMS over non-3GPP access are not built. Pre-existing, not changed here: the persisted
+UeSecurityContextStore uplink COUNT is not advanced by post-registration uplinks, so a ServiceRequest
+after idle relies on its own count handling (same as after a PDU session). Verified:
+`AmfSmsRegistration.MoSmsRoundTripsThroughAmfAndSmsf` -- a test UE's CP-DATA/RP-DATA/SMS-SUBMIT goes
+through the real AMF to the real SMSF, and the CP-ACK (DL COUNT 2) and CP-DATA/RP-ERROR (DL COUNT 3,
+same RP-MR) come back MAC-verified and deciphered with the UE's own keys.

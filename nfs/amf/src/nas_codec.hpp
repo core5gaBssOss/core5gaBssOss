@@ -42,6 +42,9 @@ struct RegistrationRequestInfo {
     // simulators/ransim/vendor/UERANSIM/src/ue/nas/mm/register.cpp's unconditional
     // `request->ueSecurityCapability = createSecurityCapabilityIe()`).
     std::vector<std::uint8_t> ue_security_capability;
+    // ADR-0486: 5GS update type IE (IEI 0x53, TS 24.501 §9.11.3.9A) octet 3 bit 1, "SMS over NAS
+    // supported" -- false when the IE is absent (§5.5.1.2.4 treats absent as not requested).
+    bool sms_requested = false;
 };
 
 // Returns std::nullopt (the caller logs why) if the NAS-PDU isn't a plain, unprotected
@@ -166,7 +169,8 @@ std::vector<std::uint8_t> encode_registration_accept(const aka_crypto::NasIntKey
                                                      std::uint32_t tmsi,
                                                      std::uint8_t amf_region_id,
                                                      std::uint16_t amf_set_id,
-                                                     std::uint8_t amf_pointer);
+                                                     std::uint8_t amf_pointer,
+                                                     bool sms_allowed = false);
 
 // RegistrationReject (TS 24.501 §8.2.8) -- ADR-0278, sent when Network Slice Admission Control
 // refuses the UE's slice. SECURED, because this is only reachable after SecurityModeComplete has
@@ -239,6 +243,9 @@ struct UlNasTransportInfo {
     // getting the actual 5GSM content to the NF that's allowed to understand it. Added by
     // docs/DECISIONS.md ADR-0038 -- previously this project discarded these bytes entirely.
     std::vector<std::uint8_t> payload_container;
+    // ADR-0486: TS 24.501 §9.11.3.40 payload container type -- 1 (N1 SM information) or 2 (SMS);
+    // every other type still decodes as "not a message this function decodes" (mac_valid=false).
+    std::uint8_t payload_container_type = 0;
 };
 
 // Verifies MAC and deciphers a NAS-PDU carried in UplinkNASTransport, expected to be a
@@ -281,6 +288,14 @@ std::vector<std::uint8_t> encode_dl_nas_transport(const aka_crypto::NasIntKey& k
                                                   std::uint32_t downlink_count,
                                                   std::uint8_t pdu_session_id,
                                                   const std::vector<std::uint8_t>& n1_sm_container);
+
+// ADR-0486: a secured DlNasTransport (TS 24.501 §8.2.9) carrying an SMS payload container
+// (payload container type 2, §9.11.3.40) -- the SMSF's CP-ACK / CP-DATA arriving over
+// N1N2MessageTransfer with n1MessageClass SMS. No PDU session ID IE (it applies to N1 SM only).
+std::vector<std::uint8_t> encode_dl_nas_transport_sms(const aka_crypto::NasIntKey& knas_int,
+                                                      const aka_crypto::NasEncKey& knas_enc,
+                                                      std::uint32_t downlink_count,
+                                                      const std::vector<std::uint8_t>& sms);
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #100/ADR-0075): ServiceRequest (TS 24.501
 // §8.2.20/§5.6.1), the real, dominant CM-IDLE->CM-CONNECTED NAS procedure this project never

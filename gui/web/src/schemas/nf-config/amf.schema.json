@@ -47,6 +47,11 @@
       "x-env-override": "AMF_NSACF_BASE_URL",
       "x-cpp-type": "std::string"
     },
+    "smsf_base_url": {
+      "type": "string",
+      "x-env-override": "AMF_SMSF_BASE_URL",
+      "x-cpp-type": "std::string"
+    },
     "redis_url": {
       "type": "string",
       "x-env-override": "AMF_REDIS_URL",
@@ -148,7 +153,8 @@
     "port",
     "redis_url",
     "sbi_bind_address",
-    "smf_base_url"
+    "smf_base_url",
+    "smsf_base_url"
   ],
   "x-config-file": "config/amf.json",
   "x-source": [
