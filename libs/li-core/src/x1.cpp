@@ -249,6 +249,28 @@ std::optional<IdentifierAssociationEventsGenerated> read_task_gating(xmlNodePtr 
     return std::nullopt;
 }
 
+// TS 33.128 table 6.2.5.1-2: X1Extension choice SMSFExtensions { TruncateTPUserData (empty)
+// OPTIONAL }, carried like IdentifierAssociation inside <X1Extensions> (ADR-0486).
+bool read_truncate_tp_user_data(xmlNodePtr td) {
+    for (xmlNodePtr ext = td->children; ext != nullptr; ext = ext->next) {
+        if (!is(ext, "taskDetailsExtensions")) {
+            continue;
+        }
+        for (xmlNodePtr n = ext->children; n != nullptr; n = n->next) {
+            if (!is_ns(n, k3gppX1ExtNs, "X1Extensions")) {
+                continue;
+            }
+            for (xmlNodePtr e = n->children; e != nullptr; e = e->next) {
+                if (is_ns(e, k3gppX1ExtNs, "SMSFExtensions") &&
+                    child_ns(e, k3gppX1ExtNs, "TruncateTPUserData") != nullptr) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 DeliveryType read_delivery(const std::string& s) {
     if (s == "X2Only") {
         return DeliveryType::X2Only;
@@ -311,6 +333,7 @@ TaskDetails read_task_details(xmlNodePtr td) {
         task.implicit_deactivation_allowed = (*c == "true" || *c == "1");
     }
     task.identifier_association_events = read_task_gating(td);
+    task.truncate_tp_user_data = read_truncate_tp_user_data(td);
     return task;
 }
 
@@ -867,6 +890,19 @@ void write_task_details(xmlNodePtr parent, const TaskDetails& t) {
                                                      IdentifierAssociationEventsGenerated::All
                                                  ? "All"
                                                  : "IdentifierAssociation"));
+    }
+    if (t.truncate_tp_user_data) {
+        // TS 33.128 table 6.2.5.1-2 (see read_truncate_tp_user_data).
+        xmlNodePtr ext = add_node(td, "taskDetailsExtensions");
+        add_text(ext, "Owner", "3GPP");
+        xmlNsPtr tgpp = xmlNewNs(ext,
+                                 reinterpret_cast<const xmlChar*>(k3gppX1ExtNs),
+                                 reinterpret_cast<const xmlChar*>("tgpp"));
+        xmlNodePtr x1ext =
+            xmlNewChild(ext, tgpp, reinterpret_cast<const xmlChar*>("X1Extensions"), nullptr);
+        xmlNodePtr smsf =
+            xmlNewChild(x1ext, tgpp, reinterpret_cast<const xmlChar*>("SMSFExtensions"), nullptr);
+        xmlNewChild(smsf, tgpp, reinterpret_cast<const xmlChar*>("TruncateTPUserData"), nullptr);
     }
 }
 

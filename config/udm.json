@@ -11,7 +11,7 @@
   "li_poi": {
     "enabled": false,
     "x1_bind_address": "0.0.0.0",
-    "x1_port": 7811,
+    "x1_port": 7813,
     "ne_identifier": "udm-poi-01",
     "network_function_id": "udm-01.5gc.example.net",
     "interception_point_id": "UDM-IRI-POI-1",

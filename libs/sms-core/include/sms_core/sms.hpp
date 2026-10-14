@@ -133,6 +133,18 @@ struct MoTpdu {
 
 tl::expected<MoTpdu, std::string> decode_mo_tpdu(std::span<const std::uint8_t> tpdu);
 
+// TS 33.128 clause 7.4.5.2.1 "3GPP SMS Redaction" of an SMS-SUBMIT (MS->SC) or SMS-DELIVER
+// (SC->MS) TPDU: the SM portion of TP-UD is replaced by "Space" in its original encoding for its
+// full length (TP-UDL, minus the UDH when TP-UDHI is set); every UDH Information Element not
+// classified "SMS Control" (TS 23.040 clause 9.2.3.24 IEI table) becomes a Filler IE (0x26, data
+// zeroed, length kept, clause 9.2.3.24.17); no length field changes. Encodings (TS 23.038 clause
+// 4): GSM 7 bit default alphabet -> septet 0x20; UCS2 -> 0x0020; 8 bit data -> octet 0x20.
+// Disclosed interpretations: "Space" in 8 bit data (which has no defined character set) is taken
+// as 0x20; a COMPRESSED TP-UD (TS 23.042, coding group 00xx/01xx bit 5) has no per-character
+// space, so its SM octets are zeroed instead. Any other TPDU type is returned as an error (the
+// clause applies to SMS-SUBMIT and SMS-DELIVER only).
+tl::expected<Bytes, std::string> redact_tpdu(std::span<const std::uint8_t> tpdu, Direction dir);
+
 // TS 23.040 clause 9.2.3.11: 7 semi-octet-swapped octets; tz in quarter hours (signed).
 Bytes encode_scts(std::chrono::system_clock::time_point t, int tz_quarter_hours = 0);
 

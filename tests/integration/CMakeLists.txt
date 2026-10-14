@@ -317,6 +317,20 @@ target_compile_definitions(li_udm_e2e_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_udm_e2e_integration_tests PROPERTIES TIMEOUT 300)
 
+# ADR-0486: the SMSF's MO SMS handling + LI IRI-POI through the real smsf process and a real nrf;
+# the AMF is an in-process HTTP/2 stand-in recording N1N2MessageTransfer (the AMF's own SMS relay
+# is increment 3).
+add_executable(li_smsf_e2e_integration_tests test_li_smsf_e2e.cpp)
+target_link_libraries(li_smsf_e2e_integration_tests PRIVATE
+    li_core li_poi sms_core sbi_core sbi_generated OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+add_dependencies(li_smsf_e2e_integration_tests nrf smsf)
+target_compile_definitions(li_smsf_e2e_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    SMSF_PATH="$<TARGET_FILE:smsf>"
+    SMSF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/smsf.json"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_smsf_e2e_integration_tests PROPERTIES TIMEOUT 300)
+
 # ADR-0400: the UDSF suite -- its own binary (depends only on nrf + udsf, like the MTLF suite), so
 # it builds without the whole NF estate. Also carries the UDSF logic unit tests (no processes).
 add_executable(udsf_integration_tests test_udsf.cpp)

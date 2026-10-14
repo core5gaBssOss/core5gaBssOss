@@ -58,6 +58,8 @@ struct TaskInfo {
     // POI that is also a trigger function (the SMF's CC-TF) needs them to trigger the UPF.
     li_core::x1::DeliveryType delivery = li_core::x1::DeliveryType::X2AndX3;
     std::vector<std::string> dids;
+    // TS 33.128 table 6.2.5.1-2 TruncateTPUserData (the SMSF POI's redaction switch, ADR-0486).
+    bool truncate_tp_user_data = false;
 };
 
 struct Hooks {

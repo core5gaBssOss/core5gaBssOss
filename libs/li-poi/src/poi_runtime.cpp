@@ -131,7 +131,8 @@ struct PoiRuntime::Impl {
                           TaskInfo{details.targets,
                                    details.identifier_association_events,
                                    details.delivery,
-                                   details.dids});
+                                   details.dids,
+                                   details.truncate_tp_user_data});
         }
         enqueue_added(details.xid, details.targets);
         return std::nullopt;
@@ -163,7 +164,8 @@ struct PoiRuntime::Impl {
             tasks[details.xid] = TaskInfo{details.targets,
                                           details.identifier_association_events,
                                           details.delivery,
-                                          details.dids};
+                                          details.dids,
+                                          details.truncate_tp_user_data};
         }
         enqueue_added(details.xid, added);
         return std::nullopt;

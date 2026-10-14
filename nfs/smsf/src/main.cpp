@@ -18,19 +18,22 @@
 // service) -- only those two schemas are used here; IP-SM-GW's own `put`/`post` operations are
 // out of scope for this NF and not implemented.
 //
-// Real, disclosed simplification -- stated up front, not discovered in review: this project has
-// no real downstream SMS-GMSC/IWMSC (for `SendSMS`, uplink) or real TS 24.011 SMS-over-NAS
-// CP-DATA relay to AMF (for `SendMtSMS`, downlink) -- both genuinely out of this session's spec
-// material, same class of gap as this project's other disclosed missing-TS-material items (e.g.
-// ADR-0104's ProSe auth). `SendSMS` therefore always responds `SMS_DELIVERY_SMSF_ACCEPTED` (the
-// real enum value meaning "SMSF accepted for further processing", not a fabricated "delivered"
-// claim). `SendMtSMS` responds with a real `SmsDeliveryData` envelope but an empty (0-byte) binary
-// payload in place of a real TS 24.011 SMS-DELIVER-REPORT PDU, which this project cannot encode
-// without that spec material -- an honest placeholder, not a fabricated PDU.
+// `SendSMS` is the stage-3 form of stage-2 Nsmsf_SMService_UplinkSMS (the YAML's own SmsRecordData
+// description). Since ADR-0486 it implements TS 23.502 clause 4.13.3.3's MO SMS over NAS at the
+// SMSF: the binary part is decoded as TS 24.011 CP/RP and TS 23.040 TPDU (libs/sms-core,
+// sms_procedures.hpp), and the CP-ACK (step 2c) and the RP reply (steps 6a-6b) go back to the UE
+// via Namf_Communication_N1N2MessageTransfer (n1n2_sender.hpp). The SMSF's LI IRI-POI (li_poi.hpp,
+// TS 33.128 clause 6.2.5.3) reports SMSMessage and SMSReport for a target UE.
 //
-// Real, disclosed, deferred wiring (not built this turn): AMF does not yet call this NF's
-// `SMServiceActivation` during Registration, and no NF calls `SendSMS`/`SendMtSMS` -- same pattern
-// as 5G-EIR's own AMF non-wiring (ADR-0187).
+// Real, disclosed limits: this project has no SMS-IWMSC/SMS-GMSC, so an SMS-SUBMIT is answered with
+// an RP-ERROR + SMS-SUBMIT-REPORT (configurable causes, config/smsf.json `mo_sms`), never an RP-ACK
+// that would claim a Service Centre took it; `SendSMS` still answers SMS_DELIVERY_SMSF_ACCEPTED
+// ("accepted for further processing", not "delivered"). `SendMtSMS` (the IP-SM-GW-facing API) still
+// returns an empty binary part in place of an SMS-DELIVER-REPORT -- the MT path (MAP
+// MT-FORWARD-SHORT-MESSAGE, TS 29.002) is a later increment. The AMF's own side (relaying UL NAS
+// TRANSPORT SMS to `SendSMS`, Nsmsf_SMService_Activate during Registration, DL NAS TRANSPORT for
+// n1MessageClass SMS) is ADR-0486 increment 3; until then nothing in this project calls `SendSMS`
+// except tests/integration/test_li_smsf_e2e.cpp.
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -50,13 +53,17 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
 
 #include "TS29540_Nsmsf_SMService.hpp"
 #include "TS29577_Nipsmgw_SMService.hpp"
+#include "li_poi.hpp"
+#include "n1n2_sender.hpp"
 #include "nf_config/nf_config.hpp"
+#include "sms_procedures.hpp"
 #include "stores.hpp"
 
 namespace {
@@ -211,6 +218,54 @@ int main() {
 
     smsf::UeSmsContextStore contexts;
 
+    // ADR-0486: MO SMS over NAS. RP-Cause / TP-FCS for the "no SMS-IWMSC" reply are configuration
+    // (sms_procedures.hpp explains why the reply is an RP-ERROR, never an RP-ACK).
+    smsf::MoSmsPolicy mo_sms_policy;
+    if (config.contains("mo_sms")) {
+        const auto& mo = config.at("mo_sms");
+        mo_sms_policy.no_iwmsc_rp_cause =
+            mo.value("no_iwmsc_rp_cause", mo_sms_policy.no_iwmsc_rp_cause);
+        mo_sms_policy.no_iwmsc_tp_failure_cause =
+            mo.value("no_iwmsc_tp_failure_cause", mo_sms_policy.no_iwmsc_tp_failure_cause);
+    }
+    // LI IRI-POI (ADR-0486), disabled unless config/smsf.json's li_poi.enabled is true; nullptr
+    // keeps the SMSF's behaviour unchanged, the convention of every POI in this project.
+    std::unique_ptr<smsf::SmsfLiPoi> li_poi;
+    if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
+        const auto& lp = config.at("li_poi");
+        li_poi::Config poi_cfg;
+        poi_cfg.x1_bind_address = lp.at("x1_bind_address").get<std::string>();
+        poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
+        poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"smsf-poi"});
+        poi_cfg.network_function_id = lp.value("network_function_id", smsf_instance_id);
+        poi_cfg.interception_point_id =
+            lp.value("interception_point_id", std::string{"SMSF-IRI-POI-1"});
+        poi_cfg.mdf2_host = lp.at("mdf2_host").get<std::string>();
+        poi_cfg.mdf2_port = lp.at("mdf2_port").get<std::uint16_t>();
+        poi_cfg.mdf2_sni = lp.value("mdf2_sni", std::string{});
+        poi_cfg.cert_path = CERTS_DIR "/smsf/cert.pem";
+        poi_cfg.key_path = CERTS_DIR "/smsf/key.pem";
+        poi_cfg.ca_path = CERTS_DIR "/ca/ca.crt";
+        poi_cfg.x1_keepalive_p1_seconds = lp.value("x1_keepalive_p1_seconds", 60);
+        poi_cfg.x1_keepalive_p2_seconds = lp.value("x1_keepalive_p2_seconds", 180);
+        poi_cfg.x1_keepalive_p3_seconds = lp.value("x1_keepalive_p3_seconds", 300);
+        poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
+        li_poi = std::make_unique<smsf::SmsfLiPoi>(std::move(poi_cfg));
+        li_poi->start();
+    }
+
+    // Declared after li_poi so its worker (which may call li_poi) is joined first on teardown.
+    const auto amf_base_url =
+        nf_config::require<std::string>(config, "amf_base_url", "SMSF_AMF_BASE_URL");
+    smsf::N1n2Sender n1n2_sender(amf_base_url,
+                                 nrf_base,
+                                 smsf_instance_id,
+                                 sbi_core::http2::TlsConfig{
+                                     .cert_path = CERTS_DIR "/smsf/cert.pem",
+                                     .key_path = CERTS_DIR "/smsf/key.pem",
+                                     .ca_path = CERTS_DIR "/ca/ca.crt",
+                                 });
+
     auto meter = sbi_core::get_meter("smsf");
     auto activation_counter = meter->CreateUInt64Counter("smsf_sm_service_activation_total",
                                                          "Total SMServiceActivation calls");
@@ -322,12 +377,14 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{supi}/sendsms",
-        [&verifier, &contexts, &send_sms_counter](const sbi_core::http2::Request& req) {
+        [&verifier, &contexts, &send_sms_counter, &mo_sms_policy, &n1n2_sender, &li_poi](
+            const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             const auto supi = req.path_params.at("supi");
-            if (!contexts.get(supi).has_value()) {
+            const auto ue_context = contexts.get(supi);
+            if (!ue_context.has_value()) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No UE SMS context for supi " + supi);
             }
@@ -347,23 +404,85 @@ int main() {
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(400, "Invalid Service Request", e.what());
             }
-            bool found_payload = false;
+            const sbi_core::multipart::Part* payload_part = nullptr;
             for (const auto& part : *parts) {
                 if (part.content_id.has_value() &&
                     *part.content_id == jsonData.smsPayload.contentId) {
-                    found_payload = true;
+                    payload_part = &part;
                     break;
                 }
             }
-            if (!found_payload) {
+            if (payload_part == nullptr) {
                 return sbi_core::http2::problem_response(
                     400, "Invalid Service Request", "smsPayload binary part not found");
             }
 
+            // ADR-0486: TS 24.011 CP/RP and TS 23.040 TPDU handling (sms_procedures.hpp).
+            const std::vector<std::uint8_t> payload(payload_part->body.begin(),
+                                                    payload_part->body.end());
+            auto outcome =
+                smsf::process_uplink_sms(payload, mo_sms_policy, std::chrono::system_clock::now());
+            if (!outcome) {
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "smsPayload is not an SM-CP message: " +
+                                                             outcome.error());
+            }
+            if (outcome->rp_error) {
+                spdlog::warn("smsf: CP-DATA from {} acknowledged, {}", supi, *outcome->rp_error);
+            }
             send_sms_counter->Add(1);
-            // Real, disclosed simplification -- see this file's own top comment: no real
-            // downstream SMS-GMSC/IWMSC exists in this project, so this always reports
-            // SMSF-level acceptance, never a fabricated "delivered" status.
+
+            // TS 33.128 6.2.5.3: SMSMessage on CP-DATA_RP-DATA [SMS-SUBMIT, SMS-COMMAND] from a
+            // target UE. Identities: the request's own pei/gpsi, else the UE SMS context's.
+            std::vector<li_poi::Match> li_matches;
+            if (li_poi && outcome->rp && outcome->tpdu) {
+                smsf::LiIdentities ids;
+                ids.supi = supi;
+                const auto ctx_str = [&](const char* key) -> std::optional<std::string> {
+                    if (ue_context->contains(key) && ue_context->at(key).is_string()) {
+                        return ue_context->at(key).get<std::string>();
+                    }
+                    return std::nullopt;
+                };
+                ids.pei = jsonData.pei
+                              ? std::optional<std::string>(json(*jsonData.pei).get<std::string>())
+                              : ctx_str("pei");
+                ids.gpsi = jsonData.gpsi
+                               ? std::optional<std::string>(json(*jsonData.gpsi).get<std::string>())
+                               : ctx_str("gpsi");
+                std::optional<json> location;
+                if (jsonData.ueLocation) {
+                    location = json(*jsonData.ueLocation);
+                }
+                li_matches =
+                    li_poi->report_mo_sms_message(ids, *outcome->rp, *outcome->tpdu, location);
+            }
+
+            // TS 23.502 4.13.3.3 steps 2c and 6a: CP-ACK, then the RP reply, to the UE via the AMF.
+            if (!outcome->downlink.empty()) {
+                smsf::N1n2Sender::Job job;
+                job.supi = supi;
+                job.payloads = std::move(outcome->downlink);
+                job.last_is_final = outcome->rp_reply.has_value();
+                if (outcome->rp_reply && !li_matches.empty()) {
+                    const std::size_t reply_index = job.payloads.size() - 1;
+                    job.on_sent = [&li_poi,
+                                   matches = std::move(li_matches),
+                                   reply = *outcome->rp_reply,
+                                   reply_index](std::size_t index, bool accepted) {
+                        // SMSReport: "the SMSF sends ... CP-DATA_RP-ERROR [SMS-SUBMIT-REPORT]"
+                        // -- reported once the AMF has taken it, not before.
+                        if (index == reply_index && accepted && li_poi) {
+                            li_poi->report_sms_report(matches, reply);
+                        }
+                    };
+                }
+                n1n2_sender.enqueue(std::move(job));
+            }
+
+            // SMSF_ACCEPTED: the SMSF took the message for further processing -- never a
+            // fabricated "delivered" status (there is no SMS-IWMSC; the UE gets the RP-ERROR).
             sbi_gen::SmsRecordDeliveryData resp_body;
             resp_body.smsRecordId = jsonData.smsRecordId;
             resp_body.deliveryStatus.value = sbi_gen::SmsDeliveryStatus::SMS_DELIVERY_SMSF_ACCEPTED;

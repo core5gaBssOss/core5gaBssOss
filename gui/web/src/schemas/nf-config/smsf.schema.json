@@ -24,9 +24,72 @@
     },
     "self_base_url": {
       "type": "string"
+    },
+    "amf_base_url": {
+      "type": "string",
+      "x-env-override": "SMSF_AMF_BASE_URL",
+      "x-cpp-type": "std::string"
+    },
+    "mo_sms": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "no_iwmsc_rp_cause": {
+          "type": "integer"
+        },
+        "no_iwmsc_tp_failure_cause": {
+          "type": "integer"
+        }
+      }
+    },
+    "li_poi": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "x1_bind_address": {
+          "type": "string"
+        },
+        "x1_port": {
+          "type": "integer"
+        },
+        "ne_identifier": {
+          "type": "string"
+        },
+        "network_function_id": {
+          "type": "string"
+        },
+        "interception_point_id": {
+          "type": "string"
+        },
+        "mdf2_host": {
+          "type": "string"
+        },
+        "mdf2_port": {
+          "type": "integer"
+        },
+        "mdf2_sni": {
+          "type": "string"
+        },
+        "x1_keepalive_p1_seconds": {
+          "type": "integer"
+        },
+        "x1_keepalive_p2_seconds": {
+          "type": "integer"
+        },
+        "x1_keepalive_p3_seconds": {
+          "type": "integer"
+        },
+        "x1_allow_deactivate_all": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "required": [
+    "amf_base_url",
     "metrics_bind_address",
     "nrf_base_url",
     "port",
@@ -38,6 +101,8 @@
   ],
   "x-apply": "restart",
   "x-review": [
-    "self_base_url: present in the file but no source line visibly reads it"
+    "self_base_url: present in the file but no source line visibly reads it",
+    "mo_sms: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }
