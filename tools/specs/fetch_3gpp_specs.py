@@ -105,12 +105,18 @@ def main() -> int:
                 docs = [n for n in z.namelist() if n.lower().endswith((".docx", ".doc"))]
                 if not docs:
                     raise RuntimeError(f"{zip_path} holds no .doc/.docx: {z.namelist()}")
-                # The main document is the one named like the zip; annexes/cover pages are extras.
-                main_doc = sorted(docs, key=lambda n: (stem not in n.lower(), len(n)))[0]
-                z.extract(main_doc, out)
-            txt = convert_to_text(out / main_doc, out)
+                # A large spec ships split into parts (e.g. 29522-j70: _0_cover, _1_Main-Body,
+                # _2_Annexes). Every part is converted and concatenated in name order -- the parts
+                # are numbered -- because keeping only the shortest-named one kept the COVER page:
+                # TS 29.522 came out as a table of contents with no body (found 2026-10-14).
+                parts = sorted(docs)
+                for part in parts:
+                    z.extract(part, out)
             final = out / f"TS_{spec}_{version}.txt"
-            txt.rename(final)
+            texts = [convert_to_text(out / part, out) for part in parts]
+            final.write_text("".join(t.read_text(errors="replace") for t in texts))
+            for t in texts:
+                t.unlink()
             rows.append(f"{spec}\t{version}\t{rel}\t{note}")
             print(f"{spec}: {version} (Rel-{rel}) {note} -> {final.name}", file=sys.stderr)
         except Exception as exc:  # one spec failing must not lose the others
