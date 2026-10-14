@@ -73,6 +73,25 @@ inline nlohmann::json load(const std::string& service_name, const std::string& c
     if (j.contains("tls_min_version") && j.at("tls_min_version").is_string()) {
         ::setenv("SBI_TLS_MIN_VERSION", j.at("tls_min_version").get<std::string>().c_str(), 0);
     }
+    // ADR-0490: TS 29.500 5.2.2.2 -- every SBI request "should" carry a User-Agent starting with
+    // the requester's TS 29.510 NFType. Set only for a service whose name IS an NFType (eir is the
+    // NFType 5G_EIR); hello-nf, li-* and the BSS services are not NFs and send none rather than an
+    // invented type. Handed to sbi_core like the TLS floor; an already-set value wins.
+    {
+        static const char* const kNfTypes[] = {
+            "ADRF",  "AMF",  "AUSF",  "BSF", "CHF", "DCCF", "GMLC", "LMF", "MFAF", "NEF",  "NRF",
+            "NSACF", "NSSF", "NWDAF", "PCF", "SCP", "SMF",  "SMSF", "UDM", "UDR",  "UDSF", "UPF"};
+        const std::string upper = env_var_name.substr(0, service_name.size());
+        std::string nf_type = service_name == "eir" ? "5G_EIR" : "";
+        for (const char* t : kNfTypes) {
+            if (upper == t) {
+                nf_type = t;
+            }
+        }
+        if (!nf_type.empty()) {
+            ::setenv("SBI_USER_AGENT", nf_type.c_str(), 0);
+        }
+    }
     return j;
 }
 

@@ -2,7 +2,9 @@
 
 #include <curl/curl.h>
 
+#include <cstdlib>
 #include <mutex>
+#include <strings.h>
 
 namespace sbi_core::http2 {
 
@@ -131,9 +133,16 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
     }
 
     curl_slist* header_list = nullptr;
+    bool has_user_agent = false;
     for (const auto& [name, value] : request.headers) {
         const std::string line = name + ": " + value;
         header_list = curl_slist_append(header_list, line.c_str());
+        has_user_agent = has_user_agent || strcasecmp(name.c_str(), "user-agent") == 0;
+    }
+    // ADR-0490 / TS 29.500 5.2.2.2: the requester's NF type (set by nf_config::load), unless the
+    // caller already put a User-Agent on this request.
+    if (const char* ua = std::getenv("SBI_USER_AGENT"); !has_user_agent && ua != nullptr && *ua) {
+        header_list = curl_slist_append(header_list, (std::string("user-agent: ") + ua).c_str());
     }
     if (header_list != nullptr) {
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
