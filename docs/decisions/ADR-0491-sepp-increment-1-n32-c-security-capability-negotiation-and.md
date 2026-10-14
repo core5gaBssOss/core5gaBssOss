@@ -49,8 +49,10 @@ j70 6.1.4.3, TS 23.003 j80 28.2 / 28.5 (fetched).
   header).
 - Not built: N32-f keepalive PINGs (5.3.3.5), TLSCOR OPTIONS (5.3.3.2.2), SNDN32F, roaming
   intermediaries, topology hiding, message filtering / PLMN-ID checks of tokens, OAuth2 of the
-  relayed NF traffic (tokens are for the producer). NRF registration, Docker/Compose/Helm and
-  README (definition of done 2, 7, 9) follow in the next commit of this increment.
+  relayed NF traffic (tokens are for the producer). Registered with the NRF as nfType SEPP (fqdn,
+  plmnList, heartbeat) but without SeppInfo; NFs do not discover the SEPP through the NRF here.
+- The compose lab has no partner SEPP: the compose SEPP keeps retrying exchange-capability towards
+  config/sepp.json's partner (logged) until one is configured.
 - Unknown sender FQDN -> 403 NEGOTIATION_NOT_ALLOWED ("no security capability configured for this
   SEPP"); a targetPlmnId this SEPP does not serve -> 400 OPTIONAL_IE_INCORRECT: the spec names no
   cause for either, these are the closest defined ones.
@@ -68,3 +70,9 @@ SecNegotiateReqData / SecNegotiateRspData this SEPP builds, against TS29573_N32_
 Bootstrapping response through both (Via names both SEPPs); an unknown PLMN gets 504 from SEPP A;
 an N32-f request without a context gets 403 CONTEXT_NOT_FOUND; an unconfigured SEPP's
 exchange-capability gets 403 NEGOTIATION_NOT_ALLOWED.
+
+**Definition-of-done items completed (2026-10-14, second commit).** NRF registration + heartbeat
+(seen: "registered with NRF (HTTP 201)" in `SeppEndToEnd`); Prometheus counters
+`sepp_n32c_handshakes_total`, `sepp_n32f_forwarded_total`, `sepp_n32f_refused_total`;
+`deploy/docker/sepp.Dockerfile`, a compose `sepp` service with the `config:ro` mount (ADR-0453) and
+`sepp` in `pki-init`; `deploy/helm/sepp`; the architecture tile solid (`docs/diagrams/`), README.

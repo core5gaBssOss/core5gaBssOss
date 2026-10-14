@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-sepp
+  labels:
+    app.kubernetes.io/name: sepp
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: sepp
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: sbi
+      port: 7820
+      targetPort: sbi
+      protocol: TCP
+    - name: n32
+      port: 7821
+      targetPort: n32
+      protocol: TCP
+    - name: metrics
+      port: 9494
+      targetPort: metrics
+      protocol: TCP

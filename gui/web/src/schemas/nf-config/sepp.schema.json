@@ -24,6 +24,11 @@
       "x-env-override": "SEPP_METRICS_BIND_ADDRESS",
       "x-cpp-type": "std::string"
     },
+    "nrf_base_url": {
+      "type": "string",
+      "x-env-override": "SEPP_NRF_BASE_URL",
+      "x-cpp-type": "std::string"
+    },
     "fqdn": {
       "type": "string",
       "x-env-override": "SEPP_FQDN",
@@ -88,6 +93,7 @@
     "metrics_bind_address",
     "mnc",
     "n32_port",
+    "nrf_base_url",
     "port",
     "sbi_bind_address"
   ],

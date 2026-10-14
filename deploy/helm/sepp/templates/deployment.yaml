@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-sepp
+  labels:
+    app.kubernetes.io/name: sepp
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  # Single replica: the N32 contexts (ADR-0491) are held in memory, so a second replica would hold
+  # none and refuse the partner's N32-f traffic with CONTEXT_NOT_FOUND.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sepp
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sepp
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: sepp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: sbi
+              containerPort: 7820
+              protocol: TCP
+            - name: n32
+              containerPort: 7821
+              protocol: TCP
+            - name: metrics
+              containerPort: 9494
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

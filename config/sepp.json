@@ -3,10 +3,14 @@
   "n32_port": 7821,
   "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9494",
+  "nrf_base_url": "https://127.0.0.1:7777",
   "fqdn": "sepp.5gc.mnc001.mcc001.3gppnetwork.org",
   "mcc": "001",
   "mnc": "01",
-  "allowed_purposes": ["ROAMING", "INTER_PLMN_MOBILITY"],
+  "allowed_purposes": [
+    "ROAMING",
+    "INTER_PLMN_MOBILITY"
+  ],
   "handshake_retry_seconds": 2,
   "peers": [
     {
