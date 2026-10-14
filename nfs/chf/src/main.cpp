@@ -910,6 +910,14 @@ int main() {
         }
     }
 
+    // ADR-0488: the IRI-POI's Rf trigger (TS 33.128 clause 7.19.3.9).
+    if (li_poi) {
+        diameter_server.set_acr_observer([&li_poi](const std::vector<std::uint8_t>& message,
+                                                   const std::vector<diameter_core::Avp>& avps) {
+            li_poi->report_rf_acr(message, avps);
+        });
+    }
+
     // Logs the port actually bound. It logged the dictionary constant before, so an instance
     // moved by CHF_DIAMETER_PORT reported 3868 while listening elsewhere.
     spdlog::info("chf: Diameter (Gy+Rf+Sy) listening on tcp://0.0.0.0:{}", diameter_port);

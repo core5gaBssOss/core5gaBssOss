@@ -7,6 +7,10 @@
 
 #include "sbi_core/http2_client.hpp"
 
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/read.hpp>
+#include <boost/asio/write.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
@@ -17,6 +21,9 @@
 #include <thread>
 #include <vector>
 
+#include "diameter_core/avp.hpp"
+#include "diameter_core/dictionary.hpp"
+#include "diameter_core/header.hpp"
 #include "li_core/x1.hpp"
 #include "li_core/x2x3_pdu.hpp"
 #include "li_core/x2x3_server.hpp"
@@ -190,6 +197,83 @@ std::vector<xiri::ChargingDataEvent> records(const std::vector<li_core::Pdu>& pd
     return out;
 }
 
+// RFC 6733 CER, then an Rf ACR (TS 32.299 6.2.2): Session-Id, Origin-Host/-Realm, Accounting-
+// Record-Type EVENT, Accounting-Record-Number, and Service-Information (873, 3GPP vendor) carrying
+// Subscription-Id { END_USER_IMSI, the target IMSI } and an (empty) PS-Information (874).
+std::vector<std::uint8_t> diameter_message(std::uint32_t command,
+                                           std::uint32_t application,
+                                           const std::vector<std::uint8_t>& avps) {
+    diameter_core::Header h;
+    h.flags = diameter_core::CommandFlag::kRequest;
+    h.command_code = command;
+    h.application_id = application;
+    h.hop_by_hop_id = 0x0000C0DE;
+    h.end_to_end_id = 0x0000FACE;
+    auto msg = diameter_core::encode_header(h, static_cast<std::uint32_t>(avps.size()));
+    msg.insert(msg.end(), avps.begin(), avps.end());
+    return msg;
+}
+
+void put(std::vector<std::uint8_t>& out,
+         std::uint32_t code,
+         std::vector<std::uint8_t> data,
+         std::uint32_t vendor = 0) {
+    diameter_core::Avp avp;
+    avp.code = code;
+    avp.flags = diameter_core::AvpFlag::kMandatory;
+    if (vendor != 0) {
+        avp.flags |= diameter_core::AvpFlag::kVendor;
+        avp.vendor_id = vendor;
+    }
+    avp.data = std::move(data);
+    diameter_core::encode_avp(out, avp);
+}
+
+std::vector<std::uint8_t> build_acr() {
+    namespace d = diameter_core;
+    namespace dict = d::dictionary;
+    std::vector<std::uint8_t> sub;
+    put(sub,
+        dict::Dcc::kSubscriptionIdType,
+        d::encode_integer32(dict::Dcc::SubscriptionIdType::kEndUserImsi));
+    put(sub, dict::Dcc::kSubscriptionIdData, d::encode_octet_string(kTargetImsi));
+    std::vector<std::uint8_t> service;
+    put(service, dict::Dcc::kSubscriptionId, sub);
+    put(service, 874, {}, 10415); // PS-Information (TS 32.299 7.2.158), no members needed here
+    std::vector<std::uint8_t> avps;
+    put(avps, dict::Avp::kSessionId, d::encode_octet_string("li-chf-e2e;rf;1"));
+    put(avps, dict::Avp::kOriginHost, d::encode_octet_string("smf-rf.example.com"));
+    put(avps, dict::Avp::kOriginRealm, d::encode_octet_string("example.com"));
+    put(avps,
+        dict::Avp::kAccountingRecordType,
+        d::encode_integer32(dict::BaseAccounting::AccountingRecordType::kEvent));
+    put(avps, dict::Avp::kAccountingRecordNumber, d::encode_unsigned32(0));
+    put(avps, 873, service, 10415); // Service-Information (TS 32.299 7.2.192)
+    return diameter_message(dict::Command::kAccounting, dict::BaseAccounting::kApplicationId, avps);
+}
+
+// Sends `msg` on `sock` and reads (and discards) the one answer.
+bool diameter_exchange(boost::asio::ip::tcp::socket& sock, const std::vector<std::uint8_t>& msg) {
+    boost::system::error_code ec;
+    boost::asio::write(sock, boost::asio::buffer(msg), ec);
+    if (ec) {
+        return false;
+    }
+    std::vector<std::uint8_t> header(20);
+    boost::asio::read(sock, boost::asio::buffer(header), ec);
+    if (ec) {
+        return false;
+    }
+    std::size_t offset = 0;
+    std::uint32_t avps_length = 0;
+    if (!diameter_core::decode_header(header, offset, avps_length)) {
+        return false;
+    }
+    std::vector<std::uint8_t> rest(avps_length);
+    boost::asio::read(sock, boost::asio::buffer(rest), ec);
+    return !ec;
+}
+
 struct Lab {
     Inbox mdf2;
     li_core::X2X3Server mdf2_server{
@@ -224,20 +308,22 @@ TEST(LiChfEndToEnd, ChargingDataRequestsForATargetAreReportedOnlyWithRoamerInOut
     const auto recs = records(lab.mdf2.take());
     ASSERT_EQ(recs.size(), 2U);
 
-    EXPECT_FALSE(recs[0].offline);
-    EXPECT_EQ(recs[0].charging_data.reference,
+    const auto& conv = std::get<xiri::NchfChargingDataRequest>(recs[0].information);
+    EXPECT_FALSE(conv.offline);
+    EXPECT_EQ(conv.charging_data.reference,
               "TS32291_Nchf_ConvergedCharging.yaml#/components/schemas/ChargingDataRequest");
-    EXPECT_EQ(json::parse(recs[0].charging_data.value), roaming); // unmodified payload
-    EXPECT_EQ(recs[0].charging_event, xiri::NchfChargingEvent::PduSessionChargingInformation);
-    EXPECT_EQ(recs[0].roamer_in_out, xiri::RoamerInOut::OutBound);
+    EXPECT_EQ(json::parse(conv.charging_data.value), roaming); // unmodified payload
+    EXPECT_EQ(conv.charging_event, xiri::NchfChargingEvent::PduSessionChargingInformation);
+    EXPECT_EQ(conv.roamer_in_out, xiri::RoamerInOut::OutBound);
     ASSERT_TRUE(recs[0].location.has_value());
     ASSERT_TRUE(recs[0].location->user_location->nr.has_value());
     EXPECT_EQ(recs[0].location->user_location->nr->ncgi.nr_cell_id, 0x10U);
 
-    EXPECT_TRUE(recs[1].offline);
-    EXPECT_EQ(recs[1].charging_data.reference,
+    const auto& off = std::get<xiri::NchfChargingDataRequest>(recs[1].information);
+    EXPECT_TRUE(off.offline);
+    EXPECT_EQ(off.charging_data.reference,
               "TS32291_Nchf_OfflineOnlyCharging.yaml#/components/schemas/ChargingDataRequest");
-    EXPECT_EQ(recs[1].roamer_in_out, xiri::RoamerInOut::InBound);
+    EXPECT_EQ(off.roamer_in_out, xiri::RoamerInOut::InBound);
     lab.mdf2_server.stop();
 }
 
@@ -256,5 +342,50 @@ TEST(LiChfEndToEnd, TaskWithoutChargingDataEventsExtensionGetsNoRecords) {
     ASSERT_TRUE(post_x1(admf, x1_activate("a1e1e2e3-e4e5-46e7-88e9-eaebecedeeef", false)));
     post_charging("/nchf-convergedcharging/v3/chargingdata", charging_data_request("OUT_BOUND"));
     EXPECT_FALSE(lab.mdf2.wait_for(1, 3s)) << "a task without ChargingDataEvents got a record";
+    lab.mdf2_server.stop();
+}
+
+// TS 33.128 clause 7.19.3.9: an Rf ACR for the target (Subscription-Id in Service-Information) ->
+// ChargingDataEvent(rfChargingDataRequest) carrying the ACR's octets exactly as sent, with
+// rfChargingEvent pS-Information. No roamerInOut on Rf, so nothing is withheld.
+TEST(LiChfEndToEnd, RfAccountingRequestForATargetIsReportedWithItsOctets) {
+    Lab lab;
+    ASSERT_TRUE(lab.mdf2_server.start().has_value());
+    const auto cfg = write_config(lab.mdf2_server.bound_port());
+    ::setenv("CHF_CONFIG_FILE", cfg.c_str(), 1);
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess chf{CHF_PATH};
+    ::unsetenv("CHF_CONFIG_FILE");
+
+    auto admf = make_client();
+    ASSERT_TRUE(post_x1(admf, x1_activate("a2e1e2e3-e4e5-46e7-88e9-eaebecedeeef", true)));
+    ASSERT_TRUE(nf_test::wait_tcp_listening(diameter_core::kDiameterTcpPort));
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket sock(ioc);
+    boost::system::error_code ec;
+    sock.connect({boost::asio::ip::make_address("127.0.0.1"), diameter_core::kDiameterTcpPort}, ec);
+    ASSERT_FALSE(ec) << ec.message();
+    std::vector<std::uint8_t> cer_avps;
+    put(cer_avps,
+        diameter_core::dictionary::Avp::kOriginHost,
+        diameter_core::encode_octet_string("smf-rf.example.com"));
+    put(cer_avps,
+        diameter_core::dictionary::Avp::kOriginRealm,
+        diameter_core::encode_octet_string("example.com"));
+    ASSERT_TRUE(diameter_exchange(
+        sock,
+        diameter_message(diameter_core::dictionary::Command::kCapabilitiesExchange, 0, cer_avps)));
+    const auto acr = build_acr();
+    ASSERT_TRUE(diameter_exchange(sock, acr)) << "no ACA";
+
+    ASSERT_TRUE(lab.mdf2.wait_for(1, 15s)) << "expected a ChargingDataEvent for the ACR";
+    const auto recs = records(lab.mdf2.take());
+    ASSERT_EQ(recs.size(), 1U);
+    const auto* rf = std::get_if<xiri::RfChargingDataRequest>(&recs[0].information);
+    ASSERT_NE(rf, nullptr);
+    EXPECT_EQ(rf->acr, acr);
+    EXPECT_EQ(rf->charging_event, xiri::RfChargingEvent::PsInformation);
+    EXPECT_FALSE(recs[0].location.has_value());
     lab.mdf2_server.stop();
 }

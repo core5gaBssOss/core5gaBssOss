@@ -1,8 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "diameter_core/avp.hpp"
 #include "li_poi/poi_runtime.hpp"
 
 // The charging function's Lawful Interception IRI-POI (TS 33.127 clause 7.22, TS 33.128 clause
@@ -25,9 +28,12 @@
 //
 // Targets (clause 7.19.1): SUPIIMSI, SUPINAI, IMSI, GPSIMSISDN, GPSINAI, E164Number (MSISDN),
 // PEIIMEI, PEIIMEISV, IMEI -- from subscriberIdentifier and UserInformation.servedGPSI/servedPEI.
-// Not supported (disclosed): SIP-URI and IMEISV (no X1 kind modelled for them here). NOT wired yet:
-// the Rf event (this CHF does serve Rf ACR/ACA, ADR-0059) -- RfChargingDataRequest is a later
-// increment. A retransmitted request is reported again (it is received again).
+// Rf (clause 7.19.3.9): every Accounting-Request the CHF's Diameter server receives, matched on
+// User-Name and Service-Information/Subscription-Id -> ChargingDataEvent(rfChargingDataRequest)
+// with the ACR octets and rfChargingEvent; no roamerInOut member, so no ADR-0488 withholding
+// applies. Location for Rf (binary 3GPP-User-Location-Info) is not decoded -- omitted, disclosed.
+// Not supported (disclosed): SIP-URI and IMEISV targets (no X1 kind modelled for them here). A
+// retransmitted request is reported again (it is received again).
 
 namespace chf {
 
@@ -44,6 +50,11 @@ public:
     // `body` is the ChargingDataRequest exactly as received; `offline` selects
     // encapsulatedSBIOfflineChargingData (Nchf_OfflineOnlyCharging) over the converged choice.
     void report_charging_data_request(const std::string& body, bool offline);
+
+    // TS 33.128 clause 7.19.3.9: an Rf Accounting-Request as received (`message` = header + AVPs),
+    // -> ChargingDataEvent with the rfChargingDataRequest choice.
+    void report_rf_acr(const std::vector<std::uint8_t>& message,
+                       const std::vector<diameter_core::Avp>& avps);
 
 private:
     struct Impl;

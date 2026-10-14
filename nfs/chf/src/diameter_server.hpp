@@ -10,14 +10,17 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "charging_engine.hpp"
+#include "diameter_core/avp.hpp"
 
 // Private to nfs/chf -- not shared with any other NF, per CLAUDE.md's "no NF includes another NF's
 // private headers" rule.
@@ -160,11 +163,22 @@ private:
 public:
     void set_tps_limit(double sustained_tps, double burst_capacity);
 
+    // ADR-0488: called on the connection's own thread for every Accounting-Request received, before
+    // it is processed, with the whole message as received (header + AVPs) and its decoded top-level
+    // AVPs -- the CHF IRI-POI's Rf trigger (TS 33.128 clause 7.19.3.9). Set once, right after
+    // construction; like set_tps_limit it may race the first connection, so it is read under a
+    // lock.
+    using AcrObserver = std::function<void(const std::vector<std::uint8_t>& message,
+                                           const std::vector<diameter_core::Avp>& avps)>;
+    void set_acr_observer(AcrObserver observer);
+
 private:
     // ADR-0290: this server starts its accept thread in its own CONSTRUCTOR, so main() calls
     // set_tps_limit() while connection threads are already running and reading this. The bucket
     // itself is internally locked; the POINTER to it was the race. Owner + atomic view: the owner
     // keeps it alive, the atomic is what the message loop reads.
+    std::mutex acr_observer_mutex_;
+    AcrObserver acr_observer_;
     std::unique_ptr<sbi_core::TokenBucket> rate_limit_owner_;
     std::atomic<sbi_core::TokenBucket*> rate_limit_{nullptr};
 
