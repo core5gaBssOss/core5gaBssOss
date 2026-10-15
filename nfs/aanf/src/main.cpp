@@ -18,7 +18,9 @@
 // DISCLOSED, not hidden:
 //   * No roaming check (6.2.1 steps 5-7, Nudm_EventExposure RoamingStatusReport): the
 //     RoamingRestriction feature is not supported, so AKMA is provided whatever the UE's roaming
-//     status. No GPSI (steps 3-4, Nudm_SDM_Get; AKMA_GPSI_Support feature not supported).
+//     status. GPSI (steps 3-4, ADR-0496): for the AFs in `gpsi_af_fqdns`, from the UDM's
+//     id-translation-result, instead of the SUPI; not stored in the AKMA context (fetched per
+//     request).
 //   * No AKMA service-disable notification (6.8): notifUri is accepted and ignored.
 //   * The AF authorization of 6.2.1 step 2 is the OAuth2 token (when present) plus the configured
 //     `allowed_af_fqdns` list (empty = any AF).
@@ -192,6 +194,10 @@ int main() {
     // step 8, "Whether to send SUPI or GPSI is determined by AAnF based on the local policy").
     const bool supi_without_token = config.value("supi_to_af_without_token", false);
     const auto allowed_afs = config.value("allowed_af_fqdns", std::vector<std::string>{});
+    // ADR-0496, TS 33.535 6.2.1 steps 3-4 / 8: AFs that local policy gives the GPSI instead of the
+    // SUPI; the GPSI comes from the UDM (Nudm_SDM id-translation-result).
+    const auto gpsi_afs = config.value("gpsi_af_fqdns", std::vector<std::string>{});
+    const auto udm_base = config.value("udm_base_url", std::string{});
 
     sbi_core::init_metrics(metrics_bind_address);
     auto meter = sbi_core::get_meter("aanf");
@@ -202,6 +208,7 @@ int main() {
 
     auto redis = nf_config::connect_redis_or_die(redis_url, "aanf");
     aanf::AkmaStore store(redis);
+    http2::Client udm_client(aanf_tls());
     sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
     const std::string instance_id = sbi_core::generate_uuid_v4();
     spdlog::info("aanf: starting, nfInstanceId={}", instance_id);
@@ -278,7 +285,25 @@ int main() {
             const bool anonymous = body.anonInd.value_or(false);
             const bool supi_allowed =
                 auth ? auth->scope.find(kSupiScope) != std::string::npos : supi_without_token;
-            if (!anonymous && supi_allowed) {
+            const bool wants_gpsi =
+                std::ranges::find(gpsi_afs, af_fqdn(body.afId)) != gpsi_afs.end();
+            if (!anonymous && wants_gpsi && !udm_base.empty()) {
+                http2::ClientRequest q;
+                q.method = "GET";
+                q.url = udm_base + "/nudm-sdm/v2/" + ctx->supi + "/id-translation-result";
+                if (const auto r = udm_client.send(q); r && r->status == 200) {
+                    const auto t = json::parse(r->body, nullptr, false);
+                    if (t.is_object() && t.contains("gpsi") && t.at("gpsi").is_string()) {
+                        out.gpsi = t.at("gpsi").get<std::string>();
+                    }
+                }
+                if (!out.gpsi) {
+                    return problem(500,
+                                   "Internal Server Error",
+                                   "no GPSI could be fetched from the UDM for this UE",
+                                   "UNSPECIFIED_NF_FAILURE");
+                }
+            } else if (!anonymous && supi_allowed) {
                 out.supi = ctx->supi;
             }
             kafs->Add(1);

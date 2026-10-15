@@ -42,6 +42,9 @@
       "x-env-override": "NEF_UDM_BASE_URL",
       "x-cpp-type": "std::string"
     },
+    "aanf_base_url": {
+      "type": "string"
+    },
     "li_poi": {
       "type": "object",
       "additionalProperties": false,

@@ -40,6 +40,12 @@
     },
     "allowed_af_fqdns": {
       "type": "array"
+    },
+    "udm_base_url": {
+      "type": "string"
+    },
+    "gpsi_af_fqdns": {
+      "type": "array"
     }
   },
   "required": [
@@ -56,6 +62,7 @@
   ],
   "x-apply": "restart",
   "x-review": [
-    "allowed_af_fqdns: empty array, item type unknown"
+    "allowed_af_fqdns: empty array, item type unknown",
+    "gpsi_af_fqdns: empty array, item type unknown"
   ]
 }
