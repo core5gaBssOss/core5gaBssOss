@@ -710,6 +710,11 @@ int main() {
     // ADR-0316: UDM, for Nudm_EE event-monitoring subscriptions.
     const auto udm_base_url =
         nf_config::require<std::string>(config, "udm_base_url", "NEF_UDM_BASE_URL");
+    // ADR-0496: the AAnF for TS 29.522 AKMA (3gpp-akma) requests; absent = not offered (501).
+    std::optional<std::string> aanf_base_url;
+    if (config.contains("aanf_base_url")) {
+        aanf_base_url = config.at("aanf_base_url").get<std::string>();
+    }
 
     sbi_core::init_metrics(metrics_bind_address);
 
@@ -842,6 +847,14 @@ int main() {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
     sbi_core::http2::Client af_client(std::move(af_client_tls));
+    // ADR-0496: the NEF's token towards the AAnF -- with the SUPI-access scope, because the NEF
+    // translates the SUPI to a GPSI itself (TS 33.535 6.3 step 4-5).
+    sbi_core::OAuth2Client aanf_oauth(udr_client,
+                                      nrf_base + "/oauth2/token",
+                                      nef_instance_id,
+                                      "naanf-akma naanf-akma:applicationkeyget "
+                                      "naanf-akma:applicationkeyget:supi-access",
+                                      "AANF");
 
     nef::PfdCatalogStore pfd_catalog;
     seed_pfd_catalog(pfd_catalog);
@@ -3470,22 +3483,78 @@ int main() {
                 "Ambient IoT request: no downstream is wired for this operation in this core");
         });
     // --- TS29522_AKMA : /3gpp-akma/v1 (ADR-0327) ---
+    // ADR-0496, TS 33.535 6.3: the AF outside the operator's network gets KAF via the NEF. The NEF
+    // asks the AAnF (Naanf_AKMA_ApplicationKey_Get) with its own token -- the SUPI comes back to
+    // the NEF, never to the AF -- and, unless the AF said the UE id is not needed (anonInd),
+    // returns the GPSI from Nudm_SDM (id-translation-result) instead.
     server.add_route(
         "POST",
         std::string(kAfAkmaApiRoot) + "/retrieve",
-        [&verifier](const sbi_core::http2::Request& req) {
+        [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             sbi_core::http2::Response err;
-            if (!sbi_core::http2::parse_json_body<sbi_gen::AkmaAfKeyRequest>(req, err)
-                     .has_value()) {
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::AkmaAfKeyRequest>(req, err);
+            if (!body.has_value()) {
                 return err;
             }
-            return sbi_core::http2::problem_response(
-                501,
-                "Not Implemented",
-                "AKMA key request: no downstream is wired for this operation in this core");
+            if (!aanf_base_url) {
+                return sbi_core::http2::problem_response(
+                    501, "Not Implemented", "no AAnF is configured (aanf_base_url)");
+            }
+            sbi_core::http2::ClientRequest aanf_req;
+            aanf_req.method = "POST";
+            aanf_req.url = *aanf_base_url + "/naanf-akma/v1/retrieve-applicationkey";
+            aanf_req.headers.emplace("content-type", "application/json");
+            if (auto token = aanf_oauth.get_bearer_token()) {
+                aanf_req.headers.emplace("authorization", "Bearer " + *token);
+            }
+            sbi_gen::AkmaAfKeyRequest forward = *body;
+            forward.notifUri
+                .reset(); // the NEF does not relay service-disable notifications (6.8.2)
+            aanf_req.body = json(forward).dump();
+            const auto aanf_resp = udr_client.send(aanf_req);
+            if (!aanf_resp) {
+                return sbi_core::http2::problem_response(
+                    504, "Gateway Timeout", "AAnF not reachable: " + aanf_resp.error());
+            }
+            if (aanf_resp->status != 200) {
+                // K_AKMA_NOT_PRESENT and the like: the AAnF's answer, relayed as-is.
+                sbi_core::http2::Response relayed;
+                relayed.status = static_cast<int>(aanf_resp->status);
+                relayed.headers.emplace("content-type", "application/problem+json");
+                relayed.body = aanf_resp->body;
+                return relayed;
+            }
+            sbi_gen::AkmaAfKeyData data;
+            try {
+                data = json::parse(aanf_resp->body).get<sbi_gen::AkmaAfKeyData>();
+            } catch (const std::exception& e) {
+                return sbi_core::http2::problem_response(
+                    502, "Bad Gateway", std::string("AAnF answer malformed: ") + e.what());
+            }
+            sbi_gen::AkmaAfKeyData out;
+            out.kaf = data.kaf;
+            out.expiry = data.expiry;
+            // "The NEF shall not send the SUPI to the AF" (6.3 step 5).
+            if (!body->anonInd.value_or(false) && data.supi) {
+                sbi_core::http2::ClientRequest udm_req;
+                udm_req.method = "GET";
+                udm_req.url =
+                    udm_base_url + "/nudm-sdm/v2/" + *data.supi + "/id-translation-result";
+                if (const auto udm_resp = udr_client.send(udm_req);
+                    udm_resp && udm_resp->status == 200) {
+                    const auto r = json::parse(udm_resp->body, nullptr, false);
+                    if (r.is_object() && r.contains("gpsi") && r.at("gpsi").is_string()) {
+                        out.gpsi = r.at("gpsi").get<std::string>();
+                    }
+                } else {
+                    spdlog::warn("nef: no GPSI for the AKMA response (UDM {})",
+                                 udm_resp ? std::to_string(udm_resp->status) : udm_resp.error());
+                }
+            }
+            return sbi_core::http2::Response::json(200, json(out).dump());
         });
     // --- TS29522_AMPolicyAuthorization : /3gpp-am-policyauthorization/v1 (ADR-0327) ---
     server.add_route(

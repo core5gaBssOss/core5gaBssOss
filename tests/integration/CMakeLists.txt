@@ -451,13 +451,15 @@ gtest_discover_tests(sepp_e2e_integration_tests PROPERTIES TIMEOUT 120)
 add_executable(akma_e2e_integration_tests test_akma_e2e.cpp)
 target_link_libraries(akma_e2e_integration_tests PRIVATE
     sbi_core sbi_generated aka_crypto GTest::gtest GTest::gtest_main)
-add_dependencies(akma_e2e_integration_tests nrf udr udm ausf aanf)
+add_dependencies(akma_e2e_integration_tests nrf udr udm ausf aanf nef)
 target_compile_definitions(akma_e2e_integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"
     UDR_PATH="$<TARGET_FILE:udr>"
     UDM_PATH="$<TARGET_FILE:udm>"
     AUSF_PATH="$<TARGET_FILE:ausf>"
     AANF_PATH="$<TARGET_FILE:aanf>"
+    NEF_PATH="$<TARGET_FILE:nef>"
+    AANF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/aanf.json"
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(akma_e2e_integration_tests PROPERTIES TIMEOUT 120)
 

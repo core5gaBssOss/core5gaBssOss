@@ -461,6 +461,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0493](decisions/ADR-0493-sepp-increment-3a-prins-parameter-exchange-and-the-n32-f.md) SEPP increment 3a -- PRINS parameter exchange and the N32-f master key (TS 29.573 5.2.3, TS 33.501 13.2.2)
 - [0494](decisions/ADR-0494-sepp-increment-3b-prins-jose-protected-message-forwarding.md) SEPP increment 3b -- PRINS JOSE-protected message forwarding on N32-f (TS 29.573 5.3.2, TS 33.501 13.2.4)
 - [0495](decisions/ADR-0495-aanf-increment-1-akma-anchor-key-application-key-and.md) AAnF increment 1 -- AKMA anchor key, application key and context removal (TS 33.535, TS 29.535), with the AUSF and UDM sides
+- [0496](decisions/ADR-0496-aanf-increment-2-gpsi-for-afs-and-the-nef-akma-path-ts-33.md) AAnF increment 2 -- GPSI for AFs and the NEF AKMA path (TS 33.535 6.2.1 steps 3-4, 6.3)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

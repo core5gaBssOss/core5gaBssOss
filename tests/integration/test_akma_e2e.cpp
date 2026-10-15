@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <fstream>
 #include <thread>
 
 #include "TS29509_Nausf_UEAuthentication.hpp"
@@ -110,7 +111,20 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     nf_test::SpawnedProcess udr(UDR_PATH);
     nf_test::SpawnedProcess udm(UDM_PATH);
     nf_test::SpawnedProcess ausf(AUSF_PATH);
+    // The AAnF with a GPSI policy for one internal AF (ADR-0496).
+    std::string aanf_cfg;
+    {
+        std::ifstream in(AANF_CONFIG_TEMPLATE);
+        json cfg = json::parse(in);
+        cfg["gpsi_af_fqdns"] = json::array({"gpsi-af.example.com"});
+        aanf_cfg = std::string(::testing::TempDir()) + "aanf_akma.json";
+        std::ofstream(aanf_cfg) << cfg.dump(2);
+    }
+    ::setenv("AANF_CONFIG_FILE", aanf_cfg.c_str(), 1);
     nf_test::SpawnedProcess aanf(AANF_PATH);
+    ::unsetenv("AANF_CONFIG_FILE");
+    nf_test::SpawnedProcess nef(NEF_PATH);
+    nf_test::wait_tcp_listening(7790);
     nf_test::wait_tcp_listening(7781);
     nf_test::wait_tcp_listening(7782);
     nf_test::wait_tcp_listening(7824);
@@ -213,6 +227,51 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
                         unknown.dump());
     EXPECT_EQ(u.status, 403);
     EXPECT_EQ(json::parse(u.body).value("cause", ""), "K_AKMA_NOT_PRESENT");
+
+    // ADR-0496, 6.2.1 steps 3-4 / 8: an internal AF the AAnF's policy gives the GPSI, not the SUPI.
+    json gpsi_req = request;
+    gpsi_req["afId"] = "gpsi-af.example.com.0100BC0001";
+    const auto g = send(c,
+                        "POST",
+                        std::string(kAanf) + "/retrieve-applicationkey",
+                        af_token,
+                        "application/json",
+                        gpsi_req.dump());
+    ASSERT_EQ(g.status, 200) << g.body;
+    const auto gd = json::parse(g.body);
+    ASSERT_TRUE(gd.contains("gpsi")) << g.body;
+    EXPECT_FALSE(gd.contains("supi"));
+    const std::string gpsi = gd.at("gpsi");
+
+    // ADR-0496, 6.3: an AF outside the operator's network, via the NEF (TS 29.522 3gpp-akma).
+    const auto ext = send(c,
+                          "POST",
+                          "https://127.0.0.1:7790/3gpp-akma/v1/retrieve",
+                          "",
+                          "application/json",
+                          request.dump());
+    ASSERT_EQ(ext.status, 200) << ext.body;
+    const auto ed = json::parse(ext.body);
+    EXPECT_EQ(ed.at("kaf"), aka_crypto::to_hex(kaf));
+    EXPECT_FALSE(ed.contains("supi")) << "the NEF shall not send the SUPI to the AF";
+    EXPECT_EQ(ed.value("gpsi", ""), gpsi);
+    // "UE Id not needed": no GPSI either.
+    const auto ext_anon = send(c,
+                               "POST",
+                               "https://127.0.0.1:7790/3gpp-akma/v1/retrieve",
+                               "",
+                               "application/json",
+                               anon.dump());
+    ASSERT_EQ(ext_anon.status, 200) << ext_anon.body;
+    EXPECT_FALSE(json::parse(ext_anon.body).contains("gpsi"));
+    // An unknown A-KID through the NEF: the AAnF's 403 K_AKMA_NOT_PRESENT, relayed.
+    const auto ext_unknown = send(c,
+                                  "POST",
+                                  "https://127.0.0.1:7790/3gpp-akma/v1/retrieve",
+                                  "",
+                                  "application/json",
+                                  unknown.dump());
+    EXPECT_EQ(ext_unknown.status, 403);
 
     // Context removal (6.6): 204, then the key is gone, then 404 AKMA_CONTEXT_NOT_FOUND.
     const json remove{{"supi", kSupi}};

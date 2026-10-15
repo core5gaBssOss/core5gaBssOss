@@ -48,7 +48,7 @@ Last updated: 2026-10-14.
 | 24 | LMF | ✅ Built |
 | 25 | GMLC | ✅ Built |
 | 26 | NSSAAF | 🕒 Already in Pipeline |
-| 27 | AAnF | ⚠️ Partial: AKMA anchor key, application key, context removal with the AUSF/UDM sides (ADR-0495); roaming check, GPSI, service-disable notification in pipeline |
+| 27 | AAnF | ⚠️ Partial: AKMA anchor key, application key, context removal with the AUSF/UDM sides, GPSI, NEF path (ADR-0495/0496); roaming check, service-disable notification in pipeline |
 | 28 | UDSF | ✅ Built |
 | 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492), PRINS with JOSE-protected forwarding (ADR-0493/0494); roaming intermediaries in pipeline |
 

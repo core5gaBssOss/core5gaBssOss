@@ -6,5 +6,7 @@
   "redis_url": "tcp://127.0.0.1:6379",
   "kaf_lifetime_seconds": 3600,
   "supi_to_af_without_token": false,
-  "allowed_af_fqdns": []
+  "allowed_af_fqdns": [],
+  "udm_base_url": "https://127.0.0.1:7780",
+  "gpsi_af_fqdns": []
 }
