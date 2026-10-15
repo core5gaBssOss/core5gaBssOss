@@ -140,6 +140,18 @@ Kamf derive_kamf(const Kseaf& kseaf, const std::string& supi, const Abba& abba) 
     return generic_kdf(to_bytes(kseaf), 0x6D, {to_bytes(supi), to_bytes(abba)});
 }
 
+Kakma derive_kakma(const Kausf& kausf, const std::string& supi) {
+    return generic_kdf(to_bytes(kausf), 0x80, {to_bytes(std::string("AKMA")), to_bytes(supi)});
+}
+
+ATid derive_a_tid(const Kausf& kausf, const std::string& supi) {
+    return generic_kdf(to_bytes(kausf), 0x81, {to_bytes(std::string("A-TID")), to_bytes(supi)});
+}
+
+Kaf derive_kaf(const Kakma& kakma, const std::vector<uint8_t>& af_id) {
+    return generic_kdf(to_bytes(kakma), 0x82, {af_id});
+}
+
 NasEncKey derive_knas_enc(const Kamf& kamf, uint8_t algorithm_identity) {
     const auto out =
         generic_kdf(to_bytes(kamf), 0x69, {{kNasEncAlgorithmDistinguisher}, {algorithm_identity}});

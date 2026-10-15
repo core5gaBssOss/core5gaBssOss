@@ -65,6 +65,8 @@
 
 #include "TS26510_CommonData_grp.hpp"
 #include "TS29509_Nausf_UEAuthentication.hpp"
+#include "TS29535_Naanf_AKMA.hpp"
+#include "aka_crypto/akma.hpp"
 #include "aka_crypto/eap_aka_prime.hpp"
 #include "aka_crypto/hex.hpp"
 #include "aka_crypto/kdf.hpp"
@@ -218,6 +220,17 @@ int main() {
     const auto udm_base =
         nf_config::require<std::string>(config, "udm_base_url", "AUSF_UDM_BASE_URL");
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "AUSF_REDIS_URL");
+    // ADR-0495: AKMA (TS 33.535 6.1). The AAnF to register KAKMA at, and this AUSF's (home) PLMN
+    // for the A-KID realm. Without "akma" in config, no AKMA keys are derived.
+    std::optional<std::string> aanf_base;
+    std::string home_mcc;
+    std::string home_mnc;
+    if (config.contains("akma")) {
+        const auto& ak = config.at("akma");
+        aanf_base = ak.at("aanf_base_url").get<std::string>();
+        home_mcc = ak.at("home_mcc").get<std::string>();
+        home_mnc = ak.at("home_mnc").get<std::string>();
+    }
 
     sbi_core::init_metrics(metrics_bind_address);
 
@@ -243,6 +256,52 @@ int main() {
     sbi_core::http2::Client udm_client(std::move(udm_client_tls));
     sbi_core::OAuth2Client udm_oauth(
         udm_client, nrf_base + "/oauth2/token", ausf_instance_id, "nudm-ueau", "UDM");
+
+    // TS 33.535 6.1 steps 3-5: after a successful primary authentication with the UDM's AKMA
+    // indication, derive KAKMA and the A-KID from KAUSF and register them at the AAnF
+    // (Naanf_AKMA_AnchorKey_Register). Failures are logged; the authentication result stands.
+    sbi_core::http2::Client aanf_client(sbi_core::http2::TlsConfig{
+        .cert_path = CERTS_DIR "/ausf/cert.pem",
+        .key_path = CERTS_DIR "/ausf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    });
+    sbi_core::OAuth2Client aanf_oauth(
+        aanf_client, nrf_base + "/oauth2/token", ausf_instance_id, "naanf-akma", "AANF");
+    const auto register_akma = [&](const ausf::AuthContext& ctx, const aka_crypto::Kausf& kausf) {
+        if (!ctx.akma_ind || !aanf_base) {
+            return;
+        }
+        // The SUPI as KDF input: the bare identity, as for KAMF (TS 33.535 A.2).
+        std::string bare = ctx.supi;
+        for (const char* prefix : {"imsi-", "nai-"}) {
+            if (bare.rfind(prefix, 0) == 0) {
+                bare = bare.substr(std::char_traits<char>::length(prefix));
+            }
+        }
+        const auto kakma = aka_crypto::derive_kakma(kausf, bare);
+        const auto a_tid = aka_crypto::derive_a_tid(kausf, bare);
+        sbi_gen::AkmaKeyInfo info;
+        info.supi = ctx.supi;
+        info.aKId = aka_crypto::make_a_kid(ctx.routing_id, a_tid, home_mcc, home_mnc);
+        info.kAkma = aka_crypto::to_hex(kakma);
+        sbi_core::http2::ClientRequest req;
+        req.method = "POST";
+        req.url = *aanf_base + "/naanf-akma/v1/register-anchorkey";
+        req.headers.emplace("content-type", "application/json");
+        if (auto token = aanf_oauth.get_bearer_token()) {
+            req.headers.emplace("authorization", "Bearer " + *token);
+        }
+        req.body = json(info).dump();
+        const auto r = aanf_client.send(req);
+        if (r && r->status == 200) {
+            spdlog::info(
+                "ausf: AKMA key registered at the AAnF for {} (A-KID {})", ctx.supi, info.aKId);
+        } else {
+            spdlog::warn("ausf: Naanf_AKMA_AnchorKey_Register for {} failed ({})",
+                         ctx.supi,
+                         r ? std::to_string(r->status) : r.error());
+        }
+    };
 
     ausf::AuthContextStore auth_contexts;
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #104, ADR-0091): see stores.hpp's own
@@ -413,6 +472,8 @@ int main() {
                 ausf::AuthContext store_ctx{};
                 store_ctx.supi = supi;
                 store_ctx.serving_network_name = body->servingNetworkName;
+                store_ctx.akma_ind = udm_result.akmaInd.value_or(false);
+                store_ctx.routing_id = udm_result.routingId.value_or("0");
                 store_ctx.auth_type = "EAP_AKA_PRIME";
                 store_ctx.k_aut = keys.k_aut;
                 store_ctx.xres = *xres;
@@ -447,6 +508,8 @@ int main() {
                 ausf::AuthContext store_ctx{};
                 store_ctx.supi = supi;
                 store_ctx.serving_network_name = body->servingNetworkName;
+                store_ctx.akma_ind = udm_result.akmaInd.value_or(false);
+                store_ctx.routing_id = udm_result.routingId.value_or("0");
                 store_ctx.auth_type = "5G_AKA";
                 store_ctx.xres_star = *xres_star;
                 store_ctx.kausf_5g_aka = *kausf;
@@ -480,7 +543,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kApiRoot) + "/ue-authentications/{authCtxId}/5g-aka-confirmation",
-        [&verifier, &auth_contexts, &confirm_5g_aka_counter, &kausf_store](
+        [&verifier, &auth_contexts, &confirm_5g_aka_counter, &kausf_store, &register_akma](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -516,6 +579,7 @@ int main() {
                 // initialization/reset, needed by Nausf_SoRProtection (a later, separate call
                 // from UDM, well after this exchange completes).
                 kausf_store.store_fresh_kausf(ctx->supi, ctx->kausf_5g_aka);
+                register_akma(*ctx, ctx->kausf_5g_aka);
             } else {
                 resp_data.authResult.value =
                     sbi_gen::AuthResult_Nausf_UEAuthentication::AUTHENTICATION_FAILURE;
@@ -546,7 +610,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-authentications/{authCtxId}/eap-session",
-        [&verifier, &auth_contexts, &eap_session_counter, &kausf_store](
+        [&verifier, &auth_contexts, &eap_session_counter, &kausf_store, &register_akma](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -593,6 +657,7 @@ int main() {
                 // Same real trigger as the 5G-AKA confirmation handler above -- see its own
                 // comment.
                 kausf_store.store_fresh_kausf(ctx->supi, ctx->kausf_eap);
+                register_akma(*ctx, ctx->kausf_eap);
             } else {
                 resp_data.eapPayload =
                     aka_crypto::eap::base64_encode(aka_crypto::eap::build_failure(identifier));

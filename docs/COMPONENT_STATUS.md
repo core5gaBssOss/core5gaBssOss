@@ -31,7 +31,7 @@ Last updated: 2026-10-14.
 | 12 | BSF | ✅ Built |
 | 13 | CHF | ✅ Built |
 
-## 5G Core, Tier 2: 10 built, 1 partial, 5 already in pipeline
+## 5G Core, Tier 2: 10 built, 2 partial, 4 already in pipeline
 
 | # | Component | Status |
 |---|---|---|
@@ -48,7 +48,7 @@ Last updated: 2026-10-14.
 | 24 | LMF | ✅ Built |
 | 25 | GMLC | ✅ Built |
 | 26 | NSSAAF | 🕒 Already in Pipeline |
-| 27 | AAnF | 🕒 Already in Pipeline |
+| 27 | AAnF | ⚠️ Partial: AKMA anchor key, application key, context removal with the AUSF/UDM sides (ADR-0495); roaming check, GPSI, service-disable notification in pipeline |
 | 28 | UDSF | ✅ Built |
 | 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492), PRINS with JOSE-protected forwarding (ADR-0493/0494); roaming intermediaries in pipeline |
 
@@ -109,7 +109,7 @@ Last updated: 2026-10-14.
 
 | Group | Built | Already in pipeline |
 |---|---|---|
-| Network functions, Tiers 1–3 | 23 of 48 (+ SEPP partial) | 24 |
+| Network functions, Tiers 1–3 | 23 of 48 (+ SEPP, AAnF partial) | 23 |
 | LI functions | 3 complete, 2 partial | 1 (SIRF) |
 | Charging/BSS and platform | 9 of 9 | 0 |
 

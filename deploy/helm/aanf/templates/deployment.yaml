@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-aanf
+  labels:
+    app.kubernetes.io/name: aanf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  # AKMA contexts live in Valkey (ADR-0495), so replicas would share them; one for the lab.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aanf
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aanf
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: aanf
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: sbi
+              containerPort: 7824
+              protocol: TCP
+            - name: metrics
+              containerPort: 9496
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

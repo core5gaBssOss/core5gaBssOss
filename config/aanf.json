@@ -1,0 +1,10 @@
+{
+  "port": 7824,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9496",
+  "nrf_base_url": "https://127.0.0.1:7777",
+  "redis_url": "tcp://127.0.0.1:6379",
+  "kaf_lifetime_seconds": 3600,
+  "supi_to_af_without_token": false,
+  "allowed_af_fqdns": []
+}
