@@ -27,6 +27,10 @@ struct AuthenticationSubscription {
     aka_crypto::Sqn sqn;
     aka_crypto::Amf amf;
     std::string authentication_method; // "5G_AKA" or "EAP_AKA_PRIME"
+    // ADR-0495: AuthenticationSubscription.akmaAllowed / routingId (TS 29.505), relayed to the
+    // AUSF as AuthenticationInfoResult.akmaInd / routingId (TS 33.535 6.1 step 2).
+    bool akma_allowed = false;
+    std::string routing_id;
 };
 
 // Backs Nudm_UEAU's ConfirmAuth (create) and DeleteAuth (remove). Keyed by a UDM-generated

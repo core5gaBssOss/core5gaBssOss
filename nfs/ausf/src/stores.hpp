@@ -42,6 +42,10 @@ struct AuthContext {
     aka_crypto::Res64 xres{};
     aka_crypto::Kausf kausf_eap{};
     std::array<uint8_t, 64> msk{};
+
+    // ADR-0495, TS 33.535 6.1 step 2-3: the UDM's AKMA indication and the UE's RID.
+    bool akma_ind = false;
+    std::string routing_id;
 };
 
 class AuthContextStore {

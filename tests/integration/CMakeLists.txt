@@ -446,6 +446,21 @@ target_compile_definitions(sepp_e2e_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(sepp_e2e_integration_tests PROPERTIES TIMEOUT 120)
 
+# ADR-0495: AKMA end to end -- real UDR, UDM, AUSF (5G-AKA) and AAnF; the test is the UE and the
+# AF. Needs the UDR's PostgreSQL and Valkey (AUSF KAUSF store, AAnF contexts).
+add_executable(akma_e2e_integration_tests test_akma_e2e.cpp)
+target_link_libraries(akma_e2e_integration_tests PRIVATE
+    sbi_core sbi_generated aka_crypto GTest::gtest GTest::gtest_main)
+add_dependencies(akma_e2e_integration_tests nrf udr udm ausf aanf)
+target_compile_definitions(akma_e2e_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    UDR_PATH="$<TARGET_FILE:udr>"
+    UDM_PATH="$<TARGET_FILE:udm>"
+    AUSF_PATH="$<TARGET_FILE:ausf>"
+    AANF_PATH="$<TARGET_FILE:aanf>"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(akma_e2e_integration_tests PROPERTIES TIMEOUT 120)
+
 # ADR-0490: TS 29.500 User-Agent from nf_config::load through the SBI client. Ephemeral port.
 add_executable(sbi_user_agent_tests test_sbi_user_agent.cpp)
 target_link_libraries(sbi_user_agent_tests PRIVATE sbi_core nf_config GTest::gtest GTest::gtest_main)

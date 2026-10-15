@@ -102,10 +102,14 @@ UdrAuthSubscriptionSource::fetch(const std::string& supi) {
                       supi);
         return tl::unexpected(AuthDataError::Invalid);
     }
-    return Fetched{
-        AuthenticationSubscription{
-            .k = *k, .opc = *opc, .sqn = *sqn, .amf = *amf, .authentication_method = method},
-        sqn_text};
+    return Fetched{AuthenticationSubscription{.k = *k,
+                                              .opc = *opc,
+                                              .sqn = *sqn,
+                                              .amf = *amf,
+                                              .authentication_method = method,
+                                              .akma_allowed = doc.value("akmaAllowed", false),
+                                              .routing_id = str_or_empty(doc, "routingId")},
+                   sqn_text};
 }
 
 tl::expected<bool, AuthDataError> UdrAuthSubscriptionSource::compare_and_swap_sqn(

@@ -41,6 +41,7 @@ set(SBI_CODEGEN_PILOT_FILES
     TS29594_Nchf_SpendingLimitControl.yaml
     TS29519_Policy_Data.yaml
     TS29571_CommonData.yaml
+    TS29535_Naanf_AKMA.yaml
     TS29573_N32_Handshake.yaml
     TS29573_JOSEProtectedMessageForwarding.yaml
     TS29573_SeppTelescopicFqdnMapping.yaml

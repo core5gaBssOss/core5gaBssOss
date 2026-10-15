@@ -31,6 +31,21 @@
       "type": "string",
       "x-env-override": "AUSF_REDIS_URL",
       "x-cpp-type": "std::string"
+    },
+    "akma": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "aanf_base_url": {
+          "type": "string"
+        },
+        "home_mcc": {
+          "type": "string"
+        },
+        "home_mnc": {
+          "type": "string"
+        }
+      }
     }
   },
   "required": [
@@ -46,5 +61,7 @@
     "nfs/ausf"
   ],
   "x-apply": "restart",
-  "x-review": []
+  "x-review": [
+    "akma: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
+  ]
 }

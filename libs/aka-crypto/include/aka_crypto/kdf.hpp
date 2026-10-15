@@ -233,6 +233,19 @@ using KnrProse = std::array<uint8_t, 32>;
 // 6.1.3.2. supi: the bare identity digits (same convention as derive_kamf's own supi parameter --
 // see its comment). relay_service_code: TS 24.554's RSC, encoded as 3 bytes big-endian (real
 // width, TS 33.503 Annex A.5's own explicit citation, see this file's header comment).
+// ADR-0495: AKMA (TS 33.535 Annex A, KDF of TS 33.220 Annex B.2.2 = this file's generic_kdf).
+// supi: the bare identity digits, same convention as derive_kamf (TS 33.535 A.2: "the same value
+// as parameter P0 in Annex A.7.0 of TS 33.501").
+using Kakma = std::array<uint8_t, 32>;
+using ATid = std::array<uint8_t, 32>;
+using Kaf = std::array<uint8_t, 32>;
+// A.2: FC=0x80, P0="AKMA", P1=SUPI, KEY=KAUSF.
+Kakma derive_kakma(const Kausf& kausf, const std::string& supi);
+// A.3: FC=0x81, P0="A-TID", P1=SUPI, KEY=KAUSF.
+ATid derive_a_tid(const Kausf& kausf, const std::string& supi);
+// A.4: FC=0x82, P0=AF_ID (FQDN of the AF || 5-octet Ua* security protocol id), KEY=KAKMA.
+Kaf derive_kaf(const Kakma& kakma, const std::vector<uint8_t>& af_id);
+
 CpPruk derive_cp_pruk(const Kausf& kausf_p, const std::string& supi, int64_t relay_service_code);
 
 // TS 33.503 Annex A.3 (real citation). Same kausf_p/relay_service_code/supi as derive_cp_pruk

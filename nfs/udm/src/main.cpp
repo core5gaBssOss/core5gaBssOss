@@ -3014,6 +3014,13 @@ int main() {
 
             sbi_gen::AuthenticationInfoResult result{};
             result.supi = supi_or_suci;
+            // ADR-0495, TS 33.535 6.1 step 2: "If the AKMA indication is included, the UDM shall
+            // also include the RID of the UE" -- the subscription's routingId, else the TS 23.003
+            // 2.2B default "0".
+            if (sub->akma_allowed) {
+                result.akmaInd = true;
+                result.routingId = sub->routing_id.empty() ? "0" : sub->routing_id;
+            }
 
             if (sub->authentication_method == "EAP_AKA_PRIME") {
                 const auto ck_ik_prime = aka_crypto::derive_ck_ik_prime(
