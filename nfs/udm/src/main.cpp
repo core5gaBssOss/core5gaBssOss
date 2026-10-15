@@ -79,6 +79,7 @@
 //   disclosed scope narrowing as the existing helper: only the IMSI-type (supiType "0") SUCI form
 //   is supported, not the NAI/GCI/GLI form.
 
+#include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -509,6 +510,9 @@ int main() {
     sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
 
     udm::AmfRegistrationStore amf_registrations;
+    // ADR-0497: this UDM's home PLMNs, for the ROAMING_STATUS report (roaming = serving PLMN not
+    // among them).
+    const json home_plmns = config.value("home_plmns", json::array());
 
     // LI IRI-POI (ADR-0475), disabled unless config/udm.json's li_poi.enabled is true. Declared
     // early (before the route handlers below, which capture it by reference) but constructed
@@ -3380,7 +3384,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kEeApiRoot) + "/{ueIdentity}/ee-subscriptions",
-        [&verifier, &ee_subscriptions, &ee_subscribe_counter](const sbi_core::http2::Request& req) {
+        [&verifier, &ee_subscriptions, &ee_subscribe_counter, &amf_registrations, &home_plmns](
+            const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -3399,6 +3404,46 @@ int main() {
             sbi_gen::CreatedEeSubscription created{};
             created.eeSubscription = j.get<sbi_gen::EeSubscription>();
             json resp_j = created;
+            // ADR-0497: ROAMING_STATUS with immediateFlag -> an immediate RoamingStatusReport in
+            // eventReports (TS 29.503 Nudm_EE; consumer: the AAnF, TS 33.535 6.2.1 step 5-6). The
+            // serving PLMN is the one of the UE's AMF registration (guami.plmnId); roaming = not
+            // one of this UDM's home PLMNs. No AMF registration on record: no report.
+            json reports = json::array();
+            if (j.contains("monitoringConfigurations") &&
+                j.at("monitoringConfigurations").is_object()) {
+                for (const auto& [ref, cfg] : j.at("monitoringConfigurations").items()) {
+                    if (cfg.value("eventType", "") != "ROAMING_STATUS" ||
+                        !cfg.value("immediateFlag", false)) {
+                        continue;
+                    }
+                    const auto reg = amf_registrations.get(ue_identity);
+                    if (!reg || !reg->contains("guami") || !reg->at("guami").contains("plmnId")) {
+                        continue;
+                    }
+                    const auto& plmn = reg->at("guami").at("plmnId");
+                    const bool home = std::ranges::any_of(home_plmns, [&](const json& h) {
+                        return h.value("mcc", "") == plmn.value("mcc", "") &&
+                               h.value("mnc", "") == plmn.value("mnc", "");
+                    });
+                    std::int64_t reference_id = 0;
+                    try {
+                        reference_id = std::stoll(ref);
+                    } catch (const std::exception&) {
+                        continue; // ReferenceId is a Uint64: a non-numeric key has none
+                    }
+                    reports.push_back(json{
+                        {"referenceId", reference_id},
+                        {"eventType", "ROAMING_STATUS"},
+                        {"timeStamp", sbi_core::format_rfc3339(std::chrono::system_clock::now())},
+                        {"report",
+                         json{{"roaming", !home},
+                              {"newServingPlmn", plmn},
+                              {"accessType", "3GPP_ACCESS"}}}});
+                }
+            }
+            if (!reports.empty()) {
+                resp_j["eventReports"] = reports;
+            }
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");

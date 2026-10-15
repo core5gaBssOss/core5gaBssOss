@@ -8,5 +8,7 @@
   "supi_to_af_without_token": false,
   "allowed_af_fqdns": [],
   "udm_base_url": "https://127.0.0.1:7780",
-  "gpsi_af_fqdns": []
+  "gpsi_af_fqdns": [],
+  "self_base_url": "https://127.0.0.1:7824",
+  "deny_roaming_ues": false
 }

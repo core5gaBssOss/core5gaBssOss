@@ -91,6 +91,21 @@
           "type": "boolean"
         }
       }
+    },
+    "home_plmns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mcc": {
+            "type": "string"
+          },
+          "mnc": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "required": [
@@ -110,6 +125,7 @@
   ],
   "x-apply": "restart",
   "x-review": [
-    "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
+    "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "home_plmns[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

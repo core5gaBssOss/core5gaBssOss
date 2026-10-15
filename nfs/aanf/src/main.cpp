@@ -16,9 +16,10 @@
 // AKMA contexts live in Valkey, shared by every replica.
 //
 // DISCLOSED, not hidden:
-//   * No roaming check (6.2.1 steps 5-7, Nudm_EventExposure RoamingStatusReport): the
-//     RoamingRestriction feature is not supported, so AKMA is provided whatever the UE's roaming
-//     status. GPSI (steps 3-4, ADR-0496): for the AFs in `gpsi_af_fqdns`, from the UDM's
+//   * Roaming check (6.2.1 steps 5-7, ADR-0497): with `deny_roaming_ues`, an immediate
+//     ROAMING_STATUS report from the UDM; a roaming UE is refused ROAMING_AKMA_SERVICE_DENIED. The
+//     subscription is removed after the report (no change notifications); no report -> provided.
+//     GPSI (steps 3-4, ADR-0496): for the AFs in `gpsi_af_fqdns`, from the UDM's
 //     id-translation-result, instead of the SUPI; not stored in the AKMA context (fetched per
 //     request).
 //   * No AKMA service-disable notification (6.8): notifUri is accepted and ignored.
@@ -198,6 +199,9 @@ int main() {
     // SUPI; the GPSI comes from the UDM (Nudm_SDM id-translation-result).
     const auto gpsi_afs = config.value("gpsi_af_fqdns", std::vector<std::string>{});
     const auto udm_base = config.value("udm_base_url", std::string{});
+    // ADR-0497, TS 33.535 6.2.1 steps 5-7 (feature RoamingRestriction): deny AKMA to a roaming UE.
+    const bool deny_roaming = config.value("deny_roaming_ues", false);
+    const auto self_base = config.value("self_base_url", std::string{});
 
     sbi_core::init_metrics(metrics_bind_address);
     auto meter = sbi_core::get_meter("aanf");
@@ -277,6 +281,50 @@ int main() {
             if (!ctx) {
                 return problem(
                     403, "Forbidden", "no KAKMA for A-KID " + body.aKId, "K_AKMA_NOT_PRESENT");
+            }
+            // Steps 5-7: the UE's roaming status from the UDM (Nudm_EventExposure, ROAMING_STATUS
+            // with an immediate report). This UDM sends no later change notifications, so the
+            // subscription is removed straight after the report is read (ADR-0497).
+            if (deny_roaming && !udm_base.empty()) {
+                http2::ClientRequest sub;
+                sub.method = "POST";
+                sub.url = udm_base + "/nudm-ee/v1/" + ctx->supi + "/ee-subscriptions";
+                sub.headers.emplace("content-type", "application/json");
+                sub.body =
+                    json{{"callbackReference", self_base + "/aanf-ee-notify"},
+                         {"monitoringConfigurations",
+                          json{{"1",
+                                json{{"eventType", "ROAMING_STATUS"}, {"immediateFlag", true}}}}}}
+                        .dump();
+                const auto r = udm_client.send(sub);
+                std::optional<bool> roaming;
+                if (r && r->status == 201) {
+                    const auto created = json::parse(r->body, nullptr, false);
+                    if (created.is_object() && created.contains("eventReports")) {
+                        for (const auto& rep : created.at("eventReports")) {
+                            if (rep.value("eventType", "") == "ROAMING_STATUS" &&
+                                rep.contains("report")) {
+                                roaming = rep.at("report").value("roaming", false);
+                            }
+                        }
+                    }
+                    if (const auto loc = r->headers.find("location"); loc != r->headers.end()) {
+                        http2::ClientRequest del;
+                        del.method = "DELETE";
+                        del.url = udm_base + loc->second;
+                        (void)udm_client.send(del);
+                    }
+                }
+                if (roaming.value_or(false)) {
+                    return problem(403,
+                                   "Forbidden",
+                                   "AKMA is not provided to a roaming UE (local policy)",
+                                   "ROAMING_AKMA_SERVICE_DENIED");
+                }
+                if (!roaming) {
+                    spdlog::warn("aanf: no roaming status for {} from the UDM; AKMA provided",
+                                 ctx->supi);
+                }
             }
             const auto kaf = aka_crypto::derive_kaf(ctx->kakma, *af_id);
             sbi_gen::AkmaAfKeyData out;

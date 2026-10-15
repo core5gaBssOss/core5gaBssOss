@@ -46,6 +46,12 @@
     },
     "gpsi_af_fqdns": {
       "type": "array"
+    },
+    "self_base_url": {
+      "type": "string"
+    },
+    "deny_roaming_ues": {
+      "type": "boolean"
     }
   },
   "required": [
