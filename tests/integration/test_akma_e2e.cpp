@@ -117,6 +117,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
         std::ifstream in(AANF_CONFIG_TEMPLATE);
         json cfg = json::parse(in);
         cfg["gpsi_af_fqdns"] = json::array({"gpsi-af.example.com"});
+        cfg["deny_roaming_ues"] = true; // ADR-0497
         aanf_cfg = std::string(::testing::TempDir()) + "aanf_akma.json";
         std::ofstream(aanf_cfg) << cfg.dump(2);
     }
@@ -178,6 +179,26 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     EXPECT_NE(a_kid.find("@5gc.mnc070.mcc999.3gppnetwork.org"), std::string::npos) << a_kid;
     const auto kaf = aka_crypto::derive_kaf(kakma, *aka_crypto::af_id_octets(kAfId));
 
+    // ADR-0497: the test as the AMF registers the UE at the UDM in its home PLMN (999/70).
+    const auto amf_token = token(c, "nudm-uecm", "UDM");
+    ASSERT_FALSE(amf_token.empty());
+    const auto register_amf = [&](const std::string& mcc, const std::string& mnc) {
+        const json reg{
+            {"amfInstanceId", "5ba9a927-1d31-4c8e-8a10-00000000a0f1"},
+            {"deregCallbackUri", "https://127.0.0.1:9/dereg"},
+            {"guami", json{{"plmnId", json{{"mcc", mcc}, {"mnc", mnc}}}, {"amfId", "010041"}}},
+            {"ratType", "NR"}};
+        const auto r = send(c,
+                            "PUT",
+                            std::string("https://127.0.0.1:7780/nudm-uecm/v1/") + kSupi +
+                                "/registrations/amf-3gpp-access",
+                            amf_token,
+                            "application/json",
+                            reg.dump());
+        ASSERT_TRUE(r.status == 200 || r.status == 201) << r.status << " " << r.body;
+    };
+    register_amf("999", "70");
+
     // The AF asks the AAnF (6.2.1), with the SUPI-access scope.
     const auto af_token = token(c,
                                 "naanf-akma%20naanf-akma:applicationkeyget%20"
@@ -227,6 +248,19 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
                         unknown.dump());
     EXPECT_EQ(u.status, 403);
     EXPECT_EQ(json::parse(u.body).value("cause", ""), "K_AKMA_NOT_PRESENT");
+
+    // ADR-0497, 6.2.1 steps 5-8: the UE now serves from a visited PLMN ->
+    // ROAMING_AKMA_SERVICE_DENIED.
+    register_amf("001", "01");
+    const auto roam = send(c,
+                           "POST",
+                           std::string(kAanf) + "/retrieve-applicationkey",
+                           af_token,
+                           "application/json",
+                           request.dump());
+    EXPECT_EQ(roam.status, 403) << roam.body;
+    EXPECT_EQ(json::parse(roam.body).value("cause", ""), "ROAMING_AKMA_SERVICE_DENIED");
+    register_amf("999", "70");
 
     // ADR-0496, 6.2.1 steps 3-4 / 8: an internal AF the AAnF's policy gives the GPSI, not the SUPI.
     json gpsi_req = request;
