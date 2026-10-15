@@ -82,7 +82,7 @@ namespace http2 = sbi_core::http2;
 #endif
 
 constexpr const char* kHandshakeRoot = "/n32c-handshake/v1";
-constexpr const char* kTargetApiRoot = "3gpp-sbi-target-apiroot";
+constexpr const char* kTargetApiRootHeader = "3gpp-sbi-target-apiroot";
 constexpr const char* kHandshakeIdHeader = "3gpp-sbi-n32-handshake-id";
 constexpr const char* kPurposeHeader = "3gpp-sbi-interplmn-purpose";
 
@@ -719,7 +719,7 @@ int main() {
                            "CONTEXT_NOT_FOUND",
                            policy.own_fqdn);
         }
-        const auto target = header(req, kTargetApiRoot);
+        const auto target = header(req, kTargetApiRootHeader);
         if (!target) {
             refused->Add(1);
             return problem(400,
@@ -757,7 +757,7 @@ int main() {
         return relay(client,
                      req,
                      route->second + prefix + req.path,
-                     {kTargetApiRoot, kHandshakeIdHeader},
+                     {kTargetApiRootHeader, kHandshakeIdHeader},
                      {},
                      policy.own_fqdn);
     });
@@ -821,7 +821,7 @@ int main() {
             target = "https://" + *foreign;
             via_telescopic = true;
         } else {
-            target = header(req, kTargetApiRoot);
+            target = header(req, kTargetApiRootHeader);
         }
         if (!target) {
             return problem(400,
@@ -856,7 +856,7 @@ int main() {
             m.path = prefix + req.path;
             for (const auto& [name, value] : req.headers) {
                 const std::string n = lower(name);
-                if (!hop_by_hop(n) && n != "via" && n != kTargetApiRoot &&
+                if (!hop_by_hop(n) && n != "via" && n != kTargetApiRootHeader &&
                     n != kHandshakeIdHeader) {
                     m.headers.emplace_back(n, value);
                 }
@@ -984,8 +984,8 @@ int main() {
         if (via_telescopic) {
             // 6.1.4.3.4 second case: the sending SEPP inserts the header, set to the target
             // apiRoot derived from the telescopic FQDN (any header the NF sent is ignored).
-            drop.emplace_back(kTargetApiRoot);
-            extra.emplace_back(kTargetApiRoot, *target);
+            drop.emplace_back(kTargetApiRootHeader);
+            extra.emplace_back(kTargetApiRootHeader, *target);
         }
         forwarded->Add(1);
         // Both SEPPs support the header: HTTPS to the peer SEPP's apiRoot.
