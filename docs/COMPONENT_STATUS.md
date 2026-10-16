@@ -31,7 +31,7 @@ Last updated: 2026-10-14.
 | 12 | BSF | ✅ Built |
 | 13 | CHF | ✅ Built |
 
-## 5G Core, Tier 2: 10 built, 2 partial, 4 already in pipeline
+## 5G Core, Tier 2: 10 built, 3 partial, 3 already in pipeline
 
 | # | Component | Status |
 |---|---|---|
@@ -40,7 +40,7 @@ Last updated: 2026-10-14.
 | 16 | ADRF | ✅ Built |
 | 17 | MFAF | ✅ Built |
 | 18 | NSACF | ✅ Built |
-| 19 | TSCTSF | 🕒 Already in Pipeline |
+| 19 | TSCTSF | ⚠️ Partial: Ntsctsf_QoSandTSCAssistance (AF requested QoS by UE address or GPSI) with PCF-BSF binding registration and NEF GPSI routing (ADR-0498); TSC assistance, time synchronization, ASTI in pipeline |
 | 20 | EASDF | 🕒 Already in Pipeline |
 | 21 | UCMF | 🕒 Already in Pipeline |
 | 22 | SMSF | ✅ Built |
@@ -109,7 +109,7 @@ Last updated: 2026-10-14.
 
 | Group | Built | Already in pipeline |
 |---|---|---|
-| Network functions, Tiers 1–3 | 23 of 48 (+ SEPP, AAnF partial) | 23 |
+| Network functions, Tiers 1–3 | 23 of 48 (+ SEPP, AAnF, TSCTSF partial) | 22 |
 | LI functions | 3 complete, 2 partial | 1 (SIRF) |
 | Charging/BSS and platform | 9 of 9 | 0 |
 

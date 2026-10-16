@@ -78,10 +78,10 @@ inline nlohmann::json load(const std::string& service_name, const std::string& c
     // NFType 5G_EIR); hello-nf, li-* and the BSS services are not NFs and send none rather than an
     // invented type. Handed to sbi_core like the TLS floor; an already-set value wins.
     {
-        static const char* const kNfTypes[] = {"AANF",  "ADRF", "AMF",   "AUSF", "BSF", "CHF",
-                                               "DCCF",  "GMLC", "LMF",   "MFAF", "NEF", "NRF",
-                                               "NSACF", "NSSF", "NWDAF", "PCF",  "SCP", "SMF",
-                                               "SMSF",  "UDM",  "UDR",   "UDSF", "UPF"};
+        static const char* const kNfTypes[] = {"AANF",  "ADRF",   "AMF",   "AUSF", "BSF",  "CHF",
+                                               "DCCF",  "GMLC",   "LMF",   "MFAF", "NEF",  "NRF",
+                                               "NSACF", "NSSF",   "NWDAF", "PCF",  "SCP",  "SMF",
+                                               "SMSF",  "TSCTSF", "UDM",   "UDR",  "UDSF", "UPF"};
         const std::string upper = env_var_name.substr(0, service_name.size());
         std::string nf_type = service_name == "eir" ? "5G_EIR" : "";
         for (const char* t : kNfTypes) {

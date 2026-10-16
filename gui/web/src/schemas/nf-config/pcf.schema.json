@@ -4463,6 +4463,9 @@
           }
         }
       }
+    },
+    "bsf_base_url": {
+      "type": "string"
     }
   },
   "required": [
