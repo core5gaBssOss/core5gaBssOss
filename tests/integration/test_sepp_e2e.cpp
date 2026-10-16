@@ -141,6 +141,20 @@ TEST(SeppEndToEnd, AnN32fRequestFromAPeerWithoutAContextIsRefused) {
     ASSERT_EQ(r.status, 403) << r.body;
     EXPECT_EQ(json::parse(r.body).value("cause", ""), "CONTEXT_NOT_FOUND");
 
+    // Review fix (TS 29.573 6.1.5.3.2): a client whose certificate does not name the claimed
+    // sender cannot negotiate as that SEPP.
+    sbi_core::http2::Client impostor(tls("hello-nf"));
+    sbi_core::http2::ClientRequest spoof;
+    spoof.method = "POST";
+    spoof.url = "https://127.0.0.1:7823/n32c-handshake/v1/exchange-capability";
+    spoof.headers.emplace("content-type", "application/json");
+    spoof.body =
+        json{{"sender", kSeppA}, {"supportedSecCapabilityList", json::array({"TLS"})}}.dump();
+    const auto sp = impostor.send(spoof);
+    ASSERT_TRUE(sp.has_value());
+    EXPECT_EQ(sp->status, 403) << sp->body;
+    EXPECT_EQ(json::parse(sp->body).value("cause", ""), "NEGOTIATION_NOT_ALLOWED");
+
     // An exchange-capability from an unconfigured SEPP is refused NEGOTIATION_NOT_ALLOWED.
     sbi_core::http2::ClientRequest neg;
     neg.method = "POST";
