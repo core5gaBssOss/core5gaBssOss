@@ -13,11 +13,20 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > |---|---|---|
 > | SEC-05, SEC-10, SEC-13 | Fixed | `3049778` (ADR-0494, ADR-0491) |
 > | SEC-01 | Partly fixed: N32-c `sender` must be a client-certificate dNSName SAN; per-PLMN trust anchors and the lab's shared SEPP certificate remain | `3049778` (ADR-0491) |
-> | SEC-02 | Fixed on branch `sec-02-n32f-correlation` | ADR-0491 review fix |
+> | SEC-02 | Fixed (unit tests pass; the test fails on the old code); SEPP e2e rerun pending | branch `sec-02-n32f-correlation`, ADR-0491 review fix |
+> | SBI-01, SBI-02, SEC-03 | Decided: tokens required by default (user, 2026-10-16). Phase 1 of 5 next | ADR-0499 (phase table) |
 > | The PCF ModAppSession wrapper bug (§0, "already known") | Fixed | `4255e69` (ADR-0498) |
+> | Not in the review: the NRF issues any token to anyone (no registration, certificate or NF-type check) | Open; ADR-0499 phase 2 | `nfs/nrf` |
+> | Not in the review: most inter-NF calls send no token (e.g. NEF→PCF/UDM/UDR, AMF→UDM) | Open; ADR-0499 phase 3 | all NFs |
 > | Not in the review: TSan CI job red on `main` (3 `LiChfEndToEnd` -- the CHF exits with no CDR sink in that job) | Open | `.github/workflows/ci.yml` |
-> | TSCTSF (`4255e69`, after this review) inherits SBI-01, SBI-02, SBI-05 | Open | `nfs/tsctsf` |
+> | TSCTSF (`4255e69`, after this review) inherits SBI-01, SBI-02, SBI-05 | Open; covered by ADR-0499 and SBI-05 | `nfs/tsctsf` |
+> | Prevention: the review's bug classes are a mandatory pre-commit checklist | Done | skill `new-nf-checklist` "Never repeat these"; CLAUDE.md |
 > | Everything else | Open | |
+>
+> **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI
+> → PATCH helper (SPEC-02/03/04/11) → sbi-core robustness (SBI-03/04/05, SEC-08/09) → deployment
+> (DEP-01..04, SEC-04) → NEF mapping (SPEC-01/06, DOC-02) → SPEC-05 → charging (CHG-01/02) → lows.
+> Awaiting user decisions: SEC-01 trust anchors, SPEC-01/06 mappings, CHG-01, DEP-02, CHG-02.
 
 ---
 
