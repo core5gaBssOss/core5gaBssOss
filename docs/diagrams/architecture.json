@@ -1158,6 +1158,26 @@
    "glyph": "robot",
    "color": "#7c3aed",
    "planned": true
+  },
+  {
+   "id": "tsctsf",
+   "area": "cp",
+   "col": 2,
+   "row": 1,
+   "acronym": "TSCTSF",
+   "name": [
+    "TSC & Time Sync"
+   ],
+   "ts": [
+    "TS 29.565"
+   ],
+   "svc": [
+    "Ntsctsf_QoSandTSCAssistance"
+   ],
+   "glyph": "sliders",
+   "color": "#0f766e",
+   "chip": "1 svc",
+   "source": "nfs/tsctsf"
   }
  ],
  "edges": [

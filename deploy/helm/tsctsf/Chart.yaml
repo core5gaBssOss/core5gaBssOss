@@ -1,0 +1,8 @@
+apiVersion: v2
+name: tsctsf
+description: >
+  TSCTSF -- TS 29.565 Ntsctsf_QoSandTSCAssistance, increment 1 (ADR-0498). Lab-grade Helm chart,
+  same caveats as deploy/helm/ausf/Chart.yaml.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

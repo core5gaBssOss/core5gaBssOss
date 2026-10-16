@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-tsctsf
+  labels:
+    app.kubernetes.io/name: tsctsf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  # Single replica: TSC application session contexts are in memory (ADR-0498).
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tsctsf
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tsctsf
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: tsctsf
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: sbi
+              containerPort: 7825
+              protocol: TCP
+            - name: metrics
+              containerPort: 9497
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

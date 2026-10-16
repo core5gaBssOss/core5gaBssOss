@@ -89,6 +89,9 @@
           "type": "boolean"
         }
       }
+    },
+    "tsctsf_base_url": {
+      "type": "string"
     }
   },
   "required": [

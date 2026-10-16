@@ -135,7 +135,10 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <map>
+#include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 
 #include "TS26510_CommonData_grp.hpp"
@@ -578,6 +581,9 @@ int main() {
         nf_config::require<std::string>(config, "chf_base_url", "PCF_CHF_BASE_URL");
     const auto self_base_url =
         nf_config::require<std::string>(config, "self_base_url", "PCF_SELF_BASE_URL");
+    // ADR-0498: the BSF the PCF registers PDU session bindings at (Nbsf_Management_Register, TS
+    // 29.513 / TS 29.521); absent = no binding registration.
+    const std::string bsf_base_url = config.value("bsf_base_url", std::string{});
 
     sbi_core::init_logging("pcf");
     sbi_core::init_tracing("pcf");
@@ -645,6 +651,87 @@ int main() {
                                      pcf_instance_id,
                                      "nchf-spendinglimitcontrol",
                                      "CHF");
+
+    // ADR-0498: PDU session bindings at the BSF -- registered on SM policy creation (the SUPI, UE
+    // IPv4 address, DNN, S-NSSAI and this PCF's address), deregistered on deletion, so that a
+    // TSCTSF / NEF / AF-side NF can find the PCF serving a UE (TS 23.503 6.1.1.2, TS 29.521).
+    sbi_core::http2::Client bsf_client(sbi_core::http2::TlsConfig{
+        .cert_path = CERTS_DIR "/pcf/cert.pem",
+        .key_path = CERTS_DIR "/pcf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    });
+    sbi_core::OAuth2Client bsf_oauth(
+        bsf_client, nrf_base_url + "/oauth2/token", pcf_instance_id, "nbsf-management", "BSF");
+    std::mutex bindings_mutex;
+    std::map<std::string, std::string> binding_by_sm_policy; // smPolicyId -> BSF bindingId
+    const auto register_binding = [&](const std::string& sm_policy_id,
+                                      const sbi_gen::SmPolicyContextData& ctx) {
+        if (bsf_base_url.empty() || !ctx.ipv4Address) {
+            return; // IPv4 PDU sessions only (ADR-0498)
+        }
+        const auto scheme = self_base_url.find("://");
+        const auto host =
+            scheme == std::string::npos ? self_base_url : self_base_url.substr(scheme + 3);
+        const auto colon = host.rfind(':');
+        int pcf_port = 443;
+        if (colon != std::string::npos) {
+            try {
+                pcf_port = std::stoi(host.substr(colon + 1));
+            } catch (const std::exception&) {
+                spdlog::warn("pcf: self_base_url {} has no numeric port", self_base_url);
+            }
+        }
+        json binding{{"supi", ctx.supi},
+                     {"ipv4Addr", *ctx.ipv4Address},
+                     {"dnn", ctx.dnn},
+                     {"snssai", json(ctx.sliceInfo)},
+                     {"pcfId", pcf_instance_id},
+                     {"pcfIpEndPoints",
+                      json::array({json{{"ipv4Address", host.substr(0, colon)},
+                                        {"transport", "TCP"},
+                                        {"port", pcf_port}}})}};
+        if (ctx.gpsi) {
+            binding["gpsi"] = *ctx.gpsi;
+        }
+        sbi_core::http2::ClientRequest req;
+        req.method = "POST";
+        req.url = bsf_base_url + "/nbsf-management/v1/pcfBindings";
+        req.headers.emplace("content-type", "application/json");
+        if (auto token = bsf_oauth.get_bearer_token()) {
+            req.headers.emplace("authorization", "Bearer " + *token);
+        }
+        req.body = binding.dump();
+        const auto r = bsf_client.send(req);
+        if (r && r->status == 201) {
+            if (const auto loc = r->headers.find("location"); loc != r->headers.end()) {
+                const std::lock_guard<std::mutex> lock(bindings_mutex);
+                binding_by_sm_policy[sm_policy_id] = loc->second.substr(loc->second.rfind('/') + 1);
+            }
+        } else {
+            spdlog::warn("pcf: BSF binding registration for SM policy {} failed ({})",
+                         sm_policy_id,
+                         r ? std::to_string(r->status) : r.error());
+        }
+    };
+    const auto deregister_binding = [&](const std::string& sm_policy_id) {
+        std::string binding_id;
+        {
+            const std::lock_guard<std::mutex> lock(bindings_mutex);
+            const auto it = binding_by_sm_policy.find(sm_policy_id);
+            if (it == binding_by_sm_policy.end()) {
+                return;
+            }
+            binding_id = it->second;
+            binding_by_sm_policy.erase(it);
+        }
+        sbi_core::http2::ClientRequest req;
+        req.method = "DELETE";
+        req.url = bsf_base_url + "/nbsf-management/v1/pcfBindings/" + binding_id;
+        if (auto token = bsf_oauth.get_bearer_token()) {
+            req.headers.emplace("authorization", "Bearer " + *token);
+        }
+        (void)bsf_client.send(req);
+    };
 
     auto meter = sbi_core::get_meter("pcf");
     auto am_create_counter = meter->CreateUInt64Counter(
@@ -861,7 +948,8 @@ int main() {
          &chf_base_url,
          &self_base_url,
          &spending_limit_tracking,
-         &spending_limit_subscribe_counter](const sbi_core::http2::Request& req) {
+         &spending_limit_subscribe_counter,
+         &register_binding](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -877,6 +965,7 @@ int main() {
             control.policy = decision;
             const auto id = sm_policies.create(json(control));
             sm_create_counter->Add(1);
+            register_binding(id, *body);
 
             // ADR-0072 (gap-closure: real N28 end-to-end). Real, fail-open best-effort: fetches
             // this subscriber's real SmPolicyDnnData from UDR for the request's own S-NSSAI+DNN,
@@ -990,7 +1079,8 @@ int main() {
          &chf_client,
          &chf_oauth,
          &chf_base_url,
-         &spending_limit_tracking](const sbi_core::http2::Request& req) {
+         &spending_limit_tracking,
+         &deregister_binding](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -1002,6 +1092,7 @@ int main() {
                     404, "Not Found", "No SM policy " + sm_policy_id);
             }
             sm_delete_counter->Add(1);
+            deregister_binding(sm_policy_id);
             // ADR-0072: real, best-effort CHF unsubscribe if this SM policy ever opened a real
             // spending-limit subscription -- no-op (not an error) if it never did.
             if (auto tracked = spending_limit_tracking.remove(sm_policy_id); tracked.has_value()) {
@@ -1157,10 +1248,20 @@ int main() {
             } catch (const json::parse_error& e) {
                 return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
             }
-            if (ctx->contains("ascReqData")) {
-                (*ctx)["ascReqData"].merge_patch(patch_doc);
-            } else {
-                (*ctx)["ascReqData"] = patch_doc;
+            // The body is AppSessionContextUpdateDataPatch, i.e. {"ascReqData": <update>}; the
+            // update merges into the stored ascReqData (before ADR-0498's review it merged the
+            // whole body, nesting ascReqData.ascReqData and changing nothing).
+            if (!patch_doc.is_object() ||
+                (patch_doc.contains("ascReqData") && !patch_doc.at("ascReqData").is_object())) {
+                return sbi_core::http2::problem_response(
+                    400, "Bad Request", "body is not an AppSessionContextUpdateDataPatch");
+            }
+            if (const auto upd = patch_doc.find("ascReqData"); upd != patch_doc.end()) {
+                if (ctx->contains("ascReqData")) {
+                    (*ctx)["ascReqData"].merge_patch(*upd);
+                } else {
+                    (*ctx)["ascReqData"] = *upd;
+                }
             }
             app_sessions.put(id, *ctx);
             policy_auth_update_counter->Add(1);
@@ -1201,7 +1302,8 @@ int main() {
                 return sbi_core::http2::problem_response(404, "Not Found", "No app session " + id);
             }
             sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::EventsSubscReqData>(req, err);
+            auto body = sbi_core::http2::parse_json_body<
+                sbi_gen::EventsSubscReqData_Npcf_PolicyAuthorization>(req, err);
             if (!body.has_value()) {
                 return err;
             }
