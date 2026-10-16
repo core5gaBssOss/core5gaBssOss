@@ -57,6 +57,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <limits>
 #include <map>
 #include <random>
 #include <string>
@@ -381,11 +382,27 @@ int main() {
     // TS 33.501 13.2.4.4.1: "A different sequence counter shall be maintained for each IV salt".
     std::mutex seq_mutex;
     std::map<std::string, std::uint32_t> seqs;
-    const auto next_seq = [&](const std::string& context_id, sepp::KeyUse use) {
+    // The 32-bit SEQ must never wrap under one key (a repeated nonce, AES-GCM's fatal case): at
+    // exhaustion the context refuses to send until it is renegotiated (review fix, ADR-0494).
+    const auto next_seq = [&](const std::string& context_id,
+                              sepp::KeyUse use) -> std::optional<std::uint32_t> {
         const std::lock_guard<std::mutex> lock(seq_mutex);
-        return seqs[context_id + "/" + std::to_string(static_cast<int>(use))]++;
+        auto& seq = seqs[context_id + "/" + std::to_string(static_cast<int>(use))];
+        if (seq == std::numeric_limits<std::uint32_t>::max()) {
+            return std::nullopt;
+        }
+        return seq++;
     };
     std::atomic<std::uint64_t> message_counter{1};
+    // TS 29.573 6.1.5.3.2 "sender ... shall uniquely identify the SEPP that is sending the
+    // request": the claimed FQDN must be one the mTLS client certificate names (review fix --
+    // without it a partner could claim another partner's identity and obtain or tear down that
+    // partner's N32 context).
+    const auto sender_authenticated = [](const http2::Request& req, const std::string& sender) {
+        const std::string want = lower(sender);
+        return std::ranges::any_of(req.peer_cert_dns_names,
+                                   [&](const std::string& n) { return lower(n) == want; });
+    };
 
     // ---- N32-c (TS 29.573 6.1) ----------------------------------------------------------------
     n32.add_route(
@@ -397,6 +414,14 @@ int main() {
                 body = json::parse(req.body).get<sbi_gen::SecNegotiateReqData>();
             } catch (const std::exception& e) {
                 return problem(400, "Bad Request", e.what(), "INVALID_MSG_FORMAT", policy.own_fqdn);
+            }
+            if (!sender_authenticated(req, body.sender)) {
+                return problem(403,
+                               "Forbidden",
+                               "sender " + body.sender +
+                                   " is not the SEPP the client certificate authenticates",
+                               "NEGOTIATION_NOT_ALLOWED",
+                               policy.own_fqdn);
             }
             const auto d = sepp::negotiate(policy, body, contexts.outgoing(lower(body.sender)));
             if (!d.response) {
@@ -436,6 +461,14 @@ int main() {
             // The peer: the sender IE, else the one N32-c context this certificate names.
             std::optional<sepp::Context> capability;
             if (body.sender) {
+                if (!sender_authenticated(req, *body.sender)) {
+                    return problem(403,
+                                   "Forbidden",
+                                   "sender " + *body.sender +
+                                       " is not the SEPP the client certificate authenticates",
+                                   "NEGOTIATION_NOT_ALLOWED",
+                                   policy.own_fqdn);
+                }
                 capability = contexts.by_peer(lower(*body.sender));
             } else {
                 capability = sepp::correlate(contexts.all(),
@@ -525,6 +558,7 @@ int main() {
 
     // ---- N32-f with PRINS, receiving SEPP (TS 29.573 5.3.2, TS 33.501 13.2.4.7; ADR-0494) -------
     // 5.2.5: the error goes to the peer over N32-c, best effort, off the request's thread.
+    std::atomic<int> reports_in_flight{0};
     const auto report_n32f_error =
         [&](const sepp::PrinsContext& pc, const std::string& message_id, const char* error_type) {
             const auto cap = contexts.by_peer(pc.peer_fqdn);
@@ -540,9 +574,18 @@ int main() {
             er.url = cap->n32_api_root + kHandshakeRoot + "/n32f-error";
             er.headers.emplace("content-type", "application/json");
             er.body = json(info).dump();
-            std::thread([er = std::move(er)] {
+            // At most a few in flight: a peer flooding bad messages must not spawn unbounded
+            // threads (review fix); the excess reports are dropped and logged.
+            if (reports_in_flight.fetch_add(1) >= 4) {
+                reports_in_flight.fetch_sub(1);
+                spdlog::warn("sepp: N32-f error report for {} dropped (too many in flight)",
+                             message_id);
+                return;
+            }
+            std::thread([er = std::move(er), &reports_in_flight] {
                 http2::Client c(sepp_tls());
                 (void)c.send(er);
+                reports_in_flight.fetch_sub(1);
             }).detach();
         };
     n32.add_route("POST", "/n32f-forward/v1/n32f-process", [&](const http2::Request& req) {
@@ -680,13 +723,17 @@ int main() {
         const auto rsp_keys = sepp::derive_keys(pc->master_key, pc->peer_id, use, pc->jwe_cipher);
         const auto sel = sepp::select(
             pc->selected_policy, in.method, in.path.substr(0, in.path.find('?')), true);
-        auto jwe = sepp::protect(out,
-                                 sel,
-                                 pc->jwe_cipher,
-                                 rsp_keys,
-                                 next_seq(pc->local_id, use),
-                                 pc->peer_id,
-                                 meta->messageId);
+        const auto rsp_seq_opt = next_seq(pc->local_id, use);
+        if (!rsp_seq_opt) {
+            return problem(503,
+                           "Service Unavailable",
+                           "N32-f sequence space of this context exhausted; renegotiate",
+                           "NF_SERVICE_CONGESTION",
+                           policy.own_fqdn);
+        }
+        const std::uint32_t rsp_seq = *rsp_seq_opt;
+        auto jwe = sepp::protect(
+            out, sel, pc->jwe_cipher, rsp_keys, rsp_seq, pc->peer_id, meta->messageId);
         if (!jwe) {
             return problem(
                 500, "Internal Server Error", jwe.error(), "SYSTEM_FAILURE", policy.own_fqdn);
@@ -866,11 +913,20 @@ int main() {
             const auto use = sepp::key_use(pc->initiator, false);
             const auto keys = sepp::derive_keys(pc->master_key, pc->peer_id, use, pc->jwe_cipher);
             const std::string message_id = hex64(message_counter++);
+            const auto req_seq_opt = next_seq(pc->local_id, use);
+            if (!req_seq_opt) {
+                return problem(503,
+                               "Service Unavailable",
+                               "N32-f sequence space of this context exhausted; renegotiate",
+                               "NF_SERVICE_CONGESTION",
+                               policy.own_fqdn);
+            }
+            const std::uint32_t req_seq = *req_seq_opt;
             auto jwe = sepp::protect(m,
                                      sepp::select(pc->selected_policy, m.method, api_path, false),
                                      pc->jwe_cipher,
                                      keys,
-                                     next_seq(pc->local_id, use),
+                                     req_seq,
                                      pc->peer_id,
                                      message_id);
             if (!jwe) {
@@ -1002,11 +1058,14 @@ int main() {
                 const std::string host = sepp::host_of(loc->second);
                 if (sepp::network_domain_of_host(host) &&
                     *sepp::network_domain_of_host(host) != own_domain) {
-                    const auto at = loc->second.find(host);
-                    std::string rewritten = loc->second;
-                    rewritten.replace(
-                        at, host.size(), telescopic.label_for(host) + "." + policy.own_fqdn);
-                    loc->second = rewritten;
+                    // Case-insensitive (FQDNs are), and no rewrite without a match (review fix).
+                    const auto at = lower(loc->second).find(host);
+                    if (at != std::string::npos) {
+                        std::string rewritten = loc->second;
+                        rewritten.replace(
+                            at, host.size(), telescopic.label_for(host) + "." + policy.own_fqdn);
+                        loc->second = rewritten;
+                    }
                 }
             }
         }

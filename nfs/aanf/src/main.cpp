@@ -384,6 +384,15 @@ int main() {
             return r;
         });
 
+    // The callbackReference given to the UDM's ROAMING_STATUS subscription (ADR-0497). The UDM
+    // sends no later notifications today and the AAnF unsubscribes right after the immediate
+    // report; served so a notification that does arrive is accepted, not 404.
+    server.add_route("POST", "/aanf-ee-notify", [](const http2::Request&) {
+        http2::Response r;
+        r.status = 204;
+        return r;
+    });
+
     std::thread(run_nrf_lifecycle, instance_id, nrf_base).detach();
     server.start();
     spdlog::info("aanf: listening on https://{}:{} (TLS 1.3 + mTLS)", bind, port);

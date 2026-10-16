@@ -65,3 +65,9 @@ protected; key directions), `Base64UrlRoundTrips` (incl. the RFC 4648 vector); s
 conformance of N32fReformattedReqMsg; `SeppEndToEnd.PrinsAgreesOnOneKeyAndForwardsJoseProtected`
 (two real SEPPs, PRINS: PLMN B's real NRF answers through JOSE-protected N32-f with an encrypted
 Authorization header; a token of PLMN 001/09 -> 403 PLMNID_MISMATCH; termination on shutdown).
+
+**Review fixes (2026-10-15, independent review).** (1) The per-IV-salt 32-bit SEQ could wrap
+silently, repeating a nonce under one key; at exhaustion the context now refuses to send (503) until
+renegotiated. (2) Each N32-f error report spawned an unbounded detached thread; at most four are in
+flight, the excess dropped and logged. Exchange-params gets the same sender binding as ADR-0491's
+fix, so a partner cannot obtain another partner's PRINS master key.
