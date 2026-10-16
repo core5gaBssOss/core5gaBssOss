@@ -76,3 +76,13 @@ exchange-capability gets 403 NEGOTIATION_NOT_ALLOWED.
 `sepp_n32c_handshakes_total`, `sepp_n32f_forwarded_total`, `sepp_n32f_refused_total`;
 `deploy/docker/sepp.Dockerfile`, a compose `sepp` service with the `config:ro` mount (ADR-0453) and
 `sepp` in `pki-init`; `deploy/helm/sepp`; the architecture tile solid (`docs/diagrams/`), README.
+
+**Review fix (2026-10-15, independent review).** N32-c did not bind the `sender` IE to the
+authenticated peer: exchange-capability (and exchange-params) stored the context against whatever
+FQDN the body claimed. Now the claimed sender must be one of the client certificate's dNSName SANs,
+else 403 NEGOTIATION_NOT_ALLOWED (TS 29.573 6.1.5.3.2: the IE "shall uniquely identify the SEPP that
+is sending the request"). Residual, disclosed: the lab's one shared `sepp` certificate names both lab
+SEPPs, so in the lab either can still claim the other; with per-SEPP certificates the binding is
+exact. Also: the telescopic Location rewrite now matches case-insensitively and skips a non-match
+(it could throw on a mixed-case host). Verified: `SeppEndToEnd.AnN32fRequestFromAPeerWithoutAContextIsRefused`
+now also sends exchange-capability claiming SEPP A with the hello-nf certificate -> 403.

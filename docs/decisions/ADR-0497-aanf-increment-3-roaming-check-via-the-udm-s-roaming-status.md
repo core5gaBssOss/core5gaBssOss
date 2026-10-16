@@ -29,3 +29,6 @@ subscriptions but never produced a report (ADR-0082).
 **Verified.** `AkmaEndToEnd.AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives`, extended:
 the test as the AMF registers the UE in 999/70 (AKMA provided), then in 001/01 (403
 ROAMING_AKMA_SERVICE_DENIED), then back.
+
+**Review fix (2026-10-15).** The AAnF now serves the `/aanf-ee-notify` callback it gives the UDM
+(204), so a ROAMING_STATUS notification that does arrive is not answered 404.
