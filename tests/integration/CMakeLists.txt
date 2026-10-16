@@ -463,6 +463,21 @@ target_compile_definitions(akma_e2e_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(akma_e2e_integration_tests PROPERTIES TIMEOUT 120)
 
+# ADR-0498: AF requested QoS through the TSCTSF -- real NRF, UDR, UDM, BSF, PCF, TSCTSF, NEF.
+add_executable(tsctsf_e2e_integration_tests test_tsctsf_e2e.cpp)
+target_link_libraries(tsctsf_e2e_integration_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+add_dependencies(tsctsf_e2e_integration_tests nrf udr udm bsf pcf tsctsf nef)
+target_compile_definitions(tsctsf_e2e_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    UDR_PATH="$<TARGET_FILE:udr>"
+    UDM_PATH="$<TARGET_FILE:udm>"
+    BSF_PATH="$<TARGET_FILE:bsf>"
+    PCF_PATH="$<TARGET_FILE:pcf>"
+    TSCTSF_PATH="$<TARGET_FILE:tsctsf>"
+    NEF_PATH="$<TARGET_FILE:nef>"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(tsctsf_e2e_integration_tests PROPERTIES TIMEOUT 120)
+
 # ADR-0490: TS 29.500 User-Agent from nf_config::load through the SBI client. Ephemeral port.
 add_executable(sbi_user_agent_tests test_sbi_user_agent.cpp)
 target_link_libraries(sbi_user_agent_tests PRIVATE sbi_core nf_config GTest::gtest GTest::gtest_main)

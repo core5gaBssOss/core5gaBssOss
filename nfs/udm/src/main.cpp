@@ -2887,7 +2887,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{ueId}/id-translation-result",
-        [&verifier, &fetch_from_udr, &id_translation_counter](const sbi_core::http2::Request& req) {
+        [&verifier,
+         &fetch_from_udr,
+         &id_translation_counter,
+         &udr_client,
+         &udr_oauth,
+         &udr_base_url](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -2896,8 +2901,33 @@ int main() {
                                         ue_id.rfind("nai-", 0) == 0 ||
                                         ue_id.rfind("gci-", 0) == 0 || ue_id.rfind("gli-", 0) == 0;
             if (!is_supi_shaped) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "GPSI-to-SUPI translation is not available in this build");
+                // ADR-0498: GPSI -> SUPI via the UDR's Identity Data resource, which TS 29.505
+                // keys by SUPI *or GPSI* (/subscription-data/{ueId}/identity-data, IdentityData
+                // supiList) -- closes the gap ADR-0236 disclosed.
+                auto token = udr_oauth.get_bearer_token();
+                sbi_core::http2::ClientRequest q;
+                q.method = "GET";
+                q.url =
+                    udr_base_url + kUdrApiRoot + "/subscription-data/" + ue_id + "/identity-data";
+                if (token) {
+                    q.headers.emplace("authorization", "Bearer " + *token);
+                }
+                const auto r = udr_client.send(q);
+                if (!r || r->status != 200) {
+                    return sbi_core::http2::problem_response(
+                        404, "Not Found", "no identity data for " + ue_id + " at the UDR");
+                }
+                const auto ident = json::parse(r->body, nullptr, false);
+                if (!ident.is_object() || !ident.contains("supiList") ||
+                    !ident.at("supiList").is_array() || ident.at("supiList").empty()) {
+                    return sbi_core::http2::problem_response(
+                        404, "Not Found", "no SUPI is associated with " + ue_id);
+                }
+                sbi_gen::IdTranslationResult out;
+                out.supi = ident.at("supiList").at(0).get<std::string>();
+                out.gpsi = ue_id;
+                id_translation_counter->Add(1);
+                return sbi_core::http2::Response::json(200, json(out).dump());
             }
             auto result = fetch_from_udr(ue_id, resolve_serving_plmn_id(req), "am-data");
             if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {

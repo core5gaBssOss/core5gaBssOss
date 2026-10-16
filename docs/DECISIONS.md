@@ -463,6 +463,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0495](decisions/ADR-0495-aanf-increment-1-akma-anchor-key-application-key-and.md) AAnF increment 1 -- AKMA anchor key, application key and context removal (TS 33.535, TS 29.535), with the AUSF and UDM sides
 - [0496](decisions/ADR-0496-aanf-increment-2-gpsi-for-afs-and-the-nef-akma-path-ts-33.md) AAnF increment 2 -- GPSI for AFs and the NEF AKMA path (TS 33.535 6.2.1 steps 3-4, 6.3)
 - [0497](decisions/ADR-0497-aanf-increment-3-roaming-check-via-the-udm-s-roaming-status.md) AAnF increment 3 -- roaming check via the UDM's ROAMING_STATUS report (TS 33.535 6.2.1 steps 5-7)
+- [0498](decisions/ADR-0498-tsctsf-increment-1-ntsctsf-qosandtscassistance-for-af.md) TSCTSF increment 1 -- Ntsctsf_QoSandTSCAssistance for AF requested QoS, PCF binding registration, NEF GPSI routing (TS 29.565)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

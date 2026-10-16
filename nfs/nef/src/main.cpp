@@ -160,7 +160,8 @@
 #include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
-#include "TS29122_AsSessionWithQoS.hpp"          // ADR-0315
+// TS29122_AsSessionWithQoS.hpp (ADR-0315) merged into TS26510_CommonData_grp.hpp once TS29565
+// joined the codegen (ADR-0498).
 #include "TS29122_ChargeableParty.hpp"           // ADR-0326
 #include "TS29122_DeviceTriggering.hpp"          // ADR-0324
 #include "TS29122_ECRControl.hpp"                // ADR-0327
@@ -715,6 +716,9 @@ int main() {
     if (config.contains("aanf_base_url")) {
         aanf_base_url = config.at("aanf_base_url").get<std::string>();
     }
+    // ADR-0498: the TSCTSF, for AF requested QoS for a UE identified by GPSI only (TS 29.522
+    // 4.4.9.3: "No direct interactions between the NEF and the PCF shall take place").
+    const std::string tsctsf_base_url = config.value("tsctsf_base_url", std::string{});
 
     sbi_core::init_metrics(metrics_bind_address);
 
@@ -8225,8 +8229,13 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_qos_subs, &pcf_client, pcf_base_url, self_base_url, &report_qos_provision](
-            const sbi_core::http2::Request& req) {
+        [&verifier,
+         &af_qos_subs,
+         &pcf_client,
+         pcf_base_url,
+         self_base_url,
+         &report_qos_provision,
+         tsctsf_base_url](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -8239,6 +8248,79 @@ int main() {
             const auto af_id = req.path_params.at("scsAsId");
             json j = *body;
             const auto sub_id = af_qos_subs.create(af_id, j);
+            const std::string nef_notif =
+                self_base_url + "/nnef-callback/v1/qos-notify/" + af_id + "/" + sub_id;
+
+            // ADR-0498, TS 29.522 4.4.9.3: a UE identified by GPSI and no UE address goes through
+            // the TSCTSF (Ntsctsf_QoSandTSCAssistance_Create, GMEC), never straight to the PCF.
+            const bool gpsi_only =
+                body->gpsi.has_value() && !body->ueIpv4Addr && !body->ueIpv6Addr && !body->macAddr;
+            if (gpsi_only && !tsctsf_base_url.empty()) {
+                if (!body->qosReference) {
+                    af_qos_subs.remove(af_id, sub_id);
+                    return sbi_core::http2::problem_response(
+                        400,
+                        "Bad Request",
+                        "qosReference is required for a UE identified by GPSI only (the TSCTSF "
+                        "request needs it, TS 29.565 TscAppSessionContextData)");
+                }
+                json tsc{{"afId", af_id},
+                         {"ueId", *body->gpsi},
+                         {"notifUri", nef_notif},
+                         {"qosReference", body->qosReference.value_or("")},
+                         {"suppFeat", "20"}}; // GMEC (TS 29.565 table 6.2.8-1, feature 6)
+                if (body->dnn) {
+                    tsc["dnn"] = *body->dnn;
+                }
+                if (body->snssai) {
+                    tsc["snssai"] = json(*body->snssai);
+                }
+                if (body->flowInfo) {
+                    tsc["flowInfo"] = json(*body->flowInfo);
+                }
+                sbi_core::http2::ClientRequest treq;
+                treq.method = "POST";
+                treq.url = tsctsf_base_url + "/ntsctsf-qos-tscai/v1/tsc-app-sessions";
+                treq.headers.emplace("content-type", "application/json");
+                treq.body = tsc.dump();
+                const auto tresp = pcf_client.send(treq);
+                if (tresp && tresp->status == 201) {
+                    if (const auto loc = tresp->headers.find("location");
+                        loc != tresp->headers.end()) {
+                        af_qos_subs.set_app_session(
+                            af_id,
+                            sub_id,
+                            "tsctsf:" + loc->second.substr(loc->second.rfind('/') + 1));
+                    }
+                } else {
+                    // ADR-0498 (review fix): nothing was installed -- the AF is told so, and the
+                    // subscription is not kept.
+                    af_qos_subs.remove(af_id, sub_id);
+                    if (tresp) {
+                        sbi_core::http2::Response relayed;
+                        relayed.status = static_cast<int>(tresp->status);
+                        relayed.headers.emplace("content-type", "application/problem+json");
+                        relayed.body = tresp->body;
+                        return relayed;
+                    }
+                    return sbi_core::http2::problem_response(
+                        503, "Service Unavailable", "TSCTSF not reachable: " + tresp.error());
+                }
+                sbi_core::http2::Response resp;
+                resp.status = 201;
+                resp.headers.emplace("content-type", "application/json");
+                resp.headers.emplace("location",
+                                     std::string(kAfAsSessionWithQosApiRoot) + "/" + af_id +
+                                         "/subscriptions/" + sub_id);
+                resp.body = j.dump();
+                report_qos_provision(std::optional<json>(j),
+                                     af_id,
+                                     li_core::xiri::AfSessionWithQosOpType::Post,
+                                     std::optional<json>(j),
+                                     std::nullopt,
+                                     resp.status);
+                return resp;
+            }
 
             // PCF is told where to notify NEF, not where to notify the AF: routing PCF straight to
             // the AF would bypass the exposure function, which is the one thing NEF exists to do.
@@ -8359,8 +8441,12 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_qos_subs, &pcf_client, pcf_base_url, &report_qos_provision](
-            const sbi_core::http2::Request& req) {
+        [&verifier,
+         &af_qos_subs,
+         &pcf_client,
+         pcf_base_url,
+         &report_qos_provision,
+         tsctsf_base_url](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -8375,7 +8461,16 @@ int main() {
                     404, "Not Found", "No such AsSessionWithQoS subscription");
             }
             // The QoS authorisation must not outlive the request that asked for it.
-            if (app_session.has_value()) {
+            if (app_session.has_value() && app_session->rfind("tsctsf:", 0) == 0) {
+                // ADR-0498: held by the TSCTSF (Ntsctsf_QoSandTSCAssistance_Delete).
+                sbi_core::http2::ClientRequest dreq;
+                dreq.method = "POST";
+                dreq.url = tsctsf_base_url + "/ntsctsf-qos-tscai/v1/tsc-app-sessions/" +
+                           app_session->substr(7) + "/delete";
+                dreq.headers.emplace("content-type", "application/json");
+                dreq.body = "{}";
+                (void)pcf_client.send(dreq);
+            } else if (app_session.has_value()) {
                 delete_pcf_app_session(pcf_client, pcf_base_url, *app_session);
             }
             report_qos_provision(stored,
