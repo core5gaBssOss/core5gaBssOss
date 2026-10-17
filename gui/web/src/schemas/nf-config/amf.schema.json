@@ -140,6 +140,11 @@
           "type": "array"
         }
       }
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "AMF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

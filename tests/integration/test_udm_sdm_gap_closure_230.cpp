@@ -145,6 +145,8 @@ TEST(UdmSdmGapClosure230Integration, LocalCompositionOpsReturnRealSeededData) {
         << "udm never became reachable";
 
     const std::string token = fetch_token(client, "nudm-sdm");
+    // ADR-0499: the UDM checks each API's own scope; the UECM registrations need nudm-uecm.
+    const std::string uecm_token = fetch_token(client, "nudm-uecm");
     ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
 
     const std::string ue_id = "imsi-999700000000003";
@@ -198,7 +200,7 @@ TEST(UdmSdmGapClosure230Integration, LocalCompositionOpsReturnRealSeededData) {
     amf_put.method = "PUT";
     amf_put.url = uecm_base + "/registrations/amf-3gpp-access";
     amf_put.headers.emplace("content-type", "application/json");
-    amf_put.headers.emplace("authorization", "Bearer " + token);
+    amf_put.headers.emplace("authorization", "Bearer " + uecm_token);
     amf_put.body = json(amf_data).dump();
     auto amf_put_resp = client.send(amf_put);
     ASSERT_TRUE(amf_put_resp.has_value());
@@ -235,7 +237,7 @@ TEST(UdmSdmGapClosure230Integration, LocalCompositionOpsReturnRealSeededData) {
     smf_put.method = "PUT";
     smf_put.url = uecm_base + "/registrations/smf-registrations/7";
     smf_put.headers.emplace("content-type", "application/json");
-    smf_put.headers.emplace("authorization", "Bearer " + token);
+    smf_put.headers.emplace("authorization", "Bearer " + uecm_token);
     smf_put.body = json(smf_data).dump();
     auto smf_put_resp = client.send(smf_put);
     ASSERT_TRUE(smf_put_resp.has_value());
@@ -270,7 +272,7 @@ TEST(UdmSdmGapClosure230Integration, LocalCompositionOpsReturnRealSeededData) {
     smsf_3gpp_put.method = "PUT";
     smsf_3gpp_put.url = uecm_base + "/registrations/smsf-3gpp-access";
     smsf_3gpp_put.headers.emplace("content-type", "application/json");
-    smsf_3gpp_put.headers.emplace("authorization", "Bearer " + token);
+    smsf_3gpp_put.headers.emplace("authorization", "Bearer " + uecm_token);
     smsf_3gpp_put.body = json(smsf_3gpp).dump();
     auto smsf_3gpp_resp = client.send(smsf_3gpp_put);
     ASSERT_TRUE(smsf_3gpp_resp.has_value());
@@ -284,7 +286,7 @@ TEST(UdmSdmGapClosure230Integration, LocalCompositionOpsReturnRealSeededData) {
     smsf_non3gpp_put.method = "PUT";
     smsf_non3gpp_put.url = uecm_base + "/registrations/smsf-non-3gpp-access";
     smsf_non3gpp_put.headers.emplace("content-type", "application/json");
-    smsf_non3gpp_put.headers.emplace("authorization", "Bearer " + token);
+    smsf_non3gpp_put.headers.emplace("authorization", "Bearer " + uecm_token);
     smsf_non3gpp_put.body = json(smsf_non3gpp).dump();
     auto smsf_non3gpp_resp = client.send(smsf_non3gpp_put);
     ASSERT_TRUE(smsf_non3gpp_resp.has_value());
