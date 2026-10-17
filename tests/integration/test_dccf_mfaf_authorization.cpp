@@ -8,6 +8,14 @@
 
 #include <gtest/gtest.h>
 
+#if defined(__SANITIZE_THREAD__)
+#define MFAF_AUTHZ_TEST_TSAN 1
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define MFAF_AUTHZ_TEST_TSAN 1
+#endif
+#endif
+
 // Empty bodies: once authorized, the handlers' own validation answers 400.
 TEST(DccfAuthorization, DataManagementNeedsATokenForTheDccfAndItsService) {
     nf_test::SpawnedProcess nrf(NRF_PATH);
@@ -27,6 +35,12 @@ TEST(DccfAuthorization, DataManagementNeedsATokenForTheDccfAndItsService) {
 }
 
 TEST(MfafAuthorization, ConfigurationsNeedATokenAndTheMfafCallbacksDoNot) {
+#ifdef MFAF_AUTHZ_TEST_TSAN
+    // As test_mfaf.cpp (ADR-0365): the MFAF is a librdkafka process, and under TSan it did not
+    // answer within this test's ~10 s wait on CI.
+    GTEST_SKIP() << "librdkafka's C11-thread broker threads are invisible to ThreadSanitizer -- "
+                    "skipped, not passed";
+#endif
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_GT(nrf.pid(), 0) << "failed to fork nrf";
     nf_test::SpawnedProcess mfaf(MFAF_PATH);
