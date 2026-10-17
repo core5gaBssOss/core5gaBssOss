@@ -34,6 +34,7 @@
 // `PfdCatalogStore`: the real provisioning of these mappings is AF-registration/OAM scope, out of
 // 3GPP's own SBI framework here).
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -51,6 +52,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -229,6 +231,17 @@ int main() {
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as NRF's bind -- see docs/DECISIONS.md ADR-0014.
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service
+    // (scope ngmlc-loc) unless `oauth2_required` is false -- the GMLC serves no notification route.
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required = nf_config::optional<bool>(config, "oauth2_required", "GMLC_OAUTH2_REQUIRED")
+                            .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = gmlc_instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this

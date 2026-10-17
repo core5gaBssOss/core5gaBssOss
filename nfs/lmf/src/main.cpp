@@ -66,6 +66,7 @@
 // notification is ever generated in this build, even though the subscription lifecycle managing
 // it is fully real.
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -84,6 +85,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -278,6 +280,18 @@ int main() {
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as NRF's bind -- see docs/DECISIONS.md ADR-0014.
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service
+    // (scopes nlmf-loc, nlmf-dataexposure) unless `oauth2_required` is false -- the LMF serves no
+    // notification route; Nlmf_Broadcast is exempt (below).
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required = nf_config::optional<bool>(config, "oauth2_required", "LMF_OAUTH2_REQUIRED")
+                            .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = lmf_instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -505,7 +519,10 @@ int main() {
             sbi_gen::CipherResponseData resp_data{};
             resp_data.dataAvailability = "CIPHERING_KEY_DATA_NOT_AVAILABLE";
             return sbi_core::http2::Response::json(200, json(resp_data).dump());
-        });
+        },
+        // ADR-0499 phase 4: TS29572_Nlmf_Broadcast.yaml declares no security scheme, so there is
+        // no scope a token could carry -- mTLS only, like the NRF's bootstrapping API.
+        sbi_core::http2::RouteAuth::None);
 
     // --- Nlmf_DataExposure (gap-closure, ADR-0193 audit, ADR-0196) ---
 
