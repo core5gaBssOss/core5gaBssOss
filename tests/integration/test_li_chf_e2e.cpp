@@ -29,6 +29,7 @@
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -171,6 +172,7 @@ json charging_data_request(const std::string& roamer) {
 
 void post_charging(const std::string& path, const json& body) {
     auto client = make_client();
+    nf_test::attach_test_tokens(client); // ADR-0499: NFs enforce tokens
     sbi_core::http2::ClientRequest req;
     req.method = "POST";
     req.url = std::string(kChfBase) + path;
@@ -293,6 +295,8 @@ TEST(LiChfEndToEnd, ChargingDataRequestsForATargetAreReportedOnlyWithRoamerInOut
     ASSERT_GT(chf.pid(), 0);
 
     auto admf = make_client();
+
+    nf_test::attach_test_tokens(admf); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(post_x1(admf, x1_activate("a0e1e2e3-e4e5-46e7-88e9-eaebecedeeef", true)));
 
     // 1. Converged, OUT_BOUND: reported. 2. No roamerInOut: withheld (ADR-0488, strict ASN.1).
@@ -339,6 +343,8 @@ TEST(LiChfEndToEnd, TaskWithoutChargingDataEventsExtensionGetsNoRecords) {
     ::unsetenv("CHF_CONFIG_FILE");
 
     auto admf = make_client();
+
+    nf_test::attach_test_tokens(admf); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(post_x1(admf, x1_activate("a1e1e2e3-e4e5-46e7-88e9-eaebecedeeef", false)));
     post_charging("/nchf-convergedcharging/v3/chargingdata", charging_data_request("OUT_BOUND"));
     EXPECT_FALSE(lab.mdf2.wait_for(1, 3s)) << "a task without ChargingDataEvents got a record";
@@ -358,6 +364,8 @@ TEST(LiChfEndToEnd, RfAccountingRequestForATargetIsReportedWithItsOctets) {
     ::unsetenv("CHF_CONFIG_FILE");
 
     auto admf = make_client();
+
+    nf_test::attach_test_tokens(admf); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(post_x1(admf, x1_activate("a2e1e2e3-e4e5-46e7-88e9-eaebecedeeef", true)));
     ASSERT_TRUE(nf_test::wait_tcp_listening(diameter_core::kDiameterTcpPort));
 

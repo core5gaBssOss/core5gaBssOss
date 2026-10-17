@@ -21,6 +21,11 @@
       "type": "boolean",
       "x-env-override": "NRF_ACCESS_TOKEN_AUTHORIZATION",
       "x-cpp-type": "bool"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "NRF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [
