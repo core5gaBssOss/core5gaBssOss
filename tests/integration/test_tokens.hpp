@@ -67,7 +67,17 @@ inline void register_test_af() {
 inline tl::expected<sbi_core::http2::ClientResponse, std::string>
 send_token_request(const sbi_core::http2::ClientRequest& req) {
     register_test_af();
-    return test_af_client().send(req);
+    // ADR-0499: an NF answers before its own NFRegister lands, and until then the NRF refuses a
+    // token for its service (invalid_scope, "no registered <type> offers ..."). A test that waited
+    // only for the NF to answer would race that, so this asks again for up to ~5 s.
+    auto resp = test_af_client().send(req);
+    for (int attempt = 0; attempt < 50 && resp.has_value() && resp->status == 400 &&
+                          resp->body.find("no registered") != std::string::npos;
+         ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        resp = test_af_client().send(req);
+    }
+    return resp;
 }
 
 // Sends an AccessTokenReq form as another instance of the lab AF (for tests that tell consumers
