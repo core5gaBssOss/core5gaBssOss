@@ -52,6 +52,7 @@
 //     the receiving MFAF's re-creation with new ids is its own 3DA POST, which this MFAF does not
 //     initiate (MfafTransfer not supported).
 //   * LI: TS 33.127 has no MFAF-specific POI clause; nothing built.
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -72,6 +73,7 @@
 #include <spdlog/spdlog.h>
 
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -381,6 +383,18 @@ int main() {
 
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service
+    // (scopes nmfaf-3dadatamanagement, nmfaf-contextmanagement) unless `oauth2_required` is false;
+    // its inbound notification and fetch callback routes are exempt (below).
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required = nf_config::optional<bool>(config, "oauth2_required", "MFAF_OAUTH2_REQUIRED")
+                            .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
     if (const auto tps_limit = sbi_core::read_tps_limit(config); tps_limit.enabled()) {
         server.set_tps_limit(tps_limit.sustained_tps, tps_limit.burst);
     }
@@ -587,11 +601,15 @@ int main() {
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
-        });
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
 
     // ---- Nmfaf_3caDataManagement_Fetch (the fetchUri this MFAF hands out) -----------------------
     server.add_route(
-        "POST", std::string(kInboundPrefix) + "/fetch", [&](const sbi_core::http2::Request& req) {
+        "POST",
+        std::string(kInboundPrefix) + "/fetch",
+        [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -657,7 +675,11 @@ int main() {
             resp.headers.emplace("content-type", "application/json");
             resp.body = json(merged).dump();
             return resp;
-        });
+        },
+        // A callback of TS29576_Nmfaf_3caDataManagement.yaml's notification
+        // ({$request.body#/fetchInstruction/fetchUri}), declared without security: exempt like
+        // the notification it belongs to (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
 
     // ---- Delivery: bus -> Nmfaf_3caDataManagement_Notify ----------------------------------------
     // One consumer-group member per replica. The handler runs on the consumer thread; the HTTP/2

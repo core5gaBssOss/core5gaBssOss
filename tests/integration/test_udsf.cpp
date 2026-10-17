@@ -35,6 +35,7 @@
 #include "patch.hpp"
 #include "search.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -453,7 +454,10 @@ protected:
         FAIL() << "UDSF replicas never came up";
     }
 
-    void SetUp() override { wait_ready(); }
+    void SetUp() override {
+        nf_test::attach_test_tokens(client_); // ADR-0499: the UDSF enforces tokens
+        wait_ready();
+    }
 
     sbi_core::http2::Client client_ = make_client();
     static inline std::unique_ptr<nf_test::SpawnedProcess> nrf_;
