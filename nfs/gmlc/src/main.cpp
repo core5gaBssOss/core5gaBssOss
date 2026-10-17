@@ -157,6 +157,8 @@ void run_nrf_lifecycle(const std::string& gmlc_instance_id, const std::string& n
         auto put_resp = http_client.send(put_req);
         if (put_resp.has_value() && (put_resp->status == 200 || put_resp->status == 201)) {
             spdlog::info("gmlc: registered with NRF (HTTP {})", put_resp->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
             break;
         }
         spdlog::warn("gmlc: NRF registration attempt failed, retrying in 5s");

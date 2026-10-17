@@ -20,7 +20,6 @@ TEST(SmfAuthorization, NsmfApisNeedTheirOwnScopeAndThePcfNotifyDoesNot) {
         .body = "{}",
         .scope = "nsmf-event-exposure",
         .nf_type = "SMF",
-        .other_nf_type = "AMF",
         .other_scope = "nsmf-pdusession",
         .authorized_status = 400,
     });
@@ -49,7 +48,6 @@ TEST(AmfAuthorization, NamfApisNeedTheirOwnScopeAndTheAmfsNfType) {
         .body = "{}",
         .scope = "namf-evts",
         .nf_type = "AMF",
-        .other_nf_type = "SMF",
         .other_scope = "namf-comm",
         .authorized_status = 400,
     });

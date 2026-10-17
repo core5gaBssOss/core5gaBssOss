@@ -21,7 +21,6 @@ TEST(UdrAuthorization, NudrNeedsATokenForTheUdrAndOamProvisioningDoesNot) {
                "authentication-data/authentication-subscription",
         .scope = "nudr-dr",
         .nf_type = "UDR",
-        .other_nf_type = "UDM",
         .other_scope = "nudr-group-id-map",
         .authorized_status = 200,
     });

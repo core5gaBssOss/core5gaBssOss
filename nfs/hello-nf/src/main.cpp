@@ -66,8 +66,10 @@ int main() {
     spdlog::info("hello-nf: starting, nfInstanceId={}", nf_instance_id);
 
     sbi_core::http2::TlsConfig tls{
-        .cert_path = CERTS_DIR "/hello-nf/cert.pem",
-        .key_path = CERTS_DIR "/hello-nf/key.pem",
+        // ADR-0499 phase 5: the NRF issues tokens only to a client whose certificate names the NF
+        // type it registered as (TS 29.510 5.4.2.2.1) -- AMF here, so the lab AMF certificate.
+        .cert_path = CERTS_DIR "/amf/cert.pem",
+        .key_path = CERTS_DIR "/amf/key.pem",
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
     sbi_core::http2::Client http_client(std::move(tls));

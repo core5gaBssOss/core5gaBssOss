@@ -21,7 +21,6 @@ TEST(NefAuthorization, SbiAndNorthboundApisNeedATokenForTheNefAndCallbacksDoNot)
         .body = "{}",
         .scope = "nnef-eventexposure",
         .nf_type = "NEF",
-        .other_nf_type = "PCF",
         .other_scope = "nnef-pfdmanagement",
         .authorized_status = 400,
     });
@@ -34,7 +33,7 @@ TEST(NefAuthorization, SbiAndNorthboundApisNeedATokenForTheNefAndCallbacksDoNot)
     auto resp = nf_test::send_to(client, northbound, "");
     EXPECT_EQ(resp.status, 401) << "no token: " << resp.body;
     resp = nf_test::send_to(
-        client, northbound, nf_test::oauth2_test_token(client, "nnef-eventexposure", "PCF"));
+        client, northbound, nf_test::oauth2_test_token(client, "nnef-eventexposure", "AF"));
     EXPECT_EQ(resp.status, 401) << "a token for another NF type: " << resp.body;
     resp = nf_test::send_to(
         client, northbound, nf_test::oauth2_test_token(client, "nnef-eventexposure", "NEF"));

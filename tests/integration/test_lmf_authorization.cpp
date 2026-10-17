@@ -21,7 +21,6 @@ TEST(LmfAuthorization, LocationAndDataExposureNeedATokenAndBroadcastDoesNot) {
         .body = "{}",
         .scope = "nlmf-loc",
         .nf_type = "LMF",
-        .other_nf_type = "GMLC",
         .other_scope = "nlmf-dataexposure",
         .authorized_status = 400,
     });
@@ -31,7 +30,6 @@ TEST(LmfAuthorization, LocationAndDataExposureNeedATokenAndBroadcastDoesNot) {
         .body = "{}",
         .scope = "nlmf-dataexposure",
         .nf_type = "LMF",
-        .other_nf_type = "GMLC",
         .other_scope = "nlmf-loc",
         .authorized_status = 400,
     });

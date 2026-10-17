@@ -107,9 +107,10 @@ std::string token_for(sbi_core::http2::Client& c, const std::string& scope, cons
     req.method = "POST";
     req.url = std::string(kNrf) + "/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=" + scope +
-               "&targetNfType=" + nf;
-    auto resp = c.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=" + scope + "&targetNfType=" + nf;
+    auto resp = nf_test::send_token_request(req);
     if (!resp || resp->status != 200) {
         return "";
     }

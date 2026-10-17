@@ -27,6 +27,7 @@
 #include "TS29518_Namf_MBSCommunication.hpp"
 #include "TS29518_Namf_MT.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -80,10 +81,12 @@ std::string fetch_token(sbi_core::http2::Client& client) {
     req.method = "POST";
     req.url = "https://127.0.0.1:7777/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=namf-aiot%20namf-mbs-"
-               "bc%20namf-mbs-comm%20namf-mt%20namf-comm&"
-               "targetNfType=AMF";
-    auto resp = client.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=namf-aiot%20namf-mbs-"
+        "bc%20namf-mbs-comm%20namf-mt%20namf-comm&"
+        "targetNfType=AMF";
+    auto resp = nf_test::send_token_request(req);
     if (!resp.has_value() || resp->status != 200) {
         return "";
     }

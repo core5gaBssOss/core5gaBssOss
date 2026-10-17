@@ -72,6 +72,10 @@ public:
 
     std::optional<std::string> token_for(const std::string& url);
 
+    // Forgets every refusal's back-off: call it once the NF is registered, so a token the NRF
+    // refused before NFRegister (TS 33.501 13.4.1.1.2) is asked for again on the next request.
+    void clear_backoff();
+
 private:
     struct Entry {
         std::unique_ptr<OAuth2Client> client;
@@ -98,5 +102,8 @@ void attach_tokens(http2::Client& client, TokenSource& source);
 void install_default_token_source(const http2::TlsConfig& tls,
                                   std::string nrf_token_endpoint,
                                   std::string nf_instance_id);
+
+// TokenSource::clear_backoff on the source install_default_token_source installed (no-op if none).
+void clear_default_token_backoff();
 
 } // namespace sbi_core

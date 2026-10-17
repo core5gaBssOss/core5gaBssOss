@@ -18,7 +18,6 @@ TEST(NrfAuthorization, DiscoveryNeedsATokenRegisterDoesNotAndUpdateDoes) {
                "requester-nf-type=AMF",
         .scope = "nnrf-disc",
         .nf_type = "NRF",
-        .other_nf_type = "UDM",
         .other_scope = "nnrf-nfm",
         .authorized_status = 200,
     });

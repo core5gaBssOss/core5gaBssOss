@@ -21,7 +21,6 @@ TEST(UpfAuthorization, EventExposureNeedsATokenForTheUpfAndItsService) {
         .body = "{}",
         .scope = "nupf-ee",
         .nf_type = "UPF",
-        .other_nf_type = "SMF",
         .other_scope = "nupf-gueip",
         .authorized_status = 400,
     });
@@ -39,7 +38,6 @@ TEST(AusfAuthorization, UeAuthenticationAndUpuProtectionNeedTheirOwnScope) {
         .body = "{}",
         .scope = "nausf-auth",
         .nf_type = "AUSF",
-        .other_nf_type = "AMF",
         .other_scope = "nausf-upuprotection",
         .authorized_status = 400,
     });
@@ -49,7 +47,6 @@ TEST(AusfAuthorization, UeAuthenticationAndUpuProtectionNeedTheirOwnScope) {
         .body = "{}",
         .scope = "nausf-upuprotection",
         .nf_type = "AUSF",
-        .other_nf_type = "UDM",
         .other_scope = "nausf-auth",
         .authorized_status = 400,
     });
