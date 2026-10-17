@@ -569,6 +569,12 @@ std::string resolve_ipv4_literal(const std::string& host) {
 
 // ---- NRF lifecycle (same shape as every other NF, ADR-0006/0019) --------------------------------
 
+namespace {
+// ADR-0499: the NRF issues tokens only to a registered NF instance, so work that needs a token
+// (the DCCF collection) waits for NFRegister instead of being refused and backing off.
+std::atomic<bool> g_registered_with_nrf{false};
+} // namespace
+
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
                        const std::string& advertised_ipv4,
@@ -643,6 +649,7 @@ void run_nrf_lifecycle(const std::string& instance_id,
             spdlog::info("nwdaf: registered with NRF (HTTP {})", put_resp->status);
             // ADR-0499: a token refused before NFRegister is asked for again now.
             sbi_core::clear_default_token_backoff();
+            g_registered_with_nrf = true;
             break;
         }
         spdlog::warn("nwdaf: NRF registration attempt failed, retrying in 5s");
@@ -2002,6 +2009,9 @@ int main() {
                      "ADRF holds (ADR-0369)");
     } else if (collect_via_dccf) {
         collector = std::thread([&, collect_nrf_nf_types]() {
+            while (!g_registered_with_nrf && running) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
             json nrf_sub{{"nfStatusNotificationUri",
                           self_base + kInboundPrefix + "/notifications/" + kNrfSource}};
             if (!collect_nrf_nf_types.empty()) {
