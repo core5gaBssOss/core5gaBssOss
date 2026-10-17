@@ -44,6 +44,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -282,6 +283,7 @@ TEST(NwdafMtlf, TrainsStoresProvisionsAndTheAnlfPredicts) {
 
     Receiver receiver;
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     const std::string run_id = std::to_string(std::time(nullptr));
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
@@ -625,6 +627,7 @@ TEST(NwdafMtlf, AccuracyBelowThresholdIsReportedAndDrivesRetraining) {
 
     Receiver receiver;
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     const std::string run_id = std::to_string(std::time(nullptr));
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
