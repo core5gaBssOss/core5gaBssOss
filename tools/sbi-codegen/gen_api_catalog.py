@@ -12,7 +12,9 @@ left empty, never guessed.
 
 The service-level scope is the declared scope without a ':' (resource/operation scopes carry one,
 TS 29.500 6.7.3). An API declaring none is given its only scope if it declares exactly one; any
-other case is reported and left out rather than guessed.
+other case is reported and left out rather than guessed. An API whose oAuth2ClientCredentials scheme
+declares no scope at all (`scopes: {}`, e.g. the TS 29.122/29.522 northbound APIs) gets an empty
+scope: a token is still required, but there is no scope to check (ADR-0499).
 
 Usage: gen_api_catalog.py <specs/5G_APIs-REL-19> <output .inc>
 """
@@ -46,10 +48,12 @@ def main(spec_dir: str, out_path: str) -> int:
         schemes = (doc.get("components") or {}).get("securitySchemes") or {}
         flows = (schemes.get("oAuth2ClientCredentials") or {}).get("flows") or {}
         scopes = sorted({s for fl in flows.values() for s in (fl.get("scopes") or {})})
-        if not scopes:
+        if not flows:
             continue
         plain = [s for s in scopes if ":" not in s]
-        if len(plain) == 1:
+        if not scopes:
+            scope = ""  # the scheme declares no scope (e.g. TS 29.122/29.522 northbound APIs)
+        elif len(plain) == 1:
             scope = plain[0]
         elif not plain and len(scopes) == 1:
             scope = scopes[0]

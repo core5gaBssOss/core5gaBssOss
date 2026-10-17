@@ -18,6 +18,7 @@
 #include "aka_crypto/kdf.hpp"
 #include "aka_crypto/milenage.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -131,6 +132,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     nf_test::wait_tcp_listening(7824);
 
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: the NEF enforces tokens
     const auto udr_token = token(c, "nudr-dr", "UDR");
     const auto ausf_token = token(c, "nausf-auth", "AUSF");
     ASSERT_FALSE(udr_token.empty());
