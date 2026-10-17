@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -84,8 +85,16 @@ li_core::X2X3ServerConfig fake_mdf2_config() {
 std::string write_config(std::uint16_t mdf2_port) {
     std::ifstream in(CHF_CONFIG_TEMPLATE);
     json cfg = json::parse(in);
-    cfg["cdr_direct_insert"] = false;
-    cfg["cdr_event_bus_brokers"] = "127.0.0.1:9";
+    // The CI TSan leg sets CHF_CDR_EVENT_BUS_BROKERS empty (librdkafka cannot run under TSan) and
+    // that environment value overrides this file: with direct-insert off too, the CHF would have
+    // no CDR sink and exit at startup. There the CHF keeps its default direct-insert sink (CI's
+    // Doris, CHF_DORIS_*); everywhere else, the unreachable-broker workaround above.
+    const char* brokers_env = std::getenv("CHF_CDR_EVENT_BUS_BROKERS");
+    const bool bus_forced_off = brokers_env != nullptr && *brokers_env == '\0';
+    cfg["cdr_direct_insert"] = bus_forced_off;
+    if (!bus_forced_off) {
+        cfg["cdr_event_bus_brokers"] = "127.0.0.1:9";
+    }
     auto& lp = cfg["li_poi"];
     lp["enabled"] = true;
     lp["x1_bind_address"] = "127.0.0.1";
