@@ -47,6 +47,7 @@ add_executable(integration_tests
     test_bsf_authorization.cpp
     test_nsacf_smsf_tsctsf_authorization.cpp
     test_dccf_mfaf_authorization.cpp
+    test_upf_ausf_authorization.cpp
     test_udr_gap_closure_212.cpp
     test_udr_policy_data_gap_closure_213.cpp
     test_udr_exposure_data.cpp
