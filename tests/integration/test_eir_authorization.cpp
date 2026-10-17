@@ -18,7 +18,6 @@ TEST(EirAuthorization, RequestsNeedATokenForTheEirsOwnServiceAndNfType) {
         .url = "https://127.0.0.1:7792/n5g-eir-eic/v1/equipment-status?pei=imeisv-3510000000000010",
         .scope = "n5g-eir-eic",
         .nf_type = "5G_EIR",
-        .other_nf_type = "UDM",
         .other_scope = "nudm-sdm",
         .authorized_status = 200,
     });

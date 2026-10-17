@@ -32,7 +32,6 @@ TEST(ChfAuthorization, ConvergedChargingNeedsATokenForTheChfAndItsService) {
         .body = "{}",
         .scope = "nchf-convergedcharging",
         .nf_type = "CHF",
-        .other_nf_type = "SMF",
         .other_scope = "nchf-spendinglimitcontrol",
         .authorized_status = 400,
     });
@@ -50,7 +49,6 @@ TEST(NwdafAuthorization, EventsSubscriptionNeedsATokenAndInboundNotificationsDoN
         .body = "{}",
         .scope = "nnwdaf-eventssubscription",
         .nf_type = "NWDAF",
-        .other_nf_type = "AMF",
         .other_scope = "nnwdaf-analyticsinfo",
         .authorized_status = 400,
     });
@@ -70,7 +68,6 @@ TEST(AdrfAuthorization, DataManagementNeedsATokenAndInboundNotificationsDoNot) {
         .body = "{}",
         .scope = "nadrf-datamanagement",
         .nf_type = "ADRF",
-        .other_nf_type = "NWDAF",
         .other_scope = "nadrf-mlmodelmanagement",
         .authorized_status = 400,
     });

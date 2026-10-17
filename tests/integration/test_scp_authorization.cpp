@@ -19,7 +19,6 @@ TEST(ScpAuthorization, NscpEeNeedsATokenForTheScpAndItsService) {
         .body = "{}",
         .scope = "nscp-ee",
         .nf_type = "SCP",
-        .other_nf_type = "NRF",
         .other_scope = "nnrf-disc",
         .authorized_status = 400,
     });

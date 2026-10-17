@@ -71,9 +71,11 @@ std::string token(sbi_core::http2::Client& c) {
     req.method = "POST";
     req.url = std::string(kNrf) + "/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nnwdaf-mlmodeltraining"
-               "&targetNfType=NWDAF";
-    auto resp = c.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=nnwdaf-mlmodeltraining"
+        "&targetNfType=NWDAF";
+    auto resp = nf_test::send_token_request(req);
     return (resp && resp->status == 200)
                ? json::parse(resp->body).at("access_token").get<std::string>()
                : "";

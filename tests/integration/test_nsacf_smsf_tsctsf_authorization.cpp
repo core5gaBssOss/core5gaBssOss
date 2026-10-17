@@ -20,7 +20,6 @@ TEST(NsacfAuthorization, BothServicesNeedATokenForTheNsacfAndTheirOwnScope) {
         .body = "{}",
         .scope = "nnsacf-nsac",
         .nf_type = "NSACF",
-        .other_nf_type = "AMF",
         .other_scope = "nnsacf-slice-ee",
         .authorized_status = 400,
     });
@@ -30,7 +29,6 @@ TEST(NsacfAuthorization, BothServicesNeedATokenForTheNsacfAndTheirOwnScope) {
         .body = "{}",
         .scope = "nnsacf-slice-ee",
         .nf_type = "NSACF",
-        .other_nf_type = "AMF",
         .other_scope = "nnsacf-nsac",
         .authorized_status = 400,
     });
@@ -48,7 +46,6 @@ TEST(SmsfAuthorization, NsmsfSmsNeedsATokenForTheSmsfAndItsService) {
         .body = "{}",
         .scope = "nsmsf-sms",
         .nf_type = "SMSF",
-        .other_nf_type = "AMF",
         .other_scope = "namf-comm",
         .authorized_status = 400,
     });
@@ -66,7 +63,6 @@ TEST(TsctsfAuthorization, QosTscaiNeedsATokenAndThePcfNotificationDoesNot) {
         .body = "{}",
         .scope = "ntsctsf-qos-tscai",
         .nf_type = "TSCTSF",
-        .other_nf_type = "NEF",
         .other_scope = "npcf-policyauthorization",
         .authorized_status = 400,
     });

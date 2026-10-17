@@ -14,11 +14,11 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | SEC-05, SEC-10, SEC-13 | Fixed | `3049778` (ADR-0494, ADR-0491) |
 > | SEC-01 | Partly fixed: N32-c `sender` must be a client-certificate dNSName SAN; per-PLMN trust anchors and the lab's shared SEPP certificate remain | `3049778` (ADR-0491) |
 > | SEC-02 | Fixed (unit tests pass and fail on the old code; SEPP e2e 4/4 pass) | `0d8683c` (local), ADR-0491 review fix |
-> | SBI-01, SBI-02, SEC-03 | Decided: tokens required by default (user, 2026-10-16). Phases 1-3 of 5 done (sbi-core authorizer; NRF token issuance checks; consumers send a token per API, registering first). NRF check still off in `config/nrf.json` until phase 5 fixes the test identities; phase 4 in progress (24 NFs enforcing; SEPP has no OAuth2-protected API; AAnF with SEC-03 in phase 5) | ADR-0499 (phase table) |
+> | SBI-01, SBI-02, SEC-03 | Fixed (2026-10-17): tokens required by default on 25 NFs (SEPP: no OAuth2-protected API); NRF issues tokens only to registered, certificate-bound consumers (`config/nrf.json` check on); SEC-03: AAnF register/remove only from the AUSF, `afId` bound to the calling AF | ADR-0499 (phase table) |
 > | The PCF ModAppSession wrapper bug (§0, "already known") | Fixed | `4255e69` (ADR-0498) |
-> | Not in the review: the NRF issues any token to anyone (no registration, certificate or NF-type check) | Checks built (ADR-0499 phase 2); off in `config/nrf.json` until NFs register before fetching tokens (phase 3) | `nfs/nrf` |
+> | Not in the review: the NRF issues any token to anyone (no registration, certificate or NF-type check) | Fixed: on in `config/nrf.json` (ADR-0499 phases 2, 5)ing tokens (phase 3) | `nfs/nrf` |
 > | Not in the review: most inter-NF calls send no token (e.g. NEF→PCF/UDM/UDR, AMF→UDM) | Open; ADR-0499 phase 3 | all NFs |
-> | Not in the review: TSan CI job red on `main` (3 `LiChfEndToEnd` -- the CHF exits with no CDR sink in that job) | Open | `.github/workflows/ci.yml` |
+> | Not in the review: TSan CI job red on `main` (3 `LiChfEndToEnd` -- the CHF exits with no CDR sink in that job) | Fixed locally, not yet pushed: the TSan leg's empty `CHF_CDR_EVENT_BUS_BROKERS` overrode the test's broker; the test now keeps the CHF's direct-insert sink there (reproduced: 3/3 pass with the TSan env) | `tests/integration/test_li_chf_e2e.cpp` |
 > | TSCTSF (`4255e69`, after this review) inherits SBI-01, SBI-02, SBI-05 | Open; covered by ADR-0499 and SBI-05 | `nfs/tsctsf` |
 > | Prevention: the review's bug classes are a mandatory pre-commit checklist | Done | skill `new-nf-checklist` "Never repeat these"; CLAUDE.md |
 > | Everything else | Open | |
