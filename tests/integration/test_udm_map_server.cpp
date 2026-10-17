@@ -24,6 +24,7 @@
 #include "map_core/map_dictionary.hpp"
 #include "map_core/map_operations.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 #include "ss7_core/m3ua_asp.hpp"
 #include "ss7_core/m3ua_dictionary.hpp"
 #include "ss7_core/m3ua_header.hpp"
@@ -208,6 +209,7 @@ TEST(UdmMapServer, UpdateLocationIsAnsweredAndPurgeMsDropsTheRecord) {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
     sbi_core::http2::Client client(std::move(tls));
+    nf_test::attach_test_tokens(client); // ADR-0499: the UDM enforces tokens
     const std::string reg_url = "https://127.0.0.1:7780/nudm-uecm/v1/imsi-" +
                                 std::string(kImsiDigits) + "/registrations/amf-3gpp-access";
     sbi_core::http2::ClientRequest get;
