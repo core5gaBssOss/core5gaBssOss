@@ -1,5 +1,6 @@
 // ADR-0499 phase 1: the sbi-core producer-side authorizer against TS 29.500 6.7.3
 // (TS_29.500_j70.txt:3066-3085) and TS29510_Nnrf_AccessToken.yaml AccessTokenClaims.
+#include "sbi_core/api_catalog.hpp"
 #include "sbi_core/authorizer.hpp"
 
 #include <nlohmann/json.hpp>
@@ -191,6 +192,23 @@ TEST_F(SbiAuthorizer, TheRealmCannotBreakOutOfItsQuotedString) {
     // The injected quotes are dropped: the header stays one quoted realm, no error attribute.
     const auto h = www_authenticate(*r);
     EXPECT_EQ(std::ranges::count(h, '"'), 2) << h;
+}
+
+TEST(SbiApiCatalog, NamesAndProducersComeFromTheYamls) {
+    using sbi_core::api_catalog::api_name_of;
+    using sbi_core::api_catalog::find;
+    EXPECT_EQ(api_name_of("https://udm.example:8443/nudm-sdm/v2/imsi-1/am-data?x=1"), "nudm-sdm");
+    EXPECT_EQ(api_name_of("/nudm-sdm/v2"), "nudm-sdm");
+    EXPECT_EQ(api_name_of("https://nrf.example/"), "");
+    ASSERT_TRUE(find("nudm-sdm").has_value());
+    EXPECT_EQ(find("nudm-sdm")->nf_type, "UDM"); // TS29503_Nudm_SDM.yaml
+    EXPECT_EQ(find("n5g-eir-eic")->nf_type,
+              "5G_EIR"); // TS29511_N5g-eir_EquipmentIdentityCheck.yaml
+    EXPECT_EQ(find("nnef-smservice")->scope, "nnef-smcontext");
+    EXPECT_EQ(find("3gpp-akma")->nf_type, "");         // TS29522_AKMA.yaml: no N<nf> service name
+    EXPECT_EQ(find("nmbsmf-tmgi")->nf_type, "MB_SMF"); // TS29532_Nmbsmf_TMGI.yaml, "_" dropped
+    EXPECT_EQ(find("nrouter-smservice")->nf_type, ""); // SMS_ROUTER only by prefix: not guessed
+    EXPECT_FALSE(find("udr-oam").has_value());
 }
 
 } // namespace

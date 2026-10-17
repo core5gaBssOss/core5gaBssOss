@@ -116,8 +116,10 @@ void run_nrf_lifecycle(const std::string& scp_instance_id, const std::string& nr
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", scp_instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: tokens on this client only -- a relay must not put its own token on
+    // the requests it forwards.
+    sbi_core::TokenSource nrf_tokens(http_client, nrf_base + "/oauth2/token", scp_instance_id);
+    sbi_core::attach_tokens(http_client, nrf_tokens);
 
     constexpr int kHeartbeatSeconds = 30;
     json profile{
@@ -129,18 +131,10 @@ void run_nrf_lifecycle(const std::string& scp_instance_id, const std::string& nr
     };
 
     while (true) {
-        auto token = oauth.get_bearer_token();
-        if (!token.has_value()) {
-            spdlog::error("scp: OAuth2 token fetch failed: {}", token.error());
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            continue;
-        }
-
         sbi_core::http2::ClientRequest put_req;
         put_req.method = "PUT";
         put_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + scp_instance_id;
         put_req.headers.emplace("content-type", "application/json");
-        put_req.headers.emplace("authorization", "Bearer " + *token);
         put_req.headers.emplace(
             sbi_core::headers::kSenderTimestamp,
             sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
@@ -157,17 +151,10 @@ void run_nrf_lifecycle(const std::string& scp_instance_id, const std::string& nr
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(kHeartbeatSeconds / 2));
 
-        auto token = oauth.get_bearer_token();
-        if (!token.has_value()) {
-            spdlog::error("scp: OAuth2 token fetch failed for heartbeat: {}", token.error());
-            continue;
-        }
-
         sbi_core::http2::ClientRequest patch_req;
         patch_req.method = "PATCH";
         patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + scp_instance_id;
         patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.headers.emplace("authorization", "Bearer " + *token);
         patch_req.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();

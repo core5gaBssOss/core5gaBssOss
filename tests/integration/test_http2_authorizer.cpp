@@ -4,6 +4,7 @@
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/jwt.hpp"
+#include "sbi_core/oauth2_client.hpp"
 
 #include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
@@ -15,6 +16,8 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -111,6 +114,123 @@ TEST(Http2Authorizer, TheServerChecksProtectedRoutesBeforeTheHandlerAndSkipsNoti
     ioc.stop();
     runner.join();
     std::filesystem::remove_all(dir);
+}
+
+// ADR-0499 phase 3: a client with a TokenSource attaches the token of each request's API (scope
+// and targetNfType from the YAML catalog), caches it, never overrides a caller's own header, and
+// sends without a token when the NRF refuses one (the NFRegister bootstrap).
+TEST(Http2Authorizer, AClientWithATokenSourceSendsEachApisTokenAndFallsBackWithoutOne) {
+    boost::asio::io_context ioc;
+    sbi_core::http2::Server server(ioc, "127.0.0.1", 0, test_tls());
+    std::atomic<int> token_requests{0};
+    std::atomic<bool> refuse{false};
+    std::string last_form;
+    std::mutex form_mutex;
+    server.add_route("POST", "/oauth2/token", [&](const sbi_core::http2::Request& req) {
+        ++token_requests;
+        {
+            std::lock_guard lock(form_mutex);
+            last_form = req.body;
+        }
+        if (refuse) {
+            return sbi_core::http2::Response::json(400, R"({"error":"invalid_client"})");
+        }
+        return sbi_core::http2::Response::json(
+            200, R"({"access_token":"T1","token_type":"Bearer","expires_in":60})");
+    });
+    const auto echo = [](const sbi_core::http2::Request& req) {
+        const auto it = req.headers.find("authorization");
+        return sbi_core::http2::Response::json(200, it == req.headers.end() ? "none" : it->second);
+    };
+    server.add_route("GET", "/npcf-am-policy-control/v1/policies/x", echo);
+    server.add_route("GET", "/nnrf-nfm/v1/nf-instances/x", echo);
+    server.add_route("GET", "/udr-oam/v1/x", echo);
+    server.start();
+    const auto base = "https://127.0.0.1:" + std::to_string(server.local_port());
+    auto guard = boost::asio::make_work_guard(ioc);
+    std::thread runner([&ioc] { ioc.run(); });
+
+    sbi_core::http2::Client client(test_tls());
+    sbi_core::TokenSource tokens(client,
+                                 base + "/oauth2/token",
+                                 "1d2c3b4a-0000-4000-8000-000000000001",
+                                 std::chrono::seconds(60));
+    sbi_core::attach_tokens(client, tokens);
+    const auto get = [&](const std::string& path, std::optional<std::string> auth = std::nullopt) {
+        sbi_core::http2::ClientRequest req;
+        req.method = "GET";
+        req.url = base + path;
+        if (auth) {
+            req.headers.emplace("authorization", *auth);
+        }
+        const auto resp = client.send(req);
+        return resp.has_value() ? resp->body : "<no response>";
+    };
+
+    EXPECT_EQ(get("/npcf-am-policy-control/v1/policies/x"), "Bearer T1");
+    {
+        std::lock_guard lock(form_mutex);
+        EXPECT_NE(last_form.find("scope=npcf-am-policy-control"), std::string::npos) << last_form;
+        EXPECT_NE(last_form.find("targetNfType=PCF"), std::string::npos) << last_form;
+    }
+    EXPECT_EQ(get("/npcf-am-policy-control/v1/policies/x"), "Bearer T1");
+    EXPECT_EQ(token_requests.load(), 1) << "the token is cached";
+    EXPECT_EQ(get("/npcf-am-policy-control/v1/policies/x", "Bearer mine"), "Bearer mine");
+    EXPECT_EQ(get("/udr-oam/v1/x"), "none") << "no catalog entry: no token";
+
+    refuse = true;
+    EXPECT_EQ(get("/nnrf-nfm/v1/nf-instances/x"), "none") << "refused: sent without a token";
+    EXPECT_EQ(get("/nnrf-nfm/v1/nf-instances/x"), "none");
+    EXPECT_EQ(token_requests.load(), 2) << "a refusal is not retried within retry_after";
+
+    guard.reset();
+    ioc.stop();
+    runner.join();
+}
+
+// ADR-0499 phase 3: the process-wide default reaches every Client without a source of its own,
+// and a Client's own source still wins.
+TEST(Http2Authorizer, TheDefaultTokenSourceReachesEveryClientWithoutItsOwn) {
+    boost::asio::io_context ioc;
+    sbi_core::http2::Server server(ioc, "127.0.0.1", 0, test_tls());
+    std::atomic<int> token_requests{0};
+    server.add_route("POST", "/oauth2/token", [&](const sbi_core::http2::Request&) {
+        ++token_requests;
+        return sbi_core::http2::Response::json(
+            200, R"({"access_token":"D1","token_type":"Bearer","expires_in":60})");
+    });
+    server.add_route("GET", "/npcf-am-policy-control/v1/policies/x", [](const auto& req) {
+        const auto it = req.headers.find("authorization");
+        return sbi_core::http2::Response::json(200, it == req.headers.end() ? "none" : it->second);
+    });
+    server.start();
+    const auto base = "https://127.0.0.1:" + std::to_string(server.local_port());
+    auto guard = boost::asio::make_work_guard(ioc);
+    std::thread runner([&ioc] { ioc.run(); });
+
+    sbi_core::install_default_token_source(
+        test_tls(), base + "/oauth2/token", "1d2c3b4a-0000-4000-8000-000000000002");
+    sbi_core::http2::Client plain(test_tls());
+    sbi_core::http2::Client own(test_tls());
+    own.set_token_source([](const std::string&) { return std::optional<std::string>("O1"); });
+    const auto get = [&](sbi_core::http2::Client& client) {
+        sbi_core::http2::ClientRequest req;
+        req.method = "GET";
+        req.url = base + "/npcf-am-policy-control/v1/policies/x";
+        const auto resp = client.send(req);
+        return resp.has_value() ? resp->body : "<no response>";
+    };
+
+    EXPECT_EQ(get(plain), "Bearer D1");
+    EXPECT_EQ(get(own), "Bearer O1");
+    EXPECT_EQ(token_requests.load(), 1) << "the token endpoint itself is sent without a token";
+
+    sbi_core::http2::Client::set_default_token_source({});
+    EXPECT_EQ(get(plain), "none");
+
+    guard.reset();
+    ioc.stop();
+    runner.join();
 }
 
 } // namespace

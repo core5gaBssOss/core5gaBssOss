@@ -14,7 +14,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | SEC-05, SEC-10, SEC-13 | Fixed | `3049778` (ADR-0494, ADR-0491) |
 > | SEC-01 | Partly fixed: N32-c `sender` must be a client-certificate dNSName SAN; per-PLMN trust anchors and the lab's shared SEPP certificate remain | `3049778` (ADR-0491) |
 > | SEC-02 | Fixed (unit tests pass and fail on the old code; SEPP e2e 4/4 pass) | `0d8683c` (local), ADR-0491 review fix |
-> | SBI-01, SBI-02, SEC-03 | Decided: tokens required by default (user, 2026-10-16). Phases 1-2 of 5 done (sbi-core authorizer; NRF token issuance checks, switch off until phase 3); phase 3 next | ADR-0499 (phase table) |
+> | SBI-01, SBI-02, SEC-03 | Decided: tokens required by default (user, 2026-10-16). Phases 1-3 of 5 done (sbi-core authorizer; NRF token issuance checks; consumers send a token per API, registering first). NRF check still off in `config/nrf.json` until phase 5 fixes the test identities; phase 4 next | ADR-0499 (phase table) |
 > | The PCF ModAppSession wrapper bug (§0, "already known") | Fixed | `4255e69` (ADR-0498) |
 > | Not in the review: the NRF issues any token to anyone (no registration, certificate or NF-type check) | Checks built (ADR-0499 phase 2); off in `config/nrf.json` until NFs register before fetching tokens (phase 3) | `nfs/nrf` |
 > | Not in the review: most inter-NF calls send no token (e.g. NEF→PCF/UDM/UDR, AMF→UDM) | Open; ADR-0499 phase 3 | all NFs |
