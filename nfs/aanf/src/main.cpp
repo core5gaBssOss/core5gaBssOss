@@ -128,8 +128,10 @@ std::string af_fqdn(const std::string& af_id) {
 
 void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_base) {
     http2::Client http_client(aanf_tls());
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", instance_id);
     constexpr int kHeartbeatSeconds = 30;
     const json profile{{"nfInstanceId", instance_id},
                        {"nfType", "AANF"},
@@ -137,35 +139,27 @@ void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_ba
                        {"ipv4Addresses", json::array({"127.0.0.1"})},
                        {"heartBeatTimer", kHeartbeatSeconds}};
     while (true) {
-        if (auto token = oauth.get_bearer_token()) {
-            http2::ClientRequest put;
-            put.method = "PUT";
-            put.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
-            put.headers.emplace("content-type", "application/json");
-            put.headers.emplace("authorization", "Bearer " + *token);
-            put.headers.emplace(
-                sbi_core::headers::kSenderTimestamp,
-                sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
-            put.body = profile.dump();
-            if (const auto r = http_client.send(put); r && (r->status == 200 || r->status == 201)) {
-                spdlog::info("aanf: registered with NRF (HTTP {})", r->status);
-                break;
-            }
+        http2::ClientRequest put;
+        put.method = "PUT";
+        put.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
+        put.headers.emplace("content-type", "application/json");
+        put.headers.emplace(
+            sbi_core::headers::kSenderTimestamp,
+            sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
+        put.body = profile.dump();
+        if (const auto r = http_client.send(put); r && (r->status == 200 || r->status == 201)) {
+            spdlog::info("aanf: registered with NRF (HTTP {})", r->status);
+            break;
         }
         spdlog::warn("aanf: NRF registration attempt failed, retrying in 5s");
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(kHeartbeatSeconds / 2));
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            continue;
-        }
         http2::ClientRequest patch;
         patch.method = "PATCH";
         patch.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         patch.headers.emplace("content-type", "application/json-patch+json");
-        patch.headers.emplace("authorization", "Bearer " + *token);
         patch.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
