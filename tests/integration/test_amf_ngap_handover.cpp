@@ -31,6 +31,7 @@
 
 #include "ngap_test_gnb.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 #include "ue_nas_driver.hpp"
 
 #include <gtest/gtest.h>
@@ -849,6 +850,7 @@ TEST(AmfNgapTestGnb, RegistrationAndPduSessionReachNsacf) {
     // -- the slice AMF reports and the one config/nsacf.json configures.
     {
         auto client = make_client();
+        nf_test::attach_test_tokens(client); // ADR-0499: the NSACF enforces tokens
         sbi_core::http2::ClientRequest sub_req;
         sub_req.method = "POST";
         sub_req.url = "https://127.0.0.1:7797/nnsacf-slice-ee/v1/subscriptions";
@@ -942,6 +944,7 @@ TEST(AmfNgapTestGnb, UeIsRejectedWhenNsacfRefusesItsSlice) {
     // Take the lab slice's UE capacity to zero, through the real operation for it.
     {
         auto client = make_client();
+        nf_test::attach_test_tokens(client); // ADR-0499: the NSACF enforces tokens
         sbi_core::http2::ClientRequest req;
         req.method = "POST";
         req.url = "https://127.0.0.1:7797/nnsacf-nsac/v1/slices/local-configs/update";
@@ -1045,6 +1048,7 @@ TEST(AmfNgapTestGnb, PduSessionIsRejectedWhenNsacfRefusesTheSlice) {
     // rather than AMF's: the same slice admits the UE and refuses its session.
     {
         auto client = make_client();
+        nf_test::attach_test_tokens(client); // ADR-0499: the NSACF enforces tokens
         sbi_core::http2::ClientRequest req;
         req.method = "POST";
         req.url = "https://127.0.0.1:7797/nnsacf-nsac/v1/slices/local-configs/update";
