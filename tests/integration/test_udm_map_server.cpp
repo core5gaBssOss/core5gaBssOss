@@ -24,7 +24,6 @@
 #include "map_core/map_dictionary.hpp"
 #include "map_core/map_operations.hpp"
 #include "spawn_guard.hpp"
-#include "test_tokens.hpp"
 #include "ss7_core/m3ua_asp.hpp"
 #include "ss7_core/m3ua_dictionary.hpp"
 #include "ss7_core/m3ua_header.hpp"
@@ -37,6 +36,7 @@
 #include "tcap_core/component.hpp"
 #include "tcap_core/dialogue_portion.hpp"
 #include "tcap_core/message.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
