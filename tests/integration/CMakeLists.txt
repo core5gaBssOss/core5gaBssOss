@@ -53,6 +53,9 @@ add_executable(integration_tests
     test_pcf_authorization.cpp
     test_smf_amf_authorization.cpp
     test_nef_authorization.cpp
+    test_nrf_authorization.cpp
+    test_chf_nwdaf_adrf_authorization.cpp
+    test_scp_authorization.cpp
     test_udr_gap_closure_212.cpp
     test_udr_policy_data_gap_closure_213.cpp
     test_udr_exposure_data.cpp
@@ -136,7 +139,7 @@ target_include_directories(integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf
                                                     ${CMAKE_SOURCE_DIR}/nfs/udr/src
                                                     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src)
 target_link_libraries(integration_tests PRIVATE libpqxx::pqxx unofficial::libmariadb RdKafka::rdkafka++ ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store provisioning_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
-add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf product-catalog balance-management nwdaf mfaf dccf adrf eir gmlc lmf nssf bsf smsf tsctsf)
+add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf product-catalog balance-management nwdaf mfaf dccf adrf eir gmlc lmf nssf bsf smsf tsctsf scp)
 target_compile_definitions(integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"
     AMF_PATH="$<TARGET_FILE:amf>"
@@ -166,6 +169,7 @@ target_compile_definitions(integration_tests PRIVATE
     BSF_PATH="$<TARGET_FILE:bsf>"
     SMSF_PATH="$<TARGET_FILE:smsf>"
     TSCTSF_PATH="$<TARGET_FILE:tsctsf>"
+    SCP_PATH="$<TARGET_FILE:scp>"
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
 )
 

@@ -69,6 +69,7 @@
 //     analytics-info-query records, disabled unless config/nwdaf.json li_poi.enabled. Roaming
 //     analytics records are not produced (Nnwdaf_RoamingAnalytics is not served).
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -92,6 +93,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <memory>
 #include <mutex>
 #include <netdb.h>
 #include <optional>
@@ -1073,6 +1075,19 @@ int main() {
 
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service (the
+    // apiName's scope) unless `oauth2_required` is false; the inbound callback
+    // routes (/nwdaf-inbound/v1/...) are exempt (TS 33.501 13.4.1.0).
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required =
+                nf_config::optional<bool>(config, "oauth2_required", "NWDAF_OAUTH2_REQUIRED")
+                    .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // ADR-0380: the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription CRUD. The lifecycle is
     // real; the federated-training coordination the subscriptions would drive is Phase D
@@ -1476,7 +1491,9 @@ int main() {
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
-        });
+        },
+        // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+        sbi_core::http2::RouteAuth::None);
 
     // ---- inbound: the SMF's Nsmf_EventExposure QOS_MON reports (ADR-0379 slice 2) -----------
     // The SMF POSTs NsmfEventExposureNotifications here (the notifUri of the subscription this
@@ -1484,7 +1501,9 @@ int main() {
     // appended to the collection timeline verbatim -- any S-NSSAI, standard or custom -- for the
     // SERVICE_EXPERIENCE analytic (slice 3) to aggregate per slice.
     server.add_route(
-        "POST", std::string(kInboundPrefix) + "/qos-mon", [&](const sbi_core::http2::Request& req) {
+        "POST",
+        std::string(kInboundPrefix) + "/qos-mon",
+        [&](const sbi_core::http2::Request& req) {
             json body;
             try {
                 body = json::parse(req.body);
@@ -1502,30 +1521,34 @@ int main() {
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
-        });
+        },
+        // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+        sbi_core::http2::RouteAuth::None);
 
     // ---- inbound: Nnwdaf_MLModelProvision_Notify from the MTLF (ADR-0369) -------------------
     if (ml) {
-        server.add_route("POST",
-                         std::string(kInboundPrefix) + "/ml-models",
-                         [&](const sbi_core::http2::Request& req) {
-                             json body;
-                             try {
-                                 body = json::parse(req.body);
-                             } catch (const json::parse_error& e) {
-                                 return sbi_core::http2::problem_response(
-                                     400, "Malformed JSON", e.what());
-                             }
-                             try {
-                                 ml_consumer.on_notification(body);
-                             } catch (const std::exception& e) {
-                                 return sbi_core::http2::problem_response(
-                                     500, "Internal Server Error", e.what());
-                             }
-                             sbi_core::http2::Response resp;
-                             resp.status = 204;
-                             return resp;
-                         });
+        server.add_route(
+            "POST",
+            std::string(kInboundPrefix) + "/ml-models",
+            [&](const sbi_core::http2::Request& req) {
+                json body;
+                try {
+                    body = json::parse(req.body);
+                } catch (const json::parse_error& e) {
+                    return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                }
+                try {
+                    ml_consumer.on_notification(body);
+                } catch (const std::exception& e) {
+                    return sbi_core::http2::problem_response(
+                        500, "Internal Server Error", e.what());
+                }
+                sbi_core::http2::Response resp;
+                resp.status = 204;
+                return resp;
+            },
+            // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+            sbi_core::http2::RouteAuth::None);
     }
     if (is_mtlf) {
         mtlf.install_routes(server);
@@ -1678,7 +1701,9 @@ int main() {
 
     // ---- Nnwdaf_DataManagement_Fetch (the fetchUri this NWDAF hands out) --------------------
     server.add_route(
-        "POST", std::string(kInboundPrefix) + "/fetch", [&](const sbi_core::http2::Request& req) {
+        "POST",
+        std::string(kInboundPrefix) + "/fetch",
+        [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -1718,7 +1743,9 @@ int main() {
             resp.headers.emplace("content-type", "application/json");
             resp.body = merged.dump();
             return resp;
-        });
+        },
+        // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+        sbi_core::http2::RouteAuth::None);
 
     // Which source serves an NnwdafDataManagementSubsc, or why it cannot be served.
     const auto serving_source = [&](const json& request,

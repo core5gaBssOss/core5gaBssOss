@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -298,6 +299,7 @@ Lab spawn_lab() {
 // assertions that follow will report it.
 bool data_store_available() {
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     auto r = c.send(
         request("GET", std::string(kAdrf) + kDm + "/data-store-records?store-trans-id=probe"));
     return !(r.has_value() && r->status == 500 &&
@@ -309,6 +311,7 @@ bool data_store_available() {
 TEST(Adrf, StoresRetrievesAndDeletesRecords) {
     auto lab = spawn_lab();
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kAdrf) + kDm + "/data-store-records", 30s))
         << "ADRF never came up";
     if (!data_store_available()) {
@@ -392,6 +395,7 @@ TEST(Adrf, RetrievalSubscriptionsNotifyStoredAndFutureRecords) {
     Receiver receiver;
     auto lab = spawn_lab();
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kAdrf) + kDm + "/data-store-records", 30s))
         << "ADRF never came up";
     if (!data_store_available()) {
@@ -506,6 +510,7 @@ TEST(Adrf, LifetimeAlertsBeforeDeletionAndHonoursRetrievalInd) {
     Receiver receiver;
     auto lab = spawn_lab();
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kAdrf) + kDm + "/data-store-records", 30s))
         << "ADRF never came up";
     if (!data_store_available()) {
@@ -558,6 +563,7 @@ TEST(Adrf, StorageSubscriptionTowardsAnNwdafStoresItsAnalytics) {
     nf_test::SpawnedProcess nwdaf(NWDAF_PATH);
     unsetenv("NWDAF_NOTIFICATION_INTERVAL_SECONDS");
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kAdrf) + kDm + "/data-store-records", 30s))
         << "ADRF never came up";
     ASSERT_TRUE(
@@ -673,6 +679,7 @@ TEST(Adrf, StorageSubscriptionThroughTheDccfStoresSourceData) {
     unsetenv("MFAF_EVENT_BUS_GROUP_ID");
     nf_test::SpawnedProcess dccf(DCCF_PATH);
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kAdrf) + kDm + "/data-store-records", 30s))
         << "ADRF never came up";
     ASSERT_TRUE(wait_up(c, std::string(kDccf) + "/ndccf-datamanagement/v1/data-subscriptions", 30s))
@@ -735,6 +742,7 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
     Receiver receiver;
     auto lab = spawn_lab();
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kAdrf) + kMl + "/mlmodel-store-records", 30s))
         << "ADRF never came up";
     std::this_thread::sleep_for(1s);

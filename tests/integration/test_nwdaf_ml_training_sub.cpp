@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -169,6 +170,7 @@ TEST(NwdafMlTrainingSub, SubscriptionLifecycle) {
                      << ") -- skipped, not passed";
     }
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
     setenv("NWDAF_ROLE", "mtlf", 1);
@@ -314,6 +316,7 @@ TEST(NwdafMlTrainingSub, ModelNotificationAndImmReportFromASeededModel) {
 
     Receiver receiver;
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
     setenv("NWDAF_ROLE", "mtlf", 1);
@@ -417,6 +420,7 @@ TEST(NwdafMlTrainingSub, FlRoundIsReportedOncePerRoundIndAndSkipTrainsNothing) {
 
     Receiver receiver;
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
     setenv("NWDAF_ROLE", "mtlf", 1);
