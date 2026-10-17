@@ -162,8 +162,10 @@ void run_nrf_lifecycle(const std::string& lmf_instance_id, const std::string& nr
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", lmf_instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", lmf_instance_id);
 
     constexpr int kHeartbeatSeconds = 30;
     json profile{
@@ -175,18 +177,10 @@ void run_nrf_lifecycle(const std::string& lmf_instance_id, const std::string& nr
     };
 
     while (true) {
-        auto token = oauth.get_bearer_token();
-        if (!token.has_value()) {
-            spdlog::error("lmf: OAuth2 token fetch failed: {}", token.error());
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            continue;
-        }
-
         sbi_core::http2::ClientRequest put_req;
         put_req.method = "PUT";
         put_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + lmf_instance_id;
         put_req.headers.emplace("content-type", "application/json");
-        put_req.headers.emplace("authorization", "Bearer " + *token);
         put_req.headers.emplace(
             sbi_core::headers::kSenderTimestamp,
             sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
@@ -203,17 +197,10 @@ void run_nrf_lifecycle(const std::string& lmf_instance_id, const std::string& nr
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(kHeartbeatSeconds / 2));
 
-        auto token = oauth.get_bearer_token();
-        if (!token.has_value()) {
-            spdlog::error("lmf: OAuth2 token fetch failed for heartbeat: {}", token.error());
-            continue;
-        }
-
         sbi_core::http2::ClientRequest patch_req;
         patch_req.method = "PATCH";
         patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + lmf_instance_id;
         patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.headers.emplace("authorization", "Bearer " + *token);
         patch_req.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();

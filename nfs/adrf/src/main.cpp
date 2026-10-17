@@ -332,8 +332,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", instance_id);
     const auto service = [](const char* name) {
         return json{{"serviceInstanceId", name},
                     {"serviceName", name},
@@ -355,17 +357,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
          json::array({service("nadrf-datamanagement"), service("nadrf-mlmodelmanagement")})},
     };
     while (true) {
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            spdlog::warn("adrf: NRF token unavailable ({}), retrying", token.error());
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            continue;
-        }
         sbi_core::http2::ClientRequest put_req;
         put_req.method = "PUT";
         put_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         put_req.headers.emplace("content-type", "application/json");
-        put_req.headers.emplace("authorization", "Bearer " + *token);
         put_req.body = profile.dump();
         auto put_resp = http_client.send(put_req);
         if (put_resp && (put_resp->status == 200 || put_resp->status == 201)) {
@@ -378,15 +373,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
     }
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(heartbeat_seconds / 2));
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            continue;
-        }
         sbi_core::http2::ClientRequest patch_req;
         patch_req.method = "PATCH";
         patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.headers.emplace("authorization", "Bearer " + *token);
         patch_req.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
