@@ -115,7 +115,9 @@ std::string token_as(sbi_core::http2::Client& c,
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
     req.body = "grant_type=client_credentials&nfInstanceId=" + nf_instance_id + "&scope=" + scope +
                "&targetNfType=" + target_nf;
-    auto resp = c.send(req);
+    // ADR-0499 phase 5: the NRF issues tokens only to a registered instance (as the lab AF here).
+    (void)c;
+    auto resp = nf_test::send_token_request_as(req, nf_instance_id);
     if (!resp || resp->status != 200) {
         return "";
     }
@@ -575,7 +577,7 @@ TEST(Adrf, StorageSubscriptionTowardsAnNwdafStoresItsAnalytics) {
     std::this_thread::sleep_for(1500ms); // NRF registrations settle
 
     // The NWDAF's nfInstanceId, as a consumer would learn it: NRF discovery.
-    const auto disc_token = token_as(c, "test-client", "nnrf-disc", "NRF");
+    const auto disc_token = token_as(c, nf_test::kTestAfInstanceId, "nnrf-disc", "NRF");
     auto disc =
         request("GET",
                 std::string(kNrf) +
@@ -746,9 +748,12 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
     ASSERT_TRUE(wait_up(c, std::string(kAdrf) + kMl + "/mlmodel-store-records", 30s))
         << "ADRF never came up";
     std::this_thread::sleep_for(1s);
-    const auto owner = token_as(c, "mtlf-owner", "nadrf-mlmodelmanagement", "ADRF");
-    const auto allowed = token_as(c, "anlf-allowed", "nadrf-mlmodelmanagement", "ADRF");
-    const auto stranger = token_as(c, "anlf-stranger", "nadrf-mlmodelmanagement", "ADRF");
+    const auto owner =
+        token_as(c, "7a1e0c00-0000-4000-8000-0000000000a1", "nadrf-mlmodelmanagement", "ADRF");
+    const auto allowed =
+        token_as(c, "7a1e0c00-0000-4000-8000-0000000000a2", "nadrf-mlmodelmanagement", "ADRF");
+    const auto stranger =
+        token_as(c, "7a1e0c00-0000-4000-8000-0000000000a3", "nadrf-mlmodelmanagement", "ADRF");
     ASSERT_FALSE(owner.empty());
     ASSERT_FALSE(allowed.empty());
     ASSERT_FALSE(stranger.empty());
@@ -761,17 +766,18 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
     const std::int64_t id_download = std::stoll(model_id) * 10 + 2;
 
     // Inline model (base64 in mlModel), allowed for one other consumer.
-    auto r = c.send(as(
-        request(
-            "POST",
-            std::string(kAdrf) + kMl + "/mlmodel-store-records",
-            json{{"nfInstanceId", "mtlf-owner"},
-                 {"mlModels",
-                  json::array({json{{"modelUniqueId", id_inline},
-                                    {"mlModel", "T05OWC1ieXRlcw=="}, // "ONNX-bytes"
-                                    {"allowConsumerList",
-                                     json::array({json{{"nfInstanceId", "anlf-allowed"}}})}}})}}),
-        owner));
+    auto r = c.send(
+        as(request("POST",
+                   std::string(kAdrf) + kMl + "/mlmodel-store-records",
+                   json{{"nfInstanceId", "7a1e0c00-0000-4000-8000-0000000000a1"},
+                        {"mlModels",
+                         json::array({json{
+                             {"modelUniqueId", id_inline},
+                             {"mlModel", "T05OWC1ieXRlcw=="}, // "ONNX-bytes"
+                             {"allowConsumerList",
+                              json::array({json{{"nfInstanceId",
+                                                 "7a1e0c00-0000-4000-8000-0000000000a2"}}})}}})}}),
+           owner));
     if (r && r->status == 500 && r->body.find("ML model store") != std::string::npos) {
         GTEST_SKIP() << "no PostgreSQL behind the ADRF's ML model store -- skipped, not passed: "
                      << r->body;
@@ -816,7 +822,7 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
     r = c.send(as(
         request("POST",
                 std::string(kAdrf) + kMl + "/mlmodel-store-records",
-                json{{"nfInstanceId", "mtlf-owner"},
+                json{{"nfInstanceId", "7a1e0c00-0000-4000-8000-0000000000a1"},
                      {"mlModelInfo",
                       json::array(
                           {json{{"modelUniqueId", id_download},
@@ -830,7 +836,7 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
     r = c.send(as(
         request("POST",
                 std::string(kAdrf) + kMl + "/mlmodel-store-records",
-                json{{"nfInstanceId", "mtlf-owner"},
+                json{{"nfInstanceId", "7a1e0c00-0000-4000-8000-0000000000a1"},
                      {"mlModelInfo",
                       json::array(
                           {json{{"modelUniqueId", id_download + 7},
@@ -846,13 +852,15 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
         request(
             "PUT",
             std::string(kAdrf) + record_location,
-            json{{"nfInstanceId", "mtlf-owner"},
+            json{{"nfInstanceId", "7a1e0c00-0000-4000-8000-0000000000a1"},
                  {"mlModels",
-                  json::array({json{{"modelUniqueId", id_inline},
-                                    {"mlModel", "T05OWC1ieXRlcy12Mg=="}, // "ONNX-bytes-v2"
-                                    {"allowConsumerList",
-                                     json::array({json{{"nfInstanceId", "anlf-allowed"}},
-                                                  json{{"nfInstanceId", "anlf-stranger"}}})}}})}}),
+                  json::array({json{
+                      {"modelUniqueId", id_inline},
+                      {"mlModel", "T05OWC1ieXRlcy12Mg=="}, // "ONNX-bytes-v2"
+                      {"allowConsumerList",
+                       json::array(
+                           {json{{"nfInstanceId", "7a1e0c00-0000-4000-8000-0000000000a2"}},
+                            json{{"nfInstanceId", "7a1e0c00-0000-4000-8000-0000000000a3"}}})}}})}}),
         owner));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 200) << r->body;

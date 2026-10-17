@@ -253,6 +253,8 @@ void run_nrf_lifecycle(const std::string& instance_id,
         registered = r && (r->status == 200 || r->status == 201);
         if (registered) {
             spdlog::info("sepp: registered with NRF (HTTP {})", r->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            nrf_tokens.clear_backoff();
             break;
         }
         spdlog::warn("sepp: NRF registration attempt failed, retrying in 5s");

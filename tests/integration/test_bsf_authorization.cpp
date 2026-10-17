@@ -19,7 +19,6 @@ TEST(BsfAuthorization, NbsfManagementNeedsATokenForTheBsfAndItsService) {
         .body = "{}",
         .scope = "nbsf-management",
         .nf_type = "BSF",
-        .other_nf_type = "PCF",
         .other_scope = "npcf-policyauthorization",
         .authorized_status = 400,
     });

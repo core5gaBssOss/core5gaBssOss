@@ -178,6 +178,8 @@ void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_ba
         put.body = profile.dump();
         if (const auto r = http_client.send(put); r && (r->status == 200 || r->status == 201)) {
             spdlog::info("tsctsf: registered with NRF (HTTP {})", r->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
             break;
         }
         spdlog::warn("tsctsf: NRF registration attempt failed, retrying in 5s");

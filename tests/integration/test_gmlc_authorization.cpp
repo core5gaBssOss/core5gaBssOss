@@ -19,7 +19,6 @@ TEST(GmlcAuthorization, NgmlcLocationNeedsATokenForTheGmlcAndItsService) {
         .body = "{}",
         .scope = "ngmlc-loc",
         .nf_type = "GMLC",
-        .other_nf_type = "LMF",
         .other_scope = "nlmf-loc",
         .authorized_status = 400,
     });

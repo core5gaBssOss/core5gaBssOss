@@ -20,7 +20,6 @@ TEST(NssfAuthorization, BothServicesNeedATokenForTheNssfAndTheirOwnScope) {
         .body = "{}",
         .scope = "nnssf-nssaiavailability",
         .nf_type = "NSSF",
-        .other_nf_type = "AMF",
         .other_scope = "nnssf-nsselection",
         .authorized_status = 400,
     });
@@ -30,7 +29,6 @@ TEST(NssfAuthorization, BothServicesNeedATokenForTheNssfAndTheirOwnScope) {
         .url = "https://127.0.0.1:7801/nnssf-nsselection/v2/network-slice-information",
         .scope = "nnssf-nsselection",
         .nf_type = "NSSF",
-        .other_nf_type = "AMF",
         .other_scope = "nnssf-nssaiavailability",
         .authorized_status = 400,
     });

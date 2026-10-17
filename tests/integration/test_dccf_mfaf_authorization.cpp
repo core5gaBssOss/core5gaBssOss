@@ -21,7 +21,6 @@ TEST(DccfAuthorization, DataManagementNeedsATokenForTheDccfAndItsService) {
         .body = "{}",
         .scope = "ndccf-datamanagement",
         .nf_type = "DCCF",
-        .other_nf_type = "NWDAF",
         .other_scope = "ndccf-contextmanagement",
         .authorized_status = 400,
     });
@@ -39,7 +38,6 @@ TEST(MfafAuthorization, ConfigurationsNeedATokenAndTheMfafCallbacksDoNot) {
         .body = "{}",
         .scope = "nmfaf-3dadatamanagement",
         .nf_type = "MFAF",
-        .other_nf_type = "DCCF",
         .other_scope = "nmfaf-contextmanagement",
         .authorized_status = 400,
     });

@@ -471,9 +471,11 @@ std::string token(sbi_core::http2::Client& c, const std::string& scope, const st
     req.method = "POST";
     req.url = std::string(kNrf) + "/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=udsf-test&scope=" + scope +
-               "&targetNfType=" + nf;
-    auto resp = c.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=" + scope + "&targetNfType=" + nf;
+    (void)c;
+    auto resp = nf_test::send_token_request(req); // ADR-0499 phase 5: as the registered test AF
     if (!resp || resp->status != 200) {
         return "";
     }
