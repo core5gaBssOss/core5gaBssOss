@@ -26,7 +26,7 @@ flow breaks in between:
 | Phase | Content | Status |
 |---|---|---|
 | 1 | sbi-core server-side authorizer, before any handler: no token -> 401 + `WWW-Authenticate: Bearer` (`realm`, `error="invalid_token"` when one was sent); `aud` not own NF type/instance -> 401 `invalid_token`; `scope` lacking the API's service name -> 403 `insufficient_scope`. Exempt: notification/callback routes (TS 33.501 13.4.1.0: "The OAuth 2.0 framework does not apply to the notification operation"), NRF `/oauth2/token`, NRF bootstrapping (no security scheme in its YAML). Per-NF `oauth2_required`. Unit tests. | Done (sbi-core only, no NF switched on): `sbi_core/authorizer.hpp`, `Server::set_authorizer`, `RouteAuth` per route (default `OAuth2`). Also: a token missing a required AccessTokenClaims claim -> 401 `ACCESS_TOKEN_CLAIM_MISSING` with `invalidParams` (TS 29.500 Table 5.2.7.2-1). Tests: `SbiAuthorizer.*` (10), `Http2Authorizer.*` (1) |
-| 2 | NRF token issuance: requester registered, `nfInstanceId` bound to the client certificate, NF type allowed the requested service (TS 33.501 13.4.1.1.2). | Not started |
+| 2 | NRF token issuance: requester registered, `nfInstanceId` bound to the client certificate, NF type allowed the requested service (TS 33.501 13.4.1.1.2). | Done, switch off in `config/nrf.json`: `nfs/nrf/src/token_authz.cpp`. Unregistered requester, `nfType` differing from its profile, or a client certificate not naming its NF type -> 400 `invalid_client`; a service no registered producer of `targetNfType` offers to the consumer (`allowedNfTypes`/`Domains`/`Plmns`/`Nssais`, service- then profile-level, `nfServiceList` or deprecated `nfServices`) -> 400 `invalid_scope`; errors are now `AccessTokenErr` with `Cache-Control: no-store` (TS 29.510 Table 6.3.6.3-1, RFC 6749 5.2). Config `access_token_authorization` (env `NRF_ACCESS_TOKEN_AUTHORIZATION`), default true. Tests: `NrfTokenAuthz.*` (8); with the env on, `HelloNfIntegration` is refused, as expected (below) |
 | 3 | Consumers: one sbi-core token provider cached per (target NF type, service); every outbound SBI call in all NFs carries a token for its target service. | Not started |
 | 4 | `oauth2_required: true` NF by NF as its consumers are migrated, each verified end to end; ends with every NF enforcing. | Not started |
 | 5 | Tests: helpers fetch tokens; negative tests (no token 401, wrong `aud` 401, missing scope 403, notification without token accepted). Then SEC-03 (AAnF: register/remove only from an AUSF token; `afId` bound to the caller). | Not started |
@@ -37,6 +37,25 @@ its apiName: `tools/sbi-codegen/gen_api_scopes.py` writes `libs/sbi-core/src/api
 (TS29541_Nnef_SMService.yaml), `3gpp-akma` -> `nnef-akma:gpsi-access` (TS29522_AKMA.yaml). An
 apiName not in the table (a project-owned API, e.g. the UDR OAM API) requires the apiName itself.
 The table is checked in; nothing yet fails CI when the YAMLs change and it is not regenerated.
+
+**Phase 2 findings.**
+- **NFs fetch a token before registering.** With the NRF check on, hello-nf is refused
+  (`invalid_client`, not registered): it requests its token before its NFRegister, while TS 33.501
+  13.4.1.1.2 makes registration a pre-requisite. Phase 3 must order registration first in every NF;
+  the switch stays off until then.
+- **Certificate binding is to the NF type, not the instance.** The lab certificates carry
+  `CN=<nf>`/`DNS:<nf>` (`scripts/gen-lab-pki.sh`), so the NRF checks that the certificate names the
+  consumer's registered NF type (TS 29.510 5.4.2.2.1 allows checking attributes "e.g. NF type"
+  against the certificate). A holder of one NF type's certificate can still claim another instance
+  of the same type.
+- **Test clients request tokens as an unregistered `test-client` with the `hello-nf` certificate**
+  (66 places). Phase 5 replaces them with registered identities.
+- **Discovery reads only the deprecated `nfServices`.** `profile_discoverable_by`
+  (`nfs/nrf/src/discovery_authz.cpp`) ignores `nfServiceList` (TS29510_Nnrf_NFManagement.yaml
+  NFProfile); the new token check reads both. Not fixed here.
+- An omitted `targetNfType` still defaults to NRF, and `targetNfInstanceId` (TS 33.501 13.4.1.1.2
+  1b) is ignored, as TS 29.510 5.4.2.2.1 permits for unsupported parameters: the token's `aud` is
+  the NF type.
 
 **Disclosed.**
 - **`sub` cannot be checked with the current lab PKI.** TS 33.501 matches `sub` (NF instance ID)
