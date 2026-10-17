@@ -159,6 +159,30 @@ TEST(AmPolicyAuthorizationIntegration, CreateReadUpdateDeleteAndEventsSubscripti
     ASSERT_TRUE(evsubsc_modify_resp.has_value());
     EXPECT_EQ(evsubsc_modify_resp->status, 200);
 
+    // REVIEW-5ae0ef1 SPEC-11: a PATCH of the context modifies its events subscription
+    // (AppAmContextUpdateData.evSubsc, merge-patch) -- it used to return 200 and change nothing.
+    const std::string context_url =
+        "https://127.0.0.1:7783/npcf-am-policyauthorization/v1/app-am-contexts/" + context_id;
+    const auto patch_context = [&](const json& body) {
+        sbi_core::http2::ClientRequest r;
+        r.method = "PATCH";
+        r.url = context_url;
+        r.headers.emplace("content-type", "application/merge-patch+json");
+        r.headers.emplace("authorization", "Bearer " + token);
+        r.body = body.dump();
+        return client.send(r);
+    };
+    const auto read_context = [&] {
+        auto r = client.send(get_req);
+        return r.has_value() && r->status == 200 ? json::parse(r->body) : json();
+    };
+    auto ev_patch =
+        patch_context(json{{"evSubsc", {{"eventNotifUri", "https://example.com/am-ev-notify-2"}}}});
+    ASSERT_TRUE(ev_patch.has_value());
+    EXPECT_EQ(ev_patch->status, 200) << ev_patch->body;
+    EXPECT_EQ(read_context()["evSubsc"].value("eventNotifUri", ""),
+              "https://example.com/am-ev-notify-2");
+
     sbi_core::http2::ClientRequest evsubsc_delete_req;
     evsubsc_delete_req.method = "DELETE";
     evsubsc_delete_req.url = evsubsc_req.url;
@@ -166,6 +190,15 @@ TEST(AmPolicyAuthorizationIntegration, CreateReadUpdateDeleteAndEventsSubscripti
     auto evsubsc_delete_resp = client.send(evsubsc_delete_req);
     ASSERT_TRUE(evsubsc_delete_resp.has_value());
     EXPECT_EQ(evsubsc_delete_resp->status, 204);
+
+    // ...and "evSubsc": null removes it (RFC 7396).
+    auto recreated = client.send(evsubsc_req);
+    ASSERT_TRUE(recreated.has_value());
+    EXPECT_EQ(recreated->status, 201) << recreated->body;
+    auto ev_remove = patch_context(json{{"evSubsc", nullptr}});
+    ASSERT_TRUE(ev_remove.has_value());
+    EXPECT_EQ(ev_remove->status, 200) << ev_remove->body;
+    EXPECT_FALSE(read_context().contains("evSubsc"));
 
     sbi_core::http2::ClientRequest delete_req;
     delete_req.method = "DELETE";

@@ -56,6 +56,7 @@ add_executable(integration_tests
     test_nrf_authorization.cpp
     test_chf_nwdaf_adrf_authorization.cpp
     test_scp_authorization.cpp
+    test_patch_conformance.cpp
     test_udr_gap_closure_212.cpp
     test_udr_policy_data_gap_closure_213.cpp
     test_udr_exposure_data.cpp

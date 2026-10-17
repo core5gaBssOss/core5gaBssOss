@@ -220,8 +220,6 @@ public:
     std::optional<nlohmann::json> get(const std::string& af_id, const std::string& sub_id);
     std::vector<nlohmann::json> list(const std::string& af_id);
     bool put(const std::string& af_id, const std::string& sub_id, nlohmann::json subscription);
-    std::optional<nlohmann::json>
-    merge_patch(const std::string& af_id, const std::string& sub_id, const nlohmann::json& patch);
     bool remove(const std::string& af_id, const std::string& sub_id);
     // The UDM ee-subscription this created: "{ueIdentity}/{subscriptionId}", so DELETE can remove
     // the right one. Same reasoning as ADR-0315's app-session tracking -- a monitoring
