@@ -424,7 +424,7 @@ TEST(PcfChfN28Integration, FullLoopSubscribeStatusChangeNotifyUnsubscribe) {
 
     // Real CHF-side config change (this project's own real, disclosed operator/GUI surface) --
     // triggers a real statusNotification push to PCF's real callback route.
-    const std::string chf_token = fetch_token(client, "chf-admin");
+    const std::string chf_token = fetch_token(client, "chf-admin", "CHF");
     ASSERT_FALSE(chf_token.empty());
     sbi_core::http2::ClientRequest admin_req;
     admin_req.method = "PUT";
