@@ -102,7 +102,8 @@ TokenSource::TokenSource(http2::Client& nrf_client,
 
 std::optional<std::string> TokenSource::token_for(const std::string& url) {
     const auto info = api_catalog::find(api_catalog::api_name_of(url));
-    if (!info || info->nf_type.empty()) {
+    // No producer type, or no scope to ask for (AccessTokenReq.scope is mandatory): no token.
+    if (!info || info->nf_type.empty() || info->scope.empty()) {
         return std::nullopt;
     }
     const std::pair<std::string, std::string> key{std::string(info->scope),

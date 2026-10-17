@@ -136,6 +136,7 @@
 // NEFAFSessionWithQoSProvision (TS 33.128 clause 7.7.6.1.2) on the AsSessionWithQoS
 // create/update/patch/revoke handlers; the other NEF LI cases and why they wait are in ADR-0487.
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -154,6 +155,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -972,6 +974,20 @@ int main() {
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as NRF's bind -- see docs/DECISIONS.md ADR-0014.
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) unless
+    // `oauth2_required` is false -- the nnef-* SBI APIs also need their scope; the northbound
+    // 3gpp-* APIs declare none in their YAMLs (`scopes: {}`), so only the token is checked there
+    // (NRF-issued in this lab, not CAPIF's TS 33.122 token: decided by the user, 2026-10-17). The
+    // two /nnef-callback notification routes are exempt (below).
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required = nf_config::optional<bool>(config, "oauth2_required", "NEF_OAUTH2_REQUIRED")
+                            .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = nef_instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -7903,7 +7919,9 @@ int main() {
             sbi_core::http2::Response accepted;
             accepted.status = 204;
             return accepted;
-        });
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
 
     // --- ADR-0317: notification delivery, the piece every AF-facing service was missing ---
     //
@@ -7979,7 +7997,9 @@ int main() {
             sbi_core::http2::Response accepted;
             accepted.status = 204;
             return accepted;
-        });
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
 
     // --- ADR-0316: TS 29.122 MonitoringEvent, the AF-facing event-monitoring API ---
     //

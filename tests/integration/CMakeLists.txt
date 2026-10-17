@@ -52,6 +52,7 @@ add_executable(integration_tests
     test_udm_authorization.cpp
     test_pcf_authorization.cpp
     test_smf_amf_authorization.cpp
+    test_nef_authorization.cpp
     test_udr_gap_closure_212.cpp
     test_udr_policy_data_gap_closure_213.cpp
     test_udr_exposure_data.cpp

@@ -58,11 +58,11 @@ private:
 // ADR-0499 phase 3: the consumer side. For a request URL, the token for its API: the scope and
 // producer NF type (targetNfType) come from api_catalog.hpp; one OAuth2Client per (scope, NF
 // type), each caching its token until expiry. std::nullopt -- send the request without a token --
-// for an API the catalog gives no NF type, the NRF's own token endpoint, or a fetch the NRF refused
-// (then not retried for `retry_after`). The tokenless fallback is what lets an NF register before
-// it has a token: the NRF's NFManagement API admits requests without one (`security: - {}`), and
-// TS 33.501 13.4.1.1.2 makes registration the pre-requisite of a token. Everywhere else the
-// producer decides (ADR-0499 phase 1).
+// for an API the catalog gives no NF type or no scope, the NRF's own token endpoint, or a fetch the
+// NRF refused (then not retried for `retry_after`). The tokenless fallback is what lets an NF
+// register before it has a token: the NRF's NFManagement API admits requests without one
+// (`security: - {}`), and TS 33.501 13.4.1.1.2 makes registration the pre-requisite of a token.
+// Everywhere else the producer decides (ADR-0499 phase 1).
 class TokenSource {
 public:
     TokenSource(http2::Client& nrf_client,
