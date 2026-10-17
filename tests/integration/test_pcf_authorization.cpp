@@ -21,7 +21,6 @@ TEST(PcfAuthorization, EachNpcfApiNeedsItsOwnScopeAndTheSpendingLimitNotifyDoesN
         .body = "{}",
         .scope = "npcf-smpolicycontrol",
         .nf_type = "PCF",
-        .other_nf_type = "SMF",
         .other_scope = "npcf-policyauthorization",
         .authorized_status = 400,
     });
@@ -31,7 +30,6 @@ TEST(PcfAuthorization, EachNpcfApiNeedsItsOwnScopeAndTheSpendingLimitNotifyDoesN
         .body = "{}",
         .scope = "npcf-policyauthorization",
         .nf_type = "PCF",
-        .other_nf_type = "NEF",
         .other_scope = "npcf-smpolicycontrol",
         .authorized_status = 400,
     });

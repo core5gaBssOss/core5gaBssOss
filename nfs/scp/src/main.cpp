@@ -144,6 +144,8 @@ void run_nrf_lifecycle(const std::string& scp_instance_id, const std::string& nr
         auto put_resp = http_client.send(put_req);
         if (put_resp.has_value() && (put_resp->status == 200 || put_resp->status == 201)) {
             spdlog::info("scp: registered with NRF (HTTP {})", put_resp->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            nrf_tokens.clear_backoff();
             break;
         }
         spdlog::warn("scp: NRF registration attempt failed, retrying in 5s");

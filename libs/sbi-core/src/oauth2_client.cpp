@@ -134,9 +134,28 @@ std::optional<std::string> TokenSource::token_for(const std::string& url) {
     return std::nullopt;
 }
 
+void TokenSource::clear_backoff() {
+    std::lock_guard lock(mutex_);
+    for (auto& [key, entry] : entries_) {
+        entry.retry_at = {};
+    }
+}
+
 void attach_tokens(http2::Client& client, TokenSource& source) {
     client.set_token_source([&source](const std::string& url) { return source.token_for(url); });
 }
+
+namespace {
+std::mutex& default_source_mutex() {
+    static std::mutex m;
+    return m;
+}
+// The TokenSource install_default_token_source installed, for clear_default_token_backoff.
+std::shared_ptr<TokenSource>& default_source() {
+    static std::shared_ptr<TokenSource> source;
+    return source;
+}
+} // namespace
 
 void install_default_token_source(const http2::TlsConfig& tls,
                                   std::string nrf_token_endpoint,
@@ -152,8 +171,23 @@ void install_default_token_source(const http2::TlsConfig& tls,
     };
     auto state =
         std::make_shared<State>(tls, std::move(nrf_token_endpoint), std::move(nf_instance_id));
+    {
+        const std::lock_guard lock(default_source_mutex());
+        default_source() = std::shared_ptr<TokenSource>(state, &state->source);
+    }
     http2::Client::set_default_token_source(
         [state](const std::string& url) { return state->source.token_for(url); });
+}
+
+void clear_default_token_backoff() {
+    std::shared_ptr<TokenSource> source;
+    {
+        const std::lock_guard lock(default_source_mutex());
+        source = default_source();
+    }
+    if (source) {
+        source->clear_backoff();
+    }
 }
 
 } // namespace sbi_core

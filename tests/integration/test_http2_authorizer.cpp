@@ -183,6 +183,12 @@ TEST(Http2Authorizer, AClientWithATokenSourceSendsEachApisTokenAndFallsBackWitho
     EXPECT_EQ(get("/nnrf-nfm/v1/nf-instances/x"), "none");
     EXPECT_EQ(token_requests.load(), 2) << "a refusal is not retried within retry_after";
 
+    // ADR-0499 phase 5: once registered, the NF clears the back-off and asks again at once.
+    refuse = false;
+    tokens.clear_backoff();
+    EXPECT_EQ(get("/nnrf-nfm/v1/nf-instances/x"), "Bearer T1");
+    EXPECT_EQ(token_requests.load(), 3);
+
     guard.reset();
     ioc.stop();
     runner.join();

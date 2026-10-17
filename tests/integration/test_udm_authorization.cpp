@@ -33,7 +33,6 @@ TEST(UdmAuthorization, EachNudmApiNeedsItsOwnScopeAndTheUdmsNfType) {
         .url = "https://127.0.0.1:7780/nudm-sdm/v2/imsi-999700000000001/am-data",
         .scope = "nudm-sdm",
         .nf_type = "UDM",
-        .other_nf_type = "UDR",
         .other_scope = "nudm-uecm",
         .authorized_status = 200,
     });
@@ -45,7 +44,6 @@ TEST(UdmAuthorization, EachNudmApiNeedsItsOwnScopeAndTheUdmsNfType) {
         .body = "{}",
         .scope = "nudm-ueau",
         .nf_type = "UDM",
-        .other_nf_type = "AUSF",
         .other_scope = "nudm-sdm",
         .authorized_status = 400,
     });

@@ -272,6 +272,8 @@ void run_nrf_lifecycle(const std::string& instance_id,
         auto put_resp = http_client.send(put_req);
         if (put_resp && (put_resp->status == 200 || put_resp->status == 201)) {
             spdlog::info("mfaf: registered with NRF (HTTP {})", put_resp->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
             break;
         }
         spdlog::warn("mfaf: NRF registration failed ({}), retrying",

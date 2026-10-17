@@ -13,6 +13,8 @@
 #include <string>
 #include <thread>
 
+#include "test_tokens.hpp"
+
 #include <gtest/gtest.h>
 
 namespace nf_test {
@@ -23,7 +25,6 @@ struct EnforcedRoute {
     std::string body;             // sent as application/json when not empty
     std::string scope;            // the API's service-level scope
     std::string nf_type;          // the producer's NFType (the token's aud)
-    std::string other_nf_type;    // any other NFType
     std::string other_scope;      // a scope the route does not accept
     long authorized_status = 200; // what the handler answers once authorized
 };
@@ -43,9 +44,10 @@ inline std::string oauth2_test_token(sbi_core::http2::Client& client,
     req.method = "POST";
     req.url = "https://127.0.0.1:7777/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=" + scope +
-               "&targetNfType=" + target_nf_type;
-    const auto resp = client.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=" + scope + "&targetNfType=" + target_nf_type;
+    const auto resp = nf_test::send_token_request(req);
     if (!resp.has_value() || resp->status != 200) {
         return "";
     }
@@ -88,7 +90,9 @@ inline void expect_oauth2_enforced(const EnforcedRoute& route) {
     EXPECT_EQ(www_authenticate(resp).find("error="), std::string::npos)
         << "a request without a token gets no error attribute (TS 29.500 6.7.3)";
 
-    const auto wrong_aud = oauth2_test_token(client, route.scope, route.other_nf_type);
+    // A token for another NF type: the test AF's own (aud AF). The NRF issues tokens only for an
+    // NF type some registered NF is (ADR-0499 phase 2), and the test AF always is.
+    const auto wrong_aud = oauth2_test_token(client, route.scope, "AF");
     ASSERT_FALSE(wrong_aud.empty());
     resp = send_to(client, route, wrong_aud);
     EXPECT_EQ(resp.status, 401) << resp.body;
