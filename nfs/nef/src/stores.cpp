@@ -603,18 +603,6 @@ bool AfMonitoringSubStore::put(const std::string& af_id,
     return true;
 }
 
-std::optional<nlohmann::json> AfMonitoringSubStore::merge_patch(const std::string& af_id,
-                                                                const std::string& sub_id,
-                                                                const nlohmann::json& patch) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = subscriptions_.find(key(af_id, sub_id));
-    if (it == subscriptions_.end()) {
-        return std::nullopt;
-    }
-    it->second.merge_patch(patch);
-    return it->second;
-}
-
 bool AfMonitoringSubStore::remove(const std::string& af_id, const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     ee_subs_.erase(key(af_id, sub_id));

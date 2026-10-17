@@ -21,6 +21,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | Not in the review: TSan CI job red on `main` (3 `LiChfEndToEnd` -- the CHF exits with no CDR sink in that job) | Fixed locally, not yet pushed: the TSan leg's empty `CHF_CDR_EVENT_BUS_BROKERS` overrode the test's broker; the test now keeps the CHF's direct-insert sink there (reproduced: 3/3 pass with the TSan env) | `tests/integration/test_li_chf_e2e.cpp` |
 > | TSCTSF (`4255e69`, after this review) inherits SBI-01, SBI-02, SBI-05 | Open; covered by ADR-0499 and SBI-05 | `nfs/tsctsf` |
 > | Prevention: the review's bug classes are a mandatory pre-commit checklist | Done | skill `new-nf-checklist` "Never repeat these"; CLAUDE.md |
+> | SPEC-02, SPEC-03, SPEC-04, SPEC-11 | Fixed (2026-10-17): `sbi_core::http2::apply_json_patch_body` applies an `application/json-patch+json` body as RFC 6902 `PatchItem[]` (415 with `Accept-Patch` for another content type, 400 `INVALID_MSG_FORMAT` otherwise); NEF Monitoring Event and NSACF slice-EE PATCH use it (NSACF answers `CreatedSACEventSubscription`, the invented `SACSubscriptionPatch` comment is gone); NEF 5GLAN applies `5gLanParams` / `5gLanParamsPatch` to the stored `5gLanParams`; PCF AM PolicyAuthorization PATCH applies `evSubsc` (merge-patch: null removes) | `tests/conformance/test_sbi_json_patch.cpp`, `PatchConformance.*`, `AmPolicyAuthorizationIntegration.*` |
 > | Everything else | Open | |
 >
 > **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI
