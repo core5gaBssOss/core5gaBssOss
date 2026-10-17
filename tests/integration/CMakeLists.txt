@@ -423,8 +423,8 @@ add_dependencies(li_cc_chain_integration_tests li-mdf3)
 gtest_discover_tests(li_cc_chain_integration_tests)
 
 # ADR-0477: NRF discovery authorization filter (allowedNfTypes/Plmns/Nssais); pure logic, no ports.
-add_executable(nrf_discovery_authz_tests test_nrf_discovery_authz.cpp
-    ${CMAKE_SOURCE_DIR}/nfs/nrf/src/discovery_authz.cpp)
+add_executable(nrf_discovery_authz_tests test_nrf_discovery_authz.cpp test_nrf_token_authz.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/nrf/src/discovery_authz.cpp ${CMAKE_SOURCE_DIR}/nfs/nrf/src/token_authz.cpp)
 target_include_directories(nrf_discovery_authz_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/nrf/src)
 target_link_libraries(nrf_discovery_authz_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
 gtest_discover_tests(nrf_discovery_authz_tests PROPERTIES TIMEOUT 60)
