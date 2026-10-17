@@ -61,6 +61,7 @@
 #include "TS29510_Nnrf_Bootstrapping.hpp"
 #include "discovery_authz.hpp"
 #include "registry.hpp"
+#include "token_authz.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
 #include "nf_config/nf_config.hpp"
@@ -316,6 +317,13 @@ int main() {
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
     const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
+    // ADR-0499 phase 2: authorize the requester before issuing a token. On by default (the user's
+    // "require tokens by default"); config/nrf.json turns it off until the consumers and test
+    // helpers register and present matching certificates (ADR-0499 phases 3-5).
+    const bool token_authorization = nf_config::optional<bool>(config,
+                                                               "access_token_authorization",
+                                                               "NRF_ACCESS_TOKEN_AUTHORIZATION")
+                                         .value_or(true);
 
     sbi_core::init_logging("nrf");
     sbi_core::init_tracing("nrf");
@@ -512,16 +520,32 @@ int main() {
     });
 
     server.add_route(
-        "POST", "/oauth2/token", [&issuer, &tokens_counter](const sbi_core::http2::Request& req) {
+        "POST",
+        "/oauth2/token",
+        [&issuer, &tokens_counter, nf_registry, token_authorization](
+            const sbi_core::http2::Request& req) {
             auto fields = parse_form_urlencoded(req.body);
-            if (fields.count("grant_type") == 0 || fields["grant_type"] != "client_credentials") {
-                return problem_response(400,
-                                        "Unsupported grant_type",
-                                        "Only grant_type=client_credentials is supported");
-            }
-            if (fields.count("nfInstanceId") == 0 || fields.count("scope") == 0) {
-                return problem_response(
-                    400, "Missing mandatory IE", "AccessTokenReq requires nfInstanceId and scope");
+            // RFC 6749 5.1/5.2: token responses are never cached.
+            const auto no_store = [](sbi_core::http2::Response r) {
+                r.headers.emplace("cache-control", "no-store");
+                r.headers.emplace("pragma", "no-cache");
+                return r;
+            };
+            const std::map<std::string, std::string> form(fields.begin(), fields.end());
+            const auto decision =
+                token_authorization
+                    ? nrf::authorize_token_request(
+                          form,
+                          nrf::TokenRequester{.cert_cn = req.peer_cert_cn,
+                                              .cert_dns_names = req.peer_cert_dns_names},
+                          [&](const std::string& id) { return nf_registry->get(id); },
+                          [&](const std::string& t) { return nf_registry->search_by_type(t); })
+                    : nrf::check_token_request_form(form);
+            if (!decision.error.empty()) {
+                spdlog::info(
+                    "nrf: access token refused ({}): {}", decision.error, decision.description);
+                return no_store(
+                    sbi_core::http2::Response::json(400, nrf::access_token_err(decision).dump()));
             }
             const std::string target_nf_type =
                 fields.count("targetNfType") != 0 ? fields["targetNfType"] : kNfType;
@@ -538,7 +562,7 @@ int main() {
                 {"expires_in", issued.expires_in.count()},
                 {"scope", fields["scope"]},
             };
-            return sbi_core::http2::Response::json(200, resp.dump());
+            return no_store(sbi_core::http2::Response::json(200, resp.dump()));
         });
 
     // Gap-closure: RetrieveKeyRequest (TS29510_Nnrf_AccessToken.yaml). Real, disclosed: NRF only
