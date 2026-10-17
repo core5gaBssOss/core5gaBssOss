@@ -28,6 +28,7 @@
 //     connectivity, notifications to the consumer, Time Synchronization and ASTI services.
 //   * Contexts are kept in memory (single replica, deploy/helm/tsctsf).
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -46,6 +47,7 @@
 
 #include <chrono>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -287,6 +289,19 @@ int main() {
 
     boost::asio::io_context ioc;
     http2::Server server(ioc, bind, port, tsctsf_tls());
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service
+    // (scope ntsctsf-qos-tscai) unless `oauth2_required` is false; the PCF notification route is
+    // exempt (below).
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required =
+                nf_config::optional<bool>(config, "oauth2_required", "TSCTSF_OAUTH2_REQUIRED")
+                    .value_or(true),
+            .nf_type = "TSCTSF",
+            .nf_instance_id = instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // ---- Ntsctsf_QoSandTSCAssistance_Create (TS 29.565 5.3.2.2.2 / 5.3.2.2.8) ------------------
     server.add_route(
@@ -545,11 +560,16 @@ int main() {
                      });
 
     // Npcf_PolicyAuthorization_Notify target given to the PCFs (accepted; events not relayed).
-    server.add_route("POST", std::string(kApiRoot) + "/pcf-notify/**", [](const http2::Request&) {
-        http2::Response r;
-        r.status = 204;
-        return r;
-    });
+    // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+    server.add_route(
+        "POST",
+        std::string(kApiRoot) + "/pcf-notify/**",
+        [](const http2::Request&) {
+            http2::Response r;
+            r.status = 204;
+            return r;
+        },
+        http2::RouteAuth::None);
 
     std::thread(run_nrf_lifecycle, instance_id, nrf_base).detach();
     server.start();

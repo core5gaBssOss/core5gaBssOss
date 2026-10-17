@@ -16,6 +16,7 @@
 #include <thread>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -113,6 +114,7 @@ TEST(TsctsfEndToEnd, GpsiOnlyQosRequestReachesThePcfOfThePduSessionThroughTheTsc
         nf_test::wait_tcp_listening(p);
     }
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: the TSCTSF enforces tokens
 
     // Provisioning: the GPSI's identity data (GPSI -> SUPI) at the UDR.
     const auto udr_token = token(c, "nudr-dr", "UDR");

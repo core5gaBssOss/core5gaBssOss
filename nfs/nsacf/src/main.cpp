@@ -51,6 +51,7 @@
 //    consumer that has supplied one. Until some NF does, EAC state is tracked and logged but has
 //    nowhere to be delivered -- a property of the spec's own design, not a shortcut.
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -70,6 +71,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -551,6 +553,19 @@ int main() {
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as NRF's bind -- see docs/DECISIONS.md ADR-0014.
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service
+    // (scopes nnsacf-nsac, nnsacf-slice-ee) unless `oauth2_required` is false -- the NSACF serves
+    // no notification route.
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required =
+                nf_config::optional<bool>(config, "oauth2_required", "NSACF_OAUTH2_REQUIRED")
+                    .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = nsacf_instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
