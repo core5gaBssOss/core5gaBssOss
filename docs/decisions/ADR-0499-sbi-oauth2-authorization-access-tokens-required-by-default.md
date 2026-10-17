@@ -28,7 +28,7 @@ flow breaks in between:
 | 1 | sbi-core server-side authorizer, before any handler: no token -> 401 + `WWW-Authenticate: Bearer` (`realm`, `error="invalid_token"` when one was sent); `aud` not own NF type/instance -> 401 `invalid_token`; `scope` lacking the API's service name -> 403 `insufficient_scope`. Exempt: notification/callback routes (TS 33.501 13.4.1.0: "The OAuth 2.0 framework does not apply to the notification operation"), NRF `/oauth2/token`, NRF bootstrapping (no security scheme in its YAML). Per-NF `oauth2_required`. Unit tests. | Done (sbi-core only, no NF switched on): `sbi_core/authorizer.hpp`, `Server::set_authorizer`, `RouteAuth` per route (default `OAuth2`). Also: a token missing a required AccessTokenClaims claim -> 401 `ACCESS_TOKEN_CLAIM_MISSING` with `invalidParams` (TS 29.500 Table 5.2.7.2-1). Tests: `SbiAuthorizer.*` (10), `Http2Authorizer.*` (1) |
 | 2 | NRF token issuance: requester registered, `nfInstanceId` bound to the client certificate, NF type allowed the requested service (TS 33.501 13.4.1.1.2). | Done, switch off in `config/nrf.json`: `nfs/nrf/src/token_authz.cpp`. Unregistered requester, `nfType` differing from its profile, or a client certificate not naming its NF type -> 400 `invalid_client`; a service no registered producer of `targetNfType` offers to the consumer (`allowedNfTypes`/`Domains`/`Plmns`/`Nssais`, service- then profile-level, `nfServiceList` or deprecated `nfServices`) -> 400 `invalid_scope`; errors are now `AccessTokenErr` with `Cache-Control: no-store` (TS 29.510 Table 6.3.6.3-1, RFC 6749 5.2). Config `access_token_authorization` (env `NRF_ACCESS_TOKEN_AUTHORIZATION`), default true. Tests: `NrfTokenAuthz.*` (8); with the env on, `HelloNfIntegration` is refused, as expected (below) |
 | 3 | Consumers: one sbi-core token provider cached per (target NF type, service); every outbound SBI call in all NFs carries a token for its target service. | Done: `sbi_core::TokenSource` picks the scope and `targetNfType` of a request's API from `api_catalog` (generated from the YAMLs, the producer NF type from the file name) and caches one `OAuth2Client` per pair; `http2::Client` asks it for every request sent without an `Authorization` header. `install_default_token_source` makes it the process-wide default; each NF installs it in `run_nrf_lifecycle` (23 NFs), the SCP and SEPP attach it to their NRF client only (a relay must not put its own token on forwarded requests). NFRegister now goes without a token (hello-nf fetches its token after registering). Tests: `Http2Authorizer.*` (3), `SbiApiCatalog.*` (1). Verified with the NRF check on: a live PCF's pre-registration token request is refused (`invalid_client`, not registered), its NFRegister is accepted without a token (201) and its heartbeat 15 s later carries one. `HelloNfIntegration` still fails with the check on: hello-nf registers as an AMF with the `hello-nf` certificate, which the phase-2 binding rightly refuses (phase 5) |
-| 4 | `oauth2_required: true` NF by NF as its consumers are migrated, each verified end to end; ends with every NF enforcing. | In progress, 1 NF enforcing: **5G-EIR** (`config/eir.json` `oauth2_required`, env `EIR_OAUTH2_REQUIRED`, default true; no notification route; no consumer in this repo). Its YAML admits tokenless requests (`security: - {}`); requiring one is the local configuration TS 29.500 6.7.3 allows. Verified: `EirAuthorization.RequestsNeedATokenForTheEirsOwnServiceAndNfType` (real nrf + eir: no token 401 with a bare Bearer challenge, `aud` UDM 401 `invalid_token`, scope `nudm-sdm` 403 `insufficient_scope`, own token 200) passes, and fails with `EIR_OAUTH2_REQUIRED=false` (200 without a token). The EIR has no Helm chart (pre-existing; compose mounts `config/`) |
+| 4 | `oauth2_required: true` NF by NF as its consumers are migrated, each verified end to end; ends with every NF enforcing. | In progress, 4 NFs enforcing (below, "Phase 4 status") |
 | 5 | Tests: helpers fetch tokens; negative tests (no token 401, wrong `aud` 401, missing scope 403, notification without token accepted). Then SEC-03 (AAnF: register/remove only from an AUSF token; `afId` bound to the caller). | Not started |
 
 **Required scope per API.** The service-level scope is read from each API's YAML, not assumed to be
@@ -37,6 +37,23 @@ its apiName: `tools/sbi-codegen/gen_api_catalog.py` writes `libs/sbi-core/src/ap
 (TS29541_Nnef_SMService.yaml), `3gpp-akma` -> `nnef-akma:gpsi-access` (TS29522_AKMA.yaml). An
 apiName not in the table (a project-owned API, e.g. the UDR OAM API) requires the apiName itself.
 The table is checked in; nothing yet fails CI when the YAMLs change and it is not regenerated.
+
+**Phase 4 status.** Each enforcing NF reads `oauth2_required` from `config/<nf>.json` (env
+`<NF>_OAUTH2_REQUIRED`), default true, shown in the GUI schema. Each has a test driving real nrf +
+NF processes through `tests/integration/oauth2_enforcement.hpp`: no token 401 with a bare Bearer
+challenge, another NF type's token 401 `invalid_token`, another service's token 403
+`insufficient_scope`, its own token reaches the handler. Each test also fails with the NF's switch
+off. Every API below lists 401/403 and admits tokenless requests in its YAML (`security: - {}`);
+requiring a token is the local configuration TS 29.500 6.7.3 allows.
+
+| NF | APIs enforced | Exempt | Consumers in this repo | Test |
+|---|---|---|---|---|
+| 5G-EIR | n5g-eir-eic | -- | none | `EirAuthorization.*` |
+| GMLC | ngmlc-loc | -- | none | `GmlcAuthorization.*` |
+| LMF | nlmf-loc, nlmf-dataexposure | nlmf-broadcast: TS29572_Nlmf_Broadcast.yaml declares no security scheme, so there is no scope to require; mTLS only | none | `LmfAuthorization.*` |
+| NSSF | nnssf-nsselection, nnssf-nssaiavailability | -- | none | `NssfAuthorization.*` |
+
+None of these NFs has a Helm chart (pre-existing; their compose entries mount `config/`).
 
 **Phase 2 findings.**
 - **NFs fetch a token before registering.** With the NRF check on, hello-nf is refused
