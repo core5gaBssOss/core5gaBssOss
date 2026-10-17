@@ -4879,14 +4879,37 @@ int main() {
                      .has_value()) {
                 return err;
             }
-            auto patched = af_5glan_pp.merge_patch(req.path_params.at("afId"),
-                                                   req.path_params.at("subscriptionId"),
-                                                   json::parse(req.body));
-            if (!patched.has_value()) {
+            // REVIEW-5ae0ef1 SPEC-03: the body is a 5GLanParametersProvisionPatch wrapper, not a
+            // patch of the resource. Its 5gLanParams replaces the stored 5gLanParams; its
+            // 5gLanParamsPatch (deprecated: "the 5gLanParams attribute should be used instead",
+            // TS 29.522 table 5.7.2.3.5-1) is merged into them, and is not applied when
+            // 5gLanParams is also present.
+            const auto af_id = req.path_params.at("afId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            auto updated = af_5glan_pp.get(af_id, sub_id);
+            if (!updated.has_value()) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such 5GLAN parameter provisioning");
             }
-            return sbi_core::http2::Response::json(200, patched->dump());
+            const json body = json::parse(req.body);
+            if (body.contains("5gLanParams")) {
+                (*updated)["5gLanParams"] = body.at("5gLanParams");
+            } else if (body.contains("5gLanParamsPatch")) {
+                json params = updated->value("5gLanParams", json::object());
+                params.merge_patch(body.at("5gLanParamsPatch"));
+                (*updated)["5gLanParams"] = std::move(params);
+            }
+            try {
+                (void)updated->get<sbi_gen::N5GLanParametersProvision>();
+            } catch (const json::exception& e) {
+                return sbi_core::http2::problem_response(
+                    400, "The patched resource is not a 5GLanParametersProvision", e.what());
+            }
+            if (!af_5glan_pp.put(af_id, sub_id, *updated)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such 5GLAN parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, updated->dump());
         });
     server.add_route(
         "DELETE",
@@ -8171,10 +8194,26 @@ int main() {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
-            auto patched = af_monitoring_subs.merge_patch(req.path_params.at("scsAsId"),
-                                                          req.path_params.at("subscriptionId"),
-                                                          json::parse(req.body));
+            // REVIEW-5ae0ef1 SPEC-02: TS29122_MonitoringEvent.yaml patches with
+            // application/json-patch+json, a PatchItem array (RFC 6902) -- not a merge patch.
+            const auto af_id = req.path_params.at("scsAsId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            const auto current = af_monitoring_subs.get(af_id, sub_id);
+            if (!current.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such monitoring subscription");
+            }
+            auto patched = sbi_core::http2::apply_json_patch_body(req, *current);
             if (!patched.has_value()) {
+                return patched.error();
+            }
+            try {
+                (void)patched->get<sbi_gen::MonitoringEventSubscription>();
+            } catch (const json::exception& e) {
+                return sbi_core::http2::problem_response(
+                    400, "The patched subscription is not a MonitoringEventSubscription", e.what());
+            }
+            if (!af_monitoring_subs.put(af_id, sub_id, *patched)) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such monitoring subscription");
             }

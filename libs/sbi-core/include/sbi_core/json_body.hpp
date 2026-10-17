@@ -8,6 +8,7 @@
 
 #include <optional>
 #include <string_view>
+#include <tl/expected.hpp>
 
 // Shared request-body helpers for NF request handlers: build a ProblemDetails error response, and
 // parse a JSON (or multipart/related-wrapped JSON) request body into a generated sbi_gen DTO.
@@ -23,6 +24,16 @@
 namespace sbi_core::http2 {
 
 Response problem_response(int status, const std::string& title, const std::string& detail);
+
+// A PATCH body as every R19 YAML this repo serves declares it for "application/json-patch+json":
+// a JSON Patch (RFC 6902) document, an array of PatchItem with minItems 1 -- applied to `target`.
+// Returns the patched document, or the response to send instead (REVIEW-5ae0ef1 SPEC-02/04):
+// - another content type: 415 with Accept-Patch: application/json-patch+json (TS 29.500 5.2.7.2);
+// - malformed JSON, a repeated member name (TS 33.117, ADR-0354), not an array, an empty array,
+//   or a patch that cannot be applied (bad path, failed "test"): 400 INVALID_MSG_FORMAT.
+// The caller still validates the result against the resource's schema.
+tl::expected<nlohmann::json, Response> apply_json_patch_body(const Request& req,
+                                                             const nlohmann::json& target);
 
 // True when `body` is well-formed JSON in which some object repeats a member name. nlohmann::json
 // (like most parsers) keeps the last value silently, so a request such as

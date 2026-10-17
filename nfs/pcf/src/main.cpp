@@ -1646,6 +1646,26 @@ int main() {
                 context.sliceReplReq = body->sliceReplReq;
             }
             json j = context;
+            // REVIEW-5ae0ef1 SPEC-11: evSubsc (AmEventsSubscDataRm) is applied as the
+            // application/merge-patch+json body says (RFC 7396): null removes the events
+            // subscription, an object merges into it -- read from the raw body, since the DTO
+            // cannot tell null from absent. The result must still be an AmEventsSubscData.
+            const json raw = json::parse(req.body);
+            if (raw.contains("evSubsc")) {
+                if (raw.at("evSubsc").is_null()) {
+                    j.erase("evSubsc");
+                } else {
+                    json ev = j.value("evSubsc", json::object());
+                    ev.merge_patch(raw.at("evSubsc"));
+                    try {
+                        (void)ev.get<sbi_gen::AmEventsSubscData>();
+                    } catch (const json::exception& e) {
+                        return sbi_core::http2::problem_response(
+                            400, "evSubsc does not yield an AmEventsSubscData", e.what());
+                    }
+                    j["evSubsc"] = std::move(ev);
+                }
+            }
             app_am_contexts.put(id, j);
             am_auth_update_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
