@@ -399,6 +399,17 @@ fork-PR approval is already required for every outside contributor. CI (ADR-0468
 only the `.cpp` files a push changed (a PR: everything it changes against `main`), skips the build and sanitizer jobs when the whole diff against `main` is docs, and runs
 `lint`, then `build`, then the sanitizers.
 
+<h2 align="center">Work with this project</h2>
+
+- **Questions, ideas, deployment experiences:**
+  [GitHub Discussions](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/discussions).
+- **Bugs and spec deviations:**
+  [open an issue](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/issues) --
+  cite the 3GPP TS clause or YAML file it departs from, if you can.
+- **Collaboration, pilots, research or commercial use:** reach the maintainer through
+  [GitHub (@prajithparan)](https://github.com/prajithparan), or start a Discussion and say which.
+- **Contributing code:** see *Contributing / working style* above.
+
 <h2 align="center">License</h2>
 
 Apache License 2.0 — see [`LICENSE`](LICENSE).
