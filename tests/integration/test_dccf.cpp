@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -231,6 +232,7 @@ TEST(Dccf, CoordinatesCollectionThroughTheMfafDedupsAndTearsDown) {
     nf_test::SpawnedProcess dccf(DCCF_PATH);
 
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: the MFAF and DCCF enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kMfaf) + "/nmfaf-3dadatamanagement/v1/configurations", 30s))
         << "MFAF never came up";
     ASSERT_TRUE(wait_up(c, std::string(kNsacf) + "/nnsacf-slice-ee/v1/subscriptions", 30s))
