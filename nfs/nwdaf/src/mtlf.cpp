@@ -32,7 +32,6 @@ constexpr const char* kTrainingCallback = "Nnwdaf_MLModelTraining_myNotification
 constexpr const char* kAdrfDataManagementRoot = "/nadrf-datamanagement/v1";
 constexpr const char* kAdrfMlModelManagementRoot = "/nadrf-mlmodelmanagement/v1";
 constexpr const char* kNrfDiscRoot = "/nnrf-disc/v1";
-constexpr const char* kNrfNfmRoot = "/nnrf-nfm/v1";
 // servers[0].url of TS29520_Nnwdaf_MLModelMonitor.yaml; both roles serve parts of it.
 constexpr const char* kMonitorRoot = "/nnwdaf-mlmodelmonitor/v1";
 constexpr const char* kInboundPrefix = "/nwdaf-inbound/v1";
@@ -1063,17 +1062,25 @@ void Mtlf::run(std::atomic<bool>& running, const std::function<bool(std::int64_t
 
 // The AnLF's Nnwdaf_MLModelMonitor endpoint, from its NRF profile: nfServices[] named
 // nnwdaf-mlmodelmonitor, its scheme and first ipEndPoint (TS 29.510 NFService) -- the "service
-// discovery procedure at the NRF" 6.2E.3.3 allows for finding the subscription endpoint.
+// discovery procedure at the NRF" 6.2E.3.3 allows for finding the subscription endpoint. It is an
+// NFDiscovery (SearchResult.nfInstances, picked by nfInstanceId), not an NFManagement profile
+// read: the token this MTLF holds is for nnrf-disc, and the NRF enforces scope (ADR-0499).
 std::optional<std::string> Mtlf::anlf_monitor_base(const std::string& nf_instance_id) {
     const auto r = call(oauth_disc_,
                         "GET",
-                        options_.nrf_base + kNrfNfmRoot + "/nf-instances/" + nf_instance_id,
+                        options_.nrf_base + kNrfDiscRoot +
+                            "/nf-instances?target-nf-type=NWDAF&requester-nf-type=NWDAF",
                         nullptr);
     if (r.status != 200) {
         return std::nullopt;
     }
     try {
-        const auto profile = json::parse(r.body);
+        json profile = json::object();
+        for (const auto& p : json::parse(r.body).value("nfInstances", json::array())) {
+            if (p.value("nfInstanceId", "") == nf_instance_id) {
+                profile = p;
+            }
+        }
         for (const auto& svc : profile.value("nfServices", json::array())) {
             if (svc.value("serviceName", "") != "nnwdaf-mlmodelmonitor") {
                 continue;
