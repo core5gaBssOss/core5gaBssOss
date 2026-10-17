@@ -85,15 +85,6 @@ int main() {
         auto span = tracer->StartSpan("hello-nf.register");
         auto scope = opentelemetry::trace::Scope(span);
 
-        token = oauth.get_bearer_token();
-        if (!token.has_value()) {
-            spdlog::error("hello-nf: OAuth2 token fetch failed: {}", token.error());
-            span->SetStatus(opentelemetry::trace::StatusCode::kError, token.error());
-            span->End();
-            return 1;
-        }
-        spdlog::info("hello-nf: obtained OAuth2 bearer token");
-
         json profile{
             {"nfInstanceId", nf_instance_id},
             {"nfType", "AMF"},
@@ -106,7 +97,6 @@ int main() {
         put_req.method = "PUT";
         put_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + nf_instance_id;
         put_req.headers.emplace("content-type", "application/json");
-        put_req.headers.emplace("authorization", "Bearer " + *token);
         put_req.headers.emplace(
             sbi_core::headers::kSenderTimestamp,
             sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
@@ -121,6 +111,18 @@ int main() {
             return 1;
         }
         spdlog::info("hello-nf: registered (HTTP {})", put_resp->status);
+
+        // ADR-0499 phase 3: NFRegister needs no token (the NFManagement API admits requests
+        // without one); the token comes after it, since TS 33.501 13.4.1.1.2 makes registration
+        // the pre-requisite of a token.
+        token = oauth.get_bearer_token();
+        if (!token.has_value()) {
+            spdlog::error("hello-nf: OAuth2 token fetch failed: {}", token.error());
+            span->SetStatus(opentelemetry::trace::StatusCode::kError, token.error());
+            span->End();
+            return 1;
+        }
+        spdlog::info("hello-nf: obtained OAuth2 bearer token");
         span->End();
     }
 

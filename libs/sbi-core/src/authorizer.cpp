@@ -1,9 +1,10 @@
 #include "sbi_core/authorizer.hpp"
 
+#include "sbi_core/api_catalog.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <string>
 #include <string_view>
@@ -12,15 +13,6 @@
 
 namespace sbi_core::http2 {
 namespace {
-
-struct ApiScope {
-    std::string_view api_name;
-    std::string_view scope;
-};
-
-constexpr auto kApiScopes = std::to_array<ApiScope>({
-#include "api_scopes.inc"
-});
 
 std::vector<std::string> path_segments(const std::string& path) {
     std::vector<std::string> out;
@@ -107,13 +99,12 @@ Authorizer::Authorizer(AuthorizerConfig config, std::shared_ptr<jwt::Verifier> v
     : config_(std::move(config)), verifier_(std::move(verifier)) {}
 
 std::string Authorizer::required_scope(const std::string& path) {
-    const auto seg = path_segments(path);
-    if (seg.empty()) {
+    const auto name = api_catalog::api_name_of(path);
+    if (name.empty()) {
         return {};
     }
-    const auto it =
-        std::ranges::find(kApiScopes, std::string_view(seg.front()), &ApiScope::api_name);
-    return it == kApiScopes.end() ? seg.front() : std::string(it->scope);
+    const auto info = api_catalog::find(name);
+    return info ? std::string(info->scope) : name;
 }
 
 std::optional<Response> Authorizer::check(const Request& req) const {
