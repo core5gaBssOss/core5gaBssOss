@@ -883,31 +883,36 @@ int main() {
                     404, "Subscription Not Found", "No subscription with id " + id);
             }
             json current;
-            json patch;
             try {
                 current = json::parse(*existing);
-                patch = json::parse(req.body);
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
-                    400, "Missing or invalid mandatory IE", e.what());
+                    500, "Stored subscription unreadable", e.what());
             }
-            // A merge, which is what SACSubscriptionPatch is: named fields replace, absent fields
-            // are left alone. Not an RFC 6902 patch document -- the YAML's PATCH body is a partial
-            // representation, so applying it as one would be wrong.
-            current.merge_patch(patch);
-            // Re-parse the merged result: a PATCH can change the threshold, the period or the
+            // REVIEW-5ae0ef1 SPEC-04: TS29536_Nnsacf_SliceEventExposure.yaml patches with
+            // application/json-patch+json, a PatchItem array (RFC 6902).
+            auto patched = sbi_core::http2::apply_json_patch_body(req, current);
+            if (!patched.has_value()) {
+                return patched.error();
+            }
+            // Re-parse the patched result: a PATCH can change the threshold, the period or the
             // watched slices, and the reporting loop reads the RECORD, not the raw body. Storing
-            // the merged JSON without rebuilding the record would leave reports running against
+            // the patched JSON without rebuilding the record would leave reports running against
             // the pre-patch subscription -- a silent divergence.
-            sbi_gen::SACEventSubscription merged;
+            sbi_gen::SACEventSubscription updated;
             try {
-                merged = current.get<sbi_gen::SACEventSubscription>();
+                updated = patched->get<sbi_gen::SACEventSubscription>();
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
                     400, "Missing or invalid mandatory IE", e.what());
             }
-            subscriptions.replace(id, to_record(merged, current.dump()));
-            return sbi_core::http2::Response::json(200, current.dump());
+            subscriptions.replace(id, to_record(updated, patched->dump()));
+            // The 200 body is CreatedSACEventSubscription (the YAML's PATCH response), as for
+            // the POST's 201.
+            sbi_gen::CreatedSACEventSubscription result;
+            result.subscription = updated;
+            result.subscriptionId = id;
+            return sbi_core::http2::Response::json(200, json(result).dump());
         });
 
     server.add_route(
