@@ -209,6 +209,13 @@ TEST(SbiApiCatalog, NamesAndProducersComeFromTheYamls) {
     EXPECT_EQ(find("nmbsmf-tmgi")->nf_type, "MB_SMF"); // TS29532_Nmbsmf_TMGI.yaml, "_" dropped
     EXPECT_EQ(find("nrouter-smservice")->nf_type, ""); // SMS_ROUTER only by prefix: not guessed
     EXPECT_FALSE(find("udr-oam").has_value());
+    // TS29522_TrafficInfluence.yaml declares oAuth2ClientCredentials with `scopes: {}`: a token is
+    // required, no scope is checked (ADR-0499).
+    ASSERT_TRUE(find("3gpp-traffic-influence").has_value());
+    EXPECT_EQ(find("3gpp-traffic-influence")->scope, "");
+    EXPECT_EQ(sbi_core::http2::Authorizer::required_scope(
+                  "/3gpp-traffic-influence/v1/af-1/subscriptions"),
+              "");
 }
 
 } // namespace
