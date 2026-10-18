@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <utility>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -254,7 +255,7 @@ TEST(UdrExposureDataIntegration, SubsToNotifyLifecycle) {
     // limitation (see resolved_location / the onDataChange webhook comment in nfs/udr/src/
     // main.cpp), asserted here rather than worked around silently -- the subId is taken from the
     // path and the absolute URL rebuilt client-side.
-    const std::string location_path = location->second;
+    const std::string location_path = nf_test::location_path(location->second);
     EXPECT_EQ(location_path.rfind("/nudr-dr/v2/exposure-data/subs-to-notify/", 0), 0u)
         << location_path;
     const std::string sub_id = location_path.substr(location_path.rfind('/') + 1);

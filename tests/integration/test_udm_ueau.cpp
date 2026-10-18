@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include "TS29503_Nudm_UEAU_grp.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -214,7 +215,7 @@ TEST(UdmIntegration, ConfirmAuthThenDeleteAuthLifecycle) {
     EXPECT_EQ(confirm_resp->status, 201);
     const auto location_it = confirm_resp->headers.find("location");
     ASSERT_NE(location_it, confirm_resp->headers.end());
-    const std::string location = location_it->second;
+    const std::string location = nf_test::location_path(location_it->second);
     const auto confirmed = json::parse(confirm_resp->body).get<sbi_gen::AuthEvent>();
     EXPECT_EQ(confirmed.nfInstanceId, event.nfInstanceId);
 

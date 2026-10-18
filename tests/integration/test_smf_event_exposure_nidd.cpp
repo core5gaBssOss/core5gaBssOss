@@ -21,6 +21,7 @@
 
 #include "TS26510_CommonData_grp.hpp"
 #include "TS29542_Nsmf_NIDD.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 

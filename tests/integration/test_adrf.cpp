@@ -36,6 +36,7 @@
 #include <thread>
 #include <vector>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -336,7 +337,7 @@ TEST(Adrf, StoresRetrievesAndDeletesRecords) {
     const auto created = json::parse(r->body);
     EXPECT_EQ(created["storeHandl"]["lifetime"], 2592000); // config max_lifetime_seconds
     EXPECT_EQ(created["suppFeat"], "4");                   // EnhDataMgmt
-    const std::string location = r->headers.find("location")->second;
+    const std::string location = nf_test::location_path(r->headers.find("location")->second);
     ASSERT_NE(location.find(std::string(kDm) + "/data-store-records/"), std::string::npos);
     const std::string store_trans_id = location.substr(location.rfind('/') + 1);
 
@@ -425,7 +426,7 @@ TEST(Adrf, RetrievalSubscriptionsNotifyStoredAndFutureRecords) {
                             {"timePeriod", window(3600s, 3600s)}}));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string sub_location = r->headers.find("location")->second;
+    const std::string sub_location = nf_test::location_path(r->headers.find("location")->second);
     ASSERT_TRUE(receiver.wait_for("/notify", 1, 20s)) << "stored records were not notified";
     {
         const auto n = receiver.notes("/notify")[0];
@@ -460,7 +461,8 @@ TEST(Adrf, RetrievalSubscriptionsNotifyStoredAndFutureRecords) {
                             {"consTrigNotif", true}}));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string fetch_sub_location = r->headers.find("location")->second;
+    const std::string fetch_sub_location =
+        nf_test::location_path(r->headers.find("location")->second);
     ASSERT_TRUE(receiver.wait_for("/notify-fetch", 1, 20s)) << "no fetch instruction arrived";
     {
         const auto n = receiver.notes("/notify-fetch")[0];
@@ -524,7 +526,7 @@ TEST(Adrf, LifetimeAlertsBeforeDeletionAndHonoursRetrievalInd) {
     auto r = c.send(request("POST", std::string(kAdrf) + kDm + "/data-store-records", rec));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string location = r->headers.find("location")->second;
+    const std::string location = nf_test::location_path(r->headers.find("location")->second);
     const std::string id = location.substr(location.rfind('/') + 1);
     const auto stored_at = std::chrono::steady_clock::now();
 
@@ -785,7 +787,7 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
     const auto created = json::parse(r->body);
-    const std::string record_location = r->headers.find("location")->second;
+    const std::string record_location = nf_test::location_path(r->headers.find("location")->second);
     ASSERT_EQ(created["mlModelInfo"].size(), 1U) << created.dump();
     EXPECT_EQ(created["mlModelInfo"][0]["mlStorageSize"], 10);
     EXPECT_EQ(created["suppFeat"], "1"); // EnModelMgmt
@@ -832,7 +834,8 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
     EXPECT_EQ(json::parse(r->body)["mlModelInfo"][0]["mlStorageSize"], 20);
-    const std::string download_location = r->headers.find("location")->second;
+    const std::string download_location =
+        nf_test::location_path(r->headers.find("location")->second);
     r = c.send(as(
         request("POST",
                 std::string(kAdrf) + kMl + "/mlmodel-store-records",

@@ -29,6 +29,7 @@
 #include <thread>
 #include <vector>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -280,7 +281,8 @@ TEST(Dccf, CoordinatesCollectionThroughTheMfafDedupsAndTearsDown) {
                          {"dataNotifCorrId", "nrf-corr-a"}}));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string nrf_sub_location = r->headers.find("location")->second;
+    const std::string nrf_sub_location =
+        nf_test::location_path(r->headers.find("location")->second);
     EXPECT_NE(nrf_sub_location.find("/data-subscriptions/"), std::string::npos);
 
     nf_test::SpawnedProcess nwdaf(NWDAF_PATH); // registers with the NRF -> NF_REGISTERED
@@ -299,12 +301,12 @@ TEST(Dccf, CoordinatesCollectionThroughTheMfafDedupsAndTearsDown) {
                     nsacf_data_subscription("/consumer-a", "nsacf-corr-a")));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string nsacf_sub_a = r->headers.find("location")->second;
+    const std::string nsacf_sub_a = nf_test::location_path(r->headers.find("location")->second);
     r = c.send(post(std::string(kDccf) + kDataManagementRoot + "/data-subscriptions",
                     nsacf_data_subscription("/consumer-b", "nsacf-corr-b")));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string nsacf_sub_b = r->headers.find("location")->second;
+    const std::string nsacf_sub_b = nf_test::location_path(r->headers.find("location")->second);
 
     const auto admit = [&](const std::string& supi) {
         auto req =

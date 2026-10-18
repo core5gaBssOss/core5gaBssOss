@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 

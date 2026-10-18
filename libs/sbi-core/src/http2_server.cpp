@@ -633,6 +633,16 @@ private:
         }
         StreamContext& ctx = it->second;
 
+        // REVIEW-5ae0ef1 SBI-05: every YAML describes Location as "{apiRoot}/<path>" (e.g.
+        // TS29503_Nudm_EE.yaml), an absolute URI. A handler's bare path is made absolute here,
+        // once for all NFs: apiRoot = https://<the :authority this request reached the NF at>
+        // (TS 29.501 4.4.1). A Location that is already absolute is left alone.
+        for (auto& [name, value] : resp.headers) {
+            if (name == "location" && value.starts_with('/') && !ctx.authority.empty()) {
+                value = "https://" + ctx.authority + value;
+            }
+        }
+
         ctx.response_body = std::move(resp.body);
         ctx.response_offset = 0;
 

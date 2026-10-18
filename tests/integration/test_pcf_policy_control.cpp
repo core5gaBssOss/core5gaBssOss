@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -103,7 +104,8 @@ TEST(PcfIntegration, AmPolicyAssociationFullLifecycle) {
     ASSERT_EQ(create_resp->status, 201);
     const auto location_it = create_resp->headers.find("location");
     ASSERT_NE(location_it, create_resp->headers.end());
-    const std::string pol_asso_url = "https://127.0.0.1:7783" + location_it->second;
+    const std::string pol_asso_url =
+        "https://127.0.0.1:7783" + nf_test::location_path(location_it->second);
 
     const auto created =
         json::parse(create_resp->body).get<sbi_gen::PolicyAssociation_Npcf_AMPolicyControl>();
@@ -217,7 +219,8 @@ TEST(PcfIntegration, SmPolicyFullLifecycleUsesRequestSuppliedDefaults) {
     ASSERT_EQ(create_resp->status, 201);
     const auto location_it = create_resp->headers.find("location");
     ASSERT_NE(location_it, create_resp->headers.end());
-    const std::string sm_policy_url = "https://127.0.0.1:7783" + location_it->second;
+    const std::string sm_policy_url =
+        "https://127.0.0.1:7783" + nf_test::location_path(location_it->second);
 
     const auto decision = json::parse(create_resp->body).get<sbi_gen::SmPolicyDecision>();
     ASSERT_TRUE(decision.sessRules.has_value());

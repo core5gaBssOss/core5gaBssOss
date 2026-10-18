@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <utility>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -316,9 +317,9 @@ TEST(UdrPolicyDataGapClosureIntegration, PolicyDataSubsToNotifyLifecycle) {
     if (create_resp->status == 201) {
         const auto loc_it = create_resp->headers.find("location");
         ASSERT_NE(loc_it, create_resp->headers.end());
-        const auto pos = loc_it->second.find_last_of('/');
+        const auto pos = nf_test::location_path(loc_it->second).find_last_of('/');
         ASSERT_NE(pos, std::string::npos);
-        subs_id = loc_it->second.substr(pos + 1);
+        subs_id = nf_test::location_path(loc_it->second).substr(pos + 1);
     }
     ASSERT_FALSE(subs_id.empty());
     const std::string individual_url = collection_url + "/" + subs_id;

@@ -23,6 +23,7 @@
 #include <thread>
 #include <vector>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -214,7 +215,7 @@ TEST(Mfaf, ConfigureNotifyDeliverFetchAndTransferAcrossReplicas) {
     ASSERT_EQ(r->status, 201) << r->body;
     const auto loc_it = r->headers.find("location");
     ASSERT_NE(loc_it, r->headers.end());
-    const std::string location = loc_it->second;
+    const std::string location = nf_test::location_path(loc_it->second);
     const auto created = json::parse(r->body);
     ASSERT_TRUE(created["messageConfigurations"][0].contains("mfafNotiInfo")) << r->body;
     const std::string mfaf_notif_uri =

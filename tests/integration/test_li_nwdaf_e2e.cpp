@@ -24,6 +24,7 @@
 #include "li_core/x2x3_pdu.hpp"
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -243,7 +244,7 @@ TEST(LiNwdafEndToEnd, SubscribeNotifyUpdateUnsubscribeAndQueryForATargetAreRepor
     const auto created = consumer_request(
         "POST", std::string(kNwdaf) + kSubsRoot + "/subscriptions", sub, "PCF-e2e");
     ASSERT_EQ(created.status, 201) << created.body;
-    const std::string location = created.headers.find("location")->second;
+    const std::string location = nf_test::location_path(created.headers.find("location")->second);
 
     // The notifier runs every 2 s: wait for one notification record.
     EXPECT_TRUE(lab.mdf2.wait_until(
