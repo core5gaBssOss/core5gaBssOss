@@ -410,6 +410,8 @@ only the `.cpp` files a push changed (a PR: everything it changes against `main`
   [GitHub (@prajithparan)](https://github.com/prajithparan), or start a Discussion and say which.
 - **Contributing code:** see *Contributing / working style* above.
 
+Personal open-source project; not affiliated with or endorsed by my employer.
+
 <h2 align="center">License</h2>
 
 Apache License 2.0 — see [`LICENSE`](LICENSE).
