@@ -348,10 +348,21 @@ int main() {
                         }
                     }
                     if (const auto loc = r->headers.find("location"); loc != r->headers.end()) {
+                        // REVIEW-5ae0ef1 SEC-07: Location is "{apiRoot}/nudm-ee/v1/..."
+                        // (TS29503_Nudm_EE.yaml), absolute; a bare path is still resolved
+                        // against the UDM. A failed DELETE leaves an EE subscription behind at
+                        // the UDM, so it is logged.
                         http2::ClientRequest del;
                         del.method = "DELETE";
-                        del.url = udm_base + loc->second;
-                        (void)udm_client.send(del);
+                        del.url =
+                            loc->second.starts_with("http") ? loc->second : udm_base + loc->second;
+                        const auto d = udm_client.send(del);
+                        if (!d || d->status != 204) {
+                            spdlog::warn("aanf: EE subscription {} not removed at the UDM ({}) -- "
+                                         "it stays at the UDM",
+                                         del.url,
+                                         d ? std::to_string(d->status) : d.error());
+                        }
                     }
                 }
                 if (roaming.value_or(false)) {

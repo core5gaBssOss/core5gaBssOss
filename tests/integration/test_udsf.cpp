@@ -32,6 +32,7 @@
 #include "TS29598_Nudsf_DataRepository.hpp"
 #include "TS29598_Nudsf_Timer.hpp"
 #include "http_util.hpp"
+#include "location_path.hpp"
 #include "patch.hpp"
 #include "search.hpp"
 #include "spawn_guard.hpp"
@@ -490,7 +491,8 @@ TEST_F(Udsf, RecordCreateRetrieveUpdateDelete) {
                         {block("b1", "application/octet-stream", std::string("\x00\x01\x02", 3)),
                          block("b2", "application/json", R"({"k":1})")});
     ASSERT_EQ(r.status, 201) << r.body;
-    EXPECT_NE(header_of(r, "location").find("/nudsf-dr/v1/" + realm() + "/S1/records/rec1"),
+    EXPECT_NE(nf_test::location_path(header_of(r, "location"))
+                  .find("/nudsf-dr/v1/" + realm() + "/S1/records/rec1"),
               std::string::npos);
     const auto etag1 = header_of(r, "etag");
     ASSERT_FALSE(etag1.empty());
@@ -608,7 +610,8 @@ TEST_F(Udsf, BlockLifecycle) {
                   std::string("\x10\x20", 2),
                   "application/vnd.test");
     ASSERT_EQ(c.status, 201) << c.body;
-    EXPECT_NE(header_of(c, "location").find("/records/k1/blocks/blob"), std::string::npos);
+    EXPECT_NE(nf_test::location_path(header_of(c, "location")).find("/records/k1/blocks/blob"),
+              std::string::npos);
     const auto etag = header_of(c, "etag");
     auto g = send("GET", base() + "/records/k1/blocks/blob");
     ASSERT_EQ(g.status, 200);
@@ -782,7 +785,7 @@ TEST_F(Udsf, SubscriptionsAndDataChangeNotification) {
                    {"supportedFeatures", "1"}};
     auto r = send("PUT", base() + "/subs-to-notify/sub1", sub.dump(), "application/json");
     ASSERT_EQ(r.status, 201) << r.body;
-    EXPECT_FALSE(header_of(r, "location").empty());
+    EXPECT_FALSE(nf_test::location_path(header_of(r, "location")).empty());
     auto created = json::parse(r.body).get<sbi_gen::NotificationSubscription>();
     EXPECT_TRUE(
         created.expiry.has_value()); // operator ceiling applied (UDSF_MAX_SUBSCRIPTION_SECONDS)

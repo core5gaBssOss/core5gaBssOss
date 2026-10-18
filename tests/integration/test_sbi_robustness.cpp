@@ -5,6 +5,9 @@
 //   (TS_29.500_j70.txt:2042).
 // - SBI-04: a path served with other methods is 405 with Allow (:2031); a method no route serves
 //   is 501 (:2028); only an unknown path is 404.
+// - SBI-05: a handler's bare-path Location reaches the consumer as "{apiRoot}/<path>", apiRoot
+//   being the scheme and the authority the request used (TS_29.501_j50.txt:451-456); an absolute
+//   Location is passed through.
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -126,4 +129,31 @@ TEST(SbiRobustness, WrongMethodIs405WithAllowUnknownMethodIs501UnknownPathIs404)
     EXPECT_EQ(send(client, "PATCH", s.base() + "/things/1", "{}").status, 501)
         << "no route of this server serves PATCH";
     EXPECT_EQ(send(client, "GET", s.base() + "/nothing-here").status, 404);
+}
+
+TEST(SbiRobustness, ABarePathLocationIsMadeAbsoluteWithTheApiRoot) {
+    RunningServer s;
+    s.server.add_route("POST", "/things", [](const sbi_core::http2::Request&) {
+        auto r = sbi_core::http2::Response::json(201, "{}");
+        r.headers.emplace("location", "/things/1");
+        return r;
+    });
+    s.server.add_route("POST", "/elsewhere", [](const sbi_core::http2::Request&) {
+        auto r = sbi_core::http2::Response::json(201, "{}");
+        r.headers.emplace("location", "https://other.example:443/things/2");
+        return r;
+    });
+    s.start();
+
+    sbi_core::http2::Client client(test_tls());
+    const auto made = send(client, "POST", s.base() + "/things", "{}");
+    ASSERT_EQ(made.status, 201) << made.body;
+    const auto loc = made.headers.find("location");
+    ASSERT_NE(loc, made.headers.end());
+    EXPECT_EQ(loc->second, s.base() + "/things/1");
+
+    const auto kept = send(client, "POST", s.base() + "/elsewhere", "{}");
+    const auto abs = kept.headers.find("location");
+    ASSERT_NE(abs, kept.headers.end());
+    EXPECT_EQ(abs->second, "https://other.example:443/things/2");
 }

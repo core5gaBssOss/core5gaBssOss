@@ -43,6 +43,7 @@
 #include <thread>
 #include <vector>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -150,7 +151,7 @@ public:
                 std::string callback;
                 if (const auto it = req.headers.find("3gpp-sbi-callback");
                     it != req.headers.end()) {
-                    callback = it->second;
+                    callback = nf_test::location_path(it->second);
                 }
                 {
                     const std::lock_guard<std::mutex> lock(mutex_);
@@ -387,7 +388,7 @@ TEST(NwdafMtlf, TrainsStoresProvisionsAndTheAnlfPredicts) {
     }
     std::string mixed_location;
     if (const auto it = r->headers.find("location"); it != r->headers.end()) {
-        mixed_location = it->second;
+        mixed_location = nf_test::location_path(it->second);
     }
     ASSERT_FALSE(mixed_location.empty());
     r = c.send(as_consumer(request("DELETE", std::string(kMtlf) + mixed_location)));
@@ -408,7 +409,7 @@ TEST(NwdafMtlf, TrainsStoresProvisionsAndTheAnlfPredicts) {
     ASSERT_EQ(r->status, 201) << r->body;
     std::string location;
     if (const auto it = r->headers.find("location"); it != r->headers.end()) {
-        location = it->second;
+        location = nf_test::location_path(it->second);
     }
     ASSERT_NE(location.find(std::string(kProv) + "/subscriptions/"), std::string::npos) << location;
 
@@ -720,7 +721,7 @@ TEST(NwdafMtlf, AccuracyBelowThresholdIsReportedAndDrivesRetraining) {
     ASSERT_EQ(r->status, 201) << r->body;
     std::string location;
     if (const auto it = r->headers.find("location"); it != r->headers.end()) {
-        location = it->second;
+        location = nf_test::location_path(it->second);
     }
     ASSERT_TRUE(receiver.wait_until(120s, [](const Receiver::Note& n) {
         return !nf_load_notif(n.body).is_null();
@@ -803,7 +804,7 @@ TEST(NwdafMtlf, AccuracyBelowThresholdIsReportedAndDrivesRetraining) {
     ASSERT_EQ(r->status, 201) << r->body;
     std::string mon_location;
     if (const auto it = r->headers.find("location"); it != r->headers.end()) {
-        mon_location = it->second;
+        mon_location = nf_test::location_path(it->second);
     }
     ASSERT_NE(mon_location.find("/nnwdaf-mlmodelmonitor/v1/subscriptions/"), std::string::npos);
 

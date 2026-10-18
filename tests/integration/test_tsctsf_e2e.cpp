@@ -15,6 +15,7 @@
 #include <string>
 #include <thread>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -146,7 +147,7 @@ TEST(TsctsfEndToEnd, GpsiOnlyQosRequestReachesThePcfOfThePduSessionThroughTheTsc
                          "application/json",
                          sm_ctx.dump());
     ASSERT_EQ(sm.status, 201) << sm.body;
-    const std::string sm_policy = sm.headers.find("location")->second;
+    const std::string sm_policy = nf_test::location_path(sm.headers.find("location")->second);
 
     const auto bsf_token = token(c, "nbsf-management", "BSF");
     sbi_core::http2::ClientResponse binding;
@@ -208,7 +209,7 @@ TEST(TsctsfEndToEnd, GpsiOnlyQosRequestReachesThePcfOfThePduSessionThroughTheTsc
     EXPECT_EQ(asc.at("medComponents").at("1").value("qosReference", ""), "qos-gold");
 
     // Revoke at the NEF -> the TSCTSF deletes the AF session at the PCF.
-    const auto location = created.headers.find("location")->second;
+    const auto location = nf_test::location_path(created.headers.find("location")->second);
     EXPECT_EQ(send(c, "DELETE", "https://127.0.0.1:7790" + location, "", "", "").status, 204);
     EXPECT_EQ(send(c,
                    "GET",
@@ -238,7 +239,8 @@ TEST(TsctsfEndToEnd, GpsiOnlyQosRequestReachesThePcfOfThePduSessionThroughTheTsc
         std::this_thread::sleep_for(100ms);
     }
     ASSERT_EQ(after.size(), 2U);
-    const auto ip_ctx = std::string("https://127.0.0.1:7825") + ip.headers.find("location")->second;
+    const auto ip_ctx = std::string("https://127.0.0.1:7825") +
+                        nf_test::location_path(ip.headers.find("location")->second);
     const auto patched = send(c,
                               "PATCH",
                               ip_ctx,

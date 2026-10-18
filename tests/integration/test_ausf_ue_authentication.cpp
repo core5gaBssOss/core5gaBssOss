@@ -24,6 +24,7 @@
 #include "aka_crypto/hex.hpp"
 #include "aka_crypto/kdf.hpp"
 #include "aka_crypto/milenage.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -161,7 +162,8 @@ TEST(AusfIntegration, FiveGAkaSuccessfulAuthenticationCrossChecksHxresAndKseaf) 
     ASSERT_EQ(resp->status, 201);
     const auto location_it = resp->headers.find("location");
     ASSERT_NE(location_it, resp->headers.end());
-    const std::string auth_ctx_url = "https://127.0.0.1:7782" + location_it->second;
+    const std::string auth_ctx_url =
+        "https://127.0.0.1:7782" + nf_test::location_path(location_it->second);
 
     const auto ctx = json::parse(resp->body).get<sbi_gen::UEAuthenticationCtx>();
     EXPECT_EQ(ctx.authType.value, sbi_gen::AuthType_Nausf_UEAuthentication::V5G_AKA);
@@ -246,7 +248,8 @@ TEST(AusfIntegration, FiveGAkaWrongResStarIsAuthenticationFailure) {
     ASSERT_EQ(resp->status, 201);
     const auto location_it = resp->headers.find("location");
     ASSERT_NE(location_it, resp->headers.end());
-    const std::string auth_ctx_url = "https://127.0.0.1:7782" + location_it->second;
+    const std::string auth_ctx_url =
+        "https://127.0.0.1:7782" + nf_test::location_path(location_it->second);
 
     sbi_gen::ConfirmationData confirm{};
     confirm.resStar = std::string(32, '0'); // deliberately wrong
@@ -297,7 +300,8 @@ TEST(AusfIntegration, EapAkaPrimeSuccessfulAuthenticationCrossChecksMacKseafAndM
     ASSERT_EQ(resp->status, 201);
     const auto location_it = resp->headers.find("location");
     ASSERT_NE(location_it, resp->headers.end());
-    const std::string auth_ctx_url = "https://127.0.0.1:7782" + location_it->second;
+    const std::string auth_ctx_url =
+        "https://127.0.0.1:7782" + nf_test::location_path(location_it->second);
 
     const auto ctx = json::parse(resp->body).get<sbi_gen::UEAuthenticationCtx>();
     EXPECT_EQ(ctx.authType.value, sbi_gen::AuthType_Nausf_UEAuthentication::EAP_AKA_PRIME);
@@ -401,7 +405,8 @@ TEST(AusfIntegration, EapAkaPrimeWrongResIsAuthenticationFailure) {
     ASSERT_EQ(resp->status, 201);
     const auto location_it = resp->headers.find("location");
     ASSERT_NE(location_it, resp->headers.end());
-    const std::string auth_ctx_url = "https://127.0.0.1:7782" + location_it->second;
+    const std::string auth_ctx_url =
+        "https://127.0.0.1:7782" + nf_test::location_path(location_it->second);
 
     const auto ctx = json::parse(resp->body).get<sbi_gen::UEAuthenticationCtx>();
     const std::string eap_payload_b64 = ctx.n5gAuthData.get<std::string>();

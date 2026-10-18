@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 

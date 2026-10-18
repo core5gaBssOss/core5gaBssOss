@@ -21,6 +21,7 @@
 #include "li_core/x2x3_pdu.hpp"
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -204,7 +205,8 @@ TEST(LiNefEndToEnd, AfSessionWithQosCreateUpdatePatchRevokeEachReportAProvisionR
     ASSERT_EQ(created.status, 201) << created.body;
     const auto location = created.headers.find("location");
     ASSERT_NE(location, created.headers.end());
-    const std::string resource = "https://127.0.0.1:7790" + location->second;
+    const std::string resource =
+        "https://127.0.0.1:7790" + nf_test::location_path(location->second);
 
     json replaced = sub;
     replaced["qosReference"] = "qos-silver";

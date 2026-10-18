@@ -26,6 +26,7 @@
 #include "TS29518_Namf_MBSBroadcast.hpp"
 #include "TS29518_Namf_MBSCommunication.hpp"
 #include "TS29518_Namf_MT.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 

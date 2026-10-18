@@ -23,6 +23,7 @@
 #include <thread>
 #include <unistd.h>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -416,7 +417,8 @@ TEST(PcfChfN28Integration, FullLoopSubscribeStatusChangeNotifyUnsubscribe) {
     ASSERT_EQ(create_resp->status, 201);
     const auto location_it = create_resp->headers.find("location");
     ASSERT_NE(location_it, create_resp->headers.end());
-    const auto sm_policy_id = location_it->second.substr(location_it->second.find_last_of('/') + 1);
+    const auto sm_policy_id = nf_test::location_path(location_it->second)
+                                  .substr(location_it->second.find_last_of('/') + 1);
 
     // Real success signal: CHF is now reachable, so this real subscribe should actually succeed
     // (unlike CreateSmPolicyFailsOpenWhenChfUnreachable above).
