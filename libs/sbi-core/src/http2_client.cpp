@@ -79,8 +79,29 @@ int prereq_export_callback(void* clientp,
 
 } // namespace
 
-Client::Client(TlsConfig tls) : tls_(std::move(tls)) {
+namespace {
+
+long env_ms(const char* name, long fallback) {
+    const char* v = std::getenv(name);
+    if (v == nullptr || *v == '\0') {
+        return fallback;
+    }
+    char* end = nullptr;
+    const long parsed = std::strtol(v, &end, 10);
+    return (end != nullptr && *end == '\0' && parsed > 0) ? parsed : fallback;
+}
+
+} // namespace
+
+Client::Client(TlsConfig tls)
+    : tls_(std::move(tls)), connect_timeout_ms_(env_ms("SBI_CLIENT_CONNECT_TIMEOUT_MS", 5000)),
+      total_timeout_ms_(env_ms("SBI_CLIENT_TIMEOUT_MS", 30000)) {
     ensure_curl_global_init();
+}
+
+void Client::set_timeouts(std::chrono::milliseconds connect, std::chrono::milliseconds total) {
+    connect_timeout_ms_ = static_cast<long>(connect.count());
+    total_timeout_ms_ = static_cast<long>(total.count());
 }
 
 Client::~Client() {
@@ -170,6 +191,8 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
     curl_easy_reset(curl);
 
     curl_easy_setopt(curl, CURLOPT_URL, request.url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, connect_timeout_ms_);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, total_timeout_ms_);
     // CURL_HTTP_VERSION_2TLS: negotiate HTTP/2 via ALPN over TLS, as opposed to
     // CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE (cleartext h2c, no longer used -- see ADR-0011).
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
