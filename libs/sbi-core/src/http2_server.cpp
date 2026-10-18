@@ -22,7 +22,9 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -126,6 +128,18 @@ struct Route {
     RouteAuth auth = RouteAuth::OAuth2;
 };
 
+std::size_t default_max_body_bytes() {
+    constexpr std::size_t kDefault = 16U * 1024U * 1024U;
+    const char* v = std::getenv("SBI_MAX_BODY_BYTES");
+    if (v == nullptr || *v == '\0') {
+        return kDefault;
+    }
+    char* end = nullptr;
+    const unsigned long long parsed = std::strtoull(v, &end, 10);
+    return (end != nullptr && *end == '\0' && parsed > 0) ? static_cast<std::size_t>(parsed)
+                                                          : kDefault;
+}
+
 bool try_match(const Route& route,
                const std::string& method,
                const std::vector<std::string>& path_segments,
@@ -185,6 +199,7 @@ struct StreamContext {
     std::string authority;
     std::multimap<std::string, std::string> headers;
     std::string body;
+    bool body_too_large = false; // SEC-09: data beyond the limit was discarded; answer 413
     std::string response_body;
     std::size_t response_offset = 0;
 };
@@ -199,10 +214,11 @@ public:
                const std::vector<Route>& routes,
                TokenBucket* rate_limit,
                const std::vector<TlsExport>& exporters,
-               std::shared_ptr<const Authorizer> authorizer)
+               std::shared_ptr<const Authorizer> authorizer,
+               std::size_t max_body_bytes)
         : ioc_(ioc), socket_(std::move(socket), ssl_ctx), strand_(ioc.get_executor()),
           routes_(routes), rate_limit_(rate_limit), exporters_(exporters),
-          authorizer_(std::move(authorizer)) {}
+          authorizer_(std::move(authorizer)), max_body_bytes_(max_body_bytes) {}
 
     ~Connection() {
         if (session_ != nullptr) {
@@ -421,6 +437,21 @@ private:
         }
         StreamContext& ctx = it->second;
 
+        if (ctx.body_too_large) {
+            Response resp;
+            resp.status = 413;
+            resp.headers.emplace("content-type", "application/problem+json");
+            // TS 29.500 5.2.7.2 / table 5.2.7.2-1 (TS_29.500_j70.txt:2116).
+            resp.body = R"({"status":413,"title":"Content Too Large",)"
+                        R"("cause":"MAX_JSON_SIZE_EXCEEDED",)"
+                        R"("detail":"The request body exceeds this NF's limit"})";
+            auto self = shared_from_this();
+            boost::asio::post(strand_, [self, stream_id, resp = std::move(resp)]() mutable {
+                self->submit_response(stream_id, std::move(resp));
+            });
+            return;
+        }
+
         auto req = std::make_shared<Request>();
         req->method = ctx.method;
         req->path = ctx.path;
@@ -481,11 +512,41 @@ private:
         }
 
         if (matched_handler == nullptr) {
+            // REVIEW-5ae0ef1 SBI-04, TS 29.500 5.2.7.2: a method no resource of this NF supports
+            // is 501; a resource that exists but not for this method is 405 with Allow; only an
+            // unknown resource is 404.
+            bool method_known = false;
+            std::set<std::string> allowed;
+            for (const auto& route : routes_) {
+                method_known = method_known || route.method == "*" || route.method == req->method;
+                std::map<std::string, std::string> ignored;
+                if (try_match(route,
+                              route.method == "*" ? req->method : route.method,
+                              segments,
+                              ignored)) {
+                    allowed.insert(route.method == "*" ? req->method : route.method);
+                }
+            }
             Response resp;
-            resp.status = 404;
             resp.headers.emplace("content-type", "application/problem+json");
-            resp.body = R"({"status":404,"title":"Not Found",)"
-                        R"("detail":"No route matches this method/path"})";
+            if (!method_known) {
+                resp.status = 501;
+                resp.body = R"({"status":501,"title":"Not Implemented",)"
+                            R"("detail":"This NF supports this method on no resource"})";
+            } else if (!allowed.empty()) {
+                resp.status = 405;
+                std::string allow;
+                for (const auto& m : allowed) {
+                    allow += (allow.empty() ? "" : ", ") + m;
+                }
+                resp.headers.emplace("allow", allow);
+                resp.body = R"({"status":405,"title":"Method Not Allowed",)"
+                            R"("detail":"This resource does not support this method"})";
+            } else {
+                resp.status = 404;
+                resp.body = R"({"status":404,"title":"Not Found",)"
+                            R"("detail":"No route matches this method/path"})";
+            }
             boost::asio::post(strand_, [self, stream_id, resp = std::move(resp)]() mutable {
                 self->submit_response(stream_id, std::move(resp));
             });
@@ -685,7 +746,16 @@ private:
         auto* self = static_cast<Connection*>(user_data);
         auto it = self->streams_.find(stream_id);
         if (it != self->streams_.end()) {
-            it->second.body.append(reinterpret_cast<const char*>(data), len);
+            StreamContext& ctx = it->second;
+            if (ctx.body_too_large) {
+                return 0;
+            }
+            if (ctx.body.size() + len > self->max_body_bytes_) {
+                ctx.body_too_large = true;
+                std::string().swap(ctx.body);
+                return 0;
+            }
+            ctx.body.append(reinterpret_cast<const char*>(data), len);
         }
         return 0;
     }
@@ -730,6 +800,7 @@ private:
     std::vector<std::string> peer_cert_dns_names_;
     const std::vector<TlsExport>& exporters_;
     std::shared_ptr<const Authorizer> authorizer_;
+    std::size_t max_body_bytes_;
     std::map<std::string, std::vector<std::uint8_t>> tls_exports_;
     std::unordered_map<std::int32_t, StreamContext> streams_;
 };
@@ -845,7 +916,8 @@ private:
                                                              routes_,
                                                              rate_limit_.get(),
                                                              exporters_,
-                                                             authorizer_);
+                                                             authorizer_,
+                                                             max_body_bytes_);
                     conn->start();
                 }
                 do_accept();
@@ -859,8 +931,11 @@ private:
     std::vector<TlsExport> exporters_;
     std::shared_ptr<const Authorizer> authorizer_;
     std::unique_ptr<TokenBucket> rate_limit_;
+    std::size_t max_body_bytes_ = default_max_body_bytes();
 
 public:
+    void set_max_body_bytes(std::size_t max_bytes) { max_body_bytes_ = max_bytes; }
+
     void set_tps_limit(double sustained_tps, double burst_capacity) {
         if (sustained_tps <= 0.0) {
             rate_limit_.reset();
@@ -884,6 +959,10 @@ Server::~Server() = default;
 
 void Server::set_tps_limit(double sustained_tps, double burst_capacity) {
     impl_->set_tps_limit(sustained_tps, burst_capacity);
+}
+
+void Server::set_max_body_bytes(std::size_t max_bytes) {
+    impl_->set_max_body_bytes(max_bytes);
 }
 
 std::uint64_t Server::shed_count() const {

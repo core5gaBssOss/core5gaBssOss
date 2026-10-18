@@ -2,6 +2,7 @@
 
 #include "sbi_core/tls_config.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -86,6 +87,13 @@ public:
     // other threads send; empty clears it). See sbi_core::install_default_token_source.
     static void set_default_token_source(TokenSourceFn source);
 
+    // REVIEW-5ae0ef1 SEC-08: a peer that accepts the connection and never answers must not hold
+    // the calling thread forever. Defaults: connect 5 s, whole request 30 s; overridable per
+    // process with SBI_CLIENT_CONNECT_TIMEOUT_MS / SBI_CLIENT_TIMEOUT_MS, or per client here. A
+    // timeout is an error from send() (curl's "Timeout was reached"); the caller maps it (504 when
+    // it was relaying, TS 29.500 table 5.2.7.1-1).
+    void set_timeouts(std::chrono::milliseconds connect, std::chrono::milliseconds total);
+
     [[nodiscard]] const TlsConfig& tls() const { return tls_; }
 
 private:
@@ -109,6 +117,8 @@ private:
 
     TlsConfig tls_;
     TokenSourceFn token_source_;
+    long connect_timeout_ms_ = 5000;
+    long total_timeout_ms_ = 30000;
     std::mutex mutex_;        // guards idle_ only -- never held across curl_easy_perform
     std::vector<void*> idle_; // CURL*, opaque here to avoid leaking <curl/curl.h> into includers
 };
