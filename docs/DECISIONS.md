@@ -466,6 +466,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0498](decisions/ADR-0498-tsctsf-increment-1-ntsctsf-qosandtscassistance-for-af.md) TSCTSF increment 1 -- Ntsctsf_QoSandTSCAssistance for AF requested QoS, PCF binding registration, NEF GPSI routing (TS 29.565)
 - [0499](decisions/ADR-0499-sbi-oauth2-authorization-access-tokens-required-by-default.md) SBI OAuth2 authorization -- access tokens required by default, phased rollout (REVIEW-5ae0ef1 SBI-01/02, SEC-03)
 - [0500](decisions/ADR-0500-charging-store-failover-synchronous-postgresql-ha-for-the.md) Charging store failover: synchronous PostgreSQL HA for the authoritative balance; CHF Valkey state as a rebuildable projection
+- [0501](decisions/ADR-0501-sbi-core-transport-robustness-absolute-location-from-the.md) sbi-core transport robustness: absolute Location from the request authority, client timeouts, request-body limit, never-destroyed token statics
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
