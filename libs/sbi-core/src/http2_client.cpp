@@ -9,6 +9,8 @@
 #include <mutex>
 #include <strings.h>
 
+#include "no_destroy.hpp"
+
 namespace sbi_core::http2 {
 
 namespace {
@@ -148,14 +150,15 @@ void Client::checkin(void* handle) {
 
 namespace {
 
+// Never destroyed (no_destroy.hpp): a detached NF thread may still send() while the process exits.
 std::mutex& default_source_mutex() {
-    static std::mutex m;
-    return m;
+    static detail::NoDestroy<std::mutex> m;
+    return m.get();
 }
 
 std::shared_ptr<const Client::TokenSourceFn>& default_source_slot() {
-    static std::shared_ptr<const Client::TokenSourceFn> slot;
-    return slot;
+    static detail::NoDestroy<std::shared_ptr<const Client::TokenSourceFn>> slot;
+    return slot.get();
 }
 
 std::shared_ptr<const Client::TokenSourceFn> default_token_source() {
