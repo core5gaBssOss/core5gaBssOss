@@ -462,7 +462,8 @@
   "ADR-0496-aanf-increment-2-gpsi-for-afs-and-the-nef-akma-path-ts-33.md",
   "ADR-0497-aanf-increment-3-roaming-check-via-the-udm-s-roaming-status.md",
   "ADR-0498-tsctsf-increment-1-ntsctsf-qosandtscassistance-for-af.md",
-  "ADR-0499-sbi-oauth2-authorization-access-tokens-required-by-default.md"
+  "ADR-0499-sbi-oauth2-authorization-access-tokens-required-by-default.md",
+  "ADR-0500-charging-store-failover-synchronous-postgresql-ha-for-the.md"
  ],
  "split_commit": "0530e4f"
 }
