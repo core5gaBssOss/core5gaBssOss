@@ -1,0 +1,10 @@
+{
+  "port": 7825,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9497",
+  "nrf_base_url": "https://nrf:7777",
+  "udm_base_url": "https://udm:7780",
+  "bsf_base_url": "https://bsf:7789",
+  "self_base_url": "https://tsctsf:7825",
+  "oauth2_required": true
+}
