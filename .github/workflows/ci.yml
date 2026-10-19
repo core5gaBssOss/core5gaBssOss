@@ -512,6 +512,9 @@ jobs:
           AUSF_REDIS_URL: tcp://127.0.0.1:16379
           NWDAF_REDIS_URL: tcp://127.0.0.1:16379
           MFAF_REDIS_URL: tcp://127.0.0.1:16379
+          # The AAnF (AKMA tests) read config/aanf.json's 127.0.0.1:6379 without this -- on this
+          # shared runner host that is a developer Valkey, so the tests passed only while it ran.
+          AANF_REDIS_URL: tcp://127.0.0.1:16379
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
@@ -945,6 +948,9 @@ jobs:
           AUSF_REDIS_URL: tcp://127.0.0.1:16379
           NWDAF_REDIS_URL: tcp://127.0.0.1:16379
           MFAF_REDIS_URL: tcp://127.0.0.1:16379
+          # The AAnF (AKMA tests) read config/aanf.json's 127.0.0.1:6379 without this -- on this
+          # shared runner host that is a developer Valkey, so the tests passed only while it ran.
+          AANF_REDIS_URL: tcp://127.0.0.1:16379
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
