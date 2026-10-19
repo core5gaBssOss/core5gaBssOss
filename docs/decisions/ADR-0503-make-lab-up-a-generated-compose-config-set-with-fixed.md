@@ -1,6 +1,6 @@
 ## ADR-0503: make lab-up: a generated compose config set with fixed container IPs
 
-**Date:** 2026-10-20. **Status:** Proposed (not yet run end to end; see "Verified").
+**Date:** 2026-10-20. **Status:** Accepted.
 
 **Context.** REVIEW-5ae0ef1 DEP-04: no Makefile, so no `make lab-up` (CLAUDE.md: "all
 reproducible from a single `make lab-up`"). DEP-02: `config/<nf>.json` is written for one host --
@@ -55,6 +55,14 @@ exited at startup (Valkey at 127.0.0.1:6379), 19 NFs could never reach the NRF. 
   NFDiscover would be unreachable.
 - *A hand-written compose config set*: drifts from `config/` silently; generated plus a CI check.
 
-**Verified.** Static only, so far: `docker compose -f docker-compose.yml -f
-docker-compose.lab.yml config -q` passes; no duplicate host ports; `--check` passes. Not yet run:
-`make lab-up` end to end (CI was using this host's ports).
+**Verified (2026-10-20, this host, existing 7-day-old images).** `make lab-up` run three times.
+First run found four defects, fixed in this ADR: `doris-schema-init` ran before a Doris backend
+registered (now waits for `SHOW BACKENDS` Alive); the NWDAF started without the `chf_features`
+database (now depends on the init); the SMF image lacked `libli_core.so` (six Dockerfiles --
+SMF, CHF, NEF, NWDAF, SMSF, UDM -- now ship li_core and its schemas, as AMF/UPF did); and a second
+run failed at `valkey-cluster-init` (now skips a formed cluster). Third run: every service running
+except the SMF (its image predates the Dockerfile fix) and AAnF, SEPP, TSCTSF (no image built yet);
+22 NFs logged "registered with NRF (HTTP 201)" -- NRF, AMF, UPF, UDM, UDR, AUSF, PCF, NSSF, BSF,
+NEF, SCP, EIR, NSACF, NWDAF (AnLF + MTLF), MFAF, UDSF, DCCF, ADRF, SMSF, GMLC, LMF, CHF -- with
+heartbeats continuing. Not verified: a UE registration or PDU session through the lab; the UPF's
+eBPF/XDP datapath does not start in its unprivileged container (PFCP signalling works).
