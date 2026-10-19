@@ -63,6 +63,8 @@ std::string base64_encode(std::string_view in) {
     return out;
 }
 
+// Reads the token's subject for the records below; the Authorizer has already verified the
+// token (ADR-0499).
 std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
                                                         sbi_core::jwt::Verifier& verifier) {
     auto it = req.headers.find("authorization");
@@ -1214,11 +1216,6 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
     const auto validate = [this](const sbi_core::http2::Request& req,
                                  json& record,
                                  std::optional<sbi_core::http2::Response>& err) {
-        auto auth = check_bearer(req, verifier_);
-        if (auth && !auth->valid) {
-            err = sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            return;
-        }
         sbi_core::http2::Response bad;
         auto dto = sbi_core::http2::parse_json_body<sbi_gen::NwdafMLModelProvSubsc>(req, bad);
         if (!dto) {
@@ -1267,6 +1264,7 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
         if (!failures.empty()) {
             request["failEventReports"] = failures;
         }
+        const auto auth = check_bearer(req, verifier_);
         record = json{{"request", request},
                       {"consumer", (auth && auth->valid) ? auth->subject : std::string()},
                       {"delivered", json::object()}};
@@ -1312,42 +1310,46 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
                          return resp;
                      });
 
-    server.add_route("PUT",
-                     std::string(kProvisionRoot) + "/subscriptions/{subscriptionId}",
-                     [=, this](const sbi_core::http2::Request& req) {
-                         const auto id = req.path_params.at("subscriptionId");
-                         auto existing = store_.get_provision_subscription(id);
-                         if (!existing) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "no ML model provision subscription " + id);
-                         }
-                         json record;
-                         std::optional<sbi_core::http2::Response> err;
-                         validate(req, record, err);
-                         if (err) {
-                             return *err;
-                         }
-                         // A modification keeps what was already delivered: a re-trained model is
-                         // notified as an update, not as a first provision.
-                         record["delivered"] = existing->value("delivered", json::object());
-                         if (!store_.replace_provision_subscription(id, record)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "no ML model provision subscription " + id);
-                         }
-                         return json_response(200, representation(id, record));
-                     });
+    server.add_route(
+        "PUT",
+        std::string(kProvisionRoot) + "/subscriptions/{subscriptionId}",
+        [=, this](const sbi_core::http2::Request& req) {
+            const auto id = req.path_params.at("subscriptionId");
+            auto existing = store_.get_provision_subscription(id);
+            if (!existing) {
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no ML model provision subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
+            }
+            json record;
+            std::optional<sbi_core::http2::Response> err;
+            validate(req, record, err);
+            if (err) {
+                return *err;
+            }
+            // A modification keeps what was already delivered: a re-trained model is
+            // notified as an update, not as a first provision.
+            record["delivered"] = existing->value("delivered", json::object());
+            if (!store_.replace_provision_subscription(id, record)) {
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no ML model provision subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
+            }
+            return json_response(200, representation(id, record));
+        });
 
     server.add_route("DELETE",
                      std::string(kProvisionRoot) + "/subscriptions/{subscriptionId}",
                      [this](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
-                             return sbi_core::http2::problem_response(
-                                 401, "Unauthorized", auth->error);
-                         }
                          const auto id = req.path_params.at("subscriptionId");
                          if (!store_.remove_provision_subscription(id)) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "no ML model provision subscription " + id);
+                                 404,
+                                 "Not Found",
+                                 "no ML model provision subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -1359,10 +1361,6 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
         "POST",
         std::string(kMonitorRoot) + "/registrations",
         [this](const sbi_core::http2::Request& req) {
-            auto auth = check_bearer(req, verifier_);
-            if (auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response bad;
             auto dto = sbi_core::http2::parse_json_body<sbi_gen::MLModelMonitorReg>(req, bad);
             if (!dto) {
@@ -1378,6 +1376,7 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
                                dto->consumerId ? "INVALID_MSG_FORMAT" : "MANDATORY_IE_MISSING");
             }
             const json request = json::parse(req.body);
+            const auto auth = check_bearer(req, verifier_);
             const auto id = store_.create_registration(
                 json{{"request", request},
                      {"registrant", (auth && auth->valid) ? auth->subject : std::string()}});
@@ -1390,24 +1389,21 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
             return resp;
         });
 
-    server.add_route("DELETE",
-                     std::string(kMonitorRoot) + "/registrations/{registrationId}",
-                     [this](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
-                             return sbi_core::http2::problem_response(
-                                 401, "Unauthorized", auth->error);
-                         }
-                         const auto id = req.path_params.at("registrationId");
-                         const auto reg = store_.get_registration(id);
-                         if (!reg || !store_.remove_registration(id)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "no ML model monitoring registration " + id);
-                         }
-                         unsubscribe_monitor(*reg);
-                         sbi_core::http2::Response resp;
-                         resp.status = 204;
-                         return resp;
-                     });
+    server.add_route(
+        "DELETE",
+        std::string(kMonitorRoot) + "/registrations/{registrationId}",
+        [this](const sbi_core::http2::Request& req) {
+            const auto id = req.path_params.at("registrationId");
+            const auto reg = store_.get_registration(id);
+            if (!reg || !store_.remove_registration(id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no ML model monitoring registration " + id, std::nullopt);
+            }
+            unsubscribe_monitor(*reg);
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
 
     // ---- inbound: Nnwdaf_MLModelMonitor_Notify from an AnLF ----------------------------------
     server.add_route(
@@ -1429,7 +1425,8 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
             try {
                 on_monitor_notification(json::parse(req.body));
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -1458,11 +1455,6 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
     const auto validate = [this](const sbi_core::http2::Request& req,
                                  json& record,
                                  std::optional<sbi_core::http2::Response>& err) {
-        auto auth = check_bearer(req, verifier_);
-        if (auth && !auth->valid) {
-            err = sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            return;
-        }
         sbi_core::http2::Response bad;
         auto dto = sbi_core::http2::parse_json_body<sbi_gen::NwdafMLModelTrainSubsc>(req, bad);
         if (!dto) {
@@ -1515,6 +1507,7 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
         if (!failures.empty()) {
             request["failEventReports"] = failures;
         }
+        const auto auth = check_bearer(req, verifier_);
         record = json{{"request", request},
                       {"consumer", (auth && auth->valid) ? auth->subject : std::string()}};
     };
@@ -1533,29 +1526,34 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
             return resp;
         });
 
-    server.add_route("PUT",
-                     root + "/subscriptions/{subscriptionId}",
-                     [=, this](const sbi_core::http2::Request& req) {
-                         const auto id = req.path_params.at("subscriptionId");
-                         const auto existing = store_.get_training_subscription(id);
-                         if (!existing) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "no ML model training subscription " + id);
-                         }
-                         json record;
-                         std::optional<sbi_core::http2::Response> err;
-                         validate(req, record, err);
-                         if (err) {
-                             return *err;
-                         }
-                         // A replacement keeps what was already delivered.
-                         record["delivered"] = existing->value("delivered", json::object());
-                         if (!store_.replace_training_subscription(id, record)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "no ML model training subscription " + id);
-                         }
-                         return json_response(200, training_representation(record));
-                     });
+    server.add_route(
+        "PUT",
+        root + "/subscriptions/{subscriptionId}",
+        [=, this](const sbi_core::http2::Request& req) {
+            const auto id = req.path_params.at("subscriptionId");
+            const auto existing = store_.get_training_subscription(id);
+            if (!existing) {
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no ML model training subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
+            }
+            json record;
+            std::optional<sbi_core::http2::Response> err;
+            validate(req, record, err);
+            if (err) {
+                return *err;
+            }
+            // A replacement keeps what was already delivered.
+            record["delivered"] = existing->value("delivered", json::object());
+            if (!store_.replace_training_subscription(id, record)) {
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no ML model training subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
+            }
+            return json_response(200, training_representation(record));
+        });
 
     // RFC 7396 merge patch of NwdafMLModelTrainSubscPatch. Members outside that schema are
     // rejected, so a patch cannot rewrite mLEventSubscs or notifCorreId (not in the YAML patch).
@@ -1563,14 +1561,13 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
         "PATCH",
         root + "/subscriptions/{subscriptionId}",
         [=, this](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("subscriptionId");
             auto existing = store_.get_training_subscription(id);
             if (!existing) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "no ML model training subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no ML model training subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             json patch;
             try {
@@ -1610,8 +1607,10 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
             }
             existing->at("request").merge_patch(patch);
             if (!store_.replace_training_subscription(id, *existing)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "no ML model training subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no ML model training subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return json_response(200, training_representation(*existing));
         });
@@ -1619,14 +1618,13 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
     server.add_route("DELETE",
                      root + "/subscriptions/{subscriptionId}",
                      [this](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
-                             return sbi_core::http2::problem_response(
-                                 401, "Unauthorized", auth->error);
-                         }
                          const auto id = req.path_params.at("subscriptionId");
                          if (!store_.remove_training_subscription(id)) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "no ML model training subscription " + id);
+                                 404,
+                                 "Not Found",
+                                 "no ML model training subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -1646,7 +1644,7 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
             const auto it = fl_slots_.find(corre);
             if (it == fl_slots_.end() || body.is_discarded()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "no federation round awaits " + corre);
+                    404, "Not Found", "no federation round awaits " + corre, std::nullopt);
             }
             it->second.result =
                 parse_fl_notification(body, it->second.fed, it->second.round, corre);
@@ -1660,9 +1658,6 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
         "POST",
         root + "/subscriptions/{subscriptionId}/unsubscribe-info",
         [this](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response bad;
             auto dto = sbi_core::http2::parse_json_body<sbi_gen::TrainingUnsubscribeInfo>(req, bad);
             if (!dto) {
@@ -1678,7 +1673,7 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
             const auto id = req.path_params.at("subscriptionId");
             if (!store_.remove_training_subscription(id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "no ML model training subscription " + id);
+                    404, "Not Found", "no ML model training subscription " + id, std::nullopt);
             }
             spdlog::info("nwdaf-mtlf: ML model training subscription {} ended by consumer: {}",
                          id,

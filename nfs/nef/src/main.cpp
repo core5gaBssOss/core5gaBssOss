@@ -353,26 +353,6 @@ void seed_pfd_catalog(nef::PfdCatalogStore& store) {
     store.seed("app-video-streaming", json(app1));
 }
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // ADR-0302: an AF's TrafficInfluSub becomes a real TS 29.519 TrafficInfluData in UDR.
 //
 // This is the whole point of the feature. ADR-0294's finding was that this NEF's only outbound
@@ -1003,34 +983,30 @@ int main() {
 
     // --- Nnef_PFDmanagement: applications ---
 
-    server.add_route(
-        "GET",
-        std::string(kApiRoot) + "/applications",
-        [&verifier, &pfd_catalog, &all_fetch_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto ids_it = req.query_params.find("application-ids");
-            if (ids_it == req.query_params.end()) {
-                return sbi_core::http2::problem_response(
-                    400, "Missing mandatory query parameter", "application-ids is required");
-            }
-            all_fetch_counter->Add(1);
-            const auto ids = sbi_core::http2::split_form_array(ids_it->second);
-            json results = json::array();
-            for (const auto& pfd_data : pfd_catalog.get_many(ids)) {
-                results.push_back(pfd_data);
-            }
-            return sbi_core::http2::Response::json(200, results.dump());
-        });
+    server.add_route("GET",
+                     std::string(kApiRoot) + "/applications",
+                     [&pfd_catalog, &all_fetch_counter](const sbi_core::http2::Request& req) {
+                         auto ids_it = req.query_params.find("application-ids");
+                         if (ids_it == req.query_params.end()) {
+                             return sbi_core::http2::problem_response(
+                                 400,
+                                 "Missing mandatory query parameter",
+                                 "application-ids is required",
+                                 "MANDATORY_QUERY_PARAM_MISSING");
+                         }
+                         all_fetch_counter->Add(1);
+                         const auto ids = sbi_core::http2::split_form_array(ids_it->second);
+                         json results = json::array();
+                         for (const auto& pfd_data : pfd_catalog.get_many(ids)) {
+                             results.push_back(pfd_data);
+                         }
+                         return sbi_core::http2::Response::json(200, results.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/applications/partialpull",
-        [&verifier, &pfd_catalog, &partial_fetch_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pfd_catalog, &partial_fetch_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<std::vector<sbi_gen::ApplicationForPfdRequest>>(
@@ -1063,15 +1039,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kApiRoot) + "/applications/{appId}",
-        [&verifier, &pfd_catalog, &ind_fetch_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pfd_catalog, &ind_fetch_counter](const sbi_core::http2::Request& req) {
             const auto app_id = req.path_params.at("appId");
             auto pfd_data = pfd_catalog.get(app_id);
             if (!pfd_data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No PFDs for application " + app_id);
+                    404, "Not Found", "No PFDs for application " + app_id, std::nullopt);
             }
             ind_fetch_counter->Add(1);
             return sbi_core::http2::Response::json(200, pfd_data->dump());
@@ -1082,10 +1055,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/subscriptions",
-        [&verifier, &subscriptions, &sub_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&subscriptions, &sub_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PfdSubscription>(req, err);
             if (!body.has_value()) {
@@ -1107,10 +1077,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &subscriptions, &sub_modify_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&subscriptions, &sub_modify_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PfdSubscription>(req, err);
@@ -1119,53 +1086,55 @@ int main() {
             }
             json j = *body;
             if (!subscriptions.put(id, j)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             sub_modify_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &subscriptions, &sub_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("subscriptionId");
-            if (!subscriptions.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
-            }
-            sub_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&subscriptions, &sub_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!subscriptions.remove(id)) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No subscription " + id,
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sub_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nnef_SMService (ADR-0207, gap-closure task #164, first NEF slice) ---
 
     server.add_route(
         "POST",
         std::string(kSmServiceApiRoot) + "/sm-contexts/{supi}/sendsms",
-        [&verifier, &send_sms_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&send_sms_counter](const sbi_core::http2::Request& req) {
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "Content-Type header is required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "Content-Type header is required",
+                                                         "MANDATORY_IE_MISSING");
             }
             auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
             if (!parts.has_value() || parts->empty()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "Malformed multipart/related body");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "Malformed multipart/related body",
+                                                         "MANDATORY_IE_INCORRECT");
             }
             sbi_gen::SmsData jsonData;
             try {
                 jsonData = json::parse((*parts)[0].body).get<sbi_gen::SmsData>();
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(400, "Invalid Service Request", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Invalid Service Request", e.what(), sbi_core::http2::dto_error_cause(e));
             }
             bool found_payload = false;
             for (const auto& part : *parts) {
@@ -1176,8 +1145,10 @@ int main() {
                 }
             }
             if (!found_payload) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "smsPayload binary part not found");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "smsPayload binary part not found",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
 
             send_sms_counter->Add(1);
@@ -1206,55 +1177,48 @@ int main() {
 
     // --- Nnef_UEId (ADR-0207, gap-closure task #164, first NEF slice) ---
 
-    server.add_route(
-        "POST",
-        std::string(kUeIdApiRoot) + "/fetch",
-        [&verifier, &fetch_ueid_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::UeIdReq_Nnef_UEId>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            fetch_ueid_counter->Add(1);
-            // Real, disclosed gap: this NEF has no real roaming H-NEF/internal-UE-identity
-            // mapping database to look anything up in -- real 204 "does not exist", matching the
-            // real YAML's own documented semantics for this case, not a fabricated lookup.
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kUeIdApiRoot) + "/fetch",
+                     [&fetch_ueid_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::UeIdReq_Nnef_UEId>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         fetch_ueid_counter->Add(1);
+                         // Real, disclosed gap: this NEF has no real roaming
+                         // H-NEF/internal-UE-identity mapping database to look anything up in --
+                         // real 204 "does not exist", matching the real YAML's own documented
+                         // semantics for this case, not a fabricated lookup.
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kUeIdApiRoot) + "/get-ueid-mapping",
-        [&verifier, &ueid_mapping_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::MapUeIdInfo>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            ueid_mapping_counter->Add(1);
-            // Same real, disclosed gap as FetchUEId above -- no real UE ID mapping database.
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kUeIdApiRoot) + "/get-ueid-mapping",
+                     [&ueid_mapping_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::MapUeIdInfo>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         ueid_mapping_counter->Add(1);
+                         // Same real, disclosed gap as FetchUEId above -- no real UE ID mapping
+                         // database.
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nnef_DNAIMapping (ADR-0207, gap-closure task #164, first NEF slice) ---
 
     server.add_route(
         "POST",
         std::string(kDnaiMappingApiRoot) + "/subscriptions",
-        [&verifier, &dnai_map_subs, &dnai_map_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&dnai_map_subs, &dnai_map_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::DnaiMapSub>(req, err);
             if (!body.has_value()) {
@@ -1276,15 +1240,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kDnaiMappingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &dnai_map_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&dnai_map_subs](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             auto sub = dnai_map_subs.get(id);
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No DNAI mapping subscription " + id);
+                    404, "Not Found", "No DNAI mapping subscription " + id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -1292,14 +1253,13 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kDnaiMappingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &dnai_map_subs, &dnai_map_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&dnai_map_subs, &dnai_map_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             if (!dnai_map_subs.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No DNAI mapping subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No DNAI mapping subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             dnai_map_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1312,11 +1272,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kEasDeploymentApiRoot) + "/subscriptions",
-        [&verifier, &eas_deploy_subs, &eas_deploy_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&eas_deploy_subs, &eas_deploy_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::EasDeploySubData>(req, err);
             if (!body.has_value()) {
@@ -1338,15 +1294,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kEasDeploymentApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &eas_deploy_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&eas_deploy_subs](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             auto sub = eas_deploy_subs.get(id);
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No EAS deployment subscription " + id);
+                    404, "Not Found", "No EAS deployment subscription " + id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -1354,15 +1307,13 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kEasDeploymentApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &eas_deploy_subs, &eas_deploy_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&eas_deploy_subs, &eas_deploy_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             if (!eas_deploy_subs.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No EAS deployment subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No EAS deployment subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             eas_deploy_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1375,10 +1326,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSmContextApiRoot) + "/sm-contexts",
-        [&verifier, &sm_contexts, &sm_context_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sm_contexts, &sm_context_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::SmContextCreateData_Nnef_SMContext>(req,
@@ -1412,11 +1360,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSmContextApiRoot) + "/sm-contexts/{smContextId}/release",
-        [&verifier, &sm_contexts, &sm_context_release_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sm_contexts, &sm_context_release_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("smContextId");
             sbi_core::http2::Response err;
             auto body =
@@ -1426,7 +1370,8 @@ int main() {
                 return err;
             }
             if (!sm_contexts.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No SM context " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No SM context " + id, std::nullopt);
             }
             sm_context_release_counter->Add(1);
             // Real, disclosed simplification: no real small-data-rate-control tracking exists to
@@ -1440,10 +1385,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSmContextApiRoot) + "/sm-contexts/{smContextId}/update",
-        [&verifier, &sm_contexts, &sm_context_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sm_contexts, &sm_context_update_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("smContextId");
             sbi_core::http2::Response err;
             auto body =
@@ -1453,7 +1395,8 @@ int main() {
                 return err;
             }
             if (!sm_contexts.update(id, json(*body))) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No SM context " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No SM context " + id, std::nullopt);
             }
             sm_context_update_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1464,31 +1407,33 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSmContextApiRoot) + "/sm-contexts/{smContextId}/deliver",
-        [&verifier, &sm_contexts, &sm_context_deliver_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sm_contexts, &sm_context_deliver_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("smContextId");
             if (!sm_contexts.get(id).has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No SM context " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No SM context " + id, std::nullopt);
             }
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "Content-Type header is required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "Content-Type header is required",
+                                                         "MANDATORY_IE_MISSING");
             }
             auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
             if (!parts.has_value() || parts->empty()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "Malformed multipart/related body");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "Malformed multipart/related body",
+                                                         "MANDATORY_IE_INCORRECT");
             }
             sbi_gen::DeliverReqData_Nnef_SMContext json_data;
             try {
                 json_data =
                     json::parse((*parts)[0].body).get<sbi_gen::DeliverReqData_Nnef_SMContext>();
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(400, "Invalid Service Request", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Invalid Service Request", e.what(), sbi_core::http2::dto_error_cause(e));
             }
             bool found_payload = false;
             for (const auto& part : *parts) {
@@ -1498,8 +1443,10 @@ int main() {
                 }
             }
             if (!found_payload) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "binaryMoData part not found");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "binaryMoData part not found",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
             sm_context_deliver_counter->Add(1);
             // Real, disclosed gap: same class as SendSMS/UEId above -- no real onward NIDD
@@ -1514,10 +1461,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAuthenticationApiRoot) + "/uav-authentications",
-        [&verifier, &uav_auth_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&uav_auth_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::UAVAuthInfo>(req, err);
             if (!body.has_value()) {
@@ -1544,10 +1488,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kEcsAddressApiRoot) + "/subscriptions",
-        [&verifier, &ecs_addr_subs, &ecs_addr_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ecs_addr_subs, &ecs_addr_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::EcsAddrCfgInfoSub>(req, err);
             if (!body.has_value()) {
@@ -1569,15 +1510,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kEcsAddressApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &ecs_addr_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ecs_addr_subs](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             auto sub = ecs_addr_subs.get(id);
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No ECS address subscription " + id);
+                    404, "Not Found", "No ECS address subscription " + id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -1585,10 +1523,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kEcsAddressApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &ecs_addr_subs, &ecs_addr_put_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ecs_addr_subs, &ecs_addr_put_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::EcsAddrCfgInfoSub>(req, err);
@@ -1597,8 +1532,10 @@ int main() {
             }
             json j = *body;
             if (!ecs_addr_subs.put(id, j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No ECS address subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No ECS address subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             ecs_addr_put_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
@@ -1607,10 +1544,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kEcsAddressApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &ecs_addr_subs, &ecs_addr_patch_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ecs_addr_subs, &ecs_addr_patch_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             // Validated against the real generated EcsAddrCfgInfoSubPatch shape first (same
@@ -1623,8 +1557,10 @@ int main() {
                 return err;
             }
             if (!ecs_addr_subs.patch(id, json(*typed_patch))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No ECS address subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No ECS address subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             ecs_addr_patch_counter->Add(1);
             auto updated = ecs_addr_subs.get(id);
@@ -1634,14 +1570,13 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kEcsAddressApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &ecs_addr_subs, &ecs_addr_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ecs_addr_subs, &ecs_addr_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             if (!ecs_addr_subs.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No ECS address subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No ECS address subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             ecs_addr_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1654,11 +1589,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kEventExposureApiRoot) + "/subscriptions",
-        [&verifier, &event_exposure_subs, &event_exposure_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&event_exposure_subs,
+         &event_exposure_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NefEventExposureSubsc>(req, err);
             if (!body.has_value()) {
@@ -1680,15 +1612,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &event_exposure_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&event_exposure_subs](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             auto sub = event_exposure_subs.get(id);
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No event exposure subscription " + id);
+                    404, "Not Found", "No event exposure subscription " + id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -1696,11 +1625,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &event_exposure_subs, &event_exposure_put_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&event_exposure_subs, &event_exposure_put_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NefEventExposureSubsc>(req, err);
@@ -1709,31 +1634,32 @@ int main() {
             }
             json j = *body;
             if (!event_exposure_subs.put(id, j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No event exposure subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No event exposure subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             event_exposure_put_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &event_exposure_subs, &event_exposure_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("subscriptionId");
-            if (!event_exposure_subs.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No event exposure subscription " + id);
-            }
-            event_exposure_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&event_exposure_subs,
+                      &event_exposure_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!event_exposure_subs.remove(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No event exposure subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         event_exposure_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- ADR-0324: eight more AF-facing services (TS 29.122 + TS 29.522) ---
     //
@@ -1750,57 +1676,48 @@ int main() {
     // not have -- and wiring each is per-service work against an NF that in several cases does not
     // exist here yet. They are accepted, validated against their real generated DTOs, and stored.
 
-    server.add_route(
-        "GET",
-        std::string(kAfDeviceTriggerApiRoot) + "/{scsAsId}/transactions",
-        [&verifier, &af_device_trigger](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_device_trigger.list(req.path_params.at("scsAsId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfDeviceTriggerApiRoot) + "/{scsAsId}/transactions",
+                     [&af_device_trigger](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d :
+                              af_device_trigger.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kAfDeviceTriggerApiRoot) + "/{scsAsId}/transactions",
-        [&verifier, &af_device_trigger](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::DeviceTriggering>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto af_id = req.path_params.at("scsAsId");
-            json j = *body;
-            const auto id = af_device_trigger.create(af_id, j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kAfDeviceTriggerApiRoot) + "/" + af_id +
-                                     "/transactions/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kAfDeviceTriggerApiRoot) + "/{scsAsId}/transactions",
+                     [&af_device_trigger](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::DeviceTriggering>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto af_id = req.path_params.at("scsAsId");
+                         json j = *body;
+                         const auto id = af_device_trigger.create(af_id, j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kAfDeviceTriggerApiRoot) + "/" + af_id +
+                                                  "/transactions/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
     server.add_route(
         "GET",
         std::string(kAfDeviceTriggerApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_device_trigger](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_device_trigger](const sbi_core::http2::Request& req) {
             auto d = af_device_trigger.get(req.path_params.at("scsAsId"),
                                            req.path_params.at("transactionId"));
             if (!d.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such device triggering transaction");
+                    404, "Not Found", "No such device triggering transaction", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, d->dump());
         });
@@ -1808,10 +1725,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfDeviceTriggerApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_device_trigger](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_device_trigger](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::DeviceTriggering>(req, err);
             if (!body.has_value()) {
@@ -1821,7 +1735,7 @@ int main() {
             if (!af_device_trigger.put(
                     req.path_params.at("scsAsId"), req.path_params.at("transactionId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such device triggering transaction");
+                    404, "Not Found", "No such device triggering transaction", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -1829,10 +1743,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfDeviceTriggerApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_device_trigger](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_device_trigger](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::DeviceTriggeringPatch>(req, err)
                      .has_value()) {
@@ -1843,7 +1754,7 @@ int main() {
                                                          json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such device triggering transaction");
+                    404, "Not Found", "No such device triggering transaction", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -1851,71 +1762,58 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfDeviceTriggerApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_device_trigger](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_device_trigger](const sbi_core::http2::Request& req) {
             if (!af_device_trigger.remove(req.path_params.at("scsAsId"),
                                           req.path_params.at("transactionId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such device triggering transaction");
+                    404, "Not Found", "No such device triggering transaction", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfNpConfigApiRoot) + "/{scsAsId}/configurations",
-        [&verifier, &af_np_config](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_np_config.list(req.path_params.at("scsAsId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfNpConfigApiRoot) + "/{scsAsId}/configurations",
+                     [&af_np_config](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_np_config.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kAfNpConfigApiRoot) + "/{scsAsId}/configurations",
-        [&verifier, &af_np_config](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::NpConfiguration>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto af_id = req.path_params.at("scsAsId");
-            json j = *body;
-            const auto id = af_np_config.create(af_id, j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kAfNpConfigApiRoot) + "/" + af_id +
-                                     "/configurations/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kAfNpConfigApiRoot) + "/{scsAsId}/configurations",
+                     [&af_np_config](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::NpConfiguration>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto af_id = req.path_params.at("scsAsId");
+                         json j = *body;
+                         const auto id = af_np_config.create(af_id, j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kAfNpConfigApiRoot) + "/" + af_id +
+                                                  "/configurations/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
     server.add_route(
         "GET",
         std::string(kAfNpConfigApiRoot) + "/{scsAsId}/configurations/{configurationId}",
-        [&verifier, &af_np_config](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_np_config](const sbi_core::http2::Request& req) {
             auto d = af_np_config.get(req.path_params.at("scsAsId"),
                                       req.path_params.at("configurationId"));
             if (!d.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such network parameter configuration");
+                    404, "Not Found", "No such network parameter configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, d->dump());
         });
@@ -1923,10 +1821,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfNpConfigApiRoot) + "/{scsAsId}/configurations/{configurationId}",
-        [&verifier, &af_np_config](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_np_config](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NpConfiguration>(req, err);
             if (!body.has_value()) {
@@ -1936,7 +1831,7 @@ int main() {
             if (!af_np_config.put(
                     req.path_params.at("scsAsId"), req.path_params.at("configurationId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such network parameter configuration");
+                    404, "Not Found", "No such network parameter configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -1944,10 +1839,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfNpConfigApiRoot) + "/{scsAsId}/configurations/{configurationId}",
-        [&verifier, &af_np_config](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_np_config](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::NpConfigurationPatch>(req, err)
                      .has_value()) {
@@ -1958,7 +1850,7 @@ int main() {
                                                     json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such network parameter configuration");
+                    404, "Not Found", "No such network parameter configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -1966,41 +1858,31 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfNpConfigApiRoot) + "/{scsAsId}/configurations/{configurationId}",
-        [&verifier, &af_np_config](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_np_config](const sbi_core::http2::Request& req) {
             if (!af_np_config.remove(req.path_params.at("scsAsId"),
                                      req.path_params.at("configurationId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such network parameter configuration");
+                    404, "Not Found", "No such network parameter configuration", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfRacsApiRoot) + "/{scsAsId}/provisionings",
-        [&verifier, &af_racs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_racs.list(req.path_params.at("scsAsId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfRacsApiRoot) + "/{scsAsId}/provisionings",
+                     [&af_racs](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_racs.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfRacsApiRoot) + "/{scsAsId}/provisionings",
-        [&verifier, &af_racs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_racs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::RacsProvisioningData>(req, err);
             if (!body.has_value()) {
@@ -2018,29 +1900,22 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfRacsApiRoot) + "/{scsAsId}/provisionings/{provisioningId}",
-        [&verifier, &af_racs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto d =
-                af_racs.get(req.path_params.at("scsAsId"), req.path_params.at("provisioningId"));
-            if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such RACS provisioning");
-            }
-            return sbi_core::http2::Response::json(200, d->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfRacsApiRoot) + "/{scsAsId}/provisionings/{provisioningId}",
+                     [&af_racs](const sbi_core::http2::Request& req) {
+                         auto d = af_racs.get(req.path_params.at("scsAsId"),
+                                              req.path_params.at("provisioningId"));
+                         if (!d.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such RACS provisioning", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, d->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kAfRacsApiRoot) + "/{scsAsId}/provisionings/{provisioningId}",
-        [&verifier, &af_racs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_racs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::RacsProvisioningData>(req, err);
             if (!body.has_value()) {
@@ -2050,7 +1925,7 @@ int main() {
             if (!af_racs.put(
                     req.path_params.at("scsAsId"), req.path_params.at("provisioningId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such RACS provisioning");
+                    404, "Not Found", "No such RACS provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -2058,10 +1933,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfRacsApiRoot) + "/{scsAsId}/provisionings/{provisioningId}",
-        [&verifier, &af_racs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_racs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::RacsProvisioningDataPatch>(req, err)
                      .has_value()) {
@@ -2072,49 +1944,38 @@ int main() {
                                                json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such RACS provisioning");
+                    404, "Not Found", "No such RACS provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kAfRacsApiRoot) + "/{scsAsId}/provisionings/{provisioningId}",
-        [&verifier, &af_racs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_racs.remove(req.path_params.at("scsAsId"),
-                                req.path_params.at("provisioningId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such RACS provisioning");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfRacsApiRoot) + "/{scsAsId}/provisionings/{provisioningId}",
+                     [&af_racs](const sbi_core::http2::Request& req) {
+                         if (!af_racs.remove(req.path_params.at("scsAsId"),
+                                             req.path_params.at("provisioningId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such RACS provisioning", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_net_status](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_net_status.list(req.path_params.at("scsAsId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions",
+                     [&af_net_status](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_net_status.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_net_status](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_net_status](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::NetworkStatusReportingSubscription>(req,
@@ -2138,15 +1999,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_net_status](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_net_status](const sbi_core::http2::Request& req) {
             auto d = af_net_status.get(req.path_params.at("scsAsId"),
                                        req.path_params.at("subscriptionId"));
             if (!d.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such network status subscription");
+                    404, "Not Found", "No such network status subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, d->dump());
         });
@@ -2154,10 +2012,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_net_status](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_net_status](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::NetworkStatusReportingSubscription>(req,
@@ -2168,8 +2023,10 @@ int main() {
             json j = *body;
             if (!af_net_status.put(
                     req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such network status subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such network status subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -2177,10 +2034,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_net_status](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_net_status](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::NetStatusRepSubsPatch>(req, err)
                      .has_value()) {
@@ -2190,90 +2044,77 @@ int main() {
                                                      req.path_params.at("subscriptionId"),
                                                      json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such network status subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such network status subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_net_status](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_net_status.remove(req.path_params.at("scsAsId"),
-                                      req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such network status subscription");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+                     [&af_net_status](const sbi_core::http2::Request& req) {
+                         if (!af_net_status.remove(req.path_params.at("scsAsId"),
+                                                   req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such network status subscription",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_bdt.list(req.path_params.at("scsAsId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions",
+                     [&af_bdt](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_bdt.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::Bdt>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto af_id = req.path_params.at("scsAsId");
-            json j = *body;
-            const auto id = af_bdt.create(af_id, j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kAfBdtApiRoot) + "/" + af_id + "/subscriptions/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions",
+                     [&af_bdt](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::Bdt>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto af_id = req.path_params.at("scsAsId");
+                         json j = *body;
+                         const auto id = af_bdt.create(af_id, j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kAfBdtApiRoot) + "/" + af_id +
+                                                  "/subscriptions/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto d =
-                af_bdt.get(req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"));
-            if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such BDT subscription");
-            }
-            return sbi_core::http2::Response::json(200, d->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+                     [&af_bdt](const sbi_core::http2::Request& req) {
+                         auto d = af_bdt.get(req.path_params.at("scsAsId"),
+                                             req.path_params.at("subscriptionId"));
+                         if (!d.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such BDT subscription", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, d->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_bdt](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::Bdt>(req, err);
             if (!body.has_value()) {
@@ -2283,7 +2124,7 @@ int main() {
             if (!af_bdt.put(
                     req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such BDT subscription");
+                    404, "Not Found", "No such BDT subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -2291,10 +2132,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_bdt](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::BdtPatch>(req, err).has_value()) {
                 return err;
@@ -2304,166 +2142,138 @@ int main() {
                                               json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such BDT subscription");
+                    404, "Not Found", "No such BDT subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_bdt.remove(req.path_params.at("scsAsId"),
-                               req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such BDT subscription");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+                     [&af_bdt](const sbi_core::http2::Request& req) {
+                         if (!af_bdt.remove(req.path_params.at("scsAsId"),
+                                            req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such BDT subscription",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- ADR-0327: the remaining multi-path AF services ---
 
     // --- TS29122_CpProvisioning : /3gpp-cp-parameter-provisioning/v1 (ADR-0327) ---
-    server.add_route(
-        "GET",
-        std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_cp_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_cp_prov.list(req.path_params.at("scsAsId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_cp_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::CpInfo>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_cp_prov.create(req.path_params.at("scsAsId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_cp_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_cp_prov.remove(req.path_params.at("scsAsId"),
-                                   req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such CP provisioning");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_cp_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc =
-                af_cp_prov.get(req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such CP provisioning");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
-    server.add_route(
-        "PUT",
-        std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_cp_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::CpInfo>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            if (!af_cp_prov.put(
-                    req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_cp_prov.create_with_id(
-                    req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
-            }
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}/cpSets/{setId}",
-        [&verifier, &af_cp_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_cp_prov.remove(req.path_params.at("scsAsId") + "/" +
-                                       req.path_params.at("subscriptionId"),
-                                   req.path_params.at("setId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such CP provisioning");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}/cpSets/{setId}",
-        [&verifier, &af_cp_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_cp_prov.get(req.path_params.at("scsAsId") + "/" +
-                                          req.path_params.at("subscriptionId"),
-                                      req.path_params.at("setId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such CP provisioning");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions",
+                     [&af_cp_prov](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_cp_prov.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions",
+                     [&af_cp_prov](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::CpInfo>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_cp_prov.create(req.path_params.at("scsAsId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+                     [&af_cp_prov](const sbi_core::http2::Request& req) {
+                         if (!af_cp_prov.remove(req.path_params.at("scsAsId"),
+                                                req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such CP provisioning", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+                     [&af_cp_prov](const sbi_core::http2::Request& req) {
+                         auto doc = af_cp_prov.get(req.path_params.at("scsAsId"),
+                                                   req.path_params.at("subscriptionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such CP provisioning", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
+    server.add_route("PUT",
+                     std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+                     [&af_cp_prov](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::CpInfo>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         if (!af_cp_prov.put(req.path_params.at("scsAsId"),
+                                             req.path_params.at("subscriptionId"),
+                                             j)) {
+                             // PUT on this API creates the resource when it does not yet exist; the
+                             // store's put() only replaces, so fall through to create under the
+                             // addressed id.
+                             af_cp_prov.create_with_id(req.path_params.at("scsAsId"),
+                                                       req.path_params.at("subscriptionId"),
+                                                       j);
+                             sbi_core::http2::Response created;
+                             created.status = 201;
+                             created.headers.emplace("content-type", "application/json");
+                             created.body = j.dump();
+                             return created;
+                         }
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfCpProvApiRoot) +
+                         "/{scsAsId}/subscriptions/{subscriptionId}/cpSets/{setId}",
+                     [&af_cp_prov](const sbi_core::http2::Request& req) {
+                         if (!af_cp_prov.remove(req.path_params.at("scsAsId") + "/" +
+                                                    req.path_params.at("subscriptionId"),
+                                                req.path_params.at("setId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such CP provisioning", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfCpProvApiRoot) +
+                         "/{scsAsId}/subscriptions/{subscriptionId}/cpSets/{setId}",
+                     [&af_cp_prov](const sbi_core::http2::Request& req) {
+                         auto doc = af_cp_prov.get(req.path_params.at("scsAsId") + "/" +
+                                                       req.path_params.at("subscriptionId"),
+                                                   req.path_params.at("setId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such CP provisioning", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PUT",
         std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}/cpSets/{setId}",
-        [&verifier, &af_cp_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_cp_prov](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::CpParameterSet>(req, err);
             if (!body.has_value()) {
@@ -2490,12 +2300,7 @@ int main() {
         });
     // --- TS29122_ECRControl : /3gpp-ecr-control/v1 (ADR-0327) ---
     server.add_route(
-        "POST",
-        std::string(kAfEcrApiRoot) + "/configure",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        "POST", std::string(kAfEcrApiRoot) + "/configure", [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::ECRControl>(req, err).has_value()) {
                 return err;
@@ -2503,15 +2308,11 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "ECR control: no downstream is wired for this operation in this core");
+                "ECR control: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
     server.add_route(
-        "POST",
-        std::string(kAfEcrApiRoot) + "/query",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        "POST", std::string(kAfEcrApiRoot) + "/query", [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::ECRControl>(req, err).has_value()) {
                 return err;
@@ -2519,56 +2320,47 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "ECR control: no downstream is wired for this operation in this core");
+                "ECR control: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
     // --- TS29122_GMDviaMBMSbyMB2 : /3gpp-group-message-delivery-mb2/v1 (ADR-0327) ---
-    server.add_route(
-        "GET",
-        std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_gmd_mb2.list(req.path_params.at("scsAsId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::TMGIAllocation>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_gmd_mb2.create(req.path_params.at("scsAsId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("GET",
+                     std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation",
+                     [&af_gmd_mb2](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_gmd_mb2.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation",
+                     [&af_gmd_mb2](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::TMGIAllocation>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_gmd_mb2.create(req.path_params.at("scsAsId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
     server.add_route(
         "DELETE",
         std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation/{tmgi}",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_mb2](const sbi_core::http2::Request& req) {
             if (!af_gmd_mb2.remove(req.path_params.at("scsAsId"), req.path_params.at("tmgi"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MB2 group message delivery");
+                    404, "Not Found", "No such MB2 group message delivery", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -2577,24 +2369,18 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation/{tmgi}",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_mb2](const sbi_core::http2::Request& req) {
             auto doc = af_gmd_mb2.get(req.path_params.at("scsAsId"), req.path_params.at("tmgi"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MB2 group message delivery");
+                    404, "Not Found", "No such MB2 group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation/{tmgi}",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_mb2](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::TMGIAllocationPatch>(req, err)
                      .has_value()) {
@@ -2604,17 +2390,14 @@ int main() {
                 req.path_params.at("scsAsId"), req.path_params.at("tmgi"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MB2 group message delivery");
+                    404, "Not Found", "No such MB2 group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation/{tmgi}",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_mb2](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TMGIAllocation>(req, err);
             if (!body.has_value()) {
@@ -2634,27 +2417,21 @@ int main() {
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
-    server.add_route(
-        "GET",
-        std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation/{tmgi}/delivery-via-mbms",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_gmd_mb2.list(req.path_params.at("scsAsId") + "/" +
-                                                   req.path_params.at("tmgi"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfGmdMb2ApiRoot) +
+                         "/{scsAsId}/tmgi-allocation/{tmgi}/delivery-via-mbms",
+                     [&af_gmd_mb2](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_gmd_mb2.list(req.path_params.at("scsAsId") +
+                                                                "/" + req.path_params.at("tmgi"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
     server.add_route(
         "POST",
         std::string(kAfGmdMb2ApiRoot) + "/{scsAsId}/tmgi-allocation/{tmgi}/delivery-via-mbms",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_mb2](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::GMDViaMBMSByMb2>(req, err);
             if (!body.has_value()) {
@@ -2677,14 +2454,11 @@ int main() {
         "DELETE",
         std::string(kAfGmdMb2ApiRoot) +
             "/{scsAsId}/tmgi-allocation/{tmgi}/delivery-via-mbms/{transactionId}",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_mb2](const sbi_core::http2::Request& req) {
             if (!af_gmd_mb2.remove(req.path_params.at("scsAsId") + "/" + req.path_params.at("tmgi"),
                                    req.path_params.at("transactionId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MB2 group message delivery");
+                    404, "Not Found", "No such MB2 group message delivery", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -2694,16 +2468,13 @@ int main() {
         "GET",
         std::string(kAfGmdMb2ApiRoot) +
             "/{scsAsId}/tmgi-allocation/{tmgi}/delivery-via-mbms/{transactionId}",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_mb2](const sbi_core::http2::Request& req) {
             auto doc =
                 af_gmd_mb2.get(req.path_params.at("scsAsId") + "/" + req.path_params.at("tmgi"),
                                req.path_params.at("transactionId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MB2 group message delivery");
+                    404, "Not Found", "No such MB2 group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
@@ -2711,10 +2482,7 @@ int main() {
         "PATCH",
         std::string(kAfGmdMb2ApiRoot) +
             "/{scsAsId}/tmgi-allocation/{tmgi}/delivery-via-mbms/{transactionId}",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_mb2](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::GMDViaMBMSByMb2Patch>(req, err)
                      .has_value()) {
@@ -2726,7 +2494,7 @@ int main() {
                                                   json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MB2 group message delivery");
+                    404, "Not Found", "No such MB2 group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -2734,10 +2502,7 @@ int main() {
         "PUT",
         std::string(kAfGmdMb2ApiRoot) +
             "/{scsAsId}/tmgi-allocation/{tmgi}/delivery-via-mbms/{transactionId}",
-        [&verifier, &af_gmd_mb2](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_mb2](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::GMDViaMBMSByMb2>(req, err);
             if (!body.has_value()) {
@@ -2762,54 +2527,44 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
     // --- TS29122_GMDviaMBMSbyxMB : /3gpp-group-message-delivery-xmb/v1 (ADR-0327) ---
-    server.add_route(
-        "GET",
-        std::string(kAfGmdXmbApiRoot) + "/{scsAsId}/services",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_gmd_xmb.list(req.path_params.at("scsAsId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfGmdXmbApiRoot) + "/{scsAsId}/services",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::ServiceCreation>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_gmd_xmb.create(req.path_params.at("scsAsId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("GET",
+                     std::string(kAfGmdXmbApiRoot) + "/{scsAsId}/services",
+                     [&af_gmd_xmb](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_gmd_xmb.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfGmdXmbApiRoot) + "/{scsAsId}/services",
+                     [&af_gmd_xmb](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::ServiceCreation>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_gmd_xmb.create(req.path_params.at("scsAsId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
     server.add_route(
         "DELETE",
         std::string(kAfGmdXmbApiRoot) + "/{scsAsId}/services/{serviceId}",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_xmb](const sbi_core::http2::Request& req) {
             if (!af_gmd_xmb.remove(req.path_params.at("scsAsId"),
                                    req.path_params.at("serviceId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such xMB group message delivery");
+                    404, "Not Found", "No such xMB group message delivery", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -2818,25 +2573,19 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfGmdXmbApiRoot) + "/{scsAsId}/services/{serviceId}",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_xmb](const sbi_core::http2::Request& req) {
             auto doc =
                 af_gmd_xmb.get(req.path_params.at("scsAsId"), req.path_params.at("serviceId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such xMB group message delivery");
+                    404, "Not Found", "No such xMB group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "GET",
         std::string(kAfGmdXmbApiRoot) + "/{scsAsId}/services/{serviceId}/delivery-via-mbms",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_xmb](const sbi_core::http2::Request& req) {
             json out = json::array();
             for (const auto& doc : af_gmd_xmb.list(req.path_params.at("scsAsId") + "/" +
                                                    req.path_params.at("serviceId"))) {
@@ -2847,10 +2596,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfGmdXmbApiRoot) + "/{scsAsId}/services/{serviceId}/delivery-via-mbms",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_xmb](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::GMDViaMBMSByxMB>(req, err);
             if (!body.has_value()) {
@@ -2873,15 +2619,12 @@ int main() {
         "DELETE",
         std::string(kAfGmdXmbApiRoot) +
             "/{scsAsId}/services/{serviceId}/delivery-via-mbms/{transactionId}",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_xmb](const sbi_core::http2::Request& req) {
             if (!af_gmd_xmb.remove(req.path_params.at("scsAsId") + "/" +
                                        req.path_params.at("serviceId"),
                                    req.path_params.at("transactionId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such xMB group message delivery");
+                    404, "Not Found", "No such xMB group message delivery", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -2891,16 +2634,13 @@ int main() {
         "GET",
         std::string(kAfGmdXmbApiRoot) +
             "/{scsAsId}/services/{serviceId}/delivery-via-mbms/{transactionId}",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_xmb](const sbi_core::http2::Request& req) {
             auto doc = af_gmd_xmb.get(req.path_params.at("scsAsId") + "/" +
                                           req.path_params.at("serviceId"),
                                       req.path_params.at("transactionId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such xMB group message delivery");
+                    404, "Not Found", "No such xMB group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
@@ -2908,10 +2648,7 @@ int main() {
         "PATCH",
         std::string(kAfGmdXmbApiRoot) +
             "/{scsAsId}/services/{serviceId}/delivery-via-mbms/{transactionId}",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_gmd_xmb](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::GMDViaMBMSByxMBPatch>(req, err)
                      .has_value()) {
@@ -2923,116 +2660,98 @@ int main() {
                                                   json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such xMB group message delivery");
+                    404, "Not Found", "No such xMB group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route(
-        "PUT",
-        std::string(kAfGmdXmbApiRoot) +
-            "/{scsAsId}/services/{serviceId}/delivery-via-mbms/{transactionId}",
-        [&verifier, &af_gmd_xmb](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::GMDViaMBMSByxMB>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            if (!af_gmd_xmb.put(req.path_params.at("scsAsId") + "/" +
-                                    req.path_params.at("serviceId"),
-                                req.path_params.at("transactionId"),
-                                j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_gmd_xmb.create_with_id(req.path_params.at("scsAsId") + "/" +
-                                              req.path_params.at("serviceId"),
-                                          req.path_params.at("transactionId"),
-                                          j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
-            }
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("PUT",
+                     std::string(kAfGmdXmbApiRoot) +
+                         "/{scsAsId}/services/{serviceId}/delivery-via-mbms/{transactionId}",
+                     [&af_gmd_xmb](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::GMDViaMBMSByxMB>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         if (!af_gmd_xmb.put(req.path_params.at("scsAsId") + "/" +
+                                                 req.path_params.at("serviceId"),
+                                             req.path_params.at("transactionId"),
+                                             j)) {
+                             // PUT on this API creates the resource when it does not yet exist; the
+                             // store's put() only replaces, so fall through to create under the
+                             // addressed id.
+                             af_gmd_xmb.create_with_id(req.path_params.at("scsAsId") + "/" +
+                                                           req.path_params.at("serviceId"),
+                                                       req.path_params.at("transactionId"),
+                                                       j);
+                             sbi_core::http2::Response created;
+                             created.status = 201;
+                             created.headers.emplace("content-type", "application/json");
+                             created.body = j.dump();
+                             return created;
+                         }
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
     // --- TS29122_NIDD : /3gpp-nidd/v1 (ADR-0327) ---
-    server.add_route(
-        "GET",
-        std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_nidd.list(req.path_params.at("scsAsId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::NiddConfiguration>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_nidd.create(req.path_params.at("scsAsId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_nidd.remove(req.path_params.at("scsAsId"),
-                                req.path_params.at("configurationId"))) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such NIDD resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc =
-                af_nidd.get(req.path_params.at("scsAsId"), req.path_params.at("configurationId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such NIDD resource");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_nidd.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::NiddConfiguration>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_nidd.create(req.path_params.at("scsAsId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         if (!af_nidd.remove(req.path_params.at("scsAsId"),
+                                             req.path_params.at("configurationId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such NIDD resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         auto doc = af_nidd.get(req.path_params.at("scsAsId"),
+                                                req.path_params.at("configurationId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such NIDD resource", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PATCH",
         std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_nidd](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::NiddConfigurationPatch>(req, err)
                      .has_value()) {
@@ -3042,33 +2761,28 @@ int main() {
                                                req.path_params.at("configurationId"),
                                                json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such NIDD resource");
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such NIDD resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route(
-        "GET",
-        std::string(kAfNiddApiRoot) +
-            "/{scsAsId}/configurations/{configurationId}/downlink-data-deliveries",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_nidd.list(req.path_params.at("scsAsId") + "/" +
-                                                req.path_params.at("configurationId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfNiddApiRoot) +
+                         "/{scsAsId}/configurations/{configurationId}/downlink-data-deliveries",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc :
+                              af_nidd.list(req.path_params.at("scsAsId") + "/" +
+                                           req.path_params.at("configurationId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
     server.add_route(
         "POST",
         std::string(kAfNiddApiRoot) +
             "/{scsAsId}/configurations/{configurationId}/downlink-data-deliveries",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_nidd](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::NiddDownlinkDataTransfer>(req, err);
@@ -3088,47 +2802,40 @@ int main() {
             resp.body = j.dump();
             return resp;
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}/"
-                                      "downlink-data-deliveries/{downlinkDataDeliveryId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_nidd.remove(req.path_params.at("scsAsId") + "/" +
-                                    req.path_params.at("configurationId"),
-                                req.path_params.at("downlinkDataDeliveryId"))) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such NIDD resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}/"
-                                      "downlink-data-deliveries/{downlinkDataDeliveryId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_nidd.get(req.path_params.at("scsAsId") + "/" +
-                                       req.path_params.at("configurationId"),
-                                   req.path_params.at("downlinkDataDeliveryId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such NIDD resource");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("DELETE",
+                     std::string(kAfNiddApiRoot) +
+                         "/{scsAsId}/configurations/{configurationId}/"
+                         "downlink-data-deliveries/{downlinkDataDeliveryId}",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         if (!af_nidd.remove(req.path_params.at("scsAsId") + "/" +
+                                                 req.path_params.at("configurationId"),
+                                             req.path_params.at("downlinkDataDeliveryId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such NIDD resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfNiddApiRoot) +
+                         "/{scsAsId}/configurations/{configurationId}/"
+                         "downlink-data-deliveries/{downlinkDataDeliveryId}",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         auto doc = af_nidd.get(req.path_params.at("scsAsId") + "/" +
+                                                    req.path_params.at("configurationId"),
+                                                req.path_params.at("downlinkDataDeliveryId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such NIDD resource", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PATCH",
         std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}/"
                                       "downlink-data-deliveries/{downlinkDataDeliveryId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_nidd](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::NiddDownlinkDataTransferPatch>(req, err)
                      .has_value()) {
@@ -3139,7 +2846,8 @@ int main() {
                                                req.path_params.at("downlinkDataDeliveryId"),
                                                json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such NIDD resource");
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such NIDD resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -3147,10 +2855,7 @@ int main() {
         "PUT",
         std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}/"
                                       "downlink-data-deliveries/{downlinkDataDeliveryId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_nidd](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::NiddDownlinkDataTransfer>(req, err);
@@ -3179,10 +2884,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations/{configurationId}/rds-ports",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_nidd](const sbi_core::http2::Request& req) {
             json out = json::array();
             for (const auto& doc : af_nidd.list(req.path_params.at("scsAsId") + "/" +
                                                 req.path_params.at("configurationId"))) {
@@ -3190,147 +2892,121 @@ int main() {
             }
             return sbi_core::http2::Response::json(200, out.dump());
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfNiddApiRoot) +
-            "/{scsAsId}/configurations/{configurationId}/rds-ports/{portId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_nidd.remove(req.path_params.at("scsAsId") + "/" +
-                                    req.path_params.at("configurationId"),
-                                req.path_params.at("portId"))) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such NIDD resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfNiddApiRoot) +
-            "/{scsAsId}/configurations/{configurationId}/rds-ports/{portId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_nidd.get(req.path_params.at("scsAsId") + "/" +
-                                       req.path_params.at("configurationId"),
-                                   req.path_params.at("portId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such NIDD resource");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
-    server.add_route(
-        "PUT",
-        std::string(kAfNiddApiRoot) +
-            "/{scsAsId}/configurations/{configurationId}/rds-ports/{portId}",
-        [&verifier, &af_nidd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::ManagePort>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            if (!af_nidd.put(req.path_params.at("scsAsId") + "/" +
-                                 req.path_params.at("configurationId"),
-                             req.path_params.at("portId"),
-                             j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_nidd.create_with_id(req.path_params.at("scsAsId") + "/" +
-                                           req.path_params.at("configurationId"),
-                                       req.path_params.at("portId"),
-                                       j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
-            }
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("DELETE",
+                     std::string(kAfNiddApiRoot) +
+                         "/{scsAsId}/configurations/{configurationId}/rds-ports/{portId}",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         if (!af_nidd.remove(req.path_params.at("scsAsId") + "/" +
+                                                 req.path_params.at("configurationId"),
+                                             req.path_params.at("portId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such NIDD resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfNiddApiRoot) +
+                         "/{scsAsId}/configurations/{configurationId}/rds-ports/{portId}",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         auto doc = af_nidd.get(req.path_params.at("scsAsId") + "/" +
+                                                    req.path_params.at("configurationId"),
+                                                req.path_params.at("portId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such NIDD resource", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
+    server.add_route("PUT",
+                     std::string(kAfNiddApiRoot) +
+                         "/{scsAsId}/configurations/{configurationId}/rds-ports/{portId}",
+                     [&af_nidd](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::ManagePort>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         if (!af_nidd.put(req.path_params.at("scsAsId") + "/" +
+                                              req.path_params.at("configurationId"),
+                                          req.path_params.at("portId"),
+                                          j)) {
+                             // PUT on this API creates the resource when it does not yet exist; the
+                             // store's put() only replaces, so fall through to create under the
+                             // addressed id.
+                             af_nidd.create_with_id(req.path_params.at("scsAsId") + "/" +
+                                                        req.path_params.at("configurationId"),
+                                                    req.path_params.at("portId"),
+                                                    j);
+                             sbi_core::http2::Response created;
+                             created.status = 201;
+                             created.headers.emplace("content-type", "application/json");
+                             created.body = j.dump();
+                             return created;
+                         }
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
     // --- TS29122_PfdManagement : /3gpp-pfd-management/v1 (ADR-0327) ---
-    server.add_route(
-        "GET",
-        std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_pfd.list(req.path_params.at("scsAsId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::PfdManagement>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_pfd.create(req.path_params.at("scsAsId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_pfd.remove(req.path_params.at("scsAsId"),
-                               req.path_params.at("transactionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PFD management resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc =
-                af_pfd.get(req.path_params.at("scsAsId"), req.path_params.at("transactionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PFD management resource");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions",
+                     [&af_pfd](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_pfd.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions",
+                     [&af_pfd](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::PfdManagement>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_pfd.create(req.path_params.at("scsAsId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}",
+                     [&af_pfd](const sbi_core::http2::Request& req) {
+                         if (!af_pfd.remove(req.path_params.at("scsAsId"),
+                                            req.path_params.at("transactionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such PFD management resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}",
+                     [&af_pfd](const sbi_core::http2::Request& req) {
+                         auto doc = af_pfd.get(req.path_params.at("scsAsId"),
+                                               req.path_params.at("transactionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such PFD management resource", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PATCH",
         std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_pfd](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::PfdManagementPatch>(req, err)
                      .has_value()) {
@@ -3341,17 +3017,14 @@ int main() {
                                               json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PFD management resource");
+                    404, "Not Found", "No such PFD management resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_pfd](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PfdManagement>(req, err);
             if (!body.has_value()) {
@@ -3372,46 +3045,37 @@ int main() {
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}/applications/{appId}",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_pfd.remove(req.path_params.at("scsAsId") + "/" +
-                                   req.path_params.at("transactionId"),
-                               req.path_params.at("appId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PFD management resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}/applications/{appId}",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_pfd.get(req.path_params.at("scsAsId") + "/" +
-                                      req.path_params.at("transactionId"),
-                                  req.path_params.at("appId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PFD management resource");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("DELETE",
+                     std::string(kAfPfdApiRoot) +
+                         "/{scsAsId}/transactions/{transactionId}/applications/{appId}",
+                     [&af_pfd](const sbi_core::http2::Request& req) {
+                         if (!af_pfd.remove(req.path_params.at("scsAsId") + "/" +
+                                                req.path_params.at("transactionId"),
+                                            req.path_params.at("appId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such PFD management resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfPfdApiRoot) +
+                         "/{scsAsId}/transactions/{transactionId}/applications/{appId}",
+                     [&af_pfd](const sbi_core::http2::Request& req) {
+                         auto doc = af_pfd.get(req.path_params.at("scsAsId") + "/" +
+                                                   req.path_params.at("transactionId"),
+                                               req.path_params.at("appId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such PFD management resource", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PATCH",
         std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}/applications/{appId}",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_pfd](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::PfdData_PfdManagement>(req, err)
                      .has_value()) {
@@ -3423,17 +3087,14 @@ int main() {
                                               json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PFD management resource");
+                    404, "Not Found", "No such PFD management resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfPfdApiRoot) + "/{scsAsId}/transactions/{transactionId}/applications/{appId}",
-        [&verifier, &af_pfd](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_pfd](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PfdData_PfdManagement>(req, err);
             if (!body.has_value()) {
@@ -3462,10 +3123,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfAiotApiRoot) + "/request-cmd",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::CommandReq>(req, err).has_value()) {
                 return err;
@@ -3473,15 +3131,13 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "Ambient IoT request: no downstream is wired for this operation in this core");
+                "Ambient IoT request: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
     server.add_route(
         "POST",
         std::string(kAfAiotApiRoot) + "/request-inv",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::InventoryReq>(req, err).has_value()) {
                 return err;
@@ -3489,7 +3145,8 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "Ambient IoT request: no downstream is wired for this operation in this core");
+                "Ambient IoT request: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
     // --- TS29522_AKMA : /3gpp-akma/v1 (ADR-0327) ---
     // ADR-0496, TS 33.535 6.3: the AF outside the operator's network gets KAF via the NEF. The NEF
@@ -3500,9 +3157,6 @@ int main() {
         "POST",
         std::string(kAfAkmaApiRoot) + "/retrieve",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AkmaAfKeyRequest>(req, err);
             if (!body.has_value()) {
@@ -3510,7 +3164,7 @@ int main() {
             }
             if (!aanf_base_url) {
                 return sbi_core::http2::problem_response(
-                    501, "Not Implemented", "no AAnF is configured (aanf_base_url)");
+                    501, "Not Implemented", "no AAnF is configured (aanf_base_url)", std::nullopt);
             }
             sbi_core::http2::ClientRequest aanf_req;
             aanf_req.method = "POST";
@@ -3525,8 +3179,10 @@ int main() {
             aanf_req.body = json(forward).dump();
             const auto aanf_resp = udr_client.send(aanf_req);
             if (!aanf_resp) {
-                return sbi_core::http2::problem_response(
-                    504, "Gateway Timeout", "AAnF not reachable: " + aanf_resp.error());
+                return sbi_core::http2::problem_response(504,
+                                                         "Gateway Timeout",
+                                                         "AAnF not reachable: " + aanf_resp.error(),
+                                                         std::nullopt);
             }
             if (aanf_resp->status != 200) {
                 // K_AKMA_NOT_PRESENT and the like: the AAnF's answer, relayed as-is.
@@ -3540,8 +3196,11 @@ int main() {
             try {
                 data = json::parse(aanf_resp->body).get<sbi_gen::AkmaAfKeyData>();
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    502, "Bad Gateway", std::string("AAnF answer malformed: ") + e.what());
+                return sbi_core::http2::problem_response(502,
+                                                         "Bad Gateway",
+                                                         std::string("AAnF answer malformed: ") +
+                                                             e.what(),
+                                                         std::nullopt);
             }
             sbi_gen::AkmaAfKeyData out;
             out.kaf = data.kaf;
@@ -3566,68 +3225,56 @@ int main() {
             return sbi_core::http2::Response::json(200, json(out).dump());
         });
     // --- TS29522_AMPolicyAuthorization : /3gpp-am-policyauthorization/v1 (ADR-0327) ---
-    server.add_route(
-        "POST",
-        std::string(kAfAmPolicyAuthApiRoot) + "/{afId}/app-am-contexts",
-        [&verifier, &af_am_policy_auth](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::AppAmContextExpData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_am_policy_auth.create(req.path_params.at("afId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfAmPolicyAuthApiRoot) + "/{afId}/app-am-contexts/{appAmContextId}",
-        [&verifier, &af_am_policy_auth](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_am_policy_auth.remove(req.path_params.at("afId"),
-                                          req.path_params.at("appAmContextId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM policy context");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfAmPolicyAuthApiRoot) + "/{afId}/app-am-contexts/{appAmContextId}",
-        [&verifier, &af_am_policy_auth](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_am_policy_auth.get(req.path_params.at("afId"),
-                                             req.path_params.at("appAmContextId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM policy context");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("POST",
+                     std::string(kAfAmPolicyAuthApiRoot) + "/{afId}/app-am-contexts",
+                     [&af_am_policy_auth](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::AppAmContextExpData>(
+                             req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_am_policy_auth.create(req.path_params.at("afId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfAmPolicyAuthApiRoot) +
+                         "/{afId}/app-am-contexts/{appAmContextId}",
+                     [&af_am_policy_auth](const sbi_core::http2::Request& req) {
+                         if (!af_am_policy_auth.remove(req.path_params.at("afId"),
+                                                       req.path_params.at("appAmContextId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such AM policy context", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfAmPolicyAuthApiRoot) +
+                         "/{afId}/app-am-contexts/{appAmContextId}",
+                     [&af_am_policy_auth](const sbi_core::http2::Request& req) {
+                         auto doc = af_am_policy_auth.get(req.path_params.at("afId"),
+                                                          req.path_params.at("appAmContextId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such AM policy context", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PATCH",
         std::string(kAfAmPolicyAuthApiRoot) + "/{afId}/app-am-contexts/{appAmContextId}",
-        [&verifier, &af_am_policy_auth](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_am_policy_auth](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::AppAmContextExpUpdateData>(req, err)
                      .has_value()) {
@@ -3638,36 +3285,29 @@ int main() {
                                                          json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM policy context");
+                    404, "Not Found", "No such AM policy context", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfAmPolicyAuthApiRoot) +
-            "/{afId}/app-am-contexts/{appAmContextId}/events-subscription",
-        [&verifier, &af_am_policy_auth](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_am_policy_auth.remove(req.path_params.at("afId") + "/" +
-                                              req.path_params.at("appAmContextId"),
-                                          "events-subscription")) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM policy context");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfAmPolicyAuthApiRoot) +
+                         "/{afId}/app-am-contexts/{appAmContextId}/events-subscription",
+                     [&af_am_policy_auth](const sbi_core::http2::Request& req) {
+                         if (!af_am_policy_auth.remove(req.path_params.at("afId") + "/" +
+                                                           req.path_params.at("appAmContextId"),
+                                                       "events-subscription")) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such AM policy context", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
     server.add_route(
         "PUT",
         std::string(kAfAmPolicyAuthApiRoot) +
             "/{afId}/app-am-contexts/{appAmContextId}/events-subscription",
-        [&verifier, &af_am_policy_auth](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_am_policy_auth](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AmEventsSubscData>(req, err);
             if (!body.has_value()) {
@@ -3696,10 +3336,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfEasDeployApiRoot) + "/remove-edis",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::EdiDeleteCriteria>(req, err)
                      .has_value()) {
@@ -3708,83 +3345,68 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "EAS deployment info: no downstream is wired for this operation in this core");
+                "EAS deployment info: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
-    server.add_route(
-        "GET",
-        std::string(kAfEasDeployApiRoot) + "/{afId}/eas-deployment-info",
-        [&verifier, &af_eas_deploy](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_eas_deploy.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfEasDeployApiRoot) + "/{afId}/eas-deployment-info",
-        [&verifier, &af_eas_deploy](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::EasDeployInfo>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_eas_deploy.create(req.path_params.at("afId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfEasDeployApiRoot) + "/{afId}/eas-deployment-info/{easDeployInfoId}",
-        [&verifier, &af_eas_deploy](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_eas_deploy.remove(req.path_params.at("afId"),
-                                      req.path_params.at("easDeployInfoId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such EAS deployment info");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfEasDeployApiRoot) + "/{afId}/eas-deployment-info/{easDeployInfoId}",
-        [&verifier, &af_eas_deploy](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_eas_deploy.get(req.path_params.at("afId"),
-                                         req.path_params.at("easDeployInfoId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such EAS deployment info");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfEasDeployApiRoot) + "/{afId}/eas-deployment-info",
+                     [&af_eas_deploy](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_eas_deploy.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfEasDeployApiRoot) + "/{afId}/eas-deployment-info",
+                     [&af_eas_deploy](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::EasDeployInfo>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_eas_deploy.create(req.path_params.at("afId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfEasDeployApiRoot) +
+                         "/{afId}/eas-deployment-info/{easDeployInfoId}",
+                     [&af_eas_deploy](const sbi_core::http2::Request& req) {
+                         if (!af_eas_deploy.remove(req.path_params.at("afId"),
+                                                   req.path_params.at("easDeployInfoId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such EAS deployment info", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfEasDeployApiRoot) +
+                         "/{afId}/eas-deployment-info/{easDeployInfoId}",
+                     [&af_eas_deploy](const sbi_core::http2::Request& req) {
+                         auto doc = af_eas_deploy.get(req.path_params.at("afId"),
+                                                      req.path_params.at("easDeployInfoId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such EAS deployment info", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PUT",
         std::string(kAfEasDeployApiRoot) + "/{afId}/eas-deployment-info/{easDeployInfoId}",
-        [&verifier, &af_eas_deploy](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_eas_deploy](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::EasDeployInfo>(req, err);
             if (!body.has_value()) {
@@ -3809,10 +3431,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfEcsAddressApiRoot) + "/remove-ecsaddr",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::EcsAddrDeleteCriteria>(req, err)
                      .has_value()) {
@@ -3821,56 +3440,47 @@ int main() {
             return sbi_core::http2::problem_response(501,
                                                      "Not Implemented",
                                                      "ECS address configuration: no downstream is "
-                                                     "wired for this operation in this core");
+                                                     "wired for this operation in this core",
+                                                     std::nullopt);
         });
-    server.add_route(
-        "GET",
-        std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_ecs_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_ecs_address.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_ecs_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::EcsAddrInfo>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_ecs_address.create(req.path_params.at("afId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("GET",
+                     std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations",
+                     [&af_ecs_address](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_ecs_address.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations",
+                     [&af_ecs_address](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::EcsAddrInfo>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_ecs_address.create(req.path_params.at("afId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
     server.add_route(
         "DELETE",
         std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations/{configId}",
-        [&verifier, &af_ecs_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ecs_address](const sbi_core::http2::Request& req) {
             if (!af_ecs_address.remove(req.path_params.at("afId"),
                                        req.path_params.at("configId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ECS address configuration");
+                    404, "Not Found", "No such ECS address configuration", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -3879,25 +3489,19 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations/{configId}",
-        [&verifier, &af_ecs_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ecs_address](const sbi_core::http2::Request& req) {
             auto doc =
                 af_ecs_address.get(req.path_params.at("afId"), req.path_params.at("configId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ECS address configuration");
+                    404, "Not Found", "No such ECS address configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations/{configId}",
-        [&verifier, &af_ecs_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ecs_address](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::EcsAddrInfoPatch>(req, err)
                      .has_value()) {
@@ -3907,111 +3511,90 @@ int main() {
                 req.path_params.at("afId"), req.path_params.at("configId"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ECS address configuration");
+                    404, "Not Found", "No such ECS address configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route(
-        "PUT",
-        std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations/{configId}",
-        [&verifier, &af_ecs_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::EcsAddrInfo>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            if (!af_ecs_address.put(
-                    req.path_params.at("afId"), req.path_params.at("configId"), j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_ecs_address.create_with_id(
-                    req.path_params.at("afId"), req.path_params.at("configId"), j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
-            }
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("PUT",
+                     std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations/{configId}",
+                     [&af_ecs_address](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::EcsAddrInfo>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         if (!af_ecs_address.put(
+                                 req.path_params.at("afId"), req.path_params.at("configId"), j)) {
+                             // PUT on this API creates the resource when it does not yet exist; the
+                             // store's put() only replaces, so fall through to create under the
+                             // addressed id.
+                             af_ecs_address.create_with_id(
+                                 req.path_params.at("afId"), req.path_params.at("configId"), j);
+                             sbi_core::http2::Response created;
+                             created.status = 201;
+                             created.headers.emplace("content-type", "application/json");
+                             created.body = j.dump();
+                             return created;
+                         }
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
     // --- TS29522_MBSSession : /3gpp-mbs-session/v1 (ADR-0327) ---
-    server.add_route(
-        "GET",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-pp",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_mbs_session.list("")) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-pp",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsPpData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_mbs_session.create("", j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-pp/{mbsPpId}",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_mbs_session.remove("", req.path_params.at("mbsPpId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS session resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-pp/{mbsPpId}",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_mbs_session.get("", req.path_params.at("mbsPpId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS session resource");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfMbsSessionApiRoot) + "/mbs-pp",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_mbs_session.list("")) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfMbsSessionApiRoot) + "/mbs-pp",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsPpData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_mbs_session.create("", j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfMbsSessionApiRoot) + "/mbs-pp/{mbsPpId}",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         if (!af_mbs_session.remove("", req.path_params.at("mbsPpId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such MBS session resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfMbsSessionApiRoot) + "/mbs-pp/{mbsPpId}",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         auto doc = af_mbs_session.get("", req.path_params.at("mbsPpId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such MBS session resource", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PATCH",
         std::string(kAfMbsSessionApiRoot) + "/mbs-pp/{mbsPpId}",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_mbs_session](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::MbsPpDataPatch>(req, err).has_value()) {
                 return err;
@@ -4020,198 +3603,174 @@ int main() {
                 "", req.path_params.at("mbsPpId"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS session resource");
+                    404, "Not Found", "No such MBS session resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route(
-        "PUT",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-pp/{mbsPpId}",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsPpData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            if (!af_mbs_session.put("", req.path_params.at("mbsPpId"), j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_mbs_session.create_with_id("", req.path_params.at("mbsPpId"), j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
-            }
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-sessions",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsSessionCreateReq>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_mbs_session.create("", j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/subscriptions",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_mbs_session.list("")) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/subscriptions",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsSessionSubsc>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_mbs_session.create("", j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/subscriptions/{subscriptionId}",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_mbs_session.remove("", req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS session resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/subscriptions/{subscriptionId}",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_mbs_session.get("", req.path_params.at("subscriptionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS session resource");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/{mbsSessionRef}",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_mbs_session.remove("", req.path_params.at("mbsSessionRef"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS session resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("PUT",
+                     std::string(kAfMbsSessionApiRoot) + "/mbs-pp/{mbsPpId}",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsPpData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         if (!af_mbs_session.put("", req.path_params.at("mbsPpId"), j)) {
+                             // PUT on this API creates the resource when it does not yet exist; the
+                             // store's put() only replaces, so fall through to create under the
+                             // addressed id.
+                             af_mbs_session.create_with_id("", req.path_params.at("mbsPpId"), j);
+                             sbi_core::http2::Response created;
+                             created.status = 201;
+                             created.headers.emplace("content-type", "application/json");
+                             created.body = j.dump();
+                             return created;
+                         }
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfMbsSessionApiRoot) + "/mbs-sessions",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsSessionCreateReq>(
+                             req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_mbs_session.create("", j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/subscriptions",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_mbs_session.list("")) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/subscriptions",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::MbsSessionSubsc>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_mbs_session.create("", j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfMbsSessionApiRoot) +
+                         "/mbs-sessions/subscriptions/{subscriptionId}",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         if (!af_mbs_session.remove("", req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such MBS session resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfMbsSessionApiRoot) +
+                         "/mbs-sessions/subscriptions/{subscriptionId}",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         auto doc = af_mbs_session.get("", req.path_params.at("subscriptionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such MBS session resource", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/{mbsSessionRef}",
+                     [&af_mbs_session](const sbi_core::http2::Request& req) {
+                         if (!af_mbs_session.remove("", req.path_params.at("mbsSessionRef"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such MBS session resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
     server.add_route(
         "PATCH",
         std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/{mbsSessionRef}",
-        [&verifier, &af_mbs_session](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_mbs_session](const sbi_core::http2::Request& req) {
             // RFC 6902, per this operation's declared application/json-patch+json.
             json patch_doc;
             try {
                 patch_doc = json::parse(req.body);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", std::string("Invalid JSON: ") + e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         std::string("Invalid JSON: ") + e.what(),
+                                                         "INVALID_MSG_FORMAT");
             }
             if (!patch_doc.is_array() || patch_doc.empty()) {
                 return sbi_core::http2::problem_response(
-                    400, "Bad Request", "JSON Patch body must be a non-empty array");
+                    400,
+                    "Bad Request",
+                    "JSON Patch body must be a non-empty array",
+                    "MANDATORY_IE_INCORRECT");
             }
             std::optional<json> patched;
             try {
                 patched =
                     af_mbs_session.json_patch("", req.path_params.at("mbsSessionRef"), patch_doc);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", std::string("Invalid JSON Patch: ") + e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         std::string("Invalid JSON Patch: ") +
+                                                             e.what(),
+                                                         "INVALID_MSG_FORMAT");
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS session resource");
+                    404, "Not Found", "No such MBS session resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     // --- TS29522_MBSTMGI : /3gpp-mbs-tmgi/v1 (ADR-0327) ---
-    server.add_route(
-        "POST",
-        std::string(kAfMbsTmgiApiRoot) + "/allocate",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            if (!sbi_core::http2::parse_json_body<sbi_gen::TmgiAllocRequest>(req, err)
-                     .has_value()) {
-                return err;
-            }
-            return sbi_core::http2::problem_response(
-                501,
-                "Not Implemented",
-                "TMGI request: no downstream is wired for this operation in this core");
-        });
+    server.add_route("POST",
+                     std::string(kAfMbsTmgiApiRoot) + "/allocate",
+                     [](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         if (!sbi_core::http2::parse_json_body<sbi_gen::TmgiAllocRequest>(req, err)
+                                  .has_value()) {
+                             return err;
+                         }
+                         return sbi_core::http2::problem_response(
+                             501,
+                             "Not Implemented",
+                             "TMGI request: no downstream is wired for this operation in this core",
+                             std::nullopt);
+                     });
     server.add_route(
         "POST",
         std::string(kAfMbsTmgiApiRoot) + "/deallocate",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::TmgiDeallocRequest>(req, err)
                      .has_value()) {
@@ -4220,16 +3779,12 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "TMGI request: no downstream is wired for this operation in this core");
+                "TMGI request: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
     // --- TS29522_MoLcsNotify : /3gpp-mo-lcs-notify/v1 (ADR-0327) ---
     server.add_route(
-        "POST",
-        std::string(kAfMoLcsApiRoot) + "/",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        "POST", std::string(kAfMoLcsApiRoot) + "/", [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::LocUpdateData_MoLcsNotify>(req, err)
                      .has_value()) {
@@ -4238,29 +3793,23 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "MO-LCS notification: no downstream is wired for this operation in this core");
+                "MO-LCS notification: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
     // --- TS29522_TimeSyncExposure : /3gpp-time-sync/v1 (ADR-0327) ---
-    server.add_route(
-        "GET",
-        std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_time_sync.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions",
+                     [&af_time_sync](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_time_sync.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
     server.add_route(
         "POST",
         std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_time_sync](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TimeSyncExposureSubsc>(req, err);
             if (!body.has_value()) {
@@ -4278,44 +3827,33 @@ int main() {
             resp.body = j.dump();
             return resp;
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_time_sync.remove(req.path_params.at("afId"),
-                                     req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such time sync resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc =
-                af_time_sync.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such time sync resource");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("DELETE",
+                     std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_time_sync](const sbi_core::http2::Request& req) {
+                         if (!af_time_sync.remove(req.path_params.at("afId"),
+                                                  req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such time sync resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_time_sync](const sbi_core::http2::Request& req) {
+                         auto doc = af_time_sync.get(req.path_params.at("afId"),
+                                                     req.path_params.at("subscriptionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such time sync resource", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PUT",
         std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_time_sync](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TimeSyncExposureSubsc>(req, err);
             if (!body.has_value()) {
@@ -4339,10 +3877,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}/configurations",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_time_sync](const sbi_core::http2::Request& req) {
             json out = json::array();
             for (const auto& doc : af_time_sync.list(req.path_params.at("afId") + "/" +
                                                      req.path_params.at("subscriptionId"))) {
@@ -4353,10 +3888,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}/configurations",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_time_sync](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TimeSyncExposureConfig>(req, err);
             if (!body.has_value()) {
@@ -4379,15 +3911,12 @@ int main() {
         "DELETE",
         std::string(kAfTimeSyncApiRoot) +
             "/{afId}/subscriptions/{subscriptionId}/configurations/{instanceReference}",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_time_sync](const sbi_core::http2::Request& req) {
             if (!af_time_sync.remove(req.path_params.at("afId") + "/" +
                                          req.path_params.at("subscriptionId"),
                                      req.path_params.at("instanceReference"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such time sync resource");
+                    404, "Not Found", "No such time sync resource", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -4397,16 +3926,13 @@ int main() {
         "GET",
         std::string(kAfTimeSyncApiRoot) +
             "/{afId}/subscriptions/{subscriptionId}/configurations/{instanceReference}",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_time_sync](const sbi_core::http2::Request& req) {
             auto doc = af_time_sync.get(req.path_params.at("afId") + "/" +
                                             req.path_params.at("subscriptionId"),
                                         req.path_params.at("instanceReference"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such time sync resource");
+                    404, "Not Found", "No such time sync resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
@@ -4414,10 +3940,7 @@ int main() {
         "PUT",
         std::string(kAfTimeSyncApiRoot) +
             "/{afId}/subscriptions/{subscriptionId}/configurations/{instanceReference}",
-        [&verifier, &af_time_sync](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_time_sync](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TimeSyncExposureConfig>(req, err);
             if (!body.has_value()) {
@@ -4443,54 +3966,44 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
     // --- TS29522_UAVFlightAssistance : /3gpp-uav-fa/v1 (ADR-0327) ---
-    server.add_route(
-        "GET",
-        std::string(kAfUavFaApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_uav_fa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_uav_fa.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfUavFaApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_uav_fa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::UavFlightAssistance>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_uav_fa.create(req.path_params.at("afId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("GET",
+                     std::string(kAfUavFaApiRoot) + "/{afId}/configurations",
+                     [&af_uav_fa](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_uav_fa.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfUavFaApiRoot) + "/{afId}/configurations",
+                     [&af_uav_fa](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::UavFlightAssistance>(
+                             req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_uav_fa.create(req.path_params.at("afId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
     server.add_route(
         "DELETE",
         std::string(kAfUavFaApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_uav_fa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_uav_fa](const sbi_core::http2::Request& req) {
             if (!af_uav_fa.remove(req.path_params.at("afId"),
                                   req.path_params.at("configurationId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such UAV flight assistance configuration");
+                    404, "Not Found", "No such UAV flight assistance configuration", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -4499,25 +4012,19 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfUavFaApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_uav_fa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_uav_fa](const sbi_core::http2::Request& req) {
             auto doc =
                 af_uav_fa.get(req.path_params.at("afId"), req.path_params.at("configurationId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such UAV flight assistance configuration");
+                    404, "Not Found", "No such UAV flight assistance configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAfUavFaApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_uav_fa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_uav_fa](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::UavFlightAssistancePatch>(req, err)
                      .has_value()) {
@@ -4528,17 +4035,14 @@ int main() {
                                                  json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such UAV flight assistance configuration");
+                    404, "Not Found", "No such UAV flight assistance configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfUavFaApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_uav_fa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_uav_fa](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::UavFlightAssistance>(req, err);
             if (!body.has_value()) {
@@ -4562,10 +4066,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfUavFaApiRoot) + "/{afId}/retrieve",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::UAVFlightInfoReq>(req, err)
                      .has_value()) {
@@ -4575,16 +4076,14 @@ int main() {
                 501,
                 "Not Implemented",
                 "UAV flight assistance configuration: no downstream is wired for this operation in "
-                "this core");
+                "this core",
+                std::nullopt);
         });
     // --- TS29522_UEAddress : /3gpp-ue-address/v1 (ADR-0327) ---
     server.add_route(
         "POST",
         std::string(kAfUeAddressApiRoot) + "/retrieve",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::UeAddressReq>(req, err).has_value()) {
                 return err;
@@ -4592,82 +4091,65 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "UE address resource: no downstream is wired for this operation in this core");
+                "UE address resource: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
-    server.add_route(
-        "GET",
-        std::string(kAfUeAddressApiRoot) + "/subscriptions",
-        [&verifier, &af_ue_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_ue_address.list("")) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
-    server.add_route(
-        "POST",
-        std::string(kAfUeAddressApiRoot) + "/subscriptions",
-        [&verifier, &af_ue_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::UeAddrSubsc>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_ue_address.create("", j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            // req.path still carries any query string (the router strips it only for
-            // matching), so Location must be built from the path portion alone.
-            const auto path_only = req.path.substr(0, req.path.find('?'));
-            resp.headers.emplace("location", path_only + "/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfUeAddressApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &af_ue_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_ue_address.remove("", req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such UE address resource");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
-    server.add_route(
-        "GET",
-        std::string(kAfUeAddressApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &af_ue_address](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_ue_address.get("", req.path_params.at("subscriptionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such UE address resource");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfUeAddressApiRoot) + "/subscriptions",
+                     [&af_ue_address](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_ue_address.list("")) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
+    server.add_route("POST",
+                     std::string(kAfUeAddressApiRoot) + "/subscriptions",
+                     [&af_ue_address](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::UeAddrSubsc>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_ue_address.create("", j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         // req.path still carries any query string (the router strips it only for
+                         // matching), so Location must be built from the path portion alone.
+                         const auto path_only = req.path.substr(0, req.path.find('?'));
+                         resp.headers.emplace("location", path_only + "/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfUeAddressApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&af_ue_address](const sbi_core::http2::Request& req) {
+                         if (!af_ue_address.remove("", req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such UE address resource", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+    server.add_route("GET",
+                     std::string(kAfUeAddressApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&af_ue_address](const sbi_core::http2::Request& req) {
+                         auto doc = af_ue_address.get("", req.path_params.at("subscriptionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such UE address resource", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     // --- TS29522_VFLNFDiscovery : /3gpp-vfl-nf-discovery/v1 (ADR-0327) ---
     server.add_route(
         "POST",
         std::string(kAfVflDiscApiRoot) + "/discover-nwdaf",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::NwdafDiscoveryRequest>(req, err)
                      .has_value()) {
@@ -4676,15 +4158,13 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "VFL NF discovery request: no downstream is wired for this operation in this core");
+                "VFL NF discovery request: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
     server.add_route(
         "POST",
         std::string(kAfVflDiscApiRoot) + "/release-nwdaf",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::NwdafReleaseRequest>(req, err)
                      .has_value()) {
@@ -4693,34 +4173,29 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "VFL NF discovery request: no downstream is wired for this operation in this core");
+                "VFL NF discovery request: no downstream is wired for this operation in this core",
+                std::nullopt);
         });
 
     // --- ADR-0326: fifteen AF services generated from verified spec data ---
 
     // TS29122_ChargeableParty -- /3gpp-chargeable-party/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfChargeablePartyApiRoot) + "/{scsAsId}/transactions",
-        [&verifier, &af_chargeable_party](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_chargeable_party.list(req.path_params.at("scsAsId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfChargeablePartyApiRoot) + "/{scsAsId}/transactions",
+                     [&af_chargeable_party](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc :
+                              af_chargeable_party.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfChargeablePartyApiRoot) + "/{scsAsId}/transactions",
-        [&verifier, &af_chargeable_party](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_chargeable_party](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ChargeableParty>(req, err);
             if (!body.has_value()) {
@@ -4741,25 +4216,19 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfChargeablePartyApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_chargeable_party](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_chargeable_party](const sbi_core::http2::Request& req) {
             auto doc = af_chargeable_party.get(req.path_params.at("scsAsId"),
                                                req.path_params.at("transactionId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such chargeable party transaction");
+                    404, "Not Found", "No such chargeable party transaction", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAfChargeablePartyApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_chargeable_party](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_chargeable_party](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::ChargeablePartyPatch>(req, err)
                      .has_value()) {
@@ -4770,21 +4239,18 @@ int main() {
                                                            json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such chargeable party transaction");
+                    404, "Not Found", "No such chargeable party transaction", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "DELETE",
         std::string(kAfChargeablePartyApiRoot) + "/{scsAsId}/transactions/{transactionId}",
-        [&verifier, &af_chargeable_party](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_chargeable_party](const sbi_core::http2::Request& req) {
             if (!af_chargeable_party.remove(req.path_params.at("scsAsId"),
                                             req.path_params.at("transactionId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such chargeable party transaction");
+                    404, "Not Found", "No such chargeable party transaction", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -4792,27 +4258,20 @@ int main() {
         });
     // TS29522_5GLANParameterProvision -- /3gpp-5glan-pp/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAf5glanPpApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_5glan_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_5glan_pp.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAf5glanPpApiRoot) + "/{afId}/subscriptions",
+                     [&af_5glan_pp](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_5glan_pp.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAf5glanPpApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_5glan_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_5glan_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::N5GLanParametersProvision>(req, err);
@@ -4834,25 +4293,19 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAf5glanPpApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_5glan_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_5glan_pp](const sbi_core::http2::Request& req) {
             auto doc =
                 af_5glan_pp.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning");
+                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAf5glanPpApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_5glan_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_5glan_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::N5GLanParametersProvision>(req, err);
@@ -4863,17 +4316,14 @@ int main() {
             if (!af_5glan_pp.put(
                     req.path_params.at("afId"), req.path_params.at("subscriptionId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning");
+                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAf5glanPpApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_5glan_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_5glan_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::N5GLanParametersProvisionPatch>(req, err)
                      .has_value()) {
@@ -4889,7 +4339,7 @@ int main() {
             auto updated = af_5glan_pp.get(af_id, sub_id);
             if (!updated.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning");
+                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
             }
             const json body = json::parse(req.body);
             if (body.contains("5gLanParams")) {
@@ -4903,25 +4353,25 @@ int main() {
                 (void)updated->get<sbi_gen::N5GLanParametersProvision>();
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
-                    400, "The patched resource is not a 5GLanParametersProvision", e.what());
+                    400,
+                    "The patched resource is not a 5GLanParametersProvision",
+                    e.what(),
+                    sbi_core::http2::dto_error_cause(e));
             }
             if (!af_5glan_pp.put(af_id, sub_id, *updated)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning");
+                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, updated->dump());
         });
     server.add_route(
         "DELETE",
         std::string(kAf5glanPpApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_5glan_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_5glan_pp](const sbi_core::http2::Request& req) {
             if (!af_5glan_pp.remove(req.path_params.at("afId"),
                                     req.path_params.at("subscriptionId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning");
+                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -4929,27 +4379,20 @@ int main() {
         });
     // TS29522_AMInfluence -- /3gpp-am-influence/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_am_influence](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_am_influence.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions",
+                     [&af_am_influence](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_am_influence.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_am_influence](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_am_influence](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AmInfluSub>(req, err);
             if (!body.has_value()) {
@@ -4970,25 +4413,19 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_am_influence](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_am_influence](const sbi_core::http2::Request& req) {
             auto doc = af_am_influence.get(req.path_params.at("afId"),
                                            req.path_params.at("subscriptionId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM influence subscription");
+                    404, "Not Found", "No such AM influence subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_am_influence](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_am_influence](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AmInfluSub>(req, err);
             if (!body.has_value()) {
@@ -4997,18 +4434,17 @@ int main() {
             json j = *body;
             if (!af_am_influence.put(
                     req.path_params.at("afId"), req.path_params.at("subscriptionId"), j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM influence subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such AM influence subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_am_influence](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_am_influence](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::AmInfluSubPatch>(req, err).has_value()) {
                 return err;
@@ -5017,50 +4453,44 @@ int main() {
                                                        req.path_params.at("subscriptionId"),
                                                        json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM influence subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such AM influence subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_am_influence](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_am_influence.remove(req.path_params.at("afId"),
-                                        req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM influence subscription");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_am_influence](const sbi_core::http2::Request& req) {
+                         if (!af_am_influence.remove(req.path_params.at("afId"),
+                                                     req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such AM influence subscription",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
     // TS29522_ApplyingBdtPolicy -- /3gpp-applying-bdt-policy/v1, root and method set read from the
     // YAML (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_apply_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_apply_bdt.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions",
+                     [&af_apply_bdt](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_apply_bdt.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_apply_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_apply_bdt](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AppliedBdtPolicy>(req, err);
             if (!body.has_value()) {
@@ -5078,28 +4508,21 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_apply_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc =
-                af_apply_bdt.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such applied BDT policy");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_apply_bdt](const sbi_core::http2::Request& req) {
+                         auto doc = af_apply_bdt.get(req.path_params.at("afId"),
+                                                     req.path_params.at("subscriptionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such applied BDT policy", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PATCH",
         std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_apply_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_apply_bdt](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::AppliedBdtPolicyPatch>(req, err)
                      .has_value()) {
@@ -5110,49 +4533,38 @@ int main() {
                                                     json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such applied BDT policy");
+                    404, "Not Found", "No such applied BDT policy", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_apply_bdt](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_apply_bdt.remove(req.path_params.at("afId"),
-                                     req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such applied BDT policy");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_apply_bdt](const sbi_core::http2::Request& req) {
+                         if (!af_apply_bdt.remove(req.path_params.at("afId"),
+                                                  req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such applied BDT policy", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
     // TS29522_DNAIMapping -- /3gpp-dnai-mapping/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfDnaiMappingApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_dnai_mapping](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_dnai_mapping.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfDnaiMappingApiRoot) + "/{afId}/subscriptions",
+                     [&af_dnai_mapping](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_dnai_mapping.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfDnaiMappingApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_dnai_mapping](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_dnai_mapping](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::DnaiMapSub>(req, err);
             if (!body.has_value()) {
@@ -5173,57 +4585,46 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfDnaiMappingApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_dnai_mapping](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_dnai_mapping](const sbi_core::http2::Request& req) {
             auto doc = af_dnai_mapping.get(req.path_params.at("afId"),
                                            req.path_params.at("subscriptionId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such DNAI mapping subscription");
+                    404, "Not Found", "No such DNAI mapping subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfDnaiMappingApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_dnai_mapping](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_dnai_mapping.remove(req.path_params.at("afId"),
-                                        req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such DNAI mapping subscription");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfDnaiMappingApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_dnai_mapping](const sbi_core::http2::Request& req) {
+                         if (!af_dnai_mapping.remove(req.path_params.at("afId"),
+                                                     req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such DNAI mapping subscription",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
     // TS29522_EcsAddressProvision -- /3gpp-ecs-address-provision/v1, root and method set read from
     // the YAML (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfEcsAddrProvApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_ecs_addr_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_ecs_addr_prov.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfEcsAddrProvApiRoot) + "/{afId}/configurations",
+                     [&af_ecs_addr_prov](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_ecs_addr_prov.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfEcsAddrProvApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_ecs_addr_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ecs_addr_prov](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::EcsAddressProvision>(req, err);
             if (!body.has_value()) {
@@ -5244,25 +4645,19 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfEcsAddrProvApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_ecs_addr_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ecs_addr_prov](const sbi_core::http2::Request& req) {
             auto doc = af_ecs_addr_prov.get(req.path_params.at("afId"),
                                             req.path_params.at("configurationId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ECS address provisioning");
+                    404, "Not Found", "No such ECS address provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfEcsAddrProvApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_ecs_addr_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ecs_addr_prov](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::EcsAddressProvision>(req, err);
             if (!body.has_value()) {
@@ -5272,21 +4667,18 @@ int main() {
             if (!af_ecs_addr_prov.put(
                     req.path_params.at("afId"), req.path_params.at("configurationId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ECS address provisioning");
+                    404, "Not Found", "No such ECS address provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
     server.add_route(
         "DELETE",
         std::string(kAfEcsAddrProvApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_ecs_addr_prov](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ecs_addr_prov](const sbi_core::http2::Request& req) {
             if (!af_ecs_addr_prov.remove(req.path_params.at("afId"),
                                          req.path_params.at("configurationId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ECS address provisioning");
+                    404, "Not Found", "No such ECS address provisioning", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -5294,63 +4686,50 @@ int main() {
         });
     // TS29522_ImsParamProvision -- /3gpp-ims-pp/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfImsPpApiRoot) + "/pp",
-        [&verifier, &af_ims_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_ims_pp.list("")) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfImsPpApiRoot) + "/pp",
+                     [&af_ims_pp](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_ims_pp.list("")) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kAfImsPpApiRoot) + "/pp",
-        [&verifier, &af_ims_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::ImsPpData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_ims_pp.create("", j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location", std::string(kAfImsPpApiRoot) + "/pp/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kAfImsPpApiRoot) + "/pp",
+                     [&af_ims_pp](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::ImsPpData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_ims_pp.create("", j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kAfImsPpApiRoot) + "/pp/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
     server.add_route(
         "GET",
         std::string(kAfImsPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_ims_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_pp](const sbi_core::http2::Request& req) {
             auto doc = af_ims_pp.get("", req.path_params.at("ppId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IMS parameter provisioning");
+                    404, "Not Found", "No such IMS parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfImsPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_ims_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ImsPpData>(req, err);
             if (!body.has_value()) {
@@ -5359,7 +4738,7 @@ int main() {
             json j = *body;
             if (!af_ims_pp.put("", req.path_params.at("ppId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IMS parameter provisioning");
+                    404, "Not Found", "No such IMS parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -5370,28 +4749,33 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfImsPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_ims_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_pp](const sbi_core::http2::Request& req) {
             json patch_doc;
             try {
                 patch_doc = json::parse(req.body);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", std::string("Invalid JSON: ") + e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         std::string("Invalid JSON: ") + e.what(),
+                                                         "INVALID_MSG_FORMAT");
             }
             // The YAML types the body as an array of PatchItem with minItems 1.
             if (!patch_doc.is_array() || patch_doc.empty()) {
                 return sbi_core::http2::problem_response(
-                    400, "Bad Request", "JSON Patch body must be a non-empty array");
+                    400,
+                    "Bad Request",
+                    "JSON Patch body must be a non-empty array",
+                    "MANDATORY_IE_INCORRECT");
             }
             for (const auto& entry : patch_doc) {
                 try {
                     (void)entry.get<sbi_gen::PatchItem>();
                 } catch (const std::exception& e) {
-                    return sbi_core::http2::problem_response(
-                        400, "Bad Request", std::string("Invalid PatchItem: ") + e.what());
+                    return sbi_core::http2::problem_response(400,
+                                                             "Bad Request",
+                                                             std::string("Invalid PatchItem: ") +
+                                                                 e.what(),
+                                                             "INVALID_MSG_FORMAT");
                 }
             }
             std::optional<json> patched;
@@ -5400,25 +4784,25 @@ int main() {
                 // store scope is empty, matching how the GET/PUT/DELETE routes above address it.
                 patched = af_ims_pp.json_patch("", req.path_params.at("ppId"), patch_doc);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", std::string("Invalid JSON Patch: ") + e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         std::string("Invalid JSON Patch: ") +
+                                                             e.what(),
+                                                         "INVALID_MSG_FORMAT");
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IMS parameter provisioning");
+                    404, "Not Found", "No such IMS parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "DELETE",
         std::string(kAfImsPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_ims_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_pp](const sbi_core::http2::Request& req) {
             if (!af_ims_pp.remove("", req.path_params.at("ppId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IMS parameter provisioning");
+                    404, "Not Found", "No such IMS parameter provisioning", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -5426,27 +4810,20 @@ int main() {
         });
     // TS29522_ImsSessionManagement -- /3gpp-ims-sm/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfImsSmApiRoot) + "/ims-sessions",
-        [&verifier, &af_ims_sm](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_ims_sm.list("")) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfImsSmApiRoot) + "/ims-sessions",
+                     [&af_ims_sm](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_ims_sm.list("")) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfImsSmApiRoot) + "/ims-sessions",
-        [&verifier, &af_ims_sm](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_sm](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ImsSession>(req, err);
             if (!body.has_value()) {
@@ -5462,37 +4839,32 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfImsSmApiRoot) + "/ims-sessions/{sessionId}",
-        [&verifier, &af_ims_sm](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_ims_sm.get("", req.path_params.at("sessionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such IMS session");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
-    server.add_route(
-        "PUT",
-        std::string(kAfImsSmApiRoot) + "/ims-sessions/{sessionId}",
-        [&verifier, &af_ims_sm](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::ImsSession>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            if (!af_ims_sm.put("", req.path_params.at("sessionId"), j)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such IMS session");
-            }
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfImsSmApiRoot) + "/ims-sessions/{sessionId}",
+                     [&af_ims_sm](const sbi_core::http2::Request& req) {
+                         auto doc = af_ims_sm.get("", req.path_params.at("sessionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such IMS session", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
+    server.add_route("PUT",
+                     std::string(kAfImsSmApiRoot) + "/ims-sessions/{sessionId}",
+                     [&af_ims_sm](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::ImsSession>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         if (!af_ims_sm.put("", req.path_params.at("sessionId"), j)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such IMS session", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
     // IMS session: TS 29.522 declares this PATCH as application/json-patch+json -- RFC 6902, an
     // ordered array of operations -- not the merge-patch every other service in this batch uses.
     // Applying a merge to a JSON Patch array would silently store the array itself as the
@@ -5500,28 +4872,33 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfImsSmApiRoot) + "/ims-sessions/{sessionId}",
-        [&verifier, &af_ims_sm](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_sm](const sbi_core::http2::Request& req) {
             json patch_doc;
             try {
                 patch_doc = json::parse(req.body);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", std::string("Invalid JSON: ") + e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         std::string("Invalid JSON: ") + e.what(),
+                                                         "INVALID_MSG_FORMAT");
             }
             // The YAML types the body as an array of PatchItem with minItems 1.
             if (!patch_doc.is_array() || patch_doc.empty()) {
                 return sbi_core::http2::problem_response(
-                    400, "Bad Request", "JSON Patch body must be a non-empty array");
+                    400,
+                    "Bad Request",
+                    "JSON Patch body must be a non-empty array",
+                    "MANDATORY_IE_INCORRECT");
             }
             for (const auto& entry : patch_doc) {
                 try {
                     (void)entry.get<sbi_gen::PatchItem>();
                 } catch (const std::exception& e) {
-                    return sbi_core::http2::problem_response(
-                        400, "Bad Request", std::string("Invalid PatchItem: ") + e.what());
+                    return sbi_core::http2::problem_response(400,
+                                                             "Bad Request",
+                                                             std::string("Invalid PatchItem: ") +
+                                                                 e.what(),
+                                                             "INVALID_MSG_FORMAT");
                 }
             }
             std::optional<json> patched;
@@ -5530,88 +4907,76 @@ int main() {
                 // store scope is empty, matching how the GET/PUT/DELETE routes above address it.
                 patched = af_ims_sm.json_patch("", req.path_params.at("sessionId"), patch_doc);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", std::string("Invalid JSON Patch: ") + e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         std::string("Invalid JSON Patch: ") +
+                                                             e.what(),
+                                                         "INVALID_MSG_FORMAT");
             }
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such IMS session");
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such IMS session", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfImsSmApiRoot) + "/ims-sessions/{sessionId}",
-        [&verifier, &af_ims_sm](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_ims_sm.remove("", req.path_params.at("sessionId"))) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such IMS session");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfImsSmApiRoot) + "/ims-sessions/{sessionId}",
+                     [&af_ims_sm](const sbi_core::http2::Request& req) {
+                         if (!af_ims_sm.remove("", req.path_params.at("sessionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such IMS session", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
     // TS29522_MBSGroupMsgDelivery -- /3gpp-mbs-group-msg/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfMbsGroupMsgApiRoot) + "/deliveries",
-        [&verifier, &af_mbs_group_msg](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_mbs_group_msg.list("")) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfMbsGroupMsgApiRoot) + "/deliveries",
+                     [&af_mbs_group_msg](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_mbs_group_msg.list("")) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kAfMbsGroupMsgApiRoot) + "/deliveries",
-        [&verifier, &af_mbs_group_msg](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsGroupMsgDel>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_mbs_group_msg.create("", j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kAfMbsGroupMsgApiRoot) + "/deliveries/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kAfMbsGroupMsgApiRoot) + "/deliveries",
+                     [&af_mbs_group_msg](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::MbsGroupMsgDel>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_mbs_group_msg.create("", j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace(
+                             "location", std::string(kAfMbsGroupMsgApiRoot) + "/deliveries/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
     server.add_route(
         "GET",
         std::string(kAfMbsGroupMsgApiRoot) + "/deliveries/{delRef}",
-        [&verifier, &af_mbs_group_msg](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_mbs_group_msg](const sbi_core::http2::Request& req) {
             auto doc = af_mbs_group_msg.get("", req.path_params.at("delRef"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS group message delivery");
+                    404, "Not Found", "No such MBS group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAfMbsGroupMsgApiRoot) + "/deliveries/{delRef}",
-        [&verifier, &af_mbs_group_msg](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_mbs_group_msg](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::MbsGroupMsgDelPatch>(req, err)
                      .has_value()) {
@@ -5621,20 +4986,17 @@ int main() {
                 "", req.path_params.at("delRef"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS group message delivery");
+                    404, "Not Found", "No such MBS group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "DELETE",
         std::string(kAfMbsGroupMsgApiRoot) + "/deliveries/{delRef}",
-        [&verifier, &af_mbs_group_msg](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_mbs_group_msg](const sbi_core::http2::Request& req) {
             if (!af_mbs_group_msg.remove("", req.path_params.at("delRef"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS group message delivery");
+                    404, "Not Found", "No such MBS group message delivery", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -5642,27 +5004,20 @@ int main() {
         });
     // TS29522_MSEventExposure -- /3gpp-ms-event-exposure/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfMsEventApiRoot) + "/subscriptions",
-        [&verifier, &af_ms_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_ms_event.list("")) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfMsEventApiRoot) + "/subscriptions",
+                     [&af_ms_event](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_ms_event.list("")) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfMsEventApiRoot) + "/subscriptions",
-        [&verifier, &af_ms_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ms_event](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AfEventExposureSubsc>(req, err);
             if (!body.has_value()) {
@@ -5679,27 +5034,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfMsEventApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &af_ms_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_ms_event.get("", req.path_params.at("subscriptionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MS event subscription");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfMsEventApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&af_ms_event](const sbi_core::http2::Request& req) {
+                         auto doc = af_ms_event.get("", req.path_params.at("subscriptionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such MS event subscription", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PUT",
         std::string(kAfMsEventApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &af_ms_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ms_event](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AfEventExposureSubsc>(req, err);
             if (!body.has_value()) {
@@ -5708,20 +5056,17 @@ int main() {
             json j = *body;
             if (!af_ms_event.put("", req.path_params.at("subscriptionId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MS event subscription");
+                    404, "Not Found", "No such MS event subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
     server.add_route(
         "DELETE",
         std::string(kAfMsEventApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &af_ms_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ms_event](const sbi_core::http2::Request& req) {
             if (!af_ms_event.remove("", req.path_params.at("subscriptionId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MS event subscription");
+                    404, "Not Found", "No such MS event subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -5729,27 +5074,20 @@ int main() {
         });
     // TS29522_MemberUESelectionAssistance -- /3gpp-musa/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfMusaApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_musa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_musa.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfMusaApiRoot) + "/{afId}/subscriptions",
+                     [&af_musa](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_musa.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfMusaApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_musa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_musa](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::MemUeSelectAssistSubsc>(req, err);
             if (!body.has_value()) {
@@ -5770,25 +5108,19 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfMusaApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_musa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_musa](const sbi_core::http2::Request& req) {
             auto doc =
                 af_musa.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such member UE selection subscription");
+                    404, "Not Found", "No such member UE selection subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfMusaApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_musa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_musa](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::MemUeSelectAssistSubsc>(req, err);
             if (!body.has_value()) {
@@ -5796,18 +5128,17 @@ int main() {
             }
             json j = *body;
             if (!af_musa.put(req.path_params.at("afId"), req.path_params.at("subscriptionId"), j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such member UE selection subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such member UE selection subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAfMusaApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_musa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_musa](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::MemUeSelectAssistSubscPatch>(req, err)
                      .has_value()) {
@@ -5817,21 +5148,22 @@ int main() {
                                                req.path_params.at("subscriptionId"),
                                                json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such member UE selection subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such member UE selection subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "DELETE",
         std::string(kAfMusaApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_musa](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_musa](const sbi_core::http2::Request& req) {
             if (!af_musa.remove(req.path_params.at("afId"), req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such member UE selection subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such member UE selection subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -5839,66 +5171,52 @@ int main() {
         });
     // TS29522_PDTQPolicyNegotiation -- /3gpp-pdtq-policy-negotiation/v1, root and method set read
     // from the YAML (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_pdtq](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_pdtq.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions",
+                     [&af_pdtq](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_pdtq.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_pdtq](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::Pdtq>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_pdtq.create(req.path_params.at("afId"), j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kAfPdtqApiRoot) + "/" + req.path_params.at("afId") +
-                                     "/subscriptions/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions",
+                     [&af_pdtq](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::Pdtq>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_pdtq.create(req.path_params.at("afId"), j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kAfPdtqApiRoot) + "/" +
+                                                  req.path_params.at("afId") + "/subscriptions/" +
+                                                  id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_pdtq](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc =
-                af_pdtq.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PDTQ policy negotiation");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_pdtq](const sbi_core::http2::Request& req) {
+                         auto doc = af_pdtq.get(req.path_params.at("afId"),
+                                                req.path_params.at("subscriptionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such PDTQ policy negotiation", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PATCH",
         std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_pdtq](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_pdtq](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::PdtqPatch>(req, err).has_value()) {
                 return err;
@@ -5908,20 +5226,17 @@ int main() {
                                                json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PDTQ policy negotiation");
+                    404, "Not Found", "No such PDTQ policy negotiation", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "DELETE",
         std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_pdtq](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_pdtq](const sbi_core::http2::Request& req) {
             if (!af_pdtq.remove(req.path_params.at("afId"), req.path_params.at("subscriptionId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PDTQ policy negotiation");
+                    404, "Not Found", "No such PDTQ policy negotiation", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -5929,27 +5244,20 @@ int main() {
         });
     // TS29522_RSLPPIParametersProvisioning -- /3gpp-rslppi-pp/v1, root and method set read from the
     // YAML (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfRslppiPpApiRoot) + "/pp",
-        [&verifier, &af_rslppi_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_rslppi_pp.list("")) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfRslppiPpApiRoot) + "/pp",
+                     [&af_rslppi_pp](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_rslppi_pp.list("")) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfRslppiPpApiRoot) + "/pp",
-        [&verifier, &af_rslppi_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_rslppi_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::RslppiPpData>(req, err);
             if (!body.has_value()) {
@@ -5965,97 +5273,75 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfRslppiPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_rslppi_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto doc = af_rslppi_pp.get("", req.path_params.at("ppId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such RSLPPI provisioning");
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
-    server.add_route(
-        "PUT",
-        std::string(kAfRslppiPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_rslppi_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::RslppiPpData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            if (!af_rslppi_pp.put("", req.path_params.at("ppId"), j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such RSLPPI provisioning");
-            }
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
-    server.add_route(
-        "PATCH",
-        std::string(kAfRslppiPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_rslppi_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            if (!sbi_core::http2::parse_json_body<sbi_gen::RslppiPpDataPatch>(req, err)
-                     .has_value()) {
-                return err;
-            }
-            auto patched =
-                af_rslppi_pp.merge_patch("", req.path_params.at("ppId"), json::parse(req.body));
-            if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such RSLPPI provisioning");
-            }
-            return sbi_core::http2::Response::json(200, patched->dump());
-        });
-    server.add_route(
-        "DELETE",
-        std::string(kAfRslppiPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_rslppi_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_rslppi_pp.remove("", req.path_params.at("ppId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such RSLPPI provisioning");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("GET",
+                     std::string(kAfRslppiPpApiRoot) + "/pp/{ppId}",
+                     [&af_rslppi_pp](const sbi_core::http2::Request& req) {
+                         auto doc = af_rslppi_pp.get("", req.path_params.at("ppId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such RSLPPI provisioning", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
+    server.add_route("PUT",
+                     std::string(kAfRslppiPpApiRoot) + "/pp/{ppId}",
+                     [&af_rslppi_pp](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::RslppiPpData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         if (!af_rslppi_pp.put("", req.path_params.at("ppId"), j)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such RSLPPI provisioning", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
+    server.add_route("PATCH",
+                     std::string(kAfRslppiPpApiRoot) + "/pp/{ppId}",
+                     [&af_rslppi_pp](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         if (!sbi_core::http2::parse_json_body<sbi_gen::RslppiPpDataPatch>(req, err)
+                                  .has_value()) {
+                             return err;
+                         }
+                         auto patched = af_rslppi_pp.merge_patch(
+                             "", req.path_params.at("ppId"), json::parse(req.body));
+                         if (!patched.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such RSLPPI provisioning", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, patched->dump());
+                     });
+    server.add_route("DELETE",
+                     std::string(kAfRslppiPpApiRoot) + "/pp/{ppId}",
+                     [&af_rslppi_pp](const sbi_core::http2::Request& req) {
+                         if (!af_rslppi_pp.remove("", req.path_params.at("ppId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such RSLPPI provisioning", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
     // TS29522_VFLInference -- /3gpp-vfl-inference/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfVflInferApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_vfl_infer](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_vfl_infer.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfVflInferApiRoot) + "/{afId}/subscriptions",
+                     [&af_vfl_infer](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_vfl_infer.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfVflInferApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_vfl_infer](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_vfl_infer](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::VflInferSub_VFLInference>(req, err);
@@ -6077,25 +5363,19 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfVflInferApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_vfl_infer](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_vfl_infer](const sbi_core::http2::Request& req) {
             auto doc =
                 af_vfl_infer.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL inference subscription");
+                    404, "Not Found", "No such VFL inference subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfVflInferApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_vfl_infer](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_vfl_infer](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::VflInferSub_VFLInference>(req, err);
@@ -6105,18 +5385,17 @@ int main() {
             json j = *body;
             if (!af_vfl_infer.put(
                     req.path_params.at("afId"), req.path_params.at("subscriptionId"), j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL inference subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such VFL inference subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAfVflInferApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_vfl_infer](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_vfl_infer](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::VflInferSubPatch_VFLInference>(req, err)
                      .has_value()) {
@@ -6126,50 +5405,44 @@ int main() {
                                                     req.path_params.at("subscriptionId"),
                                                     json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL inference subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such VFL inference subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAfVflInferApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_vfl_infer](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_vfl_infer.remove(req.path_params.at("afId"),
-                                     req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL inference subscription");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfVflInferApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_vfl_infer](const sbi_core::http2::Request& req) {
+                         if (!af_vfl_infer.remove(req.path_params.at("afId"),
+                                                  req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such VFL inference subscription",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
     // TS29522_VFLTraining -- /3gpp-vfl-training/v1, root and method set read from the YAML
     // (ADR-0326).
-    server.add_route(
-        "GET",
-        std::string(kAfVflTrainApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_vfl_train](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& doc : af_vfl_train.list(req.path_params.at("afId"))) {
-                out.push_back(doc);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfVflTrainApiRoot) + "/{afId}/subscriptions",
+                     [&af_vfl_train](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& doc : af_vfl_train.list(req.path_params.at("afId"))) {
+                             out.push_back(doc);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfVflTrainApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_vfl_train](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_vfl_train](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::VflTrainingSubs_VFLTraining>(req, err);
@@ -6191,24 +5464,18 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfVflTrainApiRoot) + "/{afId}/subscriptions/{subId}",
-        [&verifier, &af_vfl_train](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_vfl_train](const sbi_core::http2::Request& req) {
             auto doc = af_vfl_train.get(req.path_params.at("afId"), req.path_params.at("subId"));
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL training subscription");
+                    404, "Not Found", "No such VFL training subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
     server.add_route(
         "PUT",
         std::string(kAfVflTrainApiRoot) + "/{afId}/subscriptions/{subId}",
-        [&verifier, &af_vfl_train](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_vfl_train](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::VflTrainingSubs_VFLTraining>(req, err);
@@ -6217,18 +5484,17 @@ int main() {
             }
             json j = *body;
             if (!af_vfl_train.put(req.path_params.at("afId"), req.path_params.at("subId"), j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL training subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such VFL training subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
     server.add_route(
         "PATCH",
         std::string(kAfVflTrainApiRoot) + "/{afId}/subscriptions/{subId}",
-        [&verifier, &af_vfl_train](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_vfl_train](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::VflTrainingSubsPatch_VFLTraining>(req,
                                                                                              err)
@@ -6238,21 +5504,22 @@ int main() {
             auto patched = af_vfl_train.merge_patch(
                 req.path_params.at("afId"), req.path_params.at("subId"), json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL training subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such VFL training subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
     server.add_route(
         "DELETE",
         std::string(kAfVflTrainApiRoot) + "/{afId}/subscriptions/{subId}",
-        [&verifier, &af_vfl_train](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_vfl_train](const sbi_core::http2::Request& req) {
             if (!af_vfl_train.remove(req.path_params.at("afId"), req.path_params.at("subId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL training subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such VFL training subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -6266,45 +5533,35 @@ int main() {
     // The request is parsed against the real AnalyticsRequest. The response is 501: AnalyticsData
     // has to come from NWDAF, which is Phase 5 and not built. Synthesising a plausible-looking
     // analytics payload here would be the one failure mode this project cannot afford.
-    server.add_route(
-        "POST",
-        std::string(kAfAnalyticsApiRoot) + "/{afId}/fetch",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            if (!sbi_core::http2::parse_json_body<sbi_gen::AnalyticsRequest>(req, err)
-                     .has_value()) {
-                return err;
-            }
-            return sbi_core::http2::problem_response(
-                501,
-                "Not Implemented",
-                "Analytics fetch requires NWDAF, which is not deployed in this core");
-        });
+    server.add_route("POST",
+                     std::string(kAfAnalyticsApiRoot) + "/{afId}/fetch",
+                     [](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         if (!sbi_core::http2::parse_json_body<sbi_gen::AnalyticsRequest>(req, err)
+                                  .has_value()) {
+                             return err;
+                         }
+                         return sbi_core::http2::problem_response(
+                             501,
+                             "Not Implemented",
+                             "Analytics fetch requires NWDAF, which is not deployed in this core",
+                             std::nullopt);
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kAfAnalyticsApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_analytics](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_analytics.list(req.path_params.at("afId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfAnalyticsApiRoot) + "/{afId}/subscriptions",
+                     [&af_analytics](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_analytics.list(req.path_params.at("afId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfAnalyticsApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_analytics](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_analytics](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AnalyticsExposureSubsc>(req, err);
             if (!body.has_value()) {
@@ -6326,15 +5583,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfAnalyticsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_analytics](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_analytics](const sbi_core::http2::Request& req) {
             auto d =
                 af_analytics.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
             if (!d.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such analytics exposure subscription");
+                    404, "Not Found", "No such analytics exposure subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, d->dump());
         });
@@ -6342,10 +5596,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfAnalyticsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_analytics](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_analytics](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AnalyticsExposureSubsc>(req, err);
             if (!body.has_value()) {
@@ -6354,28 +5605,29 @@ int main() {
             json j = *body;
             if (!af_analytics.put(
                     req.path_params.at("afId"), req.path_params.at("subscriptionId"), j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such analytics exposure subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such analytics exposure subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kAfAnalyticsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_analytics](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_analytics.remove(req.path_params.at("afId"),
-                                     req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such analytics exposure subscription");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfAnalyticsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_analytics](const sbi_core::http2::Request& req) {
+                         if (!af_analytics.remove(req.path_params.at("afId"),
+                                                  req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such analytics exposure subscription",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // ADR-0325: RetrieveStatusofConfiguration. Registered BEFORE the item routes below on purpose:
     // sbi_core's matcher is first-registered-wins with no preference for a literal segment over a
@@ -6389,10 +5641,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfAstiApiRoot) + "/{afId}/configurations/retrieve",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::StatusRequestData>(req, err)
                      .has_value()) {
@@ -6401,30 +5650,24 @@ int main() {
             return sbi_core::http2::problem_response(
                 501,
                 "Not Implemented",
-                "Configuration status retrieval requires TSCTSF, which is not wired to NEF");
+                "Configuration status retrieval requires TSCTSF, which is not wired to NEF",
+                std::nullopt);
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfAstiApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_asti](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_asti.list(req.path_params.at("afId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfAstiApiRoot) + "/{afId}/configurations",
+                     [&af_asti](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_asti.list(req.path_params.at("afId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfAstiApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_asti](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_asti](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::AccessTimeDistributionData>(req, err);
@@ -6443,28 +5686,22 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfAstiApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_asti](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto d = af_asti.get(req.path_params.at("afId"), req.path_params.at("configurationId"));
-            if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ASTI configuration");
-            }
-            return sbi_core::http2::Response::json(200, d->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfAstiApiRoot) + "/{afId}/configurations/{configurationId}",
+                     [&af_asti](const sbi_core::http2::Request& req) {
+                         auto d = af_asti.get(req.path_params.at("afId"),
+                                              req.path_params.at("configurationId"));
+                         if (!d.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such ASTI configuration", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, d->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kAfAstiApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_asti](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_asti](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::AccessTimeDistributionData>(req, err);
@@ -6475,49 +5712,38 @@ int main() {
             if (!af_asti.put(
                     req.path_params.at("afId"), req.path_params.at("configurationId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ASTI configuration");
+                    404, "Not Found", "No such ASTI configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kAfAstiApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_asti](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_asti.remove(req.path_params.at("afId"),
-                                req.path_params.at("configurationId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ASTI configuration");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfAstiApiRoot) + "/{afId}/configurations/{configurationId}",
+                     [&af_asti](const sbi_core::http2::Request& req) {
+                         if (!af_asti.remove(req.path_params.at("afId"),
+                                             req.path_params.at("configurationId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such ASTI configuration", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_ims_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_ims_event.list(req.path_params.at("afId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions",
+                     [&af_ims_event](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_ims_event.list(req.path_params.at("afId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_ims_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_event](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ImsEESubsc>(req, err);
             if (!body.has_value()) {
@@ -6535,29 +5761,22 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_ims_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto d =
-                af_ims_event.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
-            if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IMS event subscription");
-            }
-            return sbi_core::http2::Response::json(200, d->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_ims_event](const sbi_core::http2::Request& req) {
+                         auto d = af_ims_event.get(req.path_params.at("afId"),
+                                                   req.path_params.at("subscriptionId"));
+                         if (!d.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such IMS event subscription", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, d->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_ims_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_event](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ImsEESubsc>(req, err);
             if (!body.has_value()) {
@@ -6567,7 +5786,7 @@ int main() {
             if (!af_ims_event.put(
                     req.path_params.at("afId"), req.path_params.at("subscriptionId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IMS event subscription");
+                    404, "Not Found", "No such IMS event subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -6575,10 +5794,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_ims_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_event](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::ImsEESubscPatch>(req, err).has_value()) {
                 return err;
@@ -6588,7 +5804,7 @@ int main() {
                                                     json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IMS event subscription");
+                    404, "Not Found", "No such IMS event subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -6596,14 +5812,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_ims_event](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ims_event](const sbi_core::http2::Request& req) {
             if (!af_ims_event.remove(req.path_params.at("afId"),
                                      req.path_params.at("subscriptionId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IMS event subscription");
+                    404, "Not Found", "No such IMS event subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -6627,27 +5840,20 @@ int main() {
     // different places -- and is NOT done here. They are accepted, validated against their real
     // generated DTOs, and stored. The APIs are real; nothing downstream applies them yet.
 
-    server.add_route(
-        "GET",
-        std::string(kAfCagPpApiRoot) + "/pp",
-        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_cag_pp.list(kPpNamespace)) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfCagPpApiRoot) + "/pp",
+                     [&af_cag_pp](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_cag_pp.list(kPpNamespace)) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfCagPpApiRoot) + "/pp",
-        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_cag_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::CagInfoPpData>(req, err);
             if (!body.has_value()) {
@@ -6663,48 +5869,38 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto d = af_cag_pp.get(kPpNamespace, req.path_params.at("ppId"));
-            if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such CAG info provisioning");
-            }
-            return sbi_core::http2::Response::json(200, d->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
+                     [&af_cag_pp](const sbi_core::http2::Request& req) {
+                         auto d = af_cag_pp.get(kPpNamespace, req.path_params.at("ppId"));
+                         if (!d.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such CAG info provisioning", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, d->dump());
+                     });
 
-    server.add_route(
-        "PUT",
-        std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::CagInfoPpData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            if (!af_cag_pp.put(kPpNamespace, req.path_params.at("ppId"), j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such CAG info provisioning");
-            }
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("PUT",
+                     std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
+                     [&af_cag_pp](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::CagInfoPpData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         if (!af_cag_pp.put(kPpNamespace, req.path_params.at("ppId"), j)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such CAG info provisioning", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     server.add_route(
         "PATCH",
         std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_cag_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::CagInfoPpDataPatch>(req, err)
                      .has_value()) {
@@ -6714,48 +5910,37 @@ int main() {
                 kPpNamespace, req.path_params.at("ppId"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such CAG info provisioning");
+                    404, "Not Found", "No such CAG info provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!af_cag_pp.remove(kPpNamespace, req.path_params.at("ppId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such CAG info provisioning");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
+                     [&af_cag_pp](const sbi_core::http2::Request& req) {
+                         if (!af_cag_pp.remove(kPpNamespace, req.path_params.at("ppId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such CAG info provisioning", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kAfAddrPpApiRoot) + "/pp",
-        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_addr_pp.list(kPpNamespace)) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfAddrPpApiRoot) + "/pp",
+                     [&af_addr_pp](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_addr_pp.list(kPpNamespace)) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfAddrPpApiRoot) + "/pp",
-        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_addr_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AddrPpData>(req, err);
             if (!body.has_value()) {
@@ -6774,14 +5959,11 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfAddrPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_addr_pp](const sbi_core::http2::Request& req) {
             auto d = af_addr_pp.get(kPpNamespace, req.path_params.at("ppId"));
             if (!d.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such addressing parameter provisioning");
+                    404, "Not Found", "No such addressing parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, d->dump());
         });
@@ -6789,10 +5971,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfAddrPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_addr_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AddrPpData>(req, err);
             if (!body.has_value()) {
@@ -6801,7 +5980,7 @@ int main() {
             json j = *body;
             if (!af_addr_pp.put(kPpNamespace, req.path_params.at("ppId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such addressing parameter provisioning");
+                    404, "Not Found", "No such addressing parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -6809,10 +5988,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfAddrPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_addr_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::AddrPpDataPatch>(req, err).has_value()) {
                 return err;
@@ -6821,7 +5997,7 @@ int main() {
                 kPpNamespace, req.path_params.at("ppId"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such addressing parameter provisioning");
+                    404, "Not Found", "No such addressing parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -6829,40 +6005,30 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfAddrPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_addr_pp](const sbi_core::http2::Request& req) {
             if (!af_addr_pp.remove(kPpNamespace, req.path_params.at("ppId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such addressing parameter provisioning");
+                    404, "Not Found", "No such addressing parameter provisioning", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfSlicePpApiRoot) + "/pp",
-        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_slice_pp.list(kPpNamespace)) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfSlicePpApiRoot) + "/pp",
+                     [&af_slice_pp](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_slice_pp.list(kPpNamespace)) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfSlicePpApiRoot) + "/pp",
-        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_slice_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SlicePpData>(req, err);
             if (!body.has_value()) {
@@ -6881,14 +6047,11 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfSlicePpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_slice_pp](const sbi_core::http2::Request& req) {
             auto d = af_slice_pp.get(kPpNamespace, req.path_params.at("ppId"));
             if (!d.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such slice parameter provisioning");
+                    404, "Not Found", "No such slice parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, d->dump());
         });
@@ -6896,10 +6059,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfSlicePpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_slice_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SlicePpData>(req, err);
             if (!body.has_value()) {
@@ -6908,7 +6068,7 @@ int main() {
             json j = *body;
             if (!af_slice_pp.put(kPpNamespace, req.path_params.at("ppId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such slice parameter provisioning");
+                    404, "Not Found", "No such slice parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -6916,10 +6076,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfSlicePpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_slice_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::SlicePpDataPatch>(req, err)
                      .has_value()) {
@@ -6929,7 +6086,7 @@ int main() {
                 kPpNamespace, req.path_params.at("ppId"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such slice parameter provisioning");
+                    404, "Not Found", "No such slice parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -6937,66 +6094,53 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfSlicePpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_slice_pp](const sbi_core::http2::Request& req) {
             if (!af_slice_pp.remove(kPpNamespace, req.path_params.at("ppId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such slice parameter provisioning");
+                    404, "Not Found", "No such slice parameter provisioning", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfGroupPpApiRoot) + "/pp",
-        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_group_pp.list(kPpNamespace)) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfGroupPpApiRoot) + "/pp",
+                     [&af_group_pp](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_group_pp.list(kPpNamespace)) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kAfGroupPpApiRoot) + "/pp",
-        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::GrpPpData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            json j = *body;
-            const auto id = af_group_pp.create(kPpNamespace, j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location", std::string(kAfGroupPpApiRoot) + "/pp/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kAfGroupPpApiRoot) + "/pp",
+                     [&af_group_pp](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::GrpPpData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         json j = *body;
+                         const auto id = af_group_pp.create(kPpNamespace, j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kAfGroupPpApiRoot) + "/pp/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
     server.add_route(
         "GET",
         std::string(kAfGroupPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_group_pp](const sbi_core::http2::Request& req) {
             auto d = af_group_pp.get(kPpNamespace, req.path_params.at("ppId"));
             if (!d.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such group parameter provisioning");
+                    404, "Not Found", "No such group parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, d->dump());
         });
@@ -7004,10 +6148,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfGroupPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_group_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::GrpPpData>(req, err);
             if (!body.has_value()) {
@@ -7016,7 +6157,7 @@ int main() {
             json j = *body;
             if (!af_group_pp.put(kPpNamespace, req.path_params.at("ppId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such group parameter provisioning");
+                    404, "Not Found", "No such group parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -7024,10 +6165,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfGroupPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_group_pp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::GrpPpDataPatch>(req, err).has_value()) {
                 return err;
@@ -7036,7 +6174,7 @@ int main() {
                 kPpNamespace, req.path_params.at("ppId"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such group parameter provisioning");
+                    404, "Not Found", "No such group parameter provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -7044,13 +6182,10 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfGroupPpApiRoot) + "/pp/{ppId}",
-        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_group_pp](const sbi_core::http2::Request& req) {
             if (!af_group_pp.remove(kPpNamespace, req.path_params.at("ppId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such group parameter provisioning");
+                    404, "Not Found", "No such group parameter provisioning", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -7070,29 +6205,22 @@ int main() {
     // them. That is disclosed rather than dressed up: the API is real and conformant, the effect
     // is not there yet.
 
-    server.add_route(
-        "GET",
-        std::string(kAfIptvApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_iptv_configs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_iptv_configs.list(req.path_params.at("afId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfIptvApiRoot) + "/{afId}/configurations",
+                     [&af_iptv_configs](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d : af_iptv_configs.list(req.path_params.at("afId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfIptvApiRoot) + "/{afId}/configurations",
-        [&verifier, &af_iptv_configs, &udr_client, udr_base_url, this_unused = 0](
+        [&af_iptv_configs, &udr_client, udr_base_url, this_unused = 0](
             const sbi_core::http2::Request& req) {
             (void)this_unused;
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::IptvConfigData_IPTVConfiguration>(
                 req, err);
@@ -7130,31 +6258,24 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfIptvApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_iptv_configs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto d = af_iptv_configs.get(req.path_params.at("afId"),
-                                         req.path_params.at("configurationId"));
-            if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IPTV configuration");
-            }
-            return sbi_core::http2::Response::json(200, d->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfIptvApiRoot) + "/{afId}/configurations/{configurationId}",
+                     [&af_iptv_configs](const sbi_core::http2::Request& req) {
+                         auto d = af_iptv_configs.get(req.path_params.at("afId"),
+                                                      req.path_params.at("configurationId"));
+                         if (!d.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such IPTV configuration", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, d->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kAfIptvApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_iptv_configs, &udr_client, udr_base_url, this_unused = 0](
+        [&af_iptv_configs, &udr_client, udr_base_url, this_unused = 0](
             const sbi_core::http2::Request& req) {
             (void)this_unused;
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::IptvConfigData_IPTVConfiguration>(
                 req, err);
@@ -7166,7 +6287,7 @@ int main() {
             json j = *body;
             if (!af_iptv_configs.put(af_id, id, j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IPTV configuration");
+                    404, "Not Found", "No such IPTV configuration", std::nullopt);
             }
             // ADR-0322: IPTV configurations have a real UDR home
             // (application-data/iptvConfigData), so they are provisioned there rather than kept
@@ -7193,10 +6314,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfIptvApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_iptv_configs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_iptv_configs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::IptvConfigDataPatch>(req, err)
                      .has_value()) {
@@ -7207,7 +6325,7 @@ int main() {
                                                        json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IPTV configuration");
+                    404, "Not Found", "No such IPTV configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -7215,17 +6333,14 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfIptvApiRoot) + "/{afId}/configurations/{configurationId}",
-        [&verifier, &af_iptv_configs, &udr_client, udr_base_url, this_unused = 0](
+        [&af_iptv_configs, &udr_client, udr_base_url, this_unused = 0](
             const sbi_core::http2::Request& req) {
             (void)this_unused;
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto af_id = req.path_params.at("afId");
             const auto id = req.path_params.at("configurationId");
             if (!af_iptv_configs.remove(af_id, id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such IPTV configuration");
+                    404, "Not Found", "No such IPTV configuration", std::nullopt);
             }
             {
                 sbi_core::http2::ClientRequest del;
@@ -7245,28 +6360,22 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis",
-        [&verifier, &af_lpi_provisionings](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_lpi_provisionings.list(req.path_params.at("afId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis",
+                     [&af_lpi_provisionings](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d :
+                              af_lpi_provisionings.list(req.path_params.at("afId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis",
-        [&verifier, &af_lpi_provisionings, this_unused = 0](const sbi_core::http2::Request& req) {
+        [&af_lpi_provisionings, this_unused = 0](const sbi_core::http2::Request& req) {
             (void)this_unused;
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::LpiParametersProvision>(req, err);
             if (!body.has_value()) {
@@ -7284,30 +6393,23 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
-        [&verifier, &af_lpi_provisionings](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto d = af_lpi_provisionings.get(req.path_params.at("afId"),
-                                              req.path_params.at("provisionedLpiId"));
-            if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such LPI provisioning");
-            }
-            return sbi_core::http2::Response::json(200, d->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
+                     [&af_lpi_provisionings](const sbi_core::http2::Request& req) {
+                         auto d = af_lpi_provisionings.get(req.path_params.at("afId"),
+                                                           req.path_params.at("provisionedLpiId"));
+                         if (!d.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such LPI provisioning", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, d->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
-        [&verifier, &af_lpi_provisionings, this_unused = 0](const sbi_core::http2::Request& req) {
+        [&af_lpi_provisionings, this_unused = 0](const sbi_core::http2::Request& req) {
             (void)this_unused;
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::LpiParametersProvision>(req, err);
             if (!body.has_value()) {
@@ -7318,7 +6420,7 @@ int main() {
             json j = *body;
             if (!af_lpi_provisionings.put(af_id, id, j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such LPI provisioning");
+                    404, "Not Found", "No such LPI provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -7326,10 +6428,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
-        [&verifier, &af_lpi_provisionings](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_lpi_provisionings](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::LpiParametersProvisionPatch>(req, err)
                      .has_value()) {
@@ -7340,52 +6439,42 @@ int main() {
                                                             json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such LPI provisioning");
+                    404, "Not Found", "No such LPI provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
-        [&verifier, &af_lpi_provisionings, this_unused = 0](const sbi_core::http2::Request& req) {
-            (void)this_unused;
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto af_id = req.path_params.at("afId");
-            const auto id = req.path_params.at("provisionedLpiId");
-            if (!af_lpi_provisionings.remove(af_id, id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such LPI provisioning");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
+                     [&af_lpi_provisionings, this_unused = 0](const sbi_core::http2::Request& req) {
+                         (void)this_unused;
+                         const auto af_id = req.path_params.at("afId");
+                         const auto id = req.path_params.at("provisionedLpiId");
+                         if (!af_lpi_provisionings.remove(af_id, id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such LPI provisioning", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kAfAcsApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_acs_subscriptions](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& d : af_acs_subscriptions.list(req.path_params.at("afId"))) {
-                out.push_back(d);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfAcsApiRoot) + "/{afId}/subscriptions",
+                     [&af_acs_subscriptions](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& d :
+                              af_acs_subscriptions.list(req.path_params.at("afId"))) {
+                             out.push_back(d);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfAcsApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_acs_subscriptions, this_unused = 0](const sbi_core::http2::Request& req) {
+        [&af_acs_subscriptions, this_unused = 0](const sbi_core::http2::Request& req) {
             (void)this_unused;
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AcsConfigurationData>(req, err);
             if (!body.has_value()) {
@@ -7403,30 +6492,23 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_acs_subscriptions](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto d = af_acs_subscriptions.get(req.path_params.at("afId"),
-                                              req.path_params.at("subscriptionId"));
-            if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ACS configuration");
-            }
-            return sbi_core::http2::Response::json(200, d->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_acs_subscriptions](const sbi_core::http2::Request& req) {
+                         auto d = af_acs_subscriptions.get(req.path_params.at("afId"),
+                                                           req.path_params.at("subscriptionId"));
+                         if (!d.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such ACS configuration", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, d->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_acs_subscriptions, this_unused = 0](const sbi_core::http2::Request& req) {
+        [&af_acs_subscriptions, this_unused = 0](const sbi_core::http2::Request& req) {
             (void)this_unused;
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AcsConfigurationData>(req, err);
             if (!body.has_value()) {
@@ -7437,7 +6519,7 @@ int main() {
             json j = *body;
             if (!af_acs_subscriptions.put(af_id, id, j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ACS configuration");
+                    404, "Not Found", "No such ACS configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -7445,10 +6527,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_acs_subscriptions](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_acs_subscriptions](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::AcsConfigurationDataPatch>(req, err)
                      .has_value()) {
@@ -7459,29 +6538,25 @@ int main() {
                                                             json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ACS configuration");
+                    404, "Not Found", "No such ACS configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_acs_subscriptions, this_unused = 0](const sbi_core::http2::Request& req) {
-            (void)this_unused;
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto af_id = req.path_params.at("afId");
-            const auto id = req.path_params.at("subscriptionId");
-            if (!af_acs_subscriptions.remove(af_id, id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ACS configuration");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_acs_subscriptions, this_unused = 0](const sbi_core::http2::Request& req) {
+                         (void)this_unused;
+                         const auto af_id = req.path_params.at("afId");
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!af_acs_subscriptions.remove(af_id, id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such ACS configuration", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- ADR-0321: TS 29.522 ServiceParameter, AF service-parameter provisioning ---
     //
@@ -7500,28 +6575,21 @@ int main() {
     // NEF-side subscription machinery, not service parameters, and have no UDR counterpart --
     // sending them would put NEF's own plumbing into the core network's data store.
 
-    server.add_route(
-        "GET",
-        std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_service_param_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& sub : af_service_param_subs.list(req.path_params.at("afId"))) {
-                out.push_back(sub);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions",
+                     [&af_service_param_subs](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& sub :
+                              af_service_param_subs.list(req.path_params.at("afId"))) {
+                             out.push_back(sub);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_service_param_subs, &udr_client, udr_base_url](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_service_param_subs, &udr_client, udr_base_url](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::ServiceParameterData_ServiceParameter>(
@@ -7581,15 +6649,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_service_param_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_service_param_subs](const sbi_core::http2::Request& req) {
             auto sub = af_service_param_subs.get(req.path_params.at("afId"),
                                                  req.path_params.at("subscriptionId"));
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such service parameter subscription");
+                    404, "Not Found", "No such service parameter subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -7597,11 +6662,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_service_param_subs, &udr_client, udr_base_url](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_service_param_subs, &udr_client, udr_base_url](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::ServiceParameterData_ServiceParameter>(
@@ -7613,8 +6674,10 @@ int main() {
             const auto sub_id = req.path_params.at("subscriptionId");
             json j = *body;
             if (!af_service_param_subs.put(af_id, sub_id, j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such service parameter subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such service parameter subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             // Unlike the QoS and monitoring slices, replacing here IS re-provisioned to UDR: the
             // UDR resource is a plain PUT-replaceable document with the same shape, so there is no
@@ -7652,16 +6715,15 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_service_param_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_service_param_subs](const sbi_core::http2::Request& req) {
             auto patched = af_service_param_subs.merge_patch(req.path_params.at("afId"),
                                                              req.path_params.at("subscriptionId"),
                                                              json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such service parameter subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such service parameter subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -7669,16 +6731,14 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_service_param_subs, &udr_client, udr_base_url](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_service_param_subs, &udr_client, udr_base_url](const sbi_core::http2::Request& req) {
             const auto af_id = req.path_params.at("afId");
             const auto sub_id = req.path_params.at("subscriptionId");
             if (!af_service_param_subs.remove(af_id, sub_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such service parameter subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such service parameter subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             // Parameters must stop applying when the AF withdraws them.
             sbi_core::http2::ClientRequest del;
@@ -7716,12 +6776,7 @@ int main() {
     //     store-backed and complete.
 
     server.add_route(
-        "POST",
-        std::string(kAfUeIdApiRoot) + "/retrieve",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        "POST", std::string(kAfUeIdApiRoot) + "/retrieve", [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::UeIdReq_UEId>(req, err).has_value()) {
                 return err;
@@ -7731,16 +6786,14 @@ int main() {
                 "No UE identity available",
                 "this deployment has no IP-to-identity source (no UPF session lookup, no H-NEF "
                 "mapping database), so no external identifier can be returned for the supplied "
-                "address");
+                "address",
+                std::nullopt);
         });
 
     server.add_route(
         "POST",
         std::string(kAfUeIdApiRoot) + "/get-msisdn",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::MsisdnReq>(req, err).has_value()) {
                 return err;
@@ -7749,16 +6802,14 @@ int main() {
                 404,
                 "No MSISDN available",
                 "this deployment has no IP-to-identity source, so no MSISDN can be returned for "
-                "the supplied address");
+                "the supplied address",
+                std::nullopt);
         });
 
     server.add_route(
         "POST",
         std::string(kAfUeIdApiRoot) + "/verify-msisdn",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::MsisdnVerifReq>(req, err).has_value()) {
                 return err;
@@ -7770,58 +6821,49 @@ int main() {
                 404,
                 "MSISDN cannot be verified",
                 "this deployment has no IP-to-identity source, so the supplied MSISDN can be "
-                "neither confirmed nor denied for the supplied address");
+                "neither confirmed nor denied for the supplied address",
+                std::nullopt);
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfUeIdApiRoot) + "/{afId}/pp",
-        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& m : af_ueid_mappings.list(req.path_params.at("afId"))) {
-                out.push_back(m);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfUeIdApiRoot) + "/{afId}/pp",
+                     [&af_ueid_mappings](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& m : af_ueid_mappings.list(req.path_params.at("afId"))) {
+                             out.push_back(m);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kAfUeIdApiRoot) + "/{afId}/pp",
-        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::UeIdMappingInfo>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto af_id = req.path_params.at("afId");
-            json j = *body;
-            const auto id = af_ueid_mappings.create(af_id, j);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kAfUeIdApiRoot) + "/" + af_id + "/pp/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kAfUeIdApiRoot) + "/{afId}/pp",
+                     [&af_ueid_mappings](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::UeIdMappingInfo>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto af_id = req.path_params.at("afId");
+                         json j = *body;
+                         const auto id = af_ueid_mappings.create(af_id, j);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace(
+                             "location", std::string(kAfUeIdApiRoot) + "/" + af_id + "/pp/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
     server.add_route(
         "GET",
         std::string(kAfUeIdApiRoot) + "/{afId}/pp/{ppId}",
-        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ueid_mappings](const sbi_core::http2::Request& req) {
             auto m = af_ueid_mappings.get(req.path_params.at("afId"), req.path_params.at("ppId"));
             if (!m.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such UE ID mapping provisioning");
+                    404, "Not Found", "No such UE ID mapping provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, m->dump());
         });
@@ -7829,10 +6871,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfUeIdApiRoot) + "/{afId}/pp/{ppId}",
-        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ueid_mappings](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::UeIdMappingInfo>(req, err);
             if (!body.has_value()) {
@@ -7841,7 +6880,7 @@ int main() {
             json j = *body;
             if (!af_ueid_mappings.put(req.path_params.at("afId"), req.path_params.at("ppId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such UE ID mapping provisioning");
+                    404, "Not Found", "No such UE ID mapping provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -7849,10 +6888,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfUeIdApiRoot) + "/{afId}/pp/{ppId}",
-        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ueid_mappings](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             if (!sbi_core::http2::parse_json_body<sbi_gen::UeIdMappingInfoPatch>(req, err)
                      .has_value()) {
@@ -7862,7 +6898,7 @@ int main() {
                 req.path_params.at("afId"), req.path_params.at("ppId"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such UE ID mapping provisioning");
+                    404, "Not Found", "No such UE ID mapping provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -7870,13 +6906,10 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfUeIdApiRoot) + "/{afId}/pp/{ppId}",
-        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_ueid_mappings](const sbi_core::http2::Request& req) {
             if (!af_ueid_mappings.remove(req.path_params.at("afId"), req.path_params.at("ppId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such UE ID mapping provisioning");
+                    404, "Not Found", "No such UE ID mapping provisioning", std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -7899,7 +6932,7 @@ int main() {
                 // Tells PCF the callback is dead rather than absorbing events for a subscription
                 // the AF has deleted.
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AsSessionWithQoS subscription");
+                    404, "Not Found", "No such AsSessionWithQoS subscription", std::nullopt);
             }
             const auto destination = subscription->value("notificationDestination", std::string{});
             if (destination.empty()) {
@@ -7971,7 +7004,7 @@ int main() {
                 // The AF deleted its subscription but UDM has not stopped reporting yet. 404 tells
                 // UDM this callback is dead rather than silently accepting reports for nobody.
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such monitoring subscription");
+                    404, "Not Found", "No such monitoring subscription", std::nullopt);
             }
             const auto destination = subscription->value("notificationDestination", std::string{});
             if (destination.empty()) {
@@ -8034,28 +7067,22 @@ int main() {
     // af_target_to_gpsi) sit between the AF's request and UDM's -- which is the substance of this
     // slice, not the CRUD around it.
 
-    server.add_route(
-        "GET",
-        std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_monitoring_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& sub : af_monitoring_subs.list(req.path_params.at("scsAsId"))) {
-                out.push_back(sub);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions",
+                     [&af_monitoring_subs](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& sub :
+                              af_monitoring_subs.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(sub);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_monitoring_subs, &udr_client, udm_base_url, self_base_url](
+        [&af_monitoring_subs, &udr_client, udm_base_url, self_base_url](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::MonitoringEventSubscription>(req, err);
@@ -8070,7 +7097,8 @@ int main() {
                 return sbi_core::http2::problem_response(
                     400,
                     "Unsupported monitoringType",
-                    body->monitoringType.value + " has no Nudm_EE event counterpart in this build");
+                    body->monitoringType.value + " has no Nudm_EE event counterpart in this build",
+                    "UNSPECIFIED_MSG_FAILURE");
             }
 
             const auto af_id = req.path_params.at("scsAsId");
@@ -8146,29 +7174,23 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_monitoring_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            auto sub = af_monitoring_subs.get(req.path_params.at("scsAsId"),
-                                              req.path_params.at("subscriptionId"));
-            if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such monitoring subscription");
-            }
-            return sbi_core::http2::Response::json(200, sub->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfMonitoringEventApiRoot) +
+                         "/{scsAsId}/subscriptions/{subscriptionId}",
+                     [&af_monitoring_subs](const sbi_core::http2::Request& req) {
+                         auto sub = af_monitoring_subs.get(req.path_params.at("scsAsId"),
+                                                           req.path_params.at("subscriptionId"));
+                         if (!sub.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such monitoring subscription", std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, sub->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_monitoring_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_monitoring_subs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::MonitoringEventSubscription>(req, err);
@@ -8179,7 +7201,7 @@ int main() {
             if (!af_monitoring_subs.put(
                     req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such monitoring subscription");
+                    404, "Not Found", "No such monitoring subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             // Disclosed, same shape as ADR-0315's PUT: the UDM ee-subscription is not updated to
             // match. Nudm_EE modifies via PATCH with its own shape; approximating it here would
@@ -8190,10 +7212,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_monitoring_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_monitoring_subs](const sbi_core::http2::Request& req) {
             // REVIEW-5ae0ef1 SPEC-02: TS29122_MonitoringEvent.yaml patches with
             // application/json-patch+json, a PatchItem array (RFC 6902) -- not a merge patch.
             const auto af_id = req.path_params.at("scsAsId");
@@ -8201,7 +7220,7 @@ int main() {
             const auto current = af_monitoring_subs.get(af_id, sub_id);
             if (!current.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such monitoring subscription");
+                    404, "Not Found", "No such monitoring subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             auto patched = sbi_core::http2::apply_json_patch_body(req, *current);
             if (!patched.has_value()) {
@@ -8211,11 +7230,14 @@ int main() {
                 (void)patched->get<sbi_gen::MonitoringEventSubscription>();
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
-                    400, "The patched subscription is not a MonitoringEventSubscription", e.what());
+                    400,
+                    "The patched subscription is not a MonitoringEventSubscription",
+                    e.what(),
+                    sbi_core::http2::dto_error_cause(e));
             }
             if (!af_monitoring_subs.put(af_id, sub_id, *patched)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such monitoring subscription");
+                    404, "Not Found", "No such monitoring subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -8223,17 +7245,13 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_monitoring_subs, &udr_client, udm_base_url](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_monitoring_subs, &udr_client, udm_base_url](const sbi_core::http2::Request& req) {
             const auto af_id = req.path_params.at("scsAsId");
             const auto sub_id = req.path_params.at("subscriptionId");
             const auto ee = af_monitoring_subs.ee_subscription(af_id, sub_id);
             if (!af_monitoring_subs.remove(af_id, sub_id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such monitoring subscription");
+                    404, "Not Found", "No such monitoring subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             // UDM must stop reporting: an ee-subscription outliving the AF request that created it
             // would keep pushing events to a NEF callback for a subscription that no longer exists.
@@ -8260,33 +7278,25 @@ int main() {
     // real PCF application session, because PCF is what installs QoS -- a NEF that records the
     // request and tells nobody has authorised nothing.
 
-    server.add_route(
-        "GET",
-        std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier, &af_qos_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& sub : af_qos_subs.list(req.path_params.at("scsAsId"))) {
-                out.push_back(sub);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions",
+                     [&af_qos_subs](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& sub : af_qos_subs.list(req.path_params.at("scsAsId"))) {
+                             out.push_back(sub);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions",
-        [&verifier,
-         &af_qos_subs,
+        [&af_qos_subs,
          &pcf_client,
          pcf_base_url,
          self_base_url,
          &report_qos_provision,
          tsctsf_base_url](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::AsSessionWithQoSSubscription>(req, err);
@@ -8310,7 +7320,8 @@ int main() {
                         400,
                         "Bad Request",
                         "qosReference is required for a UE identified by GPSI only (the TSCTSF "
-                        "request needs it, TS 29.565 TscAppSessionContextData)");
+                        "request needs it, TS 29.565 TscAppSessionContextData)",
+                        "MANDATORY_IE_MISSING");
                 }
                 json tsc{{"afId", af_id},
                          {"ueId", *body->gpsi},
@@ -8351,8 +7362,11 @@ int main() {
                         relayed.body = tresp->body;
                         return relayed;
                     }
-                    return sbi_core::http2::problem_response(
-                        503, "Service Unavailable", "TSCTSF not reachable: " + tresp.error());
+                    return sbi_core::http2::problem_response(503,
+                                                             "Service Unavailable",
+                                                             "TSCTSF not reachable: " +
+                                                                 tresp.error(),
+                                                             std::nullopt);
                 }
                 sbi_core::http2::Response resp;
                 resp.status = 201;
@@ -8402,15 +7416,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_qos_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_qos_subs](const sbi_core::http2::Request& req) {
             auto sub = af_qos_subs.get(req.path_params.at("scsAsId"),
                                        req.path_params.at("subscriptionId"));
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AsSessionWithQoS subscription");
+                    404, "Not Found", "No such AsSessionWithQoS subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -8418,10 +7429,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_qos_subs, &report_qos_provision](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_qos_subs, &report_qos_provision](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::AsSessionWithQoSSubscription>(req, err);
@@ -8437,8 +7445,10 @@ int main() {
                                      std::optional<json>(j),
                                      std::nullopt,
                                      404);
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AsSessionWithQoS subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such AsSessionWithQoS subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             report_qos_provision(std::optional<json>(j),
                                  af_id,
@@ -8457,10 +7467,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_qos_subs, &report_qos_provision](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_qos_subs, &report_qos_provision](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto patch_dto =
                 sbi_core::http2::parse_json_body<sbi_gen::AsSessionWithQoSSubscriptionPatch>(req,
@@ -8474,8 +7481,10 @@ int main() {
                 af_qos_subs.merge_patch(af_id, req.path_params.at("subscriptionId"), patch);
             if (!patched.has_value()) {
                 // No stored subscription, so no GPSI to report under (the patch carries none).
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AsSessionWithQoS subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such AsSessionWithQoS subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             report_qos_provision(std::optional<json>(*patched),
                                  af_id,
@@ -8489,15 +7498,8 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&verifier,
-         &af_qos_subs,
-         &pcf_client,
-         pcf_base_url,
-         &report_qos_provision,
-         tsctsf_base_url](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_qos_subs, &pcf_client, pcf_base_url, &report_qos_provision, tsctsf_base_url](
+            const sbi_core::http2::Request& req) {
             const auto af_id = req.path_params.at("scsAsId");
             const auto sub_id = req.path_params.at("subscriptionId");
             // Read the app-session id BEFORE removing the subscription -- remove() erases it. The
@@ -8505,8 +7507,10 @@ int main() {
             const auto app_session = af_qos_subs.app_session(af_id, sub_id);
             const auto stored = af_qos_subs.get(af_id, sub_id);
             if (!af_qos_subs.remove(af_id, sub_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AsSessionWithQoS subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such AsSessionWithQoS subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             // The QoS authorisation must not outlive the request that asked for it.
             if (app_session.has_value() && app_session->rfind("tsctsf:", 0) == 0) {
@@ -8545,28 +7549,22 @@ int main() {
     // an application nor any traffic filter would be accepted and stored as an influence rule that
     // can never match anything.
 
-    server.add_route(
-        "GET",
-        std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_traffic_influence_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            json out = json::array();
-            for (const auto& sub : af_traffic_influence_subs.list(req.path_params.at("afId"))) {
-                out.push_back(sub);
-            }
-            return sbi_core::http2::Response::json(200, out.dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions",
+                     [&af_traffic_influence_subs](const sbi_core::http2::Request& req) {
+                         json out = json::array();
+                         for (const auto& sub :
+                              af_traffic_influence_subs.list(req.path_params.at("afId"))) {
+                             out.push_back(sub);
+                         }
+                         return sbi_core::http2::Response::json(200, out.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions",
-        [&verifier, &af_traffic_influence_subs, &udr_client, udr_base_url](
+        [&af_traffic_influence_subs, &udr_client, udr_base_url](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_TrafficInfluence>(
                 req, err);
@@ -8585,7 +7583,8 @@ int main() {
                     400,
                     "Invalid request",
                     "exactly one of afAppId, trafficFilters, ethTrafficFilters or trafficDataSets "
-                    "shall be present");
+                    "shall be present",
+                    "UNSPECIFIED_MSG_FAILURE");
             }
             // Real constraint 2: exactly one of ipv4Addr / ipv6Addr / macAddr / gpsi /
             // externalGroupId / anyUeInd identifies the target.
@@ -8598,7 +7597,8 @@ int main() {
                     400,
                     "Invalid request",
                     "exactly one of ipv4Addr, ipv6Addr, macAddr, gpsi, externalGroupId or "
-                    "anyUeInd shall be present");
+                    "anyUeInd shall be present",
+                    "UNSPECIFIED_MSG_FAILURE");
             }
 
             const auto af_id = req.path_params.at("afId");
@@ -8622,15 +7622,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_traffic_influence_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&af_traffic_influence_subs](const sbi_core::http2::Request& req) {
             auto sub = af_traffic_influence_subs.get(req.path_params.at("afId"),
                                                      req.path_params.at("subscriptionId"));
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such traffic influence subscription");
+                    404, "Not Found", "No such traffic influence subscription", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -8638,11 +7635,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_traffic_influence_subs, &udr_client, udr_base_url](
+        [&af_traffic_influence_subs, &udr_client, udr_base_url](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_TrafficInfluence>(
                 req, err);
@@ -8653,8 +7647,10 @@ int main() {
             const auto sub_id = req.path_params.at("subscriptionId");
             json j = *body;
             if (!af_traffic_influence_subs.put(af_id, sub_id, j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such traffic influence subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such traffic influence subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             push_influence_to_udr(
                 udr_client, udr_base_url, af_id + "-" + sub_id, to_traffic_influ_data(*body));
@@ -8664,11 +7660,8 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_traffic_influence_subs, &udr_client, udr_base_url](
+        [&af_traffic_influence_subs, &udr_client, udr_base_url](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             // Validate the patch against its own real schema (TrafficInfluSubPatch) before
             // applying it, the same discipline every other merge-patch route in this project uses.
             sbi_core::http2::Response err;
@@ -8682,8 +7675,10 @@ int main() {
             auto patched =
                 af_traffic_influence_subs.merge_patch(af_id, sub_id, json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such traffic influence subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such traffic influence subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             // Re-push the PATCHED subscription, not the patch: UDR holds a whole record, and
             // sending only the changed fields would silently erase the rest.
@@ -8696,16 +7691,15 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&verifier, &af_traffic_influence_subs, &udr_client, udr_base_url](
+        [&af_traffic_influence_subs, &udr_client, udr_base_url](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto af_id = req.path_params.at("afId");
             const auto sub_id = req.path_params.at("subscriptionId");
             if (!af_traffic_influence_subs.remove(af_id, sub_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such traffic influence subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such traffic influence subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             // The UDR record must go too -- an orphaned influence rule would keep steering
             // traffic for a subscription the AF believes it deleted.
@@ -8720,11 +7714,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kTrafficInfluenceDataApiRoot) + "/subscriptions",
-        [&verifier, &traffic_influence_subs, &traffic_influence_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&traffic_influence_subs,
+         &traffic_influence_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluDataSub>(req, err);
             if (!body.has_value()) {
@@ -8735,8 +7726,10 @@ int main() {
             // {required:[snssais]}]`) -- not expressible in the generated struct's own
             // required/optional fields, so checked explicitly here.
             if (!body->dnns.has_value() && !body->snssais.has_value()) {
-                return sbi_core::http2::problem_response(
-                    400, "Missing mandatory IE", "At least one of dnns/snssais is required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Missing mandatory IE",
+                                                         "At least one of dnns/snssais is required",
+                                                         "MANDATORY_IE_MISSING");
             }
             json j = *body;
             const auto id = traffic_influence_subs.create(j);
@@ -8754,15 +7747,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kTrafficInfluenceDataApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &traffic_influence_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&traffic_influence_subs](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             auto sub = traffic_influence_subs.get(id);
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No traffic influence subscription " + id);
+                    404, "Not Found", "No traffic influence subscription " + id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -8770,11 +7760,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kTrafficInfluenceDataApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &traffic_influence_subs, &traffic_influence_put_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&traffic_influence_subs,
+         &traffic_influence_put_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluDataSub>(req, err);
@@ -8782,36 +7769,39 @@ int main() {
                 return err;
             }
             if (!body->dnns.has_value() && !body->snssais.has_value()) {
-                return sbi_core::http2::problem_response(
-                    400, "Missing mandatory IE", "At least one of dnns/snssais is required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Missing mandatory IE",
+                                                         "At least one of dnns/snssais is required",
+                                                         "MANDATORY_IE_MISSING");
             }
             json j = *body;
             if (!traffic_influence_subs.put(id, j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No traffic influence subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No traffic influence subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             traffic_influence_put_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kTrafficInfluenceDataApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &traffic_influence_subs, &traffic_influence_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("subscriptionId");
-            if (!traffic_influence_subs.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No traffic influence subscription " + id);
-            }
-            traffic_influence_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kTrafficInfluenceDataApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&traffic_influence_subs,
+                      &traffic_influence_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!traffic_influence_subs.remove(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No traffic influence subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         traffic_influence_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nnef_Inference (ADR-0210, gap-closure task #164, fourth NEF slice) ---
     // Real, disclosed: this YAML has no GET operation on the Individual Inference Subscription
@@ -8820,11 +7810,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kInferenceApiRoot) + "/subscriptions",
-        [&verifier, &inference_subs, &inference_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&inference_subs, &inference_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::InferEventSubsc_Nnef_Inference>(req, err);
@@ -8847,10 +7833,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kInferenceApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &inference_subs, &inference_put_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&inference_subs, &inference_put_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body =
@@ -8861,7 +7844,7 @@ int main() {
             json j = *body;
             if (!inference_subs.put(id, j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No inference subscription " + id);
+                    404, "Not Found", "No inference subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             inference_put_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
@@ -8870,11 +7853,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kInferenceApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &inference_subs, &inference_patch_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&inference_subs, &inference_patch_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto typed_patch =
@@ -8885,7 +7864,7 @@ int main() {
             }
             if (!inference_subs.patch(id, json(*typed_patch))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No inference subscription " + id);
+                    404, "Not Found", "No inference subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             inference_patch_counter->Add(1);
             auto updated = inference_subs.get(id);
@@ -8895,15 +7874,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kInferenceApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &inference_subs, &inference_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&inference_subs, &inference_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             if (!inference_subs.remove(id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No inference subscription " + id);
+                    404, "Not Found", "No inference subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             inference_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -8917,10 +7892,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kTrainingApiRoot) + "/subscriptions",
-        [&verifier, &training_subs, &training_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&training_subs, &training_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::TrainEventsSubsc_Nnef_Training>(req, err);
@@ -8943,10 +7915,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kTrainingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &training_subs, &training_put_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&training_subs, &training_put_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body =
@@ -8957,7 +7926,7 @@ int main() {
             json j = *body;
             if (!training_subs.put(id, j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No training subscription " + id);
+                    404, "Not Found", "No training subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             training_put_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
@@ -8966,10 +7935,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kTrainingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &training_subs, &training_patch_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&training_subs, &training_patch_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto typed_patch =
@@ -8980,7 +7946,7 @@ int main() {
             }
             if (!training_subs.patch(id, json(*typed_patch))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No training subscription " + id);
+                    404, "Not Found", "No training subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             training_patch_counter->Add(1);
             auto updated = training_subs.get(id);
@@ -8990,14 +7956,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kTrainingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &training_subs, &training_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&training_subs, &training_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             if (!training_subs.remove(id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No training subscription " + id);
+                    404, "Not Found", "No training subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             training_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -9010,11 +7973,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kVflInferenceApiRoot) + "/subscriptions",
-        [&verifier, &vfl_inference_subs, &vfl_inference_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_inference_subs, &vfl_inference_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::VflInferSub_Nnef_VFLInference>(req, err);
@@ -9037,15 +7996,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kVflInferenceApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &vfl_inference_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_inference_subs](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             auto sub = vfl_inference_subs.get(id);
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL inference subscription " + id);
+                    404, "Not Found", "No VFL inference subscription " + id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -9053,11 +8009,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kVflInferenceApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &vfl_inference_subs, &vfl_inference_put_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_inference_subs, &vfl_inference_put_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body =
@@ -9067,8 +8019,10 @@ int main() {
             }
             json j = *body;
             if (!vfl_inference_subs.put(id, j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL inference subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No VFL inference subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             vfl_inference_put_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
@@ -9077,11 +8031,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kVflInferenceApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &vfl_inference_subs, &vfl_inference_patch_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_inference_subs, &vfl_inference_patch_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto typed_patch =
@@ -9091,8 +8041,10 @@ int main() {
                 return err;
             }
             if (!vfl_inference_subs.patch(id, json(*typed_patch))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL inference subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No VFL inference subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             vfl_inference_patch_counter->Add(1);
             auto updated = vfl_inference_subs.get(id);
@@ -9102,15 +8054,13 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kVflInferenceApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &vfl_inference_subs, &vfl_inference_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_inference_subs, &vfl_inference_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             if (!vfl_inference_subs.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL inference subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No VFL inference subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             vfl_inference_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -9126,11 +8076,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kVflTrainingApiRoot) + "/subscriptions",
-        [&verifier, &vfl_training_subs, &vfl_training_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_training_subs, &vfl_training_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NefVflTrainSubs>(req, err);
             if (!body.has_value()) {
@@ -9152,15 +8098,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kVflTrainingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &vfl_training_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_training_subs](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             auto sub = vfl_training_subs.get(id);
             if (!sub.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL training subscription " + id);
+                    404, "Not Found", "No VFL training subscription " + id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -9168,11 +8111,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kVflTrainingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &vfl_training_subs, &vfl_training_put_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_training_subs, &vfl_training_put_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NefVflTrainSubs>(req, err);
@@ -9181,8 +8120,10 @@ int main() {
             }
             json j = *body;
             if (!vfl_training_subs.put(id, j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL training subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No VFL training subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             vfl_training_put_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
@@ -9191,11 +8132,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kVflTrainingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &vfl_training_subs, &vfl_training_patch_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_training_subs, &vfl_training_patch_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto typed_patch =
@@ -9204,8 +8141,10 @@ int main() {
                 return err;
             }
             if (!vfl_training_subs.patch(id, json(*typed_patch))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL training subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No VFL training subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             vfl_training_patch_counter->Add(1);
             auto updated = vfl_training_subs.get(id);
@@ -9215,15 +8154,13 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kVflTrainingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &vfl_training_subs, &vfl_training_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&vfl_training_subs, &vfl_training_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             if (!vfl_training_subs.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL training subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No VFL training subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             vfl_training_delete_counter->Add(1);
             sbi_core::http2::Response resp;

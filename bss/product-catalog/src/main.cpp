@@ -94,9 +94,9 @@ template <typename Handler> auto guarded(Handler handler) {
         try {
             return handler(req);
         } catch (const product_catalog::InvalidRequest& e) {
-            return sbi_core::http2::problem_response(400, "Bad Request", e.what());
+            return sbi_core::http2::problem_response(400, "Bad Request", e.what(), std::nullopt);
         } catch (const product_catalog::Conflict& e) {
-            return sbi_core::http2::problem_response(409, "Conflict", e.what());
+            return sbi_core::http2::problem_response(409, "Conflict", e.what(), std::nullopt);
         }
     };
 }
@@ -238,7 +238,7 @@ int main() {
                          const auto offering = offering_store.get(id);
                          if (!offering.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductOffering " + id);
+                                 404, "Not Found", "No ProductOffering " + id, std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, json(*offering).dump());
                      }));
@@ -249,7 +249,7 @@ int main() {
                          const auto id = req.path_params.at("id");
                          if (!offering_store.remove(id)) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductOffering " + id);
+                                 404, "Not Found", "No ProductOffering " + id, std::nullopt);
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -293,7 +293,7 @@ int main() {
                          const auto price = price_store.get(id);
                          if (!price.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductOfferingPrice " + id);
+                                 404, "Not Found", "No ProductOfferingPrice " + id, std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, json(*price).dump());
                      }));
@@ -304,7 +304,7 @@ int main() {
                          const auto id = req.path_params.at("id");
                          if (!price_store.remove(id)) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductOfferingPrice " + id);
+                                 404, "Not Found", "No ProductOfferingPrice " + id, std::nullopt);
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -348,7 +348,7 @@ int main() {
                          const auto spec = spec_store.get(id);
                          if (!spec.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductSpecification " + id);
+                                 404, "Not Found", "No ProductSpecification " + id, std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, json(*spec).dump());
                      }));
@@ -359,7 +359,7 @@ int main() {
                          const auto id = req.path_params.at("id");
                          if (!spec_store.remove(id)) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductSpecification " + id);
+                                 404, "Not Found", "No ProductSpecification " + id, std::nullopt);
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;

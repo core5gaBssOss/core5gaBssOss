@@ -445,9 +445,6 @@ int main() {
         "POST",
         std::string(k3daRoot) + "/configurations",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto cfg = sbi_core::http2::parse_json_body<sbi_gen::MfafConfiguration>(req, err);
             if (!cfg) {
@@ -473,9 +470,6 @@ int main() {
         "PUT",
         std::string(k3daRoot) + "/configurations/{transRefId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("transRefId");
             sbi_core::http2::Response err;
             auto cfg = sbi_core::http2::parse_json_body<sbi_gen::MfafConfiguration>(req, err);
@@ -488,7 +482,7 @@ int main() {
             assign_noti_info(*cfg);
             if (!store.replace(id, *cfg)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "no Individual MFAF Configuration " + id);
+                    404, "Not Found", "no Individual MFAF Configuration " + id, std::nullopt);
             }
             log_unsupported(*cfg, id);
             sbi_core::http2::Response resp;
@@ -497,30 +491,24 @@ int main() {
             resp.body = json(*cfg).dump();
             return resp;
         });
-    server.add_route("DELETE",
-                     std::string(k3daRoot) + "/configurations/{transRefId}",
-                     [&](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                             return sbi_core::http2::problem_response(
-                                 401, "Unauthorized", auth->error);
-                         }
-                         const auto id = req.path_params.at("transRefId");
-                         if (!store.remove(id)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "no Individual MFAF Configuration " + id);
-                         }
-                         spdlog::info("mfaf: configuration {} removed", id);
-                         sbi_core::http2::Response resp;
-                         resp.status = 204;
-                         return resp;
-                     });
+    server.add_route(
+        "DELETE",
+        std::string(k3daRoot) + "/configurations/{transRefId}",
+        [&](const sbi_core::http2::Request& req) {
+            const auto id = req.path_params.at("transRefId");
+            if (!store.remove(id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no Individual MFAF Configuration " + id, std::nullopt);
+            }
+            spdlog::info("mfaf: configuration {} removed", id);
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
 
     // ---- Nmfaf_ContextManagement: Transfer -----------------------------------------------------
     server.add_route(
         "POST", std::string(kContextRoot) + "/transfer", [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto treq = sbi_core::http2::parse_json_body<sbi_gen::ContextTransferReq>(req, err);
             if (!treq) {
@@ -554,7 +542,8 @@ int main() {
                 return sbi_core::http2::problem_response(
                     404,
                     "Not Found",
-                    "none of the refIds is an Individual MFAF Configuration here");
+                    "none of the refIds is an Individual MFAF Configuration here",
+                    std::nullopt);
             }
             if (!buffered.empty()) {
                 tresp.bufferedNotifs = buffered;
@@ -577,7 +566,8 @@ int main() {
             try {
                 body = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!store.find_by_correlation(corr)) {
                 // The DCCF deconfigured this mapping (TS 23.288 6.2.6.3.4 step 14) but
@@ -598,7 +588,8 @@ int main() {
                 return sbi_core::http2::problem_response(
                     503,
                     "Service Unavailable",
-                    "the Messaging Framework did not accept the notification");
+                    "the Messaging Framework did not accept the notification",
+                    std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -613,7 +604,8 @@ int main() {
         std::string(kInboundPrefix) + "/fetch",
         [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+                return sbi_core::http2::problem_response(
+                    401, "Unauthorized", auth->error, std::nullopt);
             }
             sbi_core::http2::Response err;
             auto ids = sbi_core::http2::parse_json_body<std::vector<std::string>>(req, err);
@@ -670,7 +662,8 @@ int main() {
                     404,
                     "Not Found",
                     "no buffered data or analytics for the given fetch correlation identifiers "
-                    "(expired or already fetched)");
+                    "(expired or already fetched)",
+                    std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 200;

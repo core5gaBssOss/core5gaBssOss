@@ -271,26 +271,6 @@ constexpr std::uint32_t kQerId = 1;
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-// Same pattern as nfs/nrf and nfs/amf's check_bearer -- see those files' comments for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/amf/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
 void run_nrf_lifecycle(const std::string& smf_instance_id, const std::string& nrf_base) {
@@ -2308,8 +2288,7 @@ int main() {
     // by threading counters through every one of its exit paths.
     const auto create_sm_context_inner =
 
-        [&verifier,
-         &sm_contexts,
+        [&sm_contexts,
          &create_counter,
          &pcf_client,
          &pcf_oauth,
@@ -2335,9 +2314,6 @@ int main() {
          &nsacf_base_url,
          &charging_data_invocation_seq,
          &li_poi](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_multipart_json_body<
                 sbi_gen::SmContextCreateData_Nsmf_PDUSession>(req, err);
@@ -2353,7 +2329,8 @@ int main() {
                     400,
                     "Missing mandatory IE",
                     "This build requires supi, pduSessionId, dnn, and sNssai to establish an SM "
-                    "Policy Association with PCF");
+                    "Policy Association with PCF",
+                    "MANDATORY_IE_MISSING");
             }
 
             // ADR-0279: Network Slice Admission Control, BEFORE any state exists.
@@ -2421,7 +2398,8 @@ int main() {
                 return sbi_core::http2::problem_response(500,
                                                          "Internal Server Error",
                                                          "SMF could not obtain a token for PCF: " +
-                                                             token.error());
+                                                             token.error(),
+                                                         "SYSTEM_FAILURE");
             }
 
             sbi_gen::SmPolicyContextData pcf_req{};
@@ -2450,7 +2428,8 @@ int main() {
                     500,
                     "Internal Server Error",
                     "SMF could not reach PCF to establish an SM Policy Association: " +
-                        pcf_resp.error());
+                        pcf_resp.error(),
+                    "SYSTEM_FAILURE");
             }
             if (pcf_resp->status != 201) {
                 sm_contexts.remove(sm_context_ref);
@@ -2458,7 +2437,8 @@ int main() {
                     500,
                     "Internal Server Error",
                     "PCF CreateSMPolicy returned unexpected status " +
-                        std::to_string(pcf_resp->status));
+                        std::to_string(pcf_resp->status),
+                    "SYSTEM_FAILURE");
             }
 
             sbi_gen::SmPolicyDecision decision;
@@ -2469,7 +2449,8 @@ int main() {
                 return sbi_core::http2::problem_response(
                     500,
                     "Internal Server Error",
-                    "PCF returned a malformed SmPolicyDecision: " + std::string(e.what()));
+                    "PCF returned a malformed SmPolicyDecision: " + std::string(e.what()),
+                    "SYSTEM_FAILURE");
             }
             std::string sm_policy_id;
             if (const auto location_it = pcf_resp->headers.find("location");
@@ -2976,8 +2957,11 @@ int main() {
             const auto ref = req.path_params.at("smContextRef");
             auto stored = sm_contexts.get(ref);
             if (!stored.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context " + ref + " for this policy notification");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No SM context " + ref +
+                                                             " for this policy notification",
+                                                         std::nullopt);
             }
 
             sbi_core::http2::Response err;
@@ -3070,17 +3054,14 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/retrieve",
-        [&verifier, &sm_contexts, &retrieve_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sm_contexts, &retrieve_counter](const sbi_core::http2::Request& req) {
             const auto sm_context_ref = req.path_params.at("smContextRef");
             if (!sm_contexts.get(sm_context_ref).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context with ref " + sm_context_ref);
+                    404, "Not Found", "No SM context with ref " + sm_context_ref, std::nullopt);
             }
-            // SmContextRetrieveData is optional per spec (required: false) -- an empty body is
-            // valid, not a parse error.
+            // SmContextRetrieveData is optional per spec (required: false) -- an empty
+            // body is valid, not a parse error.
             if (!req.body.empty()) {
                 sbi_core::http2::Response err;
                 auto body =
@@ -3090,9 +3071,10 @@ int main() {
                 }
             }
             retrieve_counter->Add(1);
-            // Disclosed simplification: ueEpsPdnConnection (mandatory per spec) is an opaque
-            // base64 container with nothing real behind it in this build (no EPS interworking
-            // state exists) -- emitted as an empty string, a schema-valid but empty value.
+            // Disclosed simplification: ueEpsPdnConnection (mandatory per spec) is an
+            // opaque base64 container with nothing real behind it in this build (no
+            // EPS interworking state exists) -- emitted as an empty string, a
+            // schema-valid but empty value.
             sbi_gen::SmContextRetrievedData resp_data;
             resp_data.ueEpsPdnConnection = "";
             json j = resp_data;
@@ -3102,11 +3084,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/modify",
-        [&verifier, &sm_contexts, &update_counter, &pfcp_peer, &li_poi](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sm_contexts, &update_counter, &pfcp_peer, &li_poi](const sbi_core::http2::Request& req) {
             // Real, both-real-shapes content negotiation (TS29502_Nsmf_PDUSession.yaml's own
             // UpdateSmContext requestBody: application/json "message without binary body part" OR
             // multipart/related "message with binary body part(s)") -- unlike CreateSMContext,
@@ -3124,14 +3102,16 @@ int main() {
                 auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
                 if (!parts.has_value() || parts->empty()) {
                     return sbi_core::http2::problem_response(
-                        400, "Malformed multipart body", "no parts found");
+                        400, "Malformed multipart body", "no parts found", "INVALID_MSG_FORMAT");
                 }
                 try {
                     body = json::parse((*parts)[0].body)
                                .get<sbi_gen::SmContextUpdateData_Nsmf_PDUSession>();
                 } catch (const json::exception& e) {
-                    return sbi_core::http2::problem_response(
-                        400, "Missing or invalid mandatory IE", e.what());
+                    return sbi_core::http2::problem_response(400,
+                                                             "Missing or invalid mandatory IE",
+                                                             e.what(),
+                                                             sbi_core::http2::dto_error_cause(e));
                 }
                 if (body->n2SmInfo.has_value()) {
                     for (const auto& part : *parts) {
@@ -3156,7 +3136,7 @@ int main() {
             const auto stored_ctx = sm_contexts.get(sm_context_ref);
             if (!stored_ctx.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context with ref " + sm_context_ref);
+                    404, "Not Found", "No SM context with ref " + sm_context_ref, std::nullopt);
             }
             update_counter->Add(1);
 
@@ -3180,7 +3160,8 @@ int main() {
                         500,
                         "Internal Server Error",
                         "No real UPF N3 uplink F-TEID on record for this SM context -- cannot "
-                        "build a real PDUSessionResourceSetupRequestTransfer for handover");
+                        "build a real PDUSessionResourceSetupRequestTransfer for handover",
+                        "SYSTEM_FAILURE");
                 }
                 const auto ul_teid = stored_ctx->at("ulTeid").get<std::uint32_t>();
                 const auto ul_ipv4 = stored_ctx->at("ulIpv4").get<std::vector<std::uint8_t>>();
@@ -3188,7 +3169,8 @@ int main() {
                     return sbi_core::http2::problem_response(
                         500,
                         "Internal Server Error",
-                        "Stored UPF N3 address is not a real 4-octet IPv4 address");
+                        "Stored UPF N3 address is not a real 4-octet IPv4 address",
+                        "SYSTEM_FAILURE");
                 }
 
                 PDUSessionResourceSetupRequestTransfer_t transfer{};
@@ -3261,7 +3243,8 @@ int main() {
                     return sbi_core::http2::problem_response(
                         500,
                         "Internal Server Error",
-                        "Failed to PER-encode a real PDUSessionResourceSetupRequestTransfer");
+                        "Failed to PER-encode a real PDUSessionResourceSetupRequestTransfer",
+                        "SYSTEM_FAILURE");
                 }
                 spdlog::info(
                     "smf: HANDOVER_REQUIRED answered with a real PDUSessionResourceSetupRequest"
@@ -3346,7 +3329,8 @@ int main() {
                         return sbi_core::http2::problem_response(
                             400,
                             "Bad Request",
-                            std::string("n2SmInfo is not a valid ") + type_name);
+                            std::string("n2SmInfo is not a valid ") + type_name,
+                            "MANDATORY_IE_INCORRECT");
                     }
                     // ADR-0259: the same read_gtp_tunnel the new N2SmInfoType branches use.
                     const auto endpoint = read_gtp_tunnel(dl_tnl);
@@ -3356,7 +3340,8 @@ int main() {
                             400,
                             "Bad Request",
                             std::string(type_name) +
-                                " has no real IPv4 GTP-U dL-NGU-UP-TNLInformation");
+                                " has no real IPv4 GTP-U dL-NGU-UP-TNLInformation",
+                            "UNSPECIFIED_MSG_FAILURE");
                     }
                     gnb_ipv4 = endpoint->ipv4;
                     gnb_teid = endpoint->teid;
@@ -3368,7 +3353,8 @@ int main() {
                         500,
                         "Internal Server Error",
                         "No real N4 session on record for this SM context (established before "
-                        "UPF was reachable) -- cannot address a real PFCP Session Modification");
+                        "UPF was reachable) -- cannot address a real PFCP Session Modification",
+                        "SYSTEM_FAILURE");
                 }
                 const std::uint64_t up_seid = stored_ctx->at("upSeid").get<std::uint64_t>();
                 const std::string upf_ip = stored_ctx->at("upfIp").get<std::string>();
@@ -3385,7 +3371,7 @@ int main() {
                                          is_path_switch ? "PATH_SWITCH_REQ" : "HANDOVER_REQ_ACK");
                 if (dl_far_error.has_value()) {
                     return sbi_core::http2::problem_response(
-                        500, "Internal Server Error", *dl_far_error);
+                        500, "Internal Server Error", *dl_far_error, "SYSTEM_FAILURE");
                 }
 
                 // Real PathSwitchRequestAcknowledgeTransfer (§9.3.4.9): uL-NGU-UP-TNLInformation
@@ -3455,7 +3441,8 @@ int main() {
                         "Internal Server Error",
                         std::string("Failed to PER-encode a real ") +
                             (is_path_switch ? "PathSwitchRequestAcknowledgeTransfer"
-                                            : "HandoverCommandTransfer"));
+                                            : "HandoverCommandTransfer"),
+                        "SYSTEM_FAILURE");
                 }
 
                 sbi_gen::SmContextUpdatedData resp_data{};
@@ -3574,7 +3561,8 @@ int main() {
                         return sbi_core::http2::problem_response(
                             400,
                             "Bad Request",
-                            std::string("n2SmInfo is not a valid ") + type_name);
+                            std::string("n2SmInfo is not a valid ") + type_name,
+                            "MANDATORY_IE_INCORRECT");
                     }
                     if (per_tnl != nullptr) {
                         dl_endpoint = read_gtp_tunnel(&per_tnl->uPTransportLayerInformation);
@@ -3585,7 +3573,8 @@ int main() {
                                 "Bad Request",
                                 std::string(type_name) +
                                     "'s dLQosFlowPerTNLInformation carries no real IPv4 GTP-U "
-                                    "tunnel");
+                                    "tunnel",
+                                "UNSPECIFIED_MSG_FAILURE");
                         }
                         for (int i = 0; i < per_tnl->associatedQosFlowList.list.count; ++i) {
                             const auto* item = per_tnl->associatedQosFlowList.list.array[i];
@@ -3603,7 +3592,8 @@ int main() {
                                 "Bad Request",
                                 std::string(type_name) +
                                     "'s dL-NGU-UP-TNLInformation is present but carries no real "
-                                    "IPv4 GTP-U tunnel");
+                                    "IPv4 GTP-U tunnel",
+                                "UNSPECIFIED_MSG_FAILURE");
                         }
                     }
                     free_transfer();
@@ -3616,7 +3606,8 @@ int main() {
                             "Internal Server Error",
                             "No real N4 session on record for this SM context (established before "
                             "UPF was reachable) -- cannot address a real PFCP Session "
-                            "Modification");
+                            "Modification",
+                            "SYSTEM_FAILURE");
                     }
                     const auto error = install_downlink_far(
                         pfcp_peer,
@@ -3628,7 +3619,7 @@ int main() {
                                      : (is_mod_rsp ? "PDU_RES_MOD_RSP" : "PDU_RES_MOD_IND"));
                     if (error.has_value()) {
                         return sbi_core::http2::problem_response(
-                            500, "Internal Server Error", *error);
+                            500, "Internal Server Error", *error, "SYSTEM_FAILURE");
                     }
                 } else {
                     spdlog::info("smf: {} carried no downlink endpoint -- acknowledged with no "
@@ -3650,7 +3641,8 @@ int main() {
                         "Internal Server Error",
                         "No real UPF N3 uplink F-TEID on record for this SM context -- "
                         "PDUSessionResourceModifyConfirmTransfer's uLNGU-UP-TNLInformation is "
-                        "mandatory and this build will not fabricate one");
+                        "mandatory and this build will not fabricate one",
+                        "SYSTEM_FAILURE");
                 }
                 const auto ul_teid = stored_ctx->at("ulTeid").get<std::uint32_t>();
                 const auto ul_ipv4 = stored_ctx->at("ulIpv4").get<std::vector<std::uint8_t>>();
@@ -3658,7 +3650,8 @@ int main() {
                     return sbi_core::http2::problem_response(
                         500,
                         "Internal Server Error",
-                        "Stored UPF N3 address is not a real 4-octet IPv4 address");
+                        "Stored UPF N3 address is not a real 4-octet IPv4 address",
+                        "SYSTEM_FAILURE");
                 }
 
                 PDUSessionResourceModifyConfirmTransfer_t confirm{};
@@ -3694,7 +3687,8 @@ int main() {
                     return sbi_core::http2::problem_response(
                         500,
                         "Internal Server Error",
-                        "Failed to PER-encode a real PDUSessionResourceModifyConfirmTransfer");
+                        "Failed to PER-encode a real PDUSessionResourceModifyConfirmTransfer",
+                        "SYSTEM_FAILURE");
                 }
 
                 sbi_gen::SmContextUpdatedData resp_data{};
@@ -3827,7 +3821,8 @@ int main() {
                             return sbi_core::http2::problem_response(
                                 400,
                                 "Bad Request",
-                                std::string("n2SmInfo is not a valid ") + entry.transfer_name);
+                                std::string("n2SmInfo is not a valid ") + entry.transfer_name,
+                                "MANDATORY_IE_INCORRECT");
                         }
                         ASN_STRUCT_FREE(*entry.descriptor, decoded);
                     }
@@ -3869,7 +3864,8 @@ int main() {
                         400,
                         "Bad Request",
                         body->n2SmInfoType->value +
-                            " requires an n2SmInfo binary part and none was sent");
+                            " requires an n2SmInfo binary part and none was sent",
+                        "UNSPECIFIED_MSG_FAILURE");
                 }
                 std::vector<std::uint8_t> answer_bytes;
                 std::string answer_type;
@@ -3880,7 +3876,8 @@ int main() {
                         return sbi_core::http2::problem_response(
                             400,
                             "Bad Request",
-                            "n2SmInfo is not a valid UEContextResumeRequestTransfer");
+                            "n2SmInfo is not a valid UEContextResumeRequestTransfer",
+                            "MANDATORY_IE_INCORRECT");
                     }
                     const int failed_count =
                         req_transfer->qosFlowFailedToResumeList != nullptr
@@ -3913,7 +3910,8 @@ int main() {
                             return sbi_core::http2::problem_response(
                                 400,
                                 "Bad Request",
-                                "n2SmInfo is not a valid PathSwitchRequestSetupFailedTransfer");
+                                "n2SmInfo is not a valid PathSwitchRequestSetupFailedTransfer",
+                                "MANDATORY_IE_INCORRECT");
                         }
                         cause_read = copy_cause(fail->cause, reported_cause);
                         ASN_STRUCT_FREE(asn_DEF_PathSwitchRequestSetupFailedTransfer, fail);
@@ -3926,7 +3924,8 @@ int main() {
                                 400,
                                 "Bad Request",
                                 "n2SmInfo is not a valid "
-                                "HandoverResourceAllocationUnsuccessfulTransfer");
+                                "HandoverResourceAllocationUnsuccessfulTransfer",
+                                "MANDATORY_IE_INCORRECT");
                         }
                         cause_read = copy_cause(fail->cause, reported_cause);
                         ASN_STRUCT_FREE(asn_DEF_HandoverResourceAllocationUnsuccessfulTransfer,
@@ -3938,7 +3937,8 @@ int main() {
                             "Internal Server Error",
                             "NG-RAN reported an extension-coded Cause, which this build will not "
                             "echo (echoing it would require deep-copying an unbounded extension "
-                            "container) and will not replace with a cause of its own");
+                            "container) and will not replace with a cause of its own",
+                            "SYSTEM_FAILURE");
                     }
                     if (is_ps_setup_fail) {
                         PathSwitchRequestUnsuccessfulTransfer_t unsucc{};
@@ -3966,7 +3966,8 @@ int main() {
                     return sbi_core::http2::problem_response(500,
                                                              "Internal Server Error",
                                                              "Failed to PER-encode a real " +
-                                                                 answer_type + " transfer");
+                                                                 answer_type + " transfer",
+                                                             "SYSTEM_FAILURE");
                 }
 
                 sbi_gen::SmContextUpdatedData resp_data{};
@@ -4019,7 +4020,8 @@ int main() {
                             body->n2SmInfoType->value +
                                 " is an SMF-originated N2 SM information type (SMF builds this "
                                 "transfer and sends it towards NG-RAN); it is not something SMF "
-                                "can be asked to process in an UpdateSMContext request");
+                                "can be asked to process in an UpdateSMContext request",
+                            "UNSPECIFIED_MSG_FAILURE");
                     }
                 }
             }
@@ -4036,8 +4038,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/release",
-        [&verifier,
-         &sm_contexts,
+        [&sm_contexts,
          &li_poi,
          &release_counter,
          &pcf_client,
@@ -4050,14 +4051,11 @@ int main() {
          &chf_charging_data_release_counter,
          &smf_instance_id,
          &charging_data_invocation_seq](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto sm_context_ref = req.path_params.at("smContextRef");
             auto stored = sm_contexts.get(sm_context_ref);
             if (!stored.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context with ref " + sm_context_ref);
+                    404, "Not Found", "No SM context with ref " + sm_context_ref, std::nullopt);
             }
             // SmContextReleaseData is optional per spec (required: false).
             if (!req.body.empty()) {
@@ -4144,10 +4142,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kEventExposureApiRoot) + "/subscriptions",
-        [&verifier, &event_subs, &event_sub_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&event_subs, &event_sub_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NsmfEventExposure>(req, err);
             if (!body.has_value()) {
@@ -4166,32 +4161,27 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kEventExposureApiRoot) + "/subscriptions/{subId}",
-        [&verifier, &event_subs, &event_sub_get_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sub_id = req.path_params.at("subId");
-            auto stored = event_subs.get(sub_id);
-            if (!stored.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such subscription");
-            }
-            event_sub_get_counter->Add(1);
-            return sbi_core::http2::Response::json(200, stored->dump());
-        });
+    server.add_route("GET",
+                     std::string(kEventExposureApiRoot) + "/subscriptions/{subId}",
+                     [&event_subs, &event_sub_get_counter](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subId");
+                         auto stored = event_subs.get(sub_id);
+                         if (!stored.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such subscription", std::nullopt);
+                         }
+                         event_sub_get_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, stored->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kEventExposureApiRoot) + "/subscriptions/{subId}",
-        [&verifier, &event_subs, &event_sub_replace_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&event_subs, &event_sub_replace_counter](const sbi_core::http2::Request& req) {
             const auto sub_id = req.path_params.at("subId");
             if (!event_subs.get(sub_id).has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such subscription");
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NsmfEventExposure>(req, err);
@@ -4205,33 +4195,29 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kEventExposureApiRoot) + "/subscriptions/{subId}",
-        [&verifier, &event_subs, &event_sub_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sub_id = req.path_params.at("subId");
-            if (!event_subs.get(sub_id).has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such subscription");
-            }
-            event_subs.remove(sub_id);
-            event_sub_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kEventExposureApiRoot) + "/subscriptions/{subId}",
+                     [&event_subs, &event_sub_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subId");
+                         if (!event_subs.get(sub_id).has_value()) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such subscription",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         event_subs.remove(sub_id);
+                         event_sub_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // ---- TS29542_Nsmf_NIDD.yaml (ADR-0201) ----
 
     server.add_route(
         "POST",
         std::string(kNiddApiRoot) + "/pdu-sessions/{pduSessionRef}/deliver",
-        [&verifier, &sm_contexts, &nidd_deliver_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sm_contexts, &nidd_deliver_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_multipart_json_body<sbi_gen::DeliverReqData_Nsmf_NIDD>(req,
@@ -4245,7 +4231,7 @@ int main() {
             const auto pdu_session_ref = req.path_params.at("pduSessionRef");
             if (!sm_contexts.get(pdu_session_ref).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PDU session: " + pdu_session_ref);
+                    404, "Not Found", "No such PDU session: " + pdu_session_ref, std::nullopt);
             }
             nidd_deliver_counter->Add(1);
             // Disclosed simplification: no real NAS/5G-SM NIDD delivery pipeline exists to
@@ -4275,10 +4261,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/send-mo-data",
-        [&verifier, &sm_contexts, &send_mo_data_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sm_contexts, &send_mo_data_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_multipart_json_body<sbi_gen::SendMoDataReqData>(req, err);
@@ -4288,7 +4271,7 @@ int main() {
             const auto sm_context_ref = req.path_params.at("smContextRef");
             if (!sm_contexts.get(sm_context_ref).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such SM context: " + sm_context_ref);
+                    404, "Not Found", "No such SM context: " + sm_context_ref, std::nullopt);
             }
             send_mo_data_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -4299,10 +4282,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/pdu-sessions/{pduSessionRef}/transfer-mo-data",
-        [&verifier, &sm_contexts, &transfer_mo_data_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sm_contexts, &transfer_mo_data_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_multipart_json_body<sbi_gen::TransferMoDataReqData>(
                 req, err);
@@ -4315,7 +4295,7 @@ int main() {
             const auto pdu_session_ref = req.path_params.at("pduSessionRef");
             if (!sm_contexts.get(pdu_session_ref).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PDU session: " + pdu_session_ref);
+                    404, "Not Found", "No such PDU session: " + pdu_session_ref, std::nullopt);
             }
             transfer_mo_data_counter->Add(1);
             sbi_core::http2::Response resp;
