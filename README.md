@@ -415,3 +415,9 @@ Personal open-source project; not affiliated with or endorsed by my employer.
 <h2 align="center">License</h2>
 
 Apache License 2.0 — see [`LICENSE`](LICENSE).
+
+Third-party material keeps its own terms: the vendored 3GPP OpenAPI, ASN.1 and XSD files are
+© 3GPP Organizational Partners, and the ETSI forge schemas are BSD-3-Clause. Implementing 3GPP
+specifications may require licences, including patent licences, beyond this project's licence.
+See [`NOTICE`](NOTICE). 3GPP and ETSI specification documents are not included; see
+[`specs/README.md`](specs/README.md) to fetch them.

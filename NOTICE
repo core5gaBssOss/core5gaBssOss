@@ -1,0 +1,17 @@
+AI-Boosted 5G-Advanced Core and Charging - R19
+Copyright 2026 Prajith and contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository also contains material from third parties, which keeps its own copyright and
+terms:
+
+- 3GPP OpenAPI specifications (specs/5G_APIs-REL-19/), ASN.1 modules (specs/NGAP/) and TS 33.128
+  attachments (specs/3gpp/33128-attachments/):
+  (c) 3GPP Organizational Partners (ARIB, ATIS, CCSA, ETSI, TSDSI, TTA, TTC).
+  Code generated from them is used to implement the 3GPP specifications; implementing a 3GPP
+  specification may require licences, including patent licences, beyond this project's licence.
+
+- ETSI forge schemas and ASN.1 (specs/etsi/): Copyright ETSI, BSD-3-Clause (specs/etsi/LICENSE).
+
+3GPP and ETSI specification documents are not included; see specs/README.md.
