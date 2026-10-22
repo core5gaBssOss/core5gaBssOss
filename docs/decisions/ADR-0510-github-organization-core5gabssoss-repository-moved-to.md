@@ -1,7 +1,6 @@
 ## ADR-0510: GitHub organization core5gaBssOss: repository moved to core5gaBssOss/core5gaBssOss, one repository plus an org profile, runner stays repository-level
 
-**Date:** 2026-10-22. **Status:** Accepted. The transfer itself waits for the organization to be
-created.
+**Date:** 2026-10-22. **Status:** Accepted; the repository was transferred on 2026-10-22.
 
 **Context.** Phase 4 of the professional-setup review (Phases 1-3: ADR-0507, ADR-0508, ADR-0509)
 moves the project from a personal account to a GitHub organization, as OCUDU and other open 5G
@@ -58,12 +57,34 @@ organization: GitHub's API cannot.
   one.**
 - The redirect is tested after the transfer: the web URL and `git ls-remote` against the old URL.
 
+**Verified (2026-10-22, after the transfer).**
+- The organization exists: Free plan, display name set, the maintainer is admin.
+- The repository was transferred and renamed in one API call. Repository id 1364504447 is
+  unchanged.
+- The old URL redirects:
+  - the web URL answers `301` to `https://github.com/core5gaBssOss/core5gaBssOss`;
+  - `/pull/30` redirects to the same PR;
+  - `git ls-remote` against the old URL returns the same `main` as the new one;
+  - the API resolves the old name to the new repository.
+- Unchanged, compared against a snapshot taken just before the transfer:
+  - stars, forks, open issues, visibility and Discussions;
+  - the merge settings and the "Protect main" ruleset;
+  - the Actions secret, the fork-PR approval policy (`all_external_contributors`) and private
+    vulnerability reporting;
+  - Dependabot security updates, all 15 open PRs, the 28 labels and the 19 topics.
+- **The runner moved with the repository.** It stayed online and busy, and PR #27's build job kept
+  running through the transfer.
+- **The transfer turned off secret scanning, push protection and CodeQL default setup.** All three
+  were re-enabled straight away and read back.
+- `core5gaBssOss/.github` was created with `profile/README.md`. The local `origin` and the `gh`
+  default repository were switched to the new URL.
+
 **Disclosed.**
-- GitHub's transfer documentation (checked 2026-10-22) says webhooks, secrets, deploy keys, issues,
-  PRs, stars and forks move with the repository. It says web and git URLs redirect, until a
-  repository or fork is created at the old location. It does not say what happens to
-  repository-level self-hosted runners, rulesets or code-scanning settings. Those are checked after
-  the transfer, not assumed.
+- GitHub's transfer documentation (checked 2026-10-22) does not mention runners, rulesets or code
+  scanning. The results above are what this one transfer did, not a documented guarantee.
+- Other clones (yours elsewhere, the fork, CI caches) still name the old URL. That works through
+  the redirect, but each clone should run `git remote set-url origin
+  https://github.com/core5gaBssOss/core5gaBssOss.git`.
 - The OpenSSF Scorecard result and badge are keyed by repository URL, so they start again under the
   new one.
 - ADR-0467's runner group, which would keep fork PRs off the self-hosted runner, is still not built.
