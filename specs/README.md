@@ -32,8 +32,8 @@ python3 tools/specs/fetch_3gpp_specs.py --from-manifest
 **ETSI deliverables cited from `specs/etsi/`**: `python3 tools/specs/fetch_etsi_specs.py`
 (see `etsi/SOURCES.md`).
 
-**Reference PDFs cited from `specs/`.** Download each from www.3gpp.org (3GPP TS) or
-www.etsi.org/deliver (ETSI TS, the same text republished by ETSI) and save it under the name
+**Reference PDFs cited from `specs/`.** Download each from <https://www.3gpp.org> (3GPP TS) or
+<https://www.etsi.org/deliver> (ETSI TS, the same text republished by ETSI) and save it under the name
 given; the version is the one the code was written against.
 
 | Save as | Document |
