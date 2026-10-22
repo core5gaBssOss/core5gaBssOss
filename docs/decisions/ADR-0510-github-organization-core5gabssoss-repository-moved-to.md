@@ -72,8 +72,10 @@ organization: GitHub's API cannot.
   - the Actions secret, the fork-PR approval policy (`all_external_contributors`) and private
     vulnerability reporting;
   - Dependabot security updates, all 15 open PRs, the 28 labels and the 19 topics.
-- **The runner moved with the repository.** It stayed online and busy, and PR #27's build job kept
-  running through the transfer.
+- **The runner moved with the repository** and stayed online; it did not need re-registering.
+- **The transfer cancelled every CI run.** All 9 queued or in-progress runs were cancelled between
+  18:01:01 and 18:01:41 UTC. That included PR #27's build, which still showed as running when it
+  was first checked after the transfer. The cancelled runs have to be started again.
 - **The transfer turned off secret scanning, push protection and CodeQL default setup.** All three
   were re-enabled straight away and read back.
 - `core5gaBssOss/.github` was created with `profile/README.md`. The local `origin` and the `gh`
