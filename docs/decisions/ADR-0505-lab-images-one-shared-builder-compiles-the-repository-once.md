@@ -64,9 +64,10 @@ silently build something a Dockerfile would not.
   and the lab certificate says `eir` while the TS 29.510 NFType is `5G_EIR`. Fixed in the NRF by PR
   #26 (ADR-0499 note); with that NRF image in the lab: 26 of 26 NFs registered, no "does not name
   the NF type" refusal.
-- Found, not fixed: after the NRF restarts (in-memory registry), no NF registers again. Each keeps
-  logging "heartbeat failed" every 15 s until it is itself restarted; the lab needed every NF
-  restarted after the NRF image was replaced.
+- Found: after the NRF restarts (in-memory registry), no NF registers again. Each keeps logging
+  "heartbeat failed" every 15 s until it is itself restarted; the lab needed every NF restarted
+  after the NRF image was replaced. Fixed by PR #27 (ADR-0506): a heartbeat answered 404 or 401
+  sends NFRegister again.
 
 **Disclosed.**
 - One builder image holds every NF's build tree (13.3 GB); it is a build-time image only, never run
