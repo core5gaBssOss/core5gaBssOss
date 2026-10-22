@@ -49,5 +49,5 @@ development (from 2026-08-04): a reference implementation that aims at productio
 - GitHub private vulnerability reporting, code scanning (CodeQL), Dependabot alerts and secret
   scanning with push protection are enabled ([`.github/SECURITY.md`](.github/SECURITY.md)).
 
-[Unreleased]: https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/releases/tag/v0.1.0
+[Unreleased]: https://github.com/core5gaBssOss/core5gaBssOss/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/core5gaBssOss/core5gaBssOss/releases/tag/v0.1.0
