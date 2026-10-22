@@ -39,7 +39,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
   changing anything; the code may have moved.
 - **Follow `CLAUDE.md`.** In particular:
   - One NF or one subsystem per turn.
-  - Architectural changes need an ADR (skill `adr-workflow`; never edit `docs/DECISIONS.md` by hand).
+  - Architectural changes need an ADR (`scripts/docs/new_adr.py`; never edit `docs/DECISIONS.md` by hand).
   - Test-first for protocol logic.
   - Never invent a field, path, enum or cause. Where the spec leaves a choice, ask the user
     (see §11, "Decisions for the user").

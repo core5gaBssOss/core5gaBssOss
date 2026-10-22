@@ -168,4 +168,6 @@ core.hooksPath .githooks` once per clone activates the local enforcement hook.
 
 ## Moved context (verbatim; map in `docs/optimization/MOVE_LOG.md`)
 - `docs/project-context/`: `charging-title-rationale.md` (why "OCS" is not the title), `ai-pipelines.md` (NWDAF; training only in the Python sidecar, inference in-process C++), `phase9-production-documentation.md`, `kickoff-decisions.md`, `reality-check.md`, `commercialization-mandate.md` (ADR-0049), `adr-0445-charging-dataplane-debt.md`.
-- Adding an ADR: skill `adr-workflow` (`scripts/docs/new_adr.py`); never edit `docs/DECISIONS.md` by hand.
+- Adding an ADR: `python3 scripts/docs/new_adr.py "<title>"`, then fill in `docs/decisions/ADR-NNNN-*.md`; never edit
+  `docs/DECISIONS.md` by hand. After adding or renaming ADR files: `python3 scripts/docs/check_adr_index.py`. Closing
+  ADRs (ADR-0465): `python3 scripts/docs/close_adrs.py LIST` (`<number> <commit>` per line, human-reviewed first).
