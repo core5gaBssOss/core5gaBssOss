@@ -467,6 +467,7 @@
   "ADR-0501-sbi-core-transport-robustness-absolute-location-from-the.md",
   "ADR-0502-problemdetails-cause-required-on-every-sbi-error-response.md",
   "ADR-0503-make-lab-up-a-generated-compose-config-set-with-fixed.md",
+  "ADR-0505-lab-images-one-shared-builder-compiles-the-repository-once.md",
   "ADR-0507-specification-documents-are-not-redistributed-removed-from-history.md",
   "ADR-0508-project-display-name-ai-boosted-5g-advanced-core-bss-and.md",
   "ADR-0509-release-ownership-and-repository-security-process-changelog.md",

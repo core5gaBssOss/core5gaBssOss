@@ -1287,8 +1287,10 @@ services:
       # `mariadb`, not `mysql`: the mariadb:11 image dropped the mysql-named symlinks, so the
       # one-shot had been exiting 127 (found while bringing the ADRF's database up, ADR-0367).
       # The FE reports healthy before a backend registers; a CREATE TABLE then fails with
-      # "available backend num is 0" (ADR-0503). Wait (up to 5 min) for an alive backend first.
-      - "for i in $$(seq 1 100); do mariadb -h doris -P 9030 -u root --skip-ssl -N -e 'SHOW BACKENDS' 2>/dev/null | grep -qw true && break; sleep 3; done && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS chf_cdr' && mariadb -h doris -P 9030 -u root --skip-ssl chf_cdr < /schema.doris.sql && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS adrf_data' && mariadb -h doris -P 9030 -u root --skip-ssl adrf_data < /adrf-schema.doris.sql && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS chf_features' && mariadb -h doris -P 9030 -u root --skip-ssl chf_features < /features-schema.doris.sql"
+      # "available backend num is 0" (ADR-0503). Wait (up to 5 min) for an alive backend first:
+      # the Alive column itself -- the Status column's JSON has "isActive":true before the backend
+      # is alive, so matching any `true` in the row passed too early (ADR-0505).
+      - "for i in $$(seq 1 100); do mariadb -h doris -P 9030 -u root --skip-ssl -e 'SHOW BACKENDS\\G' 2>/dev/null | grep -q 'Alive: true' && break; sleep 3; done && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS chf_cdr' && mariadb -h doris -P 9030 -u root --skip-ssl chf_cdr < /schema.doris.sql && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS adrf_data' && mariadb -h doris -P 9030 -u root --skip-ssl adrf_data < /adrf-schema.doris.sql && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS chf_features' && mariadb -h doris -P 9030 -u root --skip-ssl chf_features < /features-schema.doris.sql"
 
   chf:
     build:
