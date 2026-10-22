@@ -24,6 +24,7 @@ add_library(sbi_core STATIC
     src/http2_client.cpp
     src/io_context_pool.cpp
     src/oauth2_client.cpp
+    src/nrf_heartbeat.cpp
     src/jwt.cpp
     src/multipart.cpp
     src/json_body.cpp
