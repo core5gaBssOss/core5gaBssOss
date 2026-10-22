@@ -13,11 +13,13 @@
 #include <boost/asio/write.hpp>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -45,6 +47,8 @@ constexpr std::uint16_t kX1Port = 19864;
 constexpr const char* kX1Url = "https://127.0.0.1:19864/X1/NE";
 constexpr const char* kNeId = "chf-poi-e2e";
 constexpr const char* kChfBase = "https://127.0.0.1:7784";
+constexpr std::uint16_t kChfMetricsPort = 9472; // config/chf.json metrics_bind_address
+constexpr const char* kWithheldMetric = "chf_li_poi_records_withheld_total";
 
 class Inbox {
 public:
@@ -196,6 +200,54 @@ void post_charging(const std::string& path, const json& body) {
     ADD_FAILURE() << "CHF never answered " << path;
 }
 
+// Issue #10: the value of the `metric` series whose label set contains every one of `labels`
+// (`reason="..."`), scraped from the chf's own Prometheus endpoint; -1 if the endpoint does not
+// answer or no such series is exported. Only value lines (those starting with `<metric>{`) are
+// read, never the `# HELP` / `# TYPE` text -- the trap test_n28_sy_end_to_end.cpp's helper records.
+long scrape_chf_series(const std::string& metric, const std::vector<std::string>& labels) {
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket sock(ioc);
+    boost::system::error_code ec;
+    sock.connect({boost::asio::ip::make_address("127.0.0.1"), kChfMetricsPort}, ec);
+    if (ec) {
+        return -1;
+    }
+    const std::string req = "GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    boost::asio::write(sock, boost::asio::buffer(req), ec);
+    if (ec) {
+        return -1;
+    }
+    std::string response;
+    boost::asio::read(sock, boost::asio::dynamic_buffer(response), ec); // until the server closes
+    if (ec && ec != boost::asio::error::eof) {
+        return -1;
+    }
+    std::istringstream lines(response);
+    for (std::string line; std::getline(lines, line);) {
+        const auto close = line.find('}');
+        if (line.rfind(metric + "{", 0) != 0 || close == std::string::npos) {
+            continue;
+        }
+        const std::string label_set = line.substr(0, close);
+        const bool all = std::all_of(labels.begin(), labels.end(), [&](const std::string& l) {
+            return label_set.find(l) != std::string::npos;
+        });
+        if (all) {
+            try {
+                return std::stol(line.substr(close + 2)); // "} <value>"
+            } catch (const std::exception&) {
+                return -1;
+            }
+        }
+    }
+    return -1;
+}
+
+long withheld_missing_roamer_in_out() {
+    return scrape_chf_series(kWithheldMetric,
+                             {R"(reason="missing_mandatory_field")", R"(field="roamerInOut")"});
+}
+
 std::vector<xiri::ChargingDataEvent> records(const std::vector<li_core::Pdu>& pdus) {
     std::vector<xiri::ChargingDataEvent> out;
     for (const auto& pdu : pdus) {
@@ -307,6 +359,9 @@ TEST(LiChfEndToEnd, ChargingDataRequestsForATargetAreReportedOnlyWithRoamerInOut
 
     nf_test::attach_test_tokens(admf); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(post_x1(admf, x1_activate("a0e1e2e3-e4e5-46e7-88e9-eaebecedeeef", true)));
+    // Issue #10: the withheld-record series is exported at 0 before anything is withheld, so the
+    // ChfLiPoiRecordsWithheld alert's increase() sees the first one.
+    EXPECT_EQ(withheld_missing_roamer_in_out(), 0) << "series not exported at start-up";
 
     // 1. Converged, OUT_BOUND: reported. 2. No roamerInOut: withheld (ADR-0488, strict ASN.1).
     // 3. Offline-only, IN_BOUND: reported with the offline encapsulation.
@@ -318,6 +373,9 @@ TEST(LiChfEndToEnd, ChargingDataRequestsForATargetAreReportedOnlyWithRoamerInOut
 
     ASSERT_TRUE(lab.mdf2.wait_for(2, 15s)) << "expected two ChargingDataEvent xIRIs";
     EXPECT_FALSE(lab.mdf2.wait_for(3, 2s)) << "the request without roamerInOut was reported";
+    // Issue #10: the one withheld record is counted on the chf's /metrics; the two sent are not.
+    EXPECT_EQ(withheld_missing_roamer_in_out(), 1);
+    EXPECT_EQ(scrape_chf_series(kWithheldMetric, {R"(reason="translated_not_built")"}), 0);
     const auto recs = records(lab.mdf2.take());
     ASSERT_EQ(recs.size(), 2U);
 
@@ -356,7 +414,10 @@ TEST(LiChfEndToEnd, TaskWithoutChargingDataEventsExtensionGetsNoRecords) {
     nf_test::attach_test_tokens(admf); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(post_x1(admf, x1_activate("a1e1e2e3-e4e5-46e7-88e9-eaebecedeeef", false)));
     post_charging("/nchf-convergedcharging/v3/chargingdata", charging_data_request("OUT_BOUND"));
+    post_charging("/nchf-convergedcharging/v3/chargingdata", charging_data_request(""));
     EXPECT_FALSE(lab.mdf2.wait_for(1, 3s)) << "a task without ChargingDataEvents got a record";
+    // No record was owed, so none was withheld -- not even for the request without roamerInOut.
+    EXPECT_EQ(withheld_missing_roamer_in_out(), 0);
     lab.mdf2_server.stop();
 }
 

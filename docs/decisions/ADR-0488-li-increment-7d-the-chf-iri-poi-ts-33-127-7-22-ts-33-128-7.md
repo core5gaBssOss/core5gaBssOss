@@ -1,6 +1,6 @@
 ## ADR-0488: LI increment 7d -- the CHF IRI-POI (TS 33.127 7.22, TS 33.128 7.19): plan, and the roamerInOut schema contradiction
 
-**Date:** 2026-10-14. **Status:** Accepted -- option B (user decision, 2026-10-14); Nchf and Rf built; Translated not built.
+**Date:** 2026-10-14. **Status:** Accepted -- option B (user decision, 2026-10-14); Nchf and Rf built; Translated not built; withheld records counted and alarmed (2026-10-20, issue #10; one open question, below).
 
 **Context.** Next LI step-7 item (ADR-0364) after the NEF (ADR-0487). TS 33.127 7.22.3 / TS 33.128
 7.19.3: one record, `ChargingDataEvent` [190], whenever the charging function receives a Charging
@@ -104,3 +104,73 @@ Until answered, a TranslatedChargingDataInformation task still gets no record an
 
 **Decision on Translated (user, 2026-10-14):** leave it unbuilt and move on. A task asking for
 TranslatedChargingDataInformation keeps getting no record and a logged error.
+
+**Review: why roamerInOut is withheld rather than derived (2026-10-20, issue #10).** Raised by
+Bernard Mwagiru in a public LinkedIn discussion of this ADR (18 Oct 2026). A fourth option was
+always available and is now recorded as rejected:
+- **D. Derive roamerInOut in the CHF.** The serving PLMN is in the charging data (e.g. the PLMN of
+  the TAI in `userLocationinfo`) and the home PLMN follows from the SUPI, so the CHF could compute
+  in-bound / out-bound itself. **Rejected:** the ChargingDataEvent is an evidentiary record, and a
+  derived roamerInOut would be the CHF's inference presented as what the network reported. The
+  j70 ASN.1 has no way to mark a value as derived (`RoamerInOut` is a bare two-value ENUMERATED and
+  `NchfChargingDataRequest` has no member that could say where it came from), so the LEA could
+  not tell an inference from a reported fact. It would also have nothing truthful to put in the
+  record of a subscriber in its home network, the case already ruled out above. This supports B.
+
+**Withheld records counted and alarmed (2026-10-20, issue #10).** Also from that review: under B, a
+withheld ChargingDataEvent was a log line and nothing else (a warning for roamerInOut, an error for
+a Translated task). No counter and no alarm, so at the LEMF a withheld record looked exactly like a
+target with no chargeable events. In LI a missing record is a failure that otherwise surfaces only
+when the authority asks for evidence that was never delivered. Built:
+- `ChfLiPoi::records_withheld(WithheldReason)` (`nfs/chf/src/li_poi.*`): per-reason atomic tallies,
+  bumped at the exact points where a record is withheld, next to the existing log lines, which are
+  unchanged. Nchf: no roamerInOut, or a value with no ASN.1 counterpart (the TS 32.291 enum is
+  extensible) -> `MissingRoamerInOut`; a Translated task (Nchf and Rf) -> `TranslatedNotBuilt`. One
+  count per (request, task), the same unit as one `emit()`. A request that matches no task, or
+  only tasks without the ChargingDataEvents extension, owes no record and counts nothing, so the
+  counter moves only for an active task.
+- `chf_li_poi_records_withheld_total{reason="missing_mandatory_field",field="roamerInOut"}` and
+  `{reason="translated_not_built"}`, the label shape proposed in issue #10. It is an OpenTelemetry
+  observable counter over those tallies, registered in `nfs/chf/src/main.cpp`. `field` is the
+  ASN.1 member name as TS 33.128 spells it.
+- Alert `ChfLiPoiRecordsWithheld` (`deploy/prometheus/business_alerts.yml`, new group
+  `lawful-interception-alarms`): `increase(...[15m]) > 0`, `severity: critical`,
+  `domain: lawful-interception`. Expect it to fire whenever an intercepted home-network subscriber
+  generates charging traffic, because nfs/smf never sends roamerInOut. That is accurate: under B
+  those records really are not being delivered.
+
+Choices and rejected alternatives for the counter:
+- *A synchronous `Counter::Add` with labels* (the UDSF/SMF pattern). Rejected: a labelled series
+  then appears only on its first increment, already at 1, and Prometheus's `increase()` has no
+  earlier sample to compare it with. The alert would miss the first withheld record of every CHF
+  process, and in LI the first missing record is the one that matters. The observable counter
+  exports both series at 0 from start-up. It also keeps the tally in `ChfLiPoi`, where a test can
+  read it without an OTel SDK. It is an observable *counter* and not an observable gauge (the
+  `chf_rating_db_pool_exhaustion_total` precedent), so the exported TYPE is counter and the
+  `_total` suffix is accurate.
+- *Register the metric only when `li_poi.enabled`*. Rejected: then the metric's mere presence on a
+  CHF's `/metrics` would show which CHFs carry a POI. It is registered on every CHF (0 when the
+  POI is off).
+- *A task XID, LIID or target label*. Rejected: that would copy warrant identifiers into general
+  monitoring. The `chf-li-poi` log lines already name the task for whoever investigates.
+- Not counted (disclosed, outside issue #10): a ChargingDataEvent that fails to encode (logged,
+  `could not encode ChargingDataEvent`) and an LI_X2 delivery failure inside the POI runtime's
+  `emit()`. Both are also records that never arrive, but they are failures rather than
+  withholding by design, and they would need their own reasons. The NWDAF POI (ADR-0489) also
+  withholds records (no consumer NF type) and has no counter either.
+
+**Open point (question to the user): this metric can reveal that interception is happening.** TS
+33.126 j30 R6.6-30 requires that non-authorised personnel or processes that are part of the service,
+automated systems included, cannot detect that interception is taking place. R6.6-80 limits
+knowledge of the operational use of interception capabilities to authorised parties. The counter is
+on the CHF's ordinary `/metrics` endpoint, so anyone or anything that scrapes it sees it rise when an
+intercepted target's charging request is withheld. From that they learn that this CHF has an active
+task and when its target is active. Mitigated here: no task or target label, the metric is present
+on every CHF, and the alert's `domain: lawful-interception` label lets Alertmanager route it only
+to LI-authorised receivers. **Not mitigated: the scrape endpoint itself is not LI-restricted.**
+Alternatives, none built: (a) a separate metrics listener for LI metrics, scraped only from the LI
+domain; (b) report the withholding to the ADMF with X1 `ReportTaskIssue` (ETSI TS 103 221-1,
+`TS_103_221_01.xsd`; `nfs/li-admf` already parses it, ADR-0462), which is the spec's own NE-to-ADMF
+channel, but the POI runtime has no X1 client toward the ADMF yet (`poi_runtime.cpp` logs that its
+own ReportNEIssue "needs an X1 client"). Before production, decide whether to keep the CHF-side
+metric as built, move it behind (a), or replace it with (b).
