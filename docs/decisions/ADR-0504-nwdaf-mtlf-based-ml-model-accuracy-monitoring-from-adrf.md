@@ -1,8 +1,10 @@
 ## ADR-0504: NWDAF MTLF-based ML model accuracy monitoring from ADRF-stored inference data (TS 23.288 6.2E.2)
 
-**Date:** 2026-10-22. **Status:** Proposed. Design only; nothing in this ADR is implemented. It
+**Date:** 2026-10-22. **Status:** Accepted -- approved by the user on 2026-10-22.
+Procedure list, D1a-D8a and Q1-Q6 as recorded under "User decisions" below; increment 1 (ADRF)
+in progress, nothing else built yet. It
 answers GitHub issue #12 and is the follow-up ADR-0370 disclosed ("The MTLF-based variant (6.2E.2
-...) is not built"). Approval is asked for the procedure list, the recommended options (D1-D8)
+...) is not built"). Approval was asked for the procedure list, the recommended options (D1-D8)
 and the answers to the open questions at the end.
 
 **Context -- what is true today (each point checked in the tree on 2026-10-22).**
@@ -74,7 +76,7 @@ accuracy report by Nnwdaf_MLModelProvision_Notify "e.g. when the reporting thres
 11); decides to re-train/re-provision (step 12) and notifies the new model (step 13). Steps 4-7 of
 the same figure are the AnLF-assisted feed (6.2E.3) -- the spec runs both variants side by side.
 
-### Procedure list (for approval)
+### Procedure list (approved 2026-10-22)
 
 "Exists" means already in the tree; "new" means this work; "change" means an existing path is
 modified. Every operation and attribute name is grepped from the YAML file and line cited.
@@ -111,7 +113,7 @@ counter) and `NwdafMtlfInferenceData.EmptyDataSetYieldsNoAccuracy` (a tag with n
 than `min_inferences` judged pairs: no report, no re-train; `result="insufficient_data"`). No
 accuracy value is ever produced from absent data.
 
-**Decision:** Proposed, pending approval: build 6.2E.2 with one DataSetTag per model version, predictions stored as analytics records and the NRF load stream as data records under that tag, retrieved by the MTLF through RetrievalSubscribe, judged by ADR-0370's rule, reported through Nnwdaf_MLModelProvision_Notify, and fed into the existing re-train path alongside the AnLF-assisted variant (options D1a-D8a below).
+**Decision:** Build 6.2E.2 with one DataSetTag per model version, predictions stored as analytics records and the NRF load stream as data records under that tag, retrieved by the MTLF through RetrievalSubscribe, judged by ADR-0370's rule, reported through Nnwdaf_MLModelProvision_Notify, and fed into the existing re-train path alongside the AnLF-assisted variant (options D1a-D8a below).
 
 ### Decision options (recommendation marked)
 
@@ -276,6 +278,18 @@ works for the single-ADRF lab only; kept as the fallback when discovery returns 
   confidence?
 - **Q6.** Is the ADRF change (D4a, D8a) acceptable as increment 1 inside issue #12, or should it be
   a separate issue (it touches a second NF)?
+
+**User decisions (2026-10-22).** The user approved the procedure list and every recommendation
+("approve with recommendations"):
+- **Q1:** "ADRF ID only" tuples stay unsupported in this work: accepted, logged, not monitored.
+- **Q2:** only predictions made for Nnwdaf_EventsSubscription subscriptions are stored. A
+  prediction that answered an Nnwdaf_AnalyticsInfo request is not stored, so no synthetic
+  `subscriptionId` is generated.
+- **Q3:** ADR-0370's "next observation" ground truth for both variants (D5a).
+- **Q4:** a PUT naming a `modelId` the MTLF never provisioned for that event is accepted, logged
+  and not monitored.
+- **Q5:** `confidence` stays the training accuracy; the monitored accuracy is recorded separately.
+- **Q6:** the ADRF change (D4a, D8a) is increment 1 inside issue #12.
 
 **Disclosed.** This ADR is a design; no code, test or configuration exists for any "new" row
 above. The numbers in the acceptance test (60 load points, thresholds) are the ones ADR-0370's
