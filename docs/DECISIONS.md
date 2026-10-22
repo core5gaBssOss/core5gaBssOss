@@ -468,6 +468,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0500](decisions/ADR-0500-charging-store-failover-synchronous-postgresql-ha-for-the.md) Charging store failover: synchronous PostgreSQL HA for the authoritative balance; CHF Valkey state as a rebuildable projection
 - [0501](decisions/ADR-0501-sbi-core-transport-robustness-absolute-location-from-the.md) sbi-core transport robustness: absolute Location from the request authority, client timeouts, request-body limit, never-destroyed token statics
 - [0507](decisions/ADR-0507-specification-documents-are-not-redistributed-removed-from-history.md) Specification documents are not redistributed: removed from history, fetched on demand; NOTICE and REUSE licensing
+- [0508](decisions/ADR-0508-project-display-name-ai-boosted-5g-advanced-core-bss-and.md) Project display name AI-Boosted 5G-Advanced Core, BSS and OSS; README cut to a project page, detail moved to docs/OVERVIEW.md
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
