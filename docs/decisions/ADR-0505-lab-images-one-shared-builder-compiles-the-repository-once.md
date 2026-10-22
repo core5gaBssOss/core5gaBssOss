@@ -59,9 +59,14 @@ silently build something a Dockerfile would not.
 - `make lab-up` (second run, after the Doris wait fix): every service running, every one-shot
   init exited 0. `make lab-registered`: 26 of 26 registered (ADR-0503's run: 22; the SMF, AAnF,
   SEPP and TSCTSF now included). The NRF's own log shows 26 distinct NF instances registered.
-- Found, not fixed here: the EIR is refused every access token ("the client certificate does not
-  name the NF type"). ADR-0499's binding compares the certificate's CN/DNS name with the lower-cased
-  NF type, and the lab certificate says `eir` while the TS 29.510 NFType is `5G_EIR`.
+- Found: the EIR was refused every access token ("the client certificate does not name the NF
+  type"). ADR-0499's binding compared the certificate's CN/DNS name with the lower-cased NF type,
+  and the lab certificate says `eir` while the TS 29.510 NFType is `5G_EIR`. Fixed in the NRF by PR
+  #26 (ADR-0499 note); with that NRF image in the lab: 26 of 26 NFs registered, no "does not name
+  the NF type" refusal.
+- Found, not fixed: after the NRF restarts (in-memory registry), no NF registers again. Each keeps
+  logging "heartbeat failed" every 15 s until it is itself restarted; the lab needed every NF
+  restarted after the NRF image was replaced.
 
 **Disclosed.**
 - One builder image holds every NF's build tree (13.3 GB); it is a build-time image only, never run
