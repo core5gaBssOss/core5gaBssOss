@@ -50,7 +50,7 @@ Last updated: 2026-10-14.
 | 26 | NSSAAF | 🕒 Already in Pipeline |
 | 27 | AAnF | ⚠️ Partial: AKMA anchor key, application key, context removal with the AUSF/UDM sides, GPSI, NEF path, roaming check (ADR-0495..0497); service-disable notification in pipeline |
 | 28 | UDSF | ✅ Built |
-| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492), PRINS with JOSE-protected forwarding (ADR-0493/0494); roaming intermediaries in pipeline |
+| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c Security Capability Negotiation and N32-f forwarding with TLS security (ADR-0491); telescopic FQDN, only the `Location` header rewritten, not URIs in bodies (ADR-0492); PRINS parameter exchange and JOSE-protected forwarding of JSON bodies (ADR-0493/0494). Not built: roaming intermediaries, N32-f keepalive PINGs, TLSCOR OPTIONS, SNDN32F, topology hiding, message filtering, the token PLMN-ID check on the TLS path (PRINS path only), URI_PARAM and multipart protection, replay detection, renegotiation, SeppInfo in the NRF profile (ADR-0491, ADR-0494 Disclosed). Open review findings: SEC-01 partly fixed, SEC-11, SEC-12, SEC-14 (see below) |
 
 ## 5G Core, Tier 3: all 18 already in pipeline
 
@@ -113,5 +113,12 @@ Last updated: 2026-10-14.
 | LI functions | 3 complete, 2 partial | 1 (SIRF) |
 | Charging/BSS and platform | 9 of 9 | 0 |
 
-The SEPP now carries inter-PLMN SBI traffic over N32 with TLS security or PRINS (application-layer
-security); roaming intermediaries are the remaining N32 gap.
+The SEPP carries inter-PLMN SBI traffic over N32 with TLS security or PRINS (application-layer
+security) between two SEPPs in `SeppEndToEnd`; the compose lab has no partner SEPP. Roaming
+intermediaries are one N32 gap of several: row 29 lists what is not built. Of the SEPP findings in
+`docs/reviews/REVIEW-5ae0ef1.md`: SEC-02 (N32-f correlation across peers) is fixed; SEC-01 is partly
+fixed -- the N32-c `sender` must be a client-certificate dNSName SAN, but per-PLMN trust anchors are
+not built and the lab's one shared `sepp` certificate names both lab SEPPs, so in the lab either can
+still claim the other; SEC-11 (case-sensitive `Authorization` checks), SEC-12 (unbounded telescopic
+table) and SEC-14 (handshake ids from a non-cryptographic RNG) are open, and SUS-01 (a long `Via`
+header and `std::regex`) is unconfirmed.
