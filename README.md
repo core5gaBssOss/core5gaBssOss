@@ -1,6 +1,6 @@
 <p align="center">
-  <a href="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml"><img src="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19"><img src="https://api.scorecard.dev/projects/github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/badge" alt="OpenSSF Scorecard"></a>
+  <a href="https://github.com/core5gaBssOss/core5gaBssOss/actions/workflows/ci.yml"><img src="https://github.com/core5gaBssOss/core5gaBssOss/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/core5gaBssOss/core5gaBssOss"><img src="https://api.scorecard.dev/projects/github.com/core5gaBssOss/core5gaBssOss/badge" alt="OpenSSF Scorecard"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-2ea44f.svg" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/3GPP-Release%2019-FF6B00.svg" alt="3GPP Release 19">
   <img src="https://img.shields.io/badge/C%2B%2B-20%2F23-00599C.svg" alt="C++20/23">
@@ -109,8 +109,8 @@ stated rather than left for review to find. Outside contributions are being prep
 open: see [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md). Engineering rules:
 [`CLAUDE.md`](CLAUDE.md).
 
-- **Questions and ideas:** [GitHub Discussions](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/discussions).
-- **Bugs and spec deviations:** [open an issue](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/issues),
+- **Questions and ideas:** [GitHub Discussions](https://github.com/core5gaBssOss/core5gaBssOss/discussions).
+- **Bugs and spec deviations:** [open an issue](https://github.com/core5gaBssOss/core5gaBssOss/issues),
   citing the 3GPP TS clause or YAML file it departs from, if you can.
 - **Collaboration, pilots, research or commercial use:** contact
   [@prajithparan](https://github.com/prajithparan).

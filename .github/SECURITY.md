@@ -27,7 +27,7 @@ cryptographic flaw in the SUCI/AKA/EAP-AKA' code paths, a TLS/mTLS misconfigurat
 it privately rather than opening a public issue:
 
 - **GitHub private vulnerability reporting** (preferred):
-  [report a vulnerability](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/security/advisories/new).
+  [report a vulnerability](https://github.com/core5gaBssOss/core5gaBssOss/security/advisories/new).
   The report stays private between you and the maintainer until an advisory is published.
 - **Email**: <mails@prajith.com> — include steps to reproduce, affected NF(s)/file(s), and impact.
 

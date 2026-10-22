@@ -51,7 +51,7 @@ mechanical. The executable form is `scripts/host-setup/setup-lab-host.sh`; keep 
    2026-10-11 `build/` was moved to `build-u24/` (reference only; `build-asan`, `build-tsan`,
    `build-release`, `build-fuzz` are equally stale). Build detached (skill `5gc-build-and-verify`).
 6. Runner: download `actions/runner` into `~/actions-runner`, then
-   `./config.sh --url https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19 --token <token> --labels 5gc-lab`
+   `./config.sh --url https://github.com/core5gaBssOss/core5gaBssOss --token <token> --labels 5gc-lab`
    (token: repo Settings -> Actions -> Runners -> New, or `gh api -X POST repos/<repo>/actions/runners/registration-token`).
    Remove the dead `5gc-lab` runner entry in the same page. Prefer `sudo ./svc.sh install && sudo ./svc.sh start`
    over `nohup` so it survives reboot (ADR-0363 disclosed this was never done).

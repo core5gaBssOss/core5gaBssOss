@@ -175,5 +175,5 @@ This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## Questions
 
-Open a [GitHub issue](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/issues).
+Open a [GitHub issue](https://github.com/core5gaBssOss/core5gaBssOss/issues).
 GitHub Discussions is not enabled, so there is no other support channel.

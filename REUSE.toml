@@ -1,6 +1,6 @@
 version = 1
-SPDX-PackageName = "AI-Boosted-5G-Advanced-Core-and-Charging-R19"
-SPDX-PackageDownloadLocation = "https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19"
+SPDX-PackageName = "core5gaBssOss"
+SPDX-PackageDownloadLocation = "https://github.com/core5gaBssOss/core5gaBssOss"
 
 # The project's own files (ADR-0507). Per-file headers are not required; this declares them.
 [[annotations]]
