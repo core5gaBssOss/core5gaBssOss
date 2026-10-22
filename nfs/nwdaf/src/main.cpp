@@ -1057,8 +1057,8 @@ int main() {
     EnergyEfficiencyGaugeState ee_state{&collected, energy_model};
     auto energy_efficiency_gauge = meter->CreateDoubleObservableGauge(
         "nwdaf_slice_energy_efficiency_bit_per_joule",
-        "TS 28.554 6.7.1 slice energy efficiency (data volume / energy consumption); energy from a "
-        "disclosed TS 28.552 PEEC stand-in power model");
+        "TS 28.554 6.7.2.2 slice energy efficiency (data volume / energy consumption); energy from "
+        "a disclosed power model standing in for TS 28.552 PEE.Energy");
     energy_efficiency_gauge->AddCallback(
         [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
             auto* st = static_cast<EnergyEfficiencyGaugeState*>(state);
