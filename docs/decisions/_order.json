@@ -464,7 +464,8 @@
   "ADR-0498-tsctsf-increment-1-ntsctsf-qosandtscassistance-for-af.md",
   "ADR-0499-sbi-oauth2-authorization-access-tokens-required-by-default.md",
   "ADR-0500-charging-store-failover-synchronous-postgresql-ha-for-the.md",
-  "ADR-0501-sbi-core-transport-robustness-absolute-location-from-the.md"
+  "ADR-0501-sbi-core-transport-robustness-absolute-location-from-the.md",
+  "ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md"
  ],
  "split_commit": "0530e4f"
 }
