@@ -94,7 +94,7 @@ Tier 2 / Tier 3 lists: `docs/project-context/scope-tier2-tier3.md`.
 
 ## Definition of done (per NF)
 
-Nine items; full text in `docs/project-context/definition-of-done.md` (skill `new-nf-checklist`). The one always-visible rule:
+Nine items; full text in `docs/project-context/definition-of-done.md`. The one always-visible rule:
 
 7. Docker image + Compose entry + Helm chart. The compose entry's own
    `volumes:` MUST include `- ../../config:/build/config:ro` from the
@@ -104,8 +104,8 @@ Nine items; full text in `docs/project-context/definition-of-done.md` (skill `ne
    it its own `config/<nf>.json`, found live across ~25 of 28 existing
    NF services and must never recur).
 
-Before any commit touching `nfs/`, `libs/` or `bss/`: walk the "Never repeat these" list in skill
-`new-nf-checklist` (the bug classes of `docs/reviews/REVIEW-5ae0ef1.md`; user-directed, mandatory).
+Before any commit touching `nfs/`, `libs/` or `bss/`: walk the "Never repeat these" list in
+`docs/project-context/definition-of-done.md` (the bug classes of `docs/reviews/REVIEW-5ae0ef1.md`; user-directed, mandatory).
 
 ## Working style for this project
 
@@ -152,7 +152,8 @@ Before any commit touching `nfs/`, `libs/` or `bss/`: walk the "Never repeat the
 
 - Never Read `docs/DECISIONS.md` content whole, nor `PROMPT.md`, `CHARGING_PROMPT.md`, `README.md`, `docs/TRACEABILITY.md`.
 - ADRs: `docs/DECISIONS.md` is an index; `docs/decisions/INDEX_DETAIL.md` has status/date/decision. Then `grep -n "^## ADR-0xxx"` and Read the one file with offset/limit (closed ADRs are in `docs/decisions/archive/`, ADR-0465).
-- Specs: grep the schema name, then Read only that range (skill `spec-lookup`). Never Read a generated header or a spec YAML whole.
+- Specs: grep the schema name, then Read only that range. Never Read a generated header or a spec YAML whole. The API
+  root comes from the YAML's `servers[0].url`, never from the filename (ADR-0325); if the YAML lacks it, stop and ask.
 
 ## Compact instructions
 
@@ -167,7 +168,7 @@ or "Generated with Claude Code" line to a commit or PR -- see guardrail 9. `git 
 core.hooksPath .githooks` once per clone activates the local enforcement hook.
 
 ## Moved context (verbatim; map in `docs/optimization/MOVE_LOG.md`)
-- `docs/project-context/`: `charging-title-rationale.md` (why "OCS" is not the title), `ai-pipelines.md` (NWDAF; training only in the Python sidecar, inference in-process C++), `phase9-production-documentation.md`, `kickoff-decisions.md`, `reality-check.md`, `commercialization-mandate.md` (ADR-0049), `adr-0445-charging-dataplane-debt.md`.
+- `docs/project-context/`: `charging-title-rationale.md` (why "OCS" is not the title), `ai-pipelines.md` (NWDAF; training only in the Python sidecar, inference in-process C++), `phase9-production-documentation.md`, `kickoff-decisions.md`, `reality-check.md`, `commercialization-mandate.md` (ADR-0049), `adr-0445-charging-dataplane-debt.md`, `ngap-message-support.md` (adding an NGAP message type: the asn1c container patch, procedure codes, IE ids).
 - Adding an ADR: `python3 scripts/docs/new_adr.py "<title>"`, then fill in `docs/decisions/ADR-NNNN-*.md`; never edit
   `docs/DECISIONS.md` by hand. After adding or renaming ADR files: `python3 scripts/docs/check_adr_index.py`. Closing
   ADRs (ADR-0465): `python3 scripts/docs/close_adrs.py LIST` (`<number> <commit>` per line, human-reviewed first).
