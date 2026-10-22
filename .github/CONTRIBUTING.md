@@ -98,7 +98,7 @@ ctest --test-dir build --output-on-failure
   take around two hours. Build only the target you are changing, and keep the vcpkg binary cache.
   A shared prebuilt cache is **(planned)**.
 - Sanitizer builds: `-D5GC_ENABLE_ASAN=ON` or `-D5GC_ENABLE_TSAN=ON` (mutually exclusive). See
-  the "Building" section of the [`README`](../README.md).
+  the "Getting started" section of the [`README`](../README.md).
 - Integration tests start real NF processes on fixed loopback ports. Stop any NF you started by
   hand before running `ctest`, or tests collide with it.
 - Format every file you touch before committing: `clang-format-18 -i <files>`. (Plain
