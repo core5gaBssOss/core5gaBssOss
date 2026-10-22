@@ -13,8 +13,9 @@ maintainer will announce when outside PRs are welcome (see [Licensing and the CL
   their merge. Review feedback is advisory from area reviewers and binding from the maintainer.
 - Work happens from forks and pull requests. Every PR from someone without write access waits for
   maintainer approval before CI runs (repository setting, in force).
-- Versioning is the maintainer's: SemVer with the 3GPP release, with tags cut by the maintainer
-  **(planned)**. Do not bump versions in a PR.
+- Versioning is the maintainer's: SemVer, with tags and releases cut by the maintainer
+  ([`docs/RELEASING.md`](../docs/RELEASING.md)). Do not bump versions in a PR. Notable changes go
+  under *Unreleased* in [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## Pick one area
 
@@ -39,8 +40,10 @@ tractable and lets contributors with domain experience stay in the part they kno
   labelled `cross-area` by the maintainer.
 - **Platform libraries are maintainer-only.** A change there affects every NF. Open an issue
   describing the need; do not send a PR.
-- Enforcement is by `CODEOWNERS`, path labels and a CI check that rejects multi-area PRs
-  **(planned)**. Until then the maintainer enforces it in review.
+- Enforcement: [`CODEOWNERS`](CODEOWNERS) names the reviewers for each area, and the `PR labels`
+  check ([`pr-labels.yml`](workflows/pr-labels.yml)) labels every PR by area and size. It fails a
+  PR from an author without write access that touches more than one area, unless the PR carries
+  the `cross-area` label. Paths the table leaves unassigned get no area label.
 - Not sure where something belongs? Ask in an issue first; the area table above is the source of
   truth and may grow.
 
@@ -144,9 +147,11 @@ submit:
   across this repo's history carried one before this rule and the enforcement below existed
   (CLAUDE.md guardrail 9 has the full account). Run this once after cloning to activate the local
   enforcement hook (`.githooks/commit-msg`, which rejects a matching commit message outright):
+
   ```sh
   git config core.hooksPath .githooks
   ```
+
   A CI job (`attribution-check` in [`ci.yml`](workflows/ci.yml)) also scans every pushed/PR commit
   and the PR body as a second, server-side detection layer -- it does not block a merge (this repo
   has no required-status-check branch protection), but it will not be quiet about a leak.

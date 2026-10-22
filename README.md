@@ -1,5 +1,6 @@
 <p align="center">
   <a href="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml"><img src="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19"><img src="https://api.scorecard.dev/projects/github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/badge" alt="OpenSSF Scorecard"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-2ea44f.svg" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/3GPP-Release%2019-FF6B00.svg" alt="3GPP Release 19">
   <img src="https://img.shields.io/badge/C%2B%2B-20%2F23-00599C.svg" alt="C++20/23">
@@ -99,6 +100,7 @@ Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`.
 | [`docs/CHARGING_MAPPING.md`](docs/CHARGING_MAPPING.md) | 3GPP charging fields → TM Forum SID → TMF API |
 | [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md) | 3GPP 33-series assessment |
 | [`specs/README.md`](specs/README.md) | Vendored spec inputs, and how to fetch the documents the code cites |
+| [`CHANGELOG.md`](CHANGELOG.md) | Releases and notable changes |
 
 ## Contributing
 
