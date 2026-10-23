@@ -472,6 +472,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0509](decisions/ADR-0509-release-ownership-and-repository-security-process-changelog.md) Release, ownership and repository-security process: CHANGELOG and SemVer, CODEOWNERS and area labels, Dependabot, CodeQL, Scorecard, main ruleset
 - [0510](decisions/ADR-0510-github-organization-core5gabssoss-repository-moved-to.md) GitHub organization core5gaBssOss: repository moved to core5gaBssOss/core5gaBssOss, one repository plus an org profile, runner stays repository-level
 - [0511](decisions/ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md) README restored to the full project page, updated; reverses ADR-0508's README cut (user-directed)
+- [0512](decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md) README.md is append/update only: nothing is ever removed from it (user-directed, strict); pre-commit hook and CI check
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

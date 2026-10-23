@@ -13,6 +13,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - The README is the full project page again, updated for the organization move, licensing and
   process changes, with four stale security-compliance rows corrected
   ([ADR-0511](docs/decisions/ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md)).
+- `README.md` is append/update only: nothing is ever removed from it. Enforced by a pre-commit hook
+  and a `readme-append-only` CI job
+  ([ADR-0512](docs/decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md)).
 
 ## [0.1.0] - not yet tagged
 
