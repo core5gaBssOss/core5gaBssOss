@@ -471,7 +471,8 @@
   "ADR-0507-specification-documents-are-not-redistributed-removed-from-history.md",
   "ADR-0508-project-display-name-ai-boosted-5g-advanced-core-bss-and.md",
   "ADR-0509-release-ownership-and-repository-security-process-changelog.md",
-  "ADR-0510-github-organization-core5gabssoss-repository-moved-to.md"
+  "ADR-0510-github-organization-core5gabssoss-repository-moved-to.md",
+  "ADR-0514-akma-anchor-keys-sealed-at-rest-aes-256-gcm-aanf-key.md"
  ],
  "split_commit": "0530e4f"
 }

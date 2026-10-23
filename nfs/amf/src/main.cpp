@@ -361,9 +361,11 @@ int main() {
             nf_config::optional<int>(config, "redis_pool_size", "AMF_REDIS_POOL_SIZE").value_or(8);
         redis_url += (redis_url.find('?') == std::string::npos ? "?" : "&") +
                      std::string("pool_size=") + std::to_string(redis_pool_size);
-        redis_router_opt.emplace(nf_config::connect_redis_cluster_or_die(redis_url, "amf"));
+        redis_router_opt.emplace(nf_config::connect_redis_cluster_or_die(
+            redis_url, "amf", nf_config::redis_auth(config, "AMF")));
     } else {
-        redis_router_opt.emplace(nf_config::connect_redis_or_die(redis_url, "amf"));
+        redis_router_opt.emplace(nf_config::connect_redis_or_die(
+            redis_url, "amf", nf_config::redis_auth(config, "AMF")));
     }
     nf_config::RedisRouter& redis_router = *redis_router_opt;
     amf::UeSecurityContextStore ue_security_contexts(redis_router);

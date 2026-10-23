@@ -49,6 +49,7 @@
 #include <cctype>
 #include <chrono>
 #include <ctime>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <thread>
@@ -140,6 +141,20 @@ std::string rfc3339(std::chrono::system_clock::time_point t) {
 }
 
 // The FQDN part of a TS 29.522 AfId "<FQDN>.<10 hex digits>".
+// The KAKMA key-encryption key: one line of 64 hex digits (ADR-0514). Exits if it is missing or
+// malformed -- the AAnF never stores KAKMA in the clear.
+aka_crypto::Aes256Key read_kek(const std::string& path) {
+    std::ifstream in(path);
+    std::string text;
+    in >> text;
+    const auto kek = aka_crypto::from_hex<32>(text);
+    if (!kek) {
+        nf_config::fatal("aanf: the KAKMA key-encryption key " + path +
+                         " is missing or not 64 hexadecimal digits");
+    }
+    return *kek;
+}
+
 std::string af_fqdn(const std::string& af_id) {
     return af_id.substr(0, af_id.rfind('.'));
 }
@@ -203,6 +218,12 @@ int main() {
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "AANF_NRF_BASE_URL");
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "AANF_REDIS_URL");
+    // ADR-0514 (REVIEW-5ae0ef1 SEC-04): the key-encryption key that seals KAKMA at rest -- 64 hex
+    // digits in a file only the AAnF is given (scripts/gen-lab-pki.sh writes the lab's).
+    const auto kek_file =
+        nf_config::optional<std::string>(config, "kakma_kek_file", "AANF_KAKMA_KEK_FILE")
+            .value_or(CERTS_DIR "/aanf/kakma.kek");
+    const auto kek = read_kek(kek_file);
     const auto kaf_lifetime = std::chrono::seconds(
         nf_config::require<int>(config, "kaf_lifetime_seconds", "AANF_KAF_LIFETIME_SECONDS"));
     // Local policy for an AF calling without a token: whether the SUPI may be returned (6.2.1
@@ -224,8 +245,9 @@ int main() {
     auto kafs = meter->CreateUInt64Counter("aanf_application_keys_total",
                                            "KAF delivered by Naanf_AKMA_ApplicationKey_Get");
 
-    auto redis = nf_config::connect_redis_or_die(redis_url, "aanf");
-    aanf::AkmaStore store(redis);
+    auto redis =
+        nf_config::connect_redis_or_die(redis_url, "aanf", nf_config::redis_auth(config, "AANF"));
+    aanf::AkmaStore store(redis, kek);
     http2::Client udm_client(aanf_tls());
     sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
     const std::string instance_id = sbi_core::generate_uuid_v4();
@@ -274,7 +296,12 @@ int main() {
                                "the AKMA context is registered by SUPI",
                                "MANDATORY_IE_MISSING");
             }
-            store.put(aanf::AkmaContext{*body.supi, body.aKId, *kakma});
+            if (!store.put(aanf::AkmaContext{*body.supi, body.aKId, *kakma})) {
+                return problem(500,
+                               "Internal Server Error",
+                               "the AKMA context could not be sealed for storage",
+                               "SYSTEM_FAILURE");
+            }
             registered->Add(1);
             spdlog::info("aanf: AKMA context for {} registered (A-KID {})", *body.supi, body.aKId);
             return http2::Response::json(200, json(body).dump());

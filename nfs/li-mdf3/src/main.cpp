@@ -45,6 +45,7 @@
 #include "li_core/x2x3_server.hpp"
 #include "li_mdf/task_store.hpp"
 #include "nf_config/nf_config.hpp"
+#include "nf_config/redis.hpp"
 
 namespace {
 
@@ -104,8 +105,10 @@ int main() {
     sbi_core::init_metrics(metrics_bind_address);
     spdlog::info("li-mdf3: starting, neIdentifier={}", ne_identifier);
 
-    sw::redis::Redis redis(redis_url);
-    redis.ping(); // fail fast if the warrant store is not there -- an MDF2 without it is blind
+    // Fail fast if the warrant store is not there -- an MDF without it is blind.
+    const auto redis_client = nf_config::connect_redis_or_die(
+        redis_url, "li-mdf3", nf_config::redis_auth(config, "LI_MDF3"));
+    sw::redis::Redis& redis = *redis_client;
     li_mdf::TaskStore store(redis, "limdf3");
 
     auto meter = sbi_core::get_meter("li-mdf3");

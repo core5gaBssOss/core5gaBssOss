@@ -283,7 +283,8 @@ int main() {
     // per-SUPI KAUSF + CounterSoR state -- see kausf_store.hpp's own header for why this was a
     // real, load-bearing prerequisite for Nausf_SoRProtection. Same real, fail-fast PING
     // discipline every other NF's own Redis connection already uses.
-    auto redis = nf_config::connect_redis_or_die(redis_url, "ausf");
+    auto redis =
+        nf_config::connect_redis_or_die(redis_url, "ausf", nf_config::redis_auth(config, "AUSF"));
     ausf::KausfStore kausf_store(redis);
 
     auto meter = sbi_core::get_meter("ausf");
