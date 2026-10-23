@@ -34,9 +34,12 @@ NOT_NF = {'keycloak', 'oam-gui-bff'}
 SOURCE = {'li-admf': ROOT / 'deploy/docker/li-admf.compose.json'}
 ADVERTISED_AUTO = {'upf'}
 # Each reads <NF>_ADVERTISED_IPV4 before the file; its chart sets it from the pod IP (ADR-0515 for
-# all but the AMF).
-ADVERTISED_FROM_ENV = {nf: nf.upper() + '_ADVERTISED_IPV4'
-                       for nf in ('amf', 'adrf', 'dccf', 'mfaf', 'nsacf', 'nwdaf', 'udsf')}
+# all but the AMF; ADR-0516 for the product catalog, which builds its resource hrefs from it).
+ADVERTISED_FROM_ENV = {nf: nf.upper().replace('-', '_') + '_ADVERTISED_IPV4'
+                       for nf in ('amf', 'adrf', 'dccf', 'mfaf', 'nsacf', 'nwdaf', 'udsf',
+                                  'product-catalog')}
+# The file has the key but no source line reads it (ADR-0516): dropped, not given a pod IP.
+ADVERTISED_UNREAD = {'provisioning'}
 
 
 def charts():
@@ -64,7 +67,7 @@ def render(nf):
     if 'advertised_ipv4' in cfg:
         if nf in ADVERTISED_AUTO:
             cfg['advertised_ipv4'] = 'auto'
-        elif nf in ADVERTISED_FROM_ENV:
+        elif nf in ADVERTISED_FROM_ENV or nf in ADVERTISED_UNREAD:
             del cfg['advertised_ipv4']
         else:
             sys.exit(f'{nf}: advertised_ipv4 needs a Kubernetes rule in gen_helm_config.py (a pod IP is not fixed)')

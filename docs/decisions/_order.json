@@ -473,7 +473,8 @@
   "ADR-0509-release-ownership-and-repository-security-process-changelog.md",
   "ADR-0510-github-organization-core5gabssoss-repository-moved-to.md",
   "ADR-0513-nf-helm-charts-start-their-nf-generated-config-configmap.md",
-  "ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md"
+  "ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md",
+  "ADR-0516-helm-charts-for-the-bss-and-a-bss-provisioning-image-dep-03.md"
  ],
  "split_commit": "0530e4f"
 }
