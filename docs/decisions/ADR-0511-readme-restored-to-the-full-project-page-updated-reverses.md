@@ -42,7 +42,9 @@ the project's front page and must carry all the project's details, updated, neve
 **Disclosed.**
 - `docs/OVERVIEW.md` is left as ADR-0508 created it. It now duplicates most of the README and its
   preamble ("moved ... so the README can stay short") is no longer true; removing it, or cutting it
-  back to a pointer, is left for the user to decide.
+  back to a pointer, is left for the user to decide. *Follow-up, 2026-10-23:* the user chose a
+  pointer; `docs/OVERVIEW.md` now only points to the README, and `docs/ARCHITECTURE.md` and the
+  `tools/cdr-traffic-gen` product comment cite the README instead.
 - `docs/SECURITY_COMPLIANCE.md`'s summary table still says F3/F4/F8 open and AKMA not
   implemented; only its per-finding status notes are current. The README rows follow those notes.
 - Other README rows were not re-verified against the code; the phase status table is the
