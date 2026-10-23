@@ -1,0 +1,136 @@
+{
+  "port": 7798,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9485",
+  "nrf_base_url": "https://nrf:7777",
+  "redis_url": "tcp://valkey:6379",
+  "nrf_heartbeat_seconds": 30,
+  "notification_interval_seconds": 30,
+  "nf_load_default_nf_types": [
+    "NRF",
+    "NWDAF",
+    "AMF",
+    "SMF",
+    "UPF",
+    "UDM",
+    "UDR",
+    "AUSF",
+    "PCF",
+    "CHF",
+    "NSSF",
+    "NEF",
+    "SCP",
+    "BSF",
+    "SMSF",
+    "NSACF",
+    "LMF",
+    "GMLC",
+    "5G_EIR"
+  ],
+  "abnormal_sigma_threshold": 3.0,
+  "abnormal_large_rate_floor_octets": 10000000,
+  "abnormal_session_count_threshold": 50,
+  "abnormal_max_exception_level": 10,
+  "abnormal_confidence_full_at_sessions": 30,
+  "energy_static_watts_per_slice": 120.0,
+  "energy_joules_per_gigabyte": 300.0,
+  "feature_store_host": "doris",
+  "feature_store_port": 9030,
+  "feature_store_user": "root",
+  "feature_store_password": "",
+  "feature_store_database": "chf_features",
+  "feature_store_max_rows": 200000,
+  "self_base_url": "https://nwdaf:7798",
+  "dccf_base_url": "https://dccf:7803",
+  "data_collection": {
+    "via_dccf": true,
+    "nrf_status_nf_types": [],
+    "observation_window_seconds": 3600,
+    "max_collected_events": 10000,
+    "holder_heartbeat_seconds": 5
+  },
+  "fetch_buffer_ttl_seconds": 300,
+  "user_consent_policy": "consumer-checked",
+  "role": "anlf",
+  "mtlf_base_url": "https://nwdaf-mtlf:7797",
+  "adrf_base_url": "https://adrf:7804",
+  "ml_model_provision": {
+    "events": [
+      "NF_LOAD"
+    ],
+    "nf_types": [],
+    "accuracy_threshold": 80,
+    "holder_heartbeat_seconds": 5,
+    "retry_seconds": 5
+  },
+  "mtlf": {
+    "events": [
+      "NF_LOAD"
+    ],
+    "data_set_id": "nwdaf-mtlf-nrf-status",
+    "min_samples": 200,
+    "accuracy_tolerance": 10.0,
+    "check_interval_seconds": 10,
+    "retrain_min_new_windows": 100,
+    "retrain_interval_seconds": 0,
+    "training_lease_seconds": 900,
+    "accuracy_threshold": 80,
+    "retrain_cooldown_seconds": 60,
+    "fl_client": {
+      "enabled": true,
+      "script": "",
+      "epochs": 200,
+      "learning_rate": 0.1,
+      "accuracy_tolerance": 10.0,
+      "default_max_response_seconds": 300
+    },
+    "fl_server": {
+      "enabled": false,
+      "aggregate_script": "",
+      "round_grace_seconds": 30,
+      "repeat_interval_seconds": 0,
+      "federations": [
+        {
+          "event": "NF_LOAD",
+          "ml_corre_id": "nf-load-fl-1",
+          "rounds": 5,
+          "min_clients": 2,
+          "max_res_time_seconds": 120
+        }
+      ]
+    }
+  },
+  "training": {
+    "python": "",
+    "script": "",
+    "workdir": "",
+    "mlflow_tracking_uri": "",
+    "timeout_seconds": 600
+  },
+  "accuracy_monitoring": {
+    "tolerance": 10.0,
+    "window_seconds": 3600,
+    "truth_timeout_seconds": 3600,
+    "check_interval_seconds": 10,
+    "min_inferences": 5,
+    "default_threshold": 80,
+    "min_report_interval_seconds": 60
+  },
+  "smf_base_url": "https://smf:7779",
+  "li_poi": {
+    "enabled": false,
+    "x1_bind_address": "0.0.0.0",
+    "x1_port": 7817,
+    "ne_identifier": "nwdaf-poi-01",
+    "network_function_id": "nwdaf-01.5gc.example.net",
+    "interception_point_id": "NWDAF-IRI-POI-1",
+    "mdf2_host": "li-mdf",
+    "mdf2_port": 7806,
+    "mdf2_sni": "localhost",
+    "x1_keepalive_p1_seconds": 60,
+    "x1_keepalive_p2_seconds": 180,
+    "x1_keepalive_p3_seconds": 300,
+    "x1_allow_deactivate_all": true
+  },
+  "oauth2_required": true
+}

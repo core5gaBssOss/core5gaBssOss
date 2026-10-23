@@ -20,9 +20,11 @@ S ?=
 
 lab-config:
 	python3 tools/lab/gen_compose_config.py
+	python3 tools/lab/gen_helm_config.py
 
 lab-config-check:
 	python3 tools/lab/gen_compose_config.py --check
+	python3 tools/lab/gen_helm_config.py --check
 
 lab-up: lab-config
 	$(COMPOSE) up -d
