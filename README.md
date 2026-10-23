@@ -445,7 +445,9 @@ contributions will need a signed CLA. `CODEOWNERS`, area and size labels with a 
 check, and the "Protect main" ruleset (no deletion, no force-push, linear history) are in place
 (ADR-0509), and the repository moved to the `core5gaBssOss` organization (ADR-0510). The CLA text
 and bot and `bootstrap.sh` are **not done yet**; fork-PR approval is already required for every
-outside contributor. Releases follow SemVer, recorded in [`CHANGELOG.md`](CHANGELOG.md). CI (ADR-0468, ADR-0469) lints
+outside contributor. Releases follow SemVer, recorded in [`CHANGELOG.md`](CHANGELOG.md). This README
+is append/update only: it grows and is updated as the project moves on, and nothing is ever removed
+from it (ADR-0512). CI (ADR-0468, ADR-0469) lints
 only the `.cpp` files a push changed (a PR: everything it changes against `main`), skips the build and sanitizer jobs when the whole diff against `main` is docs, and runs
 `lint`, then `build`, then the sanitizers.
 
