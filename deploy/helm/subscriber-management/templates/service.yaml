@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The component's name: what every peer's config and its certificate (DNS:subscriber-management) use.
+  name: {{ .Values.service.name | default "subscriber-management" }}
+  labels:
+    app.kubernetes.io/name: subscriber-management
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: subscriber-management
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    # TMF632 Party Management.
+    - name: api
+      port: 7787
+      targetPort: api
+      protocol: TCP
+    - name: metrics
+      port: 9475
+      targetPort: metrics
+      protocol: TCP

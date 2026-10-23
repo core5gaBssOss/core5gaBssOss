@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf li-mdf3 li-admf udsf keycloak oam-gui-bff upf sepp aanf tsctsf"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect provisioning nwdaf mfaf dccf adrf li-mdf li-mdf3 li-admf udsf keycloak oam-gui-bff upf sepp aanf tsctsf"
 
   nrf:
     build:
@@ -1404,6 +1404,33 @@ services:
     ports:
       - "7788:7788"   # TMF651 Agreement Management, E7 InterconnectAgreement (TLS 1.3 + mTLS)
       - "9476:9476"   # Prometheus /metrics
+
+  # ADR-0516 (REVIEW-5ae0ef1 DEP-03): the customer order-to-activation runner (ADR-0382). Its UDR
+  # address comes from the lab config set (`make lab-config`); the oam-gui-bff names it
+  # https://provisioning:7802 (oam-gui-bff.compose.json).
+  provisioning:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/provisioning.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres-chf:
+        condition: service_healthy
+    environment:
+      # ADR-0384: the consolidated domain DBs on postgres-chf -- orchestration (the saga) and
+      # charging (the BSS SID chain it writes).
+      PROVISIONING_ORCHESTRATION_DATABASE_URL: postgresql://postgres@postgres-chf:5432/orchestration
+      PROVISIONING_CHARGING_DATABASE_URL: postgresql://postgres@postgres-chf:5432/charging
+    volumes:
+      - certs_data:/build/certs
+      # ADR-0453: every NF service gets this -- see this file's own header note (top of
+      # file) for why. Bind mount, not a Dockerfile COPY, so editing config/<nf>.json on the
+      # host takes effect on container restart without an image rebuild.
+      - ../../config:/build/config:ro
+    ports:
+      - "7802:7802"   # customer order API (TLS 1.3 + mTLS)
+      - "9498:9498"   # Prometheus /metrics
 
   # --- Database management GUIs (dev/ops consoles; web UIs on the lab network) ---
   # Kafka console: browse topics (chf.cdr), messages, consumer groups. http://localhost:8080
