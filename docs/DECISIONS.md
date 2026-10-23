@@ -477,6 +477,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0513](decisions/ADR-0513-nf-helm-charts-start-their-nf-generated-config-configmap.md) NF Helm charts start their NF: generated config ConfigMap, per-NF certs Secret, Service named after the NF (REVIEW-5ae0ef1 DEP-01)
 - [0515](decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md) Helm charts for the 17 NFs without one (DEP-03, NF half); the chart config takes compose's environment settings
 - [0516](decisions/ADR-0516-helm-charts-for-the-bss-and-a-bss-provisioning-image-dep-03.md) Helm charts for the BSS and a bss/provisioning image (DEP-03, BSS half)
+- [0517](decisions/ADR-0517-nwdaf-mtlf-helm-chart-the-nwdaf-certificate-names-nwdaf.md) NWDAF MTLF Helm chart; the NWDAF certificate names nwdaf-mtlf (DEP-03 follow-up)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

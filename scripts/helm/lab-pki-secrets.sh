@@ -21,7 +21,8 @@ NFS=("$@")
 if [ ${#NFS[@]} -eq 0 ]; then
     for chart in "${REPO_ROOT}"/deploy/helm/*/Chart.yaml; do
         nf="$(basename "$(dirname "${chart}")")"
-        case "${nf}" in keycloak | oam-gui-bff) continue ;; esac
+        # nwdaf-mtlf mounts the NWDAF's own Secret, nwdaf-certs (ADR-0517).
+        case "${nf}" in keycloak | oam-gui-bff | nwdaf-mtlf) continue ;; esac
         NFS+=("${nf}")
     done
 fi
