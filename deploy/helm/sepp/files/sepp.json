@@ -1,0 +1,57 @@
+{
+  "port": 7820,
+  "n32_port": 7821,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9494",
+  "nrf_base_url": "https://nrf:7777",
+  "fqdn": "sepp.5gc.mnc001.mcc001.3gppnetwork.org",
+  "mcc": "001",
+  "mnc": "01",
+  "allowed_purposes": [
+    "ROAMING",
+    "INTER_PLMN_MOBILITY"
+  ],
+  "security_capabilities": [
+    "TLS"
+  ],
+  "protection_policy": {
+    "apiIeMappingList": [
+      {
+        "apiSignature": "/nausf-auth/v1/ue-authentications",
+        "apiMethod": "POST",
+        "IeList": [
+          {
+            "ieLoc": "BODY",
+            "ieType": "UEID",
+            "reqIe": "supiOrSuci"
+          },
+          {
+            "ieLoc": "BODY",
+            "ieType": "AUTHENTICATION_MATERIAL",
+            "rspIe": "5gAuthData"
+          }
+        ]
+      }
+    ],
+    "dataTypeEncPolicy": [
+      "UEID",
+      "LOCATION",
+      "KEY_MATERIAL",
+      "AUTHENTICATION_MATERIAL",
+      "AUTHORIZATION_TOKEN"
+    ]
+  },
+  "handshake_retry_seconds": 2,
+  "peers": [
+    {
+      "fqdn": "sepp.5gc.mnc002.mcc001.3gppnetwork.org",
+      "mcc": "001",
+      "mnc": "02",
+      "n32_api_root": "https://127.0.0.1:7823",
+      "initiate": true
+    }
+  ],
+  "local_nf_routes": {
+    "nrf.5gc.mnc001.mcc001.3gppnetwork.org:7777": "https://nrf:7777"
+  }
+}

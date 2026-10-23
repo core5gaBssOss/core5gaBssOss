@@ -474,6 +474,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0508](decisions/ADR-0508-project-display-name-ai-boosted-5g-advanced-core-bss-and.md) Project display name AI-Boosted 5G-Advanced Core, BSS and OSS; README cut to a project page, detail moved to docs/OVERVIEW.md
 - [0509](decisions/ADR-0509-release-ownership-and-repository-security-process-changelog.md) Release, ownership and repository-security process: CHANGELOG and SemVer, CODEOWNERS and area labels, Dependabot, CodeQL, Scorecard, main ruleset
 - [0510](decisions/ADR-0510-github-organization-core5gabssoss-repository-moved-to.md) GitHub organization core5gaBssOss: repository moved to core5gaBssOss/core5gaBssOss, one repository plus an org profile, runner stays repository-level
+- [0513](decisions/ADR-0513-nf-helm-charts-start-their-nf-generated-config-configmap.md) NF Helm charts start their NF: generated config ConfigMap, per-NF certs Secret, Service named after the NF (REVIEW-5ae0ef1 DEP-01)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

@@ -23,3 +23,11 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 4
   targetCPUUtilizationPercentage: 70
+
+# Overrides merged over the generated files/udr.json (tools/lab/gen_helm_config.py), e.g.
+#   configOverrides: {nrf_base_url: "https://nrf.5gc.svc.cluster.local:7777"}
+configOverrides: {}
+
+certs:
+  # Secret holding ca.crt, cert.pem, key.pem and nrf-jwt-public.pem; default "udr-certs".
+  secretName: ""
