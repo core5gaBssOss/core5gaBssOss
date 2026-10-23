@@ -77,6 +77,7 @@
 //   validation (ueInfoList+tmgi) then a real 200 with an honestly-empty ueConnectedList -- no real
 //   per-UE reachability tracking exists to populate it from.
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -240,7 +241,7 @@ std::optional<T> parse_multipart_json_body(const sbi_core::http2::Request& req,
 // eventual real fix, which remains future work.
 void run_nrf_lifecycle(const std::string& amf_instance_id,
                        const std::string& nrf_base,
-                       const std::string& advertised_ipv4) {
+                       const std::string& profile_ipv4) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/amf/cert.pem",
         .key_path = CERTS_DIR "/amf/key.pem",
@@ -268,11 +269,8 @@ void run_nrf_lifecycle(const std::string& amf_instance_id,
         {"nfInstanceId", amf_instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        // ADR-0453/follow-up: NRF's NFProfile validation requires a real dotted-quad IPv4
-        // literal here, not a Docker Compose hostname -- see nfs/udsf/src/main.cpp's fix for the
-        // same bug, root-caused live. advertised_ipv4 itself is unaffected -- it still feeds
-        // peers.self_base above, which other NFs reach by hostname, not via this field.
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        // ADR-0518: advertised_ipv4 resolved to a literal at startup (the NRF requires one).
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", kHeartbeatSeconds},
     };
 
@@ -390,6 +388,8 @@ int main() {
     // to NRF and the one it puts in its own callback URIs cannot disagree.
     const auto advertised_ipv4 =
         nf_config::require<std::string>(config, "advertised_ipv4", "AMF_ADVERTISED_IPV4");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses), as a literal the NRF accepts.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die("amf", advertised_ipv4, nrf_base);
     peers.self_base = "https://" + advertised_ipv4 + ":" + std::to_string(port);
 
     const auto amf_region_id = nf_config::require<std::uint8_t>(config, "amf_region_id");
@@ -1426,7 +1426,7 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    std::thread(run_nrf_lifecycle, amf_instance_id, nrf_base, advertised_ipv4).detach();
+    std::thread(run_nrf_lifecycle, amf_instance_id, nrf_base, profile_ipv4).detach();
 
     // LI IRI-POI (ADR-0377), disabled unless config/amf.json's li_poi.enabled is true. Lives for
     // the process lifetime (main blocks in run_multi_threaded below), so run_ngap_lifecycle's

@@ -79,6 +79,7 @@
 //   disclosed scope narrowing as the existing helper: only the IMSI-type (supiType "0") SUCI form
 //   is supported, not the NAI/GCI/GLI form.
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
@@ -274,7 +275,9 @@ std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::R
 
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/amf/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
-void run_nrf_lifecycle(const std::string& udm_instance_id, const std::string& nrf_base) {
+void run_nrf_lifecycle(const std::string& udm_instance_id,
+                       const std::string& nrf_base,
+                       const std::string& profile_ipv4) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/udm/cert.pem",
         .key_path = CERTS_DIR "/udm/key.pem",
@@ -302,7 +305,7 @@ void run_nrf_lifecycle(const std::string& udm_instance_id, const std::string& nr
         {"nfInstanceId", udm_instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", kHeartbeatSeconds},
     };
 
@@ -475,6 +478,12 @@ int main() {
     const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
     const auto nrf_base_url =
         nf_config::require<std::string>(config, "nrf_base_url", "UDM_NRF_BASE_URL");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses) -- a literal, or "auto" for the local
+    // address toward the NRF -- instead of a hardcoded 127.0.0.1 no other host can reach.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die(
+        "udm",
+        nf_config::require<std::string>(config, "advertised_ipv4", "UDM_ADVERTISED_IPV4"),
+        nrf_base_url);
     const auto udr_base_url =
         nf_config::require<std::string>(config, "udr_base_url", "UDM_UDR_BASE_URL");
 
@@ -3986,7 +3995,7 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    std::thread(run_nrf_lifecycle, udm_instance_id, nrf_base_url).detach();
+    std::thread(run_nrf_lifecycle, udm_instance_id, nrf_base_url, profile_ipv4).detach();
 
     server.start();
     spdlog::info("udm: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);

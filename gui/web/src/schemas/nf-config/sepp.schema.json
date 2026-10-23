@@ -19,6 +19,11 @@
       "type": "string",
       "x-cpp-type": "std::string"
     },
+    "advertised_ipv4": {
+      "type": "string",
+      "x-env-override": "SEPP_ADVERTISED_IPV4",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "SEPP_METRICS_BIND_ADDRESS",
@@ -142,6 +147,7 @@
     }
   },
   "required": [
+    "advertised_ipv4",
     "fqdn",
     "mcc",
     "metrics_bind_address",

@@ -66,6 +66,7 @@
 //     dsc, 307/308 redirects, storage subscriptions carrying multiProcInstructs beyond
 //     pass-through to the DCCF, MLflow (that is the MTLF's training-side tracker, ADR-0359).
 //   * LI: TS 33.127 7.18 (NWDAF) has no ADRF clause; nothing built.
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
@@ -318,7 +319,7 @@ json merge_records(const std::vector<adrf::StoredRecord>& records, std::string& 
 
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
-                       const std::string& advertised_ipv4,
+                       const std::string& profile_ipv4,
                        int heartbeat_seconds) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/adrf/cert.pem",
@@ -351,10 +352,8 @@ void run_nrf_lifecycle(const std::string& instance_id,
         {"nfInstanceId", instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        // ADR-0453/follow-up: NRF's NFProfile validation requires a real dotted-quad IPv4
-        // literal here, not a Docker Compose hostname -- see nfs/udsf/src/main.cpp's fix for the
-        // same bug, root-caused live.
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        // ADR-0518: advertised_ipv4 resolved to a literal at startup (the NRF requires one).
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", heartbeat_seconds},
         {"nfServices",
          json::array({service("nadrf-datamanagement"), service("nadrf-mlmodelmanagement")})},
@@ -403,6 +402,8 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "ADRF_NRF_BASE_URL");
     const auto advertised_ipv4 =
         nf_config::require<std::string>(config, "advertised_ipv4", "ADRF_ADVERTISED_IPV4");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses), as a literal the NRF accepts.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die("adrf", advertised_ipv4, nrf_base);
     const auto self_base =
         nf_config::require<std::string>(config, "self_base_url", "ADRF_SELF_BASE_URL");
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "ADRF_REDIS_URL");
@@ -1893,8 +1894,7 @@ int main() {
             }
         }
     });
-    std::thread(run_nrf_lifecycle, instance_id, nrf_base, advertised_ipv4, heartbeat_seconds)
-        .detach();
+    std::thread(run_nrf_lifecycle, instance_id, nrf_base, profile_ipv4, heartbeat_seconds).detach();
     server.start();
     spdlog::info("adrf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS); DCCF at {}, NWDAF at "
                  "{}; data store {}:{}/{} ({}), ML model store ({})",
