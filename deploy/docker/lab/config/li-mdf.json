@@ -28,5 +28,7 @@
     "time_p1_seconds": 60,
     "time_p3_seconds": 7200,
     "allow_deactivate_all": false
-  }
+  },
+  "redis_user": "li-mdf",
+  "redis_password_file": "/build/certs/li-mdf/valkey.password"
 }

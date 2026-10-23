@@ -477,7 +477,7 @@ gtest_discover_tests(sepp_e2e_integration_tests PROPERTIES TIMEOUT 120)
 # AF. Needs the UDR's PostgreSQL and Valkey (AUSF KAUSF store, AAnF contexts).
 add_executable(akma_e2e_integration_tests test_akma_e2e.cpp test_aanf_authorization.cpp)
 target_link_libraries(akma_e2e_integration_tests PRIVATE
-    sbi_core sbi_generated aka_crypto GTest::gtest GTest::gtest_main)
+    redis++::redis++_static sbi_core sbi_generated aka_crypto GTest::gtest GTest::gtest_main)
 add_dependencies(akma_e2e_integration_tests nrf udr udm ausf aanf nef)
 target_compile_definitions(akma_e2e_integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"

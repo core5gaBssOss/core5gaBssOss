@@ -8,6 +8,7 @@ add_library(aka_crypto STATIC
     src/hex.cpp
     src/nas_security.cpp
     src/suci.cpp
+    src/aead.cpp
 )
 
 target_include_directories(aka_crypto PUBLIC

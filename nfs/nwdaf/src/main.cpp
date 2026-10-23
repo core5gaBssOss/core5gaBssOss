@@ -923,7 +923,8 @@ int main() {
     std::mutex features_mutex;
     // ADR-0360: subscription state in Valkey, shared by every NWDAF replica; ADR-0368: the
     // collected data and the data-management subscriptions too.
-    auto redis = nf_config::connect_redis_or_die(redis_url, "nwdaf");
+    auto redis =
+        nf_config::connect_redis_or_die(redis_url, "nwdaf", nf_config::redis_auth(config, "NWDAF"));
     nwdaf::SubscriptionStore store(redis);
     nwdaf::CollectionStore collected(
         redis, std::chrono::seconds(observation_window_seconds), max_collected_events);
