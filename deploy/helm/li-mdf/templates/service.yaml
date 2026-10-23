@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The NF's name: what every peer's config and the NF's certificate (DNS:li-mdf) use.
+  name: {{ .Values.service.name | default "li-mdf" }}
+  labels:
+    app.kubernetes.io/name: li-mdf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: li-mdf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    # LI_X1 provisioning from the LI-ADMF.
+    - name: x1
+      port: 7805
+      targetPort: x1
+      protocol: TCP
+    # LI_X2 from the IRI-POIs.
+    - name: x2
+      port: 7806
+      targetPort: x2
+      protocol: TCP
+    - name: metrics
+      port: 9491
+      targetPort: metrics
+      protocol: TCP

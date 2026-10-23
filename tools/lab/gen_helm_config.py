@@ -22,24 +22,45 @@ import json
 import pathlib
 import sys
 
+import yaml
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HELM = ROOT / 'deploy/helm'
 LAB = ROOT / 'deploy/docker/lab/config'
+COMPOSE = ROOT / 'deploy/docker/docker-compose.yml'
 # Charts that are not NFs reading a config/<nf>.json of their own.
 NOT_NF = {'keycloak', 'oam-gui-bff'}
 # NFs whose compose config is hand-written rather than generated (ADR-0503).
 SOURCE = {'li-admf': ROOT / 'deploy/docker/li-admf.compose.json'}
 ADVERTISED_AUTO = {'upf'}
-ADVERTISED_FROM_ENV = {'amf': 'AMF_ADVERTISED_IPV4'}
+# Each reads <NF>_ADVERTISED_IPV4 before the file; its chart sets it from the pod IP (ADR-0515 for
+# all but the AMF).
+ADVERTISED_FROM_ENV = {nf: nf.upper() + '_ADVERTISED_IPV4'
+                       for nf in ('amf', 'adrf', 'dccf', 'mfaf', 'nsacf', 'nwdaf', 'udsf')}
 
 
 def charts():
     return sorted(p.parent.name for p in HELM.glob('*/Chart.yaml') if p.parent.name not in NOT_NF)
 
 
+def compose_env(nf):
+    """The compose service's <NF>_<KEY> settings for top-level config keys (ADR-0515): compose
+    sets some only in `environment:` (the UDSF's Valkey Cluster, the MFAF's Kafka brokers), and
+    nf_config reads the variable before the file, so the lab config file alone misses them.
+    Compose interpolations and the advertised address (a pod IP here) are left out."""
+    env = (yaml.safe_load(COMPOSE.read_text())['services'].get(nf) or {}).get('environment') or {}
+    prefix = nf.upper().replace('-', '_') + '_'
+    return {k[len(prefix):].lower(): str(v) for k, v in env.items()
+            if k.startswith(prefix) and '${' not in str(v) and not k.endswith('_ADVERTISED_IPV4')}
+
+
 def render(nf):
     src = SOURCE.get(nf, LAB / f'{nf}.json')
     cfg = json.loads(src.read_text())
+    for key, value in compose_env(nf).items():
+        if key in cfg and not isinstance(cfg[key], (dict, list)):
+            # Typed as the file types it: "9030" stays a number where the file has one.
+            cfg[key] = type(cfg[key])(value) if not isinstance(cfg[key], bool) else value == 'true'
     if 'advertised_ipv4' in cfg:
         if nf in ADVERTISED_AUTO:
             cfg['advertised_ipv4'] = 'auto'
