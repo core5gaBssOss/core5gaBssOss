@@ -53,13 +53,34 @@ extra_sans() {
         # The wildcard serves telescopic FQDNs "<label>.<SEPP FQDN>" (TS 33.501 13.1, ADR-0492).
         for f in ${LAB_SEPP_FQDNS}; do printf ',DNS:%s,DNS:*.%s' "${f}" "${f}"; done
     fi
+    if [ "$1" = "nwdaf" ]; then
+        # ADR-0517: the MTLF runs the NWDAF binary with this identity (CERTS_DIR/nwdaf/) behind the
+        # name nwdaf-mtlf, which the AnLF's mtlf_base_url names and the SBI client verifies.
+        printf ',DNS:nwdaf-mtlf'
+    fi
+}
+
+# True when an existing certificate lacks one of the extra names above (ADR-0517): a cert made
+# before a name was added would otherwise be kept forever by the "already exists" branch below.
+lacks_extra_sans() {
+    local want have name names
+    want="$(extra_sans "$1")"
+    [ -n "${want}" ] || return 1
+    have="$(openssl x509 -in "${CERTS_DIR}/$1/cert.pem" -noout -ext subjectAltName 2>/dev/null)"
+    IFS=, read -ra names <<<"${want#,}"
+    for name in "${names[@]}"; do
+        case "${have}" in *"${name}"*) ;; *) return 0 ;; esac
+    done
+    return 1
 }
 
 for nf in "${NF_NAMES[@]}"; do
     nf_dir="${CERTS_DIR}/${nf}"
     mkdir -p "${nf_dir}"
 
-    if [ -f "${nf_dir}/key.pem" ]; then
+    if [ -f "${nf_dir}/key.pem" ] && lacks_extra_sans "${nf}"; then
+        echo "== ${nf}: cert lacks a name in extra_sans, regenerating =="
+    elif [ -f "${nf_dir}/key.pem" ]; then
         echo "== ${nf}: cert already exists, skipping =="
         # Group-readable (openssl otherwise writes private keys 0600, owner-only, regardless of
         # whether this branch or the fresh-generation branch below runs): every NF's own runtime

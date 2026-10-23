@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # What the AnLF's mtlf_base_url names; the NWDAF certificate carries DNS:nwdaf-mtlf (ADR-0517).
+  name: {{ .Values.service.name | default "nwdaf-mtlf" }}
+  labels:
+    app.kubernetes.io/name: nwdaf-mtlf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: nwdaf-mtlf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: sbi
+      port: 7797
+      targetPort: sbi
+      protocol: TCP
+    - name: metrics
+      port: 9486
+      targetPort: metrics
+      protocol: TCP
