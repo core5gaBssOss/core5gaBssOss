@@ -359,14 +359,18 @@ TEST(LiChfEndToEnd, ChargingDataRequestsForATargetAreReportedOnlyWithRoamerInOut
 
     nf_test::attach_test_tokens(admf); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(post_x1(admf, x1_activate("a0e1e2e3-e4e5-46e7-88e9-eaebecedeeef", true)));
-    // Issue #10: the withheld-record series is exported at 0 before anything is withheld, so the
-    // ChfLiPoiRecordsWithheld alert's increase() sees the first one.
-    EXPECT_EQ(withheld_missing_roamer_in_out(), 0) << "series not exported at start-up";
 
     // 1. Converged, OUT_BOUND: reported. 2. No roamerInOut: withheld (ADR-0488, strict ASN.1).
     // 3. Offline-only, IN_BOUND: reported with the offline encapsulation.
     const json roaming = charging_data_request("OUT_BOUND");
     post_charging("/nchf-convergedcharging/v3/chargingdata", roaming);
+    // Issue #10: the withheld-record series is exported at 0 before anything is withheld, so the
+    // ChfLiPoiRecordsWithheld alert's increase() sees the first one, and a record that was sent
+    // is not counted. Scraped only once the CHF has answered over SBI: main() registers the
+    // counter before it starts the SBI listener, but after the LI_X1 listener post_x1 waits on,
+    // so a scrape straight after post_x1 can come before the counter exists (seen in CI).
+    EXPECT_EQ(withheld_missing_roamer_in_out(), 0)
+        << "series not exported before a withheld record";
     post_charging("/nchf-convergedcharging/v3/chargingdata", charging_data_request(""));
     const json inbound = charging_data_request("IN_BOUND");
     post_charging("/nchf-offlineonlycharging/v1/offlinechargingdata", inbound);

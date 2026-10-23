@@ -159,6 +159,18 @@ Choices and rejected alternatives for the counter:
   withholding by design, and they would need their own reasons. The NWDAF POI (ADR-0489) also
   withholds records (no consumer NF type) and has no counter either.
 
+Verified so far:
+- `LiChfPoi.*` (3, new) pass locally and in CI run 39796586940. The two counting tests fail when
+  the increments are removed (checked).
+- The extended `LiChfEndToEnd` passes `TaskWithoutChargingDataEventsExtensionGetsNoRecords` (the
+  real chf's `/metrics` reads 0 for a task without the extension) and the Rf test in that CI run.
+- Its third test failed in that run because of a race in the test itself. It scraped `/metrics`
+  right after LI_X1 provisioning, but `main()` starts the LI_X1 listener before it registers the
+  counter, so the scrape read no series at all. The test's later scrapes passed in that run: 1
+  after the withheld request, 0 for `translated_not_built`. The first scrape now comes after the
+  first SBI exchange; `main()` starts the SBI listener only after the counter is registered. That
+  fix still has to pass CI.
+
 **Open point (question to the user): this metric can reveal that interception is happening.** TS
 33.126 j30 R6.6-30 requires that non-authorised personnel or processes that are part of the service,
 automated systems included, cannot detect that interception is taking place. R6.6-80 limits
