@@ -1,6 +1,7 @@
 ## ADR-0508: Project display name AI-Boosted 5G-Advanced Core, BSS and OSS; README cut to a project page, detail moved to docs/OVERVIEW.md
 
-**Date:** 2026-10-22. **Status:** Accepted.
+**Date:** 2026-10-22. **Status:** Accepted. The README cut (and the move to `docs/OVERVIEW.md`) is reversed by
+ADR-0511 (user-directed, 2026-10-23); the display name and the rest of this ADR stand.
 
 **Context.** Phase 2 of the professional-setup review (2026-10-22; Phase 1 is ADR-0507) covers how
 the project presents itself. Three things were off:
