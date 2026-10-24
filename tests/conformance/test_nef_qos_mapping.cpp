@@ -2,6 +2,8 @@
 // TS 23.502 4.15.6.6 steps 3 and 6 and 4.15.6.6a, against TS 29.522 4.4.9.2's event rules. The
 // request and update bodies are written as samples for validate_structural_conformance.py
 // (AppSessionContextReqData, AppSessionContextUpdateDataPatch in TS29514_Npcf_PolicyAuthorization).
+// ADR-0520 (increment 2): the PCF's EventsNotification -> the AF's UserPlaneEventReports, TS 23.502
+// 4.15.6.6 steps 7-8 and TS 29.522 4.4.9.2.2; sample UserPlaneNotificationData (TS29122).
 
 #include <nlohmann/json.hpp>
 
@@ -124,6 +126,82 @@ TEST(NefQosMapping, AnUpdateRemovesAFlowAndAQosReferenceAtThePcf) {
 TEST(NefQosMapping, AnUnchangedSubscriptionSendsNoUpdate) {
     const auto sub = af_subscription();
     EXPECT_TRUE(nef::pcf_update_patch(sub, sub).empty());
+}
+
+std::vector<std::string> report_names(const std::vector<sbi_gen::UserPlaneEventReport>& reports) {
+    std::vector<std::string> out;
+    for (const auto& r : reports) {
+        out.push_back(r.event.value);
+    }
+    return out;
+}
+
+TEST(NefQosMapping, TheCreateGivesThePcfTheNefCallbackForEvents) {
+    const json req = nef::app_session_request(af_subscription(), "https://nef/cb/af-1/1");
+    EXPECT_EQ(req.at("notifUri"), "https://nef/cb/af-1/1");
+    EXPECT_EQ(req.at("evSubsc").at("notifUri"), "https://nef/cb/af-1/1");
+}
+
+TEST(NefQosMapping, PcfEventsBecomeTheAfsUserPlaneEventReports) {
+    const auto n = json{
+        {"evSubsUri", "https://pcf/npcf-policyauthorization/v1/app-sessions/7/events-subscription"},
+        {"evNotifs",
+         json::array({json{{"event", "SUCCESSFUL_RESOURCES_ALLOCATION"}},
+                      json{{"event", "QOS_NOTIF"}},
+                      json{{"event", "USAGE_REPORT"}},
+                      json{{"event", "ACCESS_TYPE_CHANGE"}},
+                      json{{"event", "PLMN_CHG"}},
+                      json{{"event", "APP_DETECTION"}}})},
+        {"succResourcAllocReports",
+         json::array({json{
+             {"flows", json::array({json{{"medCompN", 1}, {"fNums", json::array({1, 2})}}})}}})},
+        {"qncReports",
+         json::array(
+             {json{{"notifType", "NOT_GUARANTEED"},
+                   {"flows", json::array({json{{"medCompN", 1}, {"fNums", json::array({2})}}})},
+                   {"altSerReqNotSuppInd", true}},
+              json{{"notifType", "GUARANTEED"}}})},
+        {"usgRep", json{{"totalVolume", 1000}}},
+        {"ratType", "NR"},
+        {"plmnId",
+         json{{"mcc", "001"},
+              {"mnc",
+               "01"}}}}.get<sbi_gen::EventsNotification_Npcf_PolicyAuthorization>();
+
+    const auto plan = nef::af_reports_for(n);
+    ASSERT_EQ(report_names(plan.reports),
+              (std::vector<std::string>{"SUCCESSFUL_RESOURCES_ALLOCATION",
+                                        "QOS_NOT_GUARANTEED",
+                                        "QOS_GUARANTEED",
+                                        "USAGE_REPORT",
+                                        "ACCESS_TYPE_CHANGE",
+                                        "PLMN_CHG"}));
+    EXPECT_EQ(plan.not_mapped, (std::vector<std::string>{"APP_DETECTION"}));
+
+    const auto& r = plan.reports;
+    EXPECT_EQ(r[0].flowIds, (std::vector<std::int64_t>{1, 2})) << "fNums are the AF's flowIds";
+    EXPECT_EQ(r[1].flowIds, (std::vector<std::int64_t>{2}));
+    EXPECT_EQ(r[1].altQosNotSuppInd, true);
+    EXPECT_FALSE(r[2].flowIds.has_value()) << "no flow numbers: the event applies to all flows";
+    EXPECT_EQ(json(*r[3].accumulatedUsage).at("totalVolume"), 1000);
+    EXPECT_EQ(*r[4].ratType, "NR");
+    EXPECT_EQ(json(*r[5].plmnId).at("mcc"), "001");
+
+    sbi_gen::UserPlaneNotificationData out{};
+    out.transaction = "https://nef/3gpp-as-session-with-qos/v1/af-1/subscriptions/1";
+    out.eventReports = plan.reports;
+    out.eventReports.push_back(nef::session_termination_report());
+    write_sample("nef_af_user_plane_notification.json", json(out));
+    EXPECT_EQ(json(out).at("eventReports").back().at("event"), "SESSION_TERMINATION");
+}
+
+TEST(NefQosMapping, AQosNotifWithoutAQosReportHasNoAfEvent) {
+    const auto n = json{{"evSubsUri", "https://pcf/e"},
+                        {"evNotifs", json::array({json{{"event", "QOS_NOTIF"}}})}}
+                       .get<sbi_gen::EventsNotification_Npcf_PolicyAuthorization>();
+    const auto plan = nef::af_reports_for(n);
+    EXPECT_TRUE(plan.reports.empty());
+    EXPECT_EQ(plan.not_mapped, (std::vector<std::string>{"QOS_NOTIF without qncReports"}));
 }
 
 } // namespace

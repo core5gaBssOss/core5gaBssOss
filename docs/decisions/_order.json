@@ -473,7 +473,8 @@
   "ADR-0509-release-ownership-and-repository-security-process-changelog.md",
   "ADR-0510-github-organization-core5gabssoss-repository-moved-to.md",
   "ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md",
-  "ADR-0519-nef-assessionwithqos-media-component-and-pcf-event.md"
+  "ADR-0519-nef-assessionwithqos-media-component-and-pcf-event.md",
+  "ADR-0520-nef-assessionwithqos-pcf-event-and-termination.md"
  ],
  "split_commit": "0530e4f"
 }
