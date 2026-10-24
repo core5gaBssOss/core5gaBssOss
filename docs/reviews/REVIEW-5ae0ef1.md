@@ -12,7 +12,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | Finding | Status | Where |
 > |---|---|---|
 > | SEC-05, SEC-10, SEC-13 | Fixed | `3049778` (ADR-0494, ADR-0491) |
-> | SEC-01 | Partly fixed: N32-c `sender` must be a client-certificate dNSName SAN; per-PLMN trust anchors and the lab's shared SEPP certificate remain | `3049778` (ADR-0491) |
+> | SEC-01 | Fixed (2026-10-24): `sender` bound to the certificate (ADR-0491) and per-PLMN trust anchors on N32 (TS 33.501 13.1.2); one SEPP certificate per PLMN in the lab. Open: N32-f/N32-c PLMN subset check (SEC-02) | `3049778`, ADR-0491, ADR-0529 |
 > | SEC-02 | Fixed (unit tests pass and fail on the old code; SEPP e2e 4/4 pass) | `0d8683c` (local), ADR-0491 review fix |
 > | SBI-01, SBI-02, SEC-03 | Fixed (2026-10-17): tokens required by default on 25 NFs (SEPP: no OAuth2-protected API); NRF issues tokens only to registered, certificate-bound consumers (`config/nrf.json` check on); SEC-03: AAnF register/remove only from the AUSF, `afId` bound to the calling AF | ADR-0499 (phase table) |
 > | The PCF ModAppSession wrapper bug (§0, "already known") | Fixed | `4255e69` (ADR-0498) |

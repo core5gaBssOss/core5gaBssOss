@@ -69,6 +69,7 @@
 #include "n32.hpp"
 #include "nf_config/nf_config.hpp"
 #include "prins_codec.hpp"
+#include "trust_anchors.hpp"
 
 namespace {
 
@@ -87,12 +88,21 @@ constexpr const char* kTargetApiRootHeader = "3gpp-sbi-target-apiroot";
 constexpr const char* kHandshakeIdHeader = "3gpp-sbi-n32-handshake-id";
 constexpr const char* kPurposeHeader = "3gpp-sbi-interplmn-purpose";
 
+// ADR-0529: this SEPP's certificate is configuration (config/sepp.json cert_path / key_path,
+// relative to CERTS_DIR): each PLMN's SEPP has its own, naming only its own PLMN (TS 33.501 13.1.2
+// rejects a certificate whose PLMN-IDs map to different trust anchors). Set once in main().
+http2::TlsConfig g_sepp_tls;
+// The same certificate towards peer SEPPs on N32 (N32-c server, N32-c/N32-f client): the peer's
+// chain is verified against the per-PLMN trust anchors (sepp::TrustAnchors).
+http2::TlsConfig g_n32_tls;
+
+// Towards this PLMN's own NFs and NRF: the lab CA.
 http2::TlsConfig sepp_tls() {
-    return http2::TlsConfig{
-        .cert_path = CERTS_DIR "/sepp/cert.pem",
-        .key_path = CERTS_DIR "/sepp/key.pem",
-        .ca_path = CERTS_DIR "/ca/ca.crt",
-    };
+    return g_sepp_tls;
+}
+// Towards peer SEPPs.
+http2::TlsConfig n32_tls() {
+    return g_n32_tls;
 }
 
 // TS 29.500 5.2.7: ProblemDetails with the application error cause; the Server header names this
@@ -314,6 +324,25 @@ int main() {
     sbi_core::init_tracing("sepp");
 
     const auto config = nf_config::load("sepp", CONFIG_DIR);
+    // ADR-0529, TS 33.501 13.1.2: own certificate and the per-PLMN trust anchors for N32.
+    const std::string certs_dir = CERTS_DIR;
+    g_sepp_tls = http2::TlsConfig{
+        .cert_path = certs_dir + "/" + config.value("cert_path", std::string{"sepp/cert.pem"}),
+        .key_path = certs_dir + "/" + config.value("key_path", std::string{"sepp/key.pem"}),
+        .ca_path = certs_dir + "/ca/ca.crt",
+    };
+    std::shared_ptr<const sepp::TrustAnchors> anchors;
+    try {
+        anchors = std::make_shared<const sepp::TrustAnchors>(
+            nf_config::require<nlohmann::json>(config, "trust_anchors"), certs_dir);
+    } catch (const std::exception& e) {
+        nf_config::fatal(e.what());
+    }
+    g_n32_tls = g_sepp_tls;
+    g_n32_tls.ca_path = anchors->bundle_path();
+    g_n32_tls.verify = [anchors](bool preverified, X509_STORE_CTX* ctx) {
+        return anchors->verify(preverified, ctx);
+    };
     const auto port = nf_config::require<unsigned short>(config, "port", "SEPP_PORT");
     const auto n32_port = nf_config::require<unsigned short>(config, "n32_port", "SEPP_N32_PORT");
     const auto bind = nf_config::require<std::string>(config, "sbi_bind_address");
@@ -366,10 +395,11 @@ int main() {
     sepp::ContextStore contexts;
     sepp::TelescopicTable telescopic;
     http2::Client client(sepp_tls());
+    http2::Client n32_client(n32_tls()); // ADR-0529: N32-f towards peer SEPPs
 
     boost::asio::io_context ioc;
     http2::Server sbi(ioc, bind, port, sepp_tls());
-    http2::Server n32(ioc, bind, n32_port, sepp_tls());
+    http2::Server n32(ioc, bind, n32_port, n32_tls());
     // ADR-0493: every N32-c connection exports the N32-f master key candidate (TS 33.501
     // 13.2.4.4.1); exchange-params uses the one of the connection it arrived on.
     n32.set_tls_exporters({{sepp::kN32MasterExporterLabel, sepp::kN32MasterKeyLength}});
@@ -578,7 +608,7 @@ int main() {
                 return;
             }
             std::thread([er = std::move(er), &reports_in_flight] {
-                http2::Client c(sepp_tls());
+                http2::Client c(n32_tls());
                 (void)c.send(er);
                 reports_in_flight.fetch_sub(1);
             }).detach();
@@ -940,7 +970,7 @@ int main() {
             }
             out.body = json(msg).dump();
             forwarded->Add(1);
-            const auto r = client.send(out);
+            const auto r = n32_client.send(out);
             if (!r) {
                 return problem(504,
                                "Gateway Timeout",
@@ -1044,7 +1074,7 @@ int main() {
         while (!api_root.empty() && api_root.back() == '/') {
             api_root.pop_back();
         }
-        auto resp = relay(client, req, api_root + req.path, drop, extra, policy.own_fqdn);
+        auto resp = relay(n32_client, req, api_root + req.path, drop, extra, policy.own_fqdn);
         if (via_telescopic) {
             // 6.1.4.3.2: a link relation URI of the other PLMN goes back to the NF in telescopic
             // form (here: the Location header; URIs inside bodies are not rewritten, ADR-0492).
@@ -1162,7 +1192,7 @@ int main() {
     };
 
     std::thread initiator([&] {
-        http2::Client c(sepp_tls());
+        http2::Client c(n32_tls());
         while (running.load()) {
             for (const auto& peer : policy.peers) {
                 if (!peer.initiate || contexts.by_peer(peer.fqdn)) {
@@ -1214,7 +1244,7 @@ int main() {
     // On shutdown, tear every N32-f TLS connection down (5.2.2: capability "NONE").
     sbi_core::on_shutdown_signal([&] {
         running = false;
-        http2::Client c(sepp_tls());
+        http2::Client c(n32_tls());
         for (const auto& ctx : contexts.all()) {
             const auto peer = std::ranges::find_if(
                 policy.peers, [&](const sepp::PeerConfig& p) { return p.fqdn == ctx.peer_fqdn; });
