@@ -252,11 +252,25 @@ long scrape_metric_value(int port, const std::string& metric_name) {
         body.append(buf, static_cast<std::size_t>(n));
     }
     close(sock);
-    const auto at = body.find("\n" + metric_name + " ");
-    if (at == std::string::npos) {
+    // Unlabeled ("name value") or labeled ("name{...} value") value line; a counter never added to
+    // is not emitted at all, which is a real zero.
+    std::size_t value_start = 0;
+    if (const auto at = body.find("\n" + metric_name + " "); at != std::string::npos) {
+        value_start = at + metric_name.size() + 2;
+    } else if (const auto lb = body.find("\n" + metric_name + "{"); lb != std::string::npos) {
+        const auto brace = body.find('}', lb);
+        if (brace == std::string::npos) {
+            return -1;
+        }
+        value_start = brace + 2;
+    } else {
+        return 0;
+    }
+    try {
+        return std::stol(body.substr(value_start, body.find('\n', value_start) - value_start));
+    } catch (const std::exception&) {
         return -1;
     }
-    return std::stol(body.substr(at + metric_name.size() + 2));
 }
 
 constexpr int kSmfMetricsPort = 9466;
@@ -496,17 +510,22 @@ TEST(PduSessionRelease, PcfRequestedReleaseReachesTheUeAndCompletes) {
     ASSERT_NO_FATAL_FAILURE(establish_pdu_session(gnb, ue, kRanUeId, kPsi, /*pti=*/1));
 
     // The SM context ref the AMF logged when the SMF created it.
+    // The AMF logs it after its CreateSMContext call returns, which can be just after the UE
+    // already has the Accept -- so wait for the line rather than read the file once.
     std::string ref;
-    {
+    static const std::regex kRef(R"(smContextRef=([0-9a-zA-Z-]+))");
+    for (int i = 0; i < 30 && ref.empty(); ++i) {
         std::ifstream in(amf_log);
         const std::string log((std::istreambuf_iterator<char>(in)),
                               std::istreambuf_iterator<char>());
         std::smatch m;
-        static const std::regex kRef(R"(smContextRef=([0-9a-zA-Z-]+))");
         if (std::regex_search(log, m, kRef)) {
             ref = m[1].str();
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
+
     ASSERT_FALSE(ref.empty()) << "no smContextRef in the AMF log";
 
     auto client = make_client();
