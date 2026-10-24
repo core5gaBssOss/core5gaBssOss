@@ -301,3 +301,100 @@ TEST(TsctsfEndToEnd, GpsiOnlyQosRequestReachesThePcfOfThePduSessionThroughTheTsc
     EXPECT_EQ(gone.status, 500) << gone.body;
     EXPECT_EQ(json::parse(gone.body).value("cause", ""), "PDU_SESSION_NOT_AVAILABLE");
 }
+
+// ADR-0519 (SPEC-01 increment 1, TS 23.502 4.15.6.6 steps 3 and 6, 4.15.6.6a): an AF request with
+// a UE address goes from the NEF straight to the PCF, which now holds the UE address, the AF's
+// flows and QoS reference as a media component, and the event subscription; an AF PATCH that drops
+// a flow and changes the QoS reference changes the PCF's app-session to match.
+TEST(NefDirectPcf, TheAfsFlowsQosReferenceAndEventsReachThePcfAndFollowAnUpdate) {
+    const std::string nef_log = std::string(::testing::TempDir()) + "nef_direct_pcf.log";
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    std::this_thread::sleep_for(200ms);
+    nf_test::SpawnedProcess pcf(PCF_PATH);
+    nf_test::SpawnedProcess nef(NEF_PATH, nef_log.c_str());
+    for (const int p : {7777, 7783, 7790}) {
+        nf_test::wait_tcp_listening(p);
+    }
+    auto c = make_client();
+    nf_test::attach_test_tokens(c);
+
+    const auto flow = [](int id, const char* desc) {
+        return json{{"flowId", id}, {"flowDescriptions", json::array({desc})}};
+    };
+    const json qos{{"notificationDestination", "https://127.0.0.1:9/af-notify"},
+                   {"ueIpv4Addr", kUeIp},
+                   {"dnn", "internet"},
+                   {"snssai", json{{"sst", 1}}},
+                   {"flowInfo",
+                    json::array({flow(1, "permit out ip from 10.0.0.1 to 10.45.0.9"),
+                                 flow(2, "permit in ip from 10.45.0.9 to 10.0.0.1")})},
+                   {"qosReference", "qos-gold"},
+                   {"events", json::array({"QOS_GUARANTEED", "ACCESS_TYPE_CHANGE"})}};
+    const auto created =
+        send(c,
+             "POST",
+             "https://127.0.0.1:7790/3gpp-as-session-with-qos/v1/af-direct/subscriptions",
+             "",
+             "application/json",
+             qos.dump());
+    ASSERT_EQ(created.status, 201) << created.body;
+
+    // The NEF logs the PCF app-session it created ("PCF app-session <id> created").
+    std::string app_id;
+    static const std::regex kCreated(R"(PCF app-session (\S+) created)");
+    for (int i = 0; i < 30 && app_id.empty(); ++i) {
+        std::smatch m;
+        const auto log = read_file(nef_log);
+        if (std::regex_search(log, m, kCreated)) {
+            app_id = m[1].str();
+        }
+        std::this_thread::sleep_for(100ms);
+    }
+    ASSERT_FALSE(app_id.empty()) << read_file(nef_log);
+
+    const auto pa_token = token(c, "npcf-policyauthorization", "PCF");
+    const auto app_url = std::string(kPcf) + "/npcf-policyauthorization/v1/app-sessions/" + app_id;
+    const auto app = send(c, "GET", app_url, pa_token, "", "");
+    ASSERT_EQ(app.status, 200) << app.body;
+    const auto asc = json::parse(app.body).at("ascReqData");
+    EXPECT_EQ(asc.value("ueIpv4", ""), kUeIp);
+    EXPECT_EQ(asc.value("suppFeat", ""), "0");
+    const auto& mc = asc.at("medComponents").at("1");
+    EXPECT_EQ(mc.value("qosReference", ""), "qos-gold");
+    EXPECT_TRUE(mc.at("medSubComps").contains("1"));
+    EXPECT_TRUE(mc.at("medSubComps").contains("2"));
+    std::vector<std::string> events;
+    for (const auto& e : asc.at("evSubsc").at("events")) {
+        events.push_back(e.at("event").get<std::string>());
+    }
+    EXPECT_EQ(events,
+              (std::vector<std::string>{"SUCCESSFUL_RESOURCES_ALLOCATION",
+                                        "FAILED_RESOURCES_ALLOCATION",
+                                        "QOS_NOTIF",
+                                        "ACCESS_TYPE_CHANGE"}));
+
+    // 4.15.6.6a: the AF drops flow 2 and changes the QoS reference.
+    const auto sub_url = std::string("https://127.0.0.1:7790") +
+                         nf_test::location_path(created.headers.find("location")->second);
+    const auto patched = send(c,
+                              "PATCH",
+                              sub_url,
+                              "",
+                              "application/merge-patch+json",
+                              json{{"flowInfo",
+                                    json::array({flow(1,
+                                                      "permit out ip from "
+                                                      "10.0.0.1 to 10.45.0.9")})},
+                                   {"qosReference", "qos-silver"}}
+                                  .dump());
+    ASSERT_EQ(patched.status, 200) << patched.body;
+    const auto after = send(c, "GET", app_url, pa_token, "", "");
+    ASSERT_EQ(after.status, 200) << after.body;
+    const auto asc2 = json::parse(after.body).at("ascReqData");
+    ASSERT_TRUE(asc2.contains("medComponents")) << after.body;
+    const auto& mc2 = asc2.at("medComponents").at("1");
+    ASSERT_TRUE(mc2.is_object()) << after.body;
+    EXPECT_EQ(mc2.value("qosReference", ""), "qos-silver");
+    EXPECT_TRUE(mc2.at("medSubComps").contains("1"));
+    EXPECT_FALSE(mc2.at("medSubComps").contains("2")) << mc2.dump();
+}
