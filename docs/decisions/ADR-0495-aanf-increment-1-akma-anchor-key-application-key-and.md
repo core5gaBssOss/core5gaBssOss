@@ -57,5 +57,11 @@ Deriving the realm from the SUPI digits: a 2- vs 3-digit MNC cannot be told from
 
 **Verified.** `AkmaEndToEnd.AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives` (real
 NRF, UDR, UDM, AUSF, AAnF: akmaAllowed provisioned over Nudr; 5G-AKA; the AAnF's KAF equals the
-UE-side derivation; SUPI with the supi-access scope; anonymous without SUPI; unknown A-KID 403
-K_AKMA_NOT_PRESENT; removal 204 then 404 AKMA_CONTEXT_NOT_FOUND).
+KAF the test derives as the UE; SUPI with the supi-access scope; anonymous without SUPI; unknown
+A-KID 403 K_AKMA_NOT_PRESENT; removal 204 then 404 AKMA_CONTEXT_NOT_FOUND).
+What the KAF check does not verify (REVIEW-5ae0ef1 DOC-03): the test's "UE side" calls the same
+`aka_crypto::derive_kakma`, `derive_a_tid` and `make_a_kid` the AUSF uses and the same `derive_kaf`
+the AAnF uses, so it proves the plumbing (the KAKMA and A-KID the AUSF derives reach the AAnF, which
+derives the KAF from them), not the KDF inputs. That the inputs follow TS 33.535 Annex A (FC 0x80 /
+0x81 / 0x82; P0 "AKMA", "A-TID", AF_ID; AF_ID = FQDN of the AF || Ua* security protocol
+identifier) is checked by reading only; no independent test vector exists yet.
