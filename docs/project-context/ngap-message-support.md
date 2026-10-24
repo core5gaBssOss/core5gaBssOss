@@ -1,8 +1,3 @@
----
-name: ngap-message-support
-description: Add support for a new NGAP (N2/TS 38.413) message type in this 5GC repo - the ASN.1 container patch asn1c requires, where to read procedure codes and IE ids, and how to build/decode PDUs. Use when implementing or testing any NGAP procedure AMF does not already handle.
----
-
 # Adding a new NGAP message type
 
 ## The trap: asn1c cannot resolve parameterized IE containers

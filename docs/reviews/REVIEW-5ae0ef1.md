@@ -20,7 +20,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | Not in the review: most inter-NF calls send no token (e.g. NEF→PCF/UDM/UDR, AMF→UDM) | Fixed: every outbound SBI call carries a token for its target service (`sbi_core::TokenSource`) | `b076331` (ADR-0499 phase 3) |
 > | Not in the review: TSan CI job red on `main` (3 `LiChfEndToEnd` -- the CHF exits with no CDR sink in that job) | Fixed (`873b284`, on `main`): the TSan leg's empty `CHF_CDR_EVENT_BUS_BROKERS` overrode the test's broker; the test now keeps the CHF's direct-insert sink there (reproduced: 3/3 pass with the TSan env) | `tests/integration/test_li_chf_e2e.cpp` |
 > | TSCTSF (`4255e69`, after this review) inherits SBI-01, SBI-02, SBI-05 | Fixed: tokens required (`7402cf6`, ADR-0499 phase 4); absolute `Location` via sbi-core (SBI-05, below) | `nfs/tsctsf` |
-> | Prevention: the review's bug classes are a mandatory pre-commit checklist | Done | skill `new-nf-checklist` "Never repeat these"; CLAUDE.md |
+> | Prevention: the review's bug classes are a mandatory pre-commit checklist | Done | "Never repeat these" in `docs/project-context/definition-of-done.md`; CLAUDE.md |
 > | SPEC-02, SPEC-03, SPEC-04, SPEC-11 | Fixed (2026-10-17): `sbi_core::http2::apply_json_patch_body` applies an `application/json-patch+json` body as RFC 6902 `PatchItem[]` (415 with `Accept-Patch` for another content type, 400 `INVALID_MSG_FORMAT` otherwise); NEF Monitoring Event and NSACF slice-EE PATCH use it (NSACF answers `CreatedSACEventSubscription`, the invented `SACSubscriptionPatch` comment is gone); NEF 5GLAN applies `5gLanParams` / `5gLanParamsPatch` to the stored `5gLanParams`; PCF AM PolicyAuthorization PATCH applies `evSubsc` (merge-patch: null removes) | `tests/conformance/test_sbi_json_patch.cpp`, `PatchConformance.*`, `AmPolicyAuthorizationIntegration.*` |
 > | SEC-08, SEC-09, SBI-04 | Fixed (2026-10-18; CI green on PR #9, all six jobs incl. ASan/UBSan and TSan): the client gives up on a silent peer (connect 5 s, request 30 s, `SBI_CLIENT_*_TIMEOUT_MS`); the server answers a body over 16 MiB (`SBI_MAX_BODY_BYTES`) with 413 `MAX_JSON_SIZE_EXCEEDED`, discarding it as it arrives; an unserved method is 501, a path served for other methods 405 with `Allow`, an unknown path 404 (TS 29.500 5.2.7.2) | `libs/sbi-core`; `SbiRobustness.*` |
 > | SBI-05, SEC-07 | Fixed (2026-10-18; CI green on PR #9): sbi-core makes every bare-path `Location` absolute, `https://<request :authority><path>` (TS 29.501 4.4.1), for all NFs at once; the AAnF uses an absolute `Location` as is and logs a failed EE DELETE. Disclosed: behind an SCP/load balancer the apiRoot is the authority that reached the NF; the lab host is an IP literal, not the operator FQDN TS 29.501 recommends | `libs/sbi-core`, `nfs/aanf`; `SbiRobustness.ABarePathLocationIsMadeAbsoluteWithTheApiRoot` |
@@ -39,12 +39,12 @@ was changed. This file is written to be handed to a Claude Code session that wil
   changing anything; the code may have moved.
 - **Follow `CLAUDE.md`.** In particular:
   - One NF or one subsystem per turn.
-  - Architectural changes need an ADR (skill `adr-workflow`; never edit `docs/DECISIONS.md` by hand).
+  - Architectural changes need an ADR (`scripts/docs/new_adr.py`; never edit `docs/DECISIONS.md` by hand).
   - Test-first for protocol logic.
   - Never invent a field, path, enum or cause. Where the spec leaves a choice, ask the user
     (see §11, "Decisions for the user").
   - No attribution lines in commits (guardrail 9; run `git config core.hooksPath .githooks` once).
-  - Look up spec shapes with skill `spec-lookup` instead of reading YAML or generated headers whole.
+  - Look up spec shapes by grep and a line range (CLAUDE.md "Context discipline") instead of reading YAML or generated headers whole.
 - **Already known; do not re-report or fix as part of this:**
   - The PCF `Npcf_PolicyAuthorization` ModAppSession handler merging the whole
     `AppSessionContextUpdateDataPatch` into `ascReqData` (fixed locally, not yet pushed).
