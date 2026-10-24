@@ -471,6 +471,12 @@ public:
         return it->second;
     }
 
+    // ADR-0522: the N4 session is gone at release, so its entry goes too.
+    void remove(std::uint64_t cp_seid) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        sessions_.erase(cp_seid);
+    }
+
 private:
     std::mutex mutex_;
     std::unordered_map<std::uint64_t, CpSeidSessionInfo> sessions_;
@@ -1210,13 +1216,21 @@ perform_n40_charging_data_create(sbi_core::http2::Client& chf_client,
 // per invocation" violation this closes (a session that had at least one Update before Release
 // would previously send invocationSequenceNumber=2 for Release even after Update already used 2,
 // 3, ... for the same ChargingDataRef).
+// ADR-0522: the usage the UPF reported in its N4 Session Release Response (TS 29.244 7.5.7, Usage
+// Report IE 79), carried in Charging Data Request [Termination] (TS 32.255 5.2.2.2.4 step 2ch-a).
+struct FinalUsage {
+    std::uint32_t ur_seqn = 0;
+    std::uint64_t total_volume_octets = 0;
+};
+
 bool perform_n40_charging_data_release(sbi_core::http2::Client& chf_client,
                                        sbi_core::OAuth2Client& chf_oauth,
                                        const std::string& chf_base,
                                        const std::string& smf_instance_id,
                                        const std::string& supi,
                                        const std::string& charging_data_ref,
-                                       std::int64_t invocation_sequence_number) {
+                                       std::int64_t invocation_sequence_number,
+                                       const std::optional<FinalUsage>& final_usage) {
     auto token = chf_oauth.get_bearer_token();
     if (!token.has_value()) {
         spdlog::warn("smf: could not obtain a token for CHF, skipping Nchf_ConvergedCharging_"
@@ -1236,6 +1250,25 @@ bool perform_n40_charging_data_release(sbi_core::http2::Client& chf_client,
     chf_req.invocationTimeStamp = sbi_core::format_rfc3339(std::chrono::system_clock::now());
     chf_req.invocationSequenceNumber = invocation_sequence_number;
     chf_req.subscriberIdentifier = supi;
+    // ADR-0522, TS 32.255 5.2.2.2.4 step 2ch-a: trigger "End of PDU session", which TS 32.291
+    // encodes as triggerType FINAL on session level; reported immediately (TS 32.255 table
+    // 5.2.1.4.1).
+    sbi_gen::Trigger_Nchf_ConvergedCharging end_of_session{};
+    end_of_session.triggerType = "FINAL"; // TriggerType is an opaque anyOf (json) in sbi_gen
+    end_of_session.triggerCategory.value =
+        sbi_gen::TriggerCategory_Nchf_ConvergedCharging::IMMEDIATE_REPORT;
+    chf_req.triggers = std::vector<sbi_gen::Trigger_Nchf_ConvergedCharging>{end_of_session};
+    if (final_usage.has_value()) {
+        sbi_gen::UsedUnitContainer_Nchf_ConvergedCharging used_unit{};
+        used_unit.localSequenceNumber = final_usage->ur_seqn;
+        used_unit.totalVolume = static_cast<std::int64_t>(final_usage->total_volume_octets);
+        sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging unit_usage{};
+        unit_usage.ratingGroup = kDefaultRatingGroup;
+        unit_usage.usedUnitContainer =
+            std::vector<sbi_gen::UsedUnitContainer_Nchf_ConvergedCharging>{used_unit};
+        chf_req.multipleUnitUsage =
+            std::vector<sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging>{unit_usage};
+    }
 
     sbi_core::http2::ClientRequest chf_http_req;
     chf_http_req.method = "POST";
@@ -1421,6 +1454,87 @@ AuthSessAmbr auth_sess_ambr_from(const sbi_gen::SmPolicyDecision& decision) {
         // rate it had to guess at.
     }
     return out;
+}
+
+// ADR-0522: TS 23.502 4.3.4.2 steps 2a-2b, N4 Session Release = PFCP Session Deletion (TS 29.244
+// 7.5.6/7.5.7). The request is the header alone (addressed by the UP F-SEID); the response carries
+// the Cause and, for a session with a URR, the final Usage Report (IE 79).
+struct N4DeletionResult {
+    bool accepted = false;
+    std::optional<FinalUsage> final_usage;
+};
+
+N4DeletionResult perform_n4_session_deletion(smf::PfcpPeer& pfcp_peer,
+                                             const std::string& upf_ip,
+                                             std::uint64_t up_seid) {
+    N4DeletionResult result;
+    const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
+                                                      g_upf_pfcp_port);
+    pfcp_core::Header req_header;
+    req_header.has_seid = true;
+    req_header.seid = up_seid;
+    req_header.message_type = pfcp_core::MessageType::SessionDeletionRequest;
+    req_header.sequence_number = pfcp_peer.allocate_sequence_number();
+    const auto pdu = pfcp_core::encode_header(req_header, 0);
+
+    const auto resp_ie_bytes =
+        pfcp_peer.send_request_and_await_response(upf_endpoint,
+                                                  pdu,
+                                                  pfcp_core::MessageType::SessionDeletionResponse,
+                                                  req_header.sequence_number,
+                                                  "Session Deletion");
+    if (!resp_ie_bytes.has_value()) {
+        return result;
+    }
+    const auto resp_ies = pfcp_core::decode_ies(*resp_ie_bytes);
+    if (!resp_ies.has_value()) {
+        return result;
+    }
+    const auto* cause_ie =
+        pfcp_core::find_ie(*resp_ies, static_cast<std::uint16_t>(pfcp_core::IeType::Cause));
+    const auto cause =
+        cause_ie != nullptr ? pfcp_core::decode_cause(cause_ie->value) : std::nullopt;
+    if (!cause.has_value() || *cause != pfcp_core::Cause::RequestAccepted) {
+        spdlog::warn("smf: UPF rejected N4 Session Deletion (UP F-SEID={:#x}, cause={})",
+                     up_seid,
+                     cause.has_value() ? static_cast<int>(*cause) : -1);
+        return result;
+    }
+    result.accepted = true;
+
+    const auto* usage_ie = pfcp_core::find_ie(
+        *resp_ies, static_cast<std::uint16_t>(pfcp_core::IeType::UsageReportSessionDeletion));
+    if (usage_ie != nullptr) {
+        const auto usage_ies = pfcp_core::decode_ies(usage_ie->value);
+        const auto* seqn_ie =
+            usage_ies.has_value()
+                ? pfcp_core::find_ie(*usage_ies,
+                                     static_cast<std::uint16_t>(pfcp_core::IeType::UrSeqn))
+                : nullptr;
+        const auto* volume_ie =
+            usage_ies.has_value()
+                ? pfcp_core::find_ie(
+                      *usage_ies, static_cast<std::uint16_t>(pfcp_core::IeType::VolumeMeasurement))
+                : nullptr;
+        const auto seqn =
+            seqn_ie != nullptr ? pfcp_core::decode_ur_seqn(seqn_ie->value) : std::nullopt;
+        const auto volume =
+            volume_ie != nullptr ? pfcp_core::decode_volume_total(volume_ie->value) : std::nullopt;
+        if (seqn.has_value() && volume.has_value()) {
+            result.final_usage = FinalUsage{*seqn, *volume};
+        } else {
+            spdlog::warn("smf: N4 Session Deletion Response (UP F-SEID={:#x}) has a malformed "
+                         "Usage Report; no final usage to charge",
+                         up_seid);
+        }
+    }
+    spdlog::info("smf: UPF released N4 session (UP F-SEID={:#x}){}",
+                 up_seid,
+                 result.final_usage.has_value()
+                     ? ", final usage " + std::to_string(result.final_usage->total_volume_octets) +
+                           " octets"
+                     : std::string{});
+    return result;
 }
 
 // ADR-0328: re-authorise the session QER on the user plane after PCF changes its mind.
@@ -2198,6 +2312,11 @@ int main() {
     auto chf_charging_data_create_counter = meter->CreateUInt64Counter(
         "smf_chf_charging_data_create_total",
         "Total successful (best-effort) Nchf_ConvergedCharging_Create calls to CHF");
+    // ADR-0522: N4 Session Release (PFCP Session Deletion) accepted by the UPF.
+    auto n4_session_deletion_counter =
+        meter->CreateUInt64Counter("smf_n4_session_deletion_total",
+                                   "N4 sessions released at the UPF (PFCP Session Deletion "
+                                   "accepted), TS 23.502 4.3.4.2 step 2");
     auto chf_charging_data_release_counter = meter->CreateUInt64Counter(
         "smf_chf_charging_data_release_total",
         "Total successful (best-effort) Nchf_ConvergedCharging_Release calls to CHF");
@@ -4098,7 +4217,10 @@ int main() {
          &chf_base_url,
          &chf_charging_data_release_counter,
          &smf_instance_id,
-         &charging_data_invocation_seq](const sbi_core::http2::Request& req) {
+         &charging_data_invocation_seq,
+         &pfcp_peer,
+         &cp_seid_sessions,
+         &n4_session_deletion_counter](const sbi_core::http2::Request& req) {
             const auto sm_context_ref = req.path_params.at("smContextRef");
             auto stored = sm_contexts.get(sm_context_ref);
             if (!stored.has_value()) {
@@ -4114,6 +4236,29 @@ int main() {
                 if (!body.has_value()) {
                     return err;
                 }
+            }
+
+            // ADR-0522, TS 23.502 4.3.4.2 steps 2a-2b: release the N4 session first, so the
+            // UPF's final usage is known before charging is terminated (TS 32.255 5.2.2.2.4
+            // 2ch-a). A failure is logged and the release goes on: the AMF's request is not
+            // refused for a UPF that is gone (TS 23.502 3c answers the AMF regardless).
+            std::optional<FinalUsage> final_usage;
+            if (stored->contains("upSeid") && stored->contains("upfIp")) {
+                const auto n4 =
+                    perform_n4_session_deletion(pfcp_peer,
+                                                stored->at("upfIp").get<std::string>(),
+                                                stored->at("upSeid").get<std::uint64_t>());
+                if (n4.accepted) {
+                    n4_session_deletion_counter->Add(1);
+                    final_usage = n4.final_usage;
+                } else {
+                    spdlog::warn("smf: N4 Session Release for smContextRef {} failed -- the UPF "
+                                 "may still hold the session",
+                                 sm_context_ref);
+                }
+            }
+            if (stored->contains("cpSeid")) {
+                cp_seid_sessions.remove(stored->at("cpSeid").get<std::uint64_t>());
             }
 
             // Best-effort DeleteSMPolicy -- see file header for why this doesn't gate local
@@ -4164,7 +4309,8 @@ int main() {
                         smf_instance_id,
                         supi,
                         charging_data_ref,
-                        charging_data_invocation_seq.get_and_advance(charging_data_ref))) {
+                        charging_data_invocation_seq.get_and_advance(charging_data_ref),
+                        final_usage)) {
                     chf_charging_data_release_counter->Add(1);
                 }
             }
