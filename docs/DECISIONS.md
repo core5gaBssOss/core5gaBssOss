@@ -477,6 +477,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0519](decisions/ADR-0519-nef-assessionwithqos-media-component-and-pcf-event.md) NEF AsSessionWithQoS: media component and PCF event subscription (SPEC-01, increment 1)
 - [0520](decisions/ADR-0520-nef-assessionwithqos-pcf-event-and-termination.md) NEF AsSessionWithQoS: PCF event and termination notifications to the AF (SPEC-01, increment 2)
 - [0521](decisions/ADR-0521-n7-callbacks-pcf-posts-to-notificationuri-update-smf-serves.md) N7 callbacks: PCF posts to {notificationUri}/update, SMF serves /update and /terminate (SPEC-05)
+- [0522](decisions/ADR-0522-smf-releases-the-n4-session-at-the-upf-on-pdu-session.md) SMF releases the N4 session at the UPF on PDU session release; final usage to the CHF
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
