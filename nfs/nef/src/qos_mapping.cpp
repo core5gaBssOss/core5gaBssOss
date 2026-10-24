@@ -79,6 +79,7 @@ app_session_request(const sbi_gen::AsSessionWithQoSSubscription& sub,
                     const std::string& nef_notif_uri) {
     nlohmann::json req = pcf_session_state(sub);
     req["notifUri"] = nef_notif_uri;
+    req["evSubsc"]["notifUri"] = nef_notif_uri;
     req["suppFeat"] = "0";
     if (sub.ueIpv4Addr.has_value()) {
         req["ueIpv4"] = *sub.ueIpv4Addr;
@@ -140,6 +141,96 @@ nlohmann::json pcf_update_patch(const sbi_gen::AsSessionWithQoSSubscription& bef
         }
     }
     return patch;
+}
+
+namespace {
+
+// fNums of media component 1 across `flows`; nullopt when none names a flow number.
+void add_flow_ids(std::optional<std::vector<std::int64_t>>& ids,
+                  const std::optional<std::vector<sbi_gen::Flows>>& flows) {
+    for (const auto& f : flows.value_or(std::vector<sbi_gen::Flows>{})) {
+        if (f.medCompN != 1 || !f.fNums.has_value()) {
+            continue;
+        }
+        for (const auto n : *f.fNums) {
+            if (!ids.has_value()) {
+                ids.emplace();
+            }
+            if (std::find(ids->begin(), ids->end(), n) == ids->end()) {
+                ids->push_back(n);
+            }
+        }
+    }
+}
+
+sbi_gen::UserPlaneEventReport report_of(const std::string& event) {
+    sbi_gen::UserPlaneEventReport r{};
+    r.event.value = event;
+    return r;
+}
+
+} // namespace
+
+AfReportPlan
+af_reports_for(const sbi_gen::EventsNotification_Npcf_PolicyAuthorization& notification) {
+    using Af = sbi_gen::UserPlaneEvent;
+    using Pcf = sbi_gen::AfEvent_Npcf_PolicyAuthorization;
+    AfReportPlan plan;
+    for (const auto& ev : notification.evNotifs) {
+        const auto& e = ev.event.value;
+        if (e == Pcf::SUCCESSFUL_RESOURCES_ALLOCATION || e == Pcf::FAILED_RESOURCES_ALLOCATION) {
+            auto r = report_of(e); // the same value in both enums
+            const auto& allocs = e == Pcf::SUCCESSFUL_RESOURCES_ALLOCATION
+                                     ? notification.succResourcAllocReports
+                                     : notification.failedResourcAllocReports;
+            for (const auto& a : allocs.value_or(std::vector<sbi_gen::ResourcesAllocationInfo>{})) {
+                add_flow_ids(r.flowIds, a.flows);
+            }
+            add_flow_ids(r.flowIds, ev.flows);
+            plan.reports.push_back(r);
+        } else if (e == Pcf::QOS_NOTIF) {
+            if (!notification.qncReports.has_value()) {
+                add_once(plan.not_mapped, e + " without qncReports");
+            }
+            for (const auto& q : notification.qncReports.value_or(
+                     std::vector<sbi_gen::QosNotificationControlInfo_Npcf_PolicyAuthorization>{})) {
+                const auto& t = q.notifType.value;
+                const std::string af_event =
+                    t == "GUARANTEED"          ? std::string(Af::QOS_GUARANTEED)
+                    : t == "NOT_GUARANTEED"    ? std::string(Af::QOS_NOT_GUARANTEED)
+                    : t == "NOT_GUARANTEED_DL" ? std::string(Af::QOS_NOT_GUARANTEED_DL)
+                    : t == "NOT_GUARANTEED_UL" ? std::string(Af::QOS_NOT_GUARANTEED_UL)
+                                               : std::string{};
+                if (af_event.empty()) {
+                    add_once(plan.not_mapped, e + " notifType " + t);
+                    continue;
+                }
+                auto r = report_of(af_event);
+                add_flow_ids(r.flowIds, q.flows);
+                r.altQosNotSuppInd = q.altSerReqNotSuppInd;
+                plan.reports.push_back(r);
+            }
+        } else if (e == Pcf::USAGE_REPORT) {
+            auto r = report_of(e);
+            r.accumulatedUsage = notification.usgRep;
+            plan.reports.push_back(r);
+        } else if (e == Pcf::ACCESS_TYPE_CHANGE) {
+            auto r = report_of(e);
+            r.ratType = notification.ratType;
+            plan.reports.push_back(r);
+        } else if (e == Pcf::PLMN_CHG) {
+            auto r = report_of(e);
+            r.plmnId = notification.plmnId;
+            plan.reports.push_back(r);
+        } else {
+            add_once(plan.not_mapped, e);
+        }
+    }
+    return plan;
+}
+
+sbi_gen::UserPlaneEventReport session_termination_report() {
+    return report_of(sbi_gen::UserPlaneEvent::SESSION_TERMINATION);
 }
 
 } // namespace nef

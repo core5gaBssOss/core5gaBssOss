@@ -6932,52 +6932,49 @@ int main() {
 
     // --- ADR-0318: QoS event delivery, completing what ADR-0315 wired only halfway ---
     //
-    // ADR-0315 told PCF to notify NEF and ADR-0317 built delivery for monitoring, but the QoS
-    // callback had no route -- so PCF's events reached NEF's door and stopped. Same mechanism,
-    // second event source.
-    server.add_route(
-        "POST",
-        "/nnef-callback/v1/qos-notify/{afId}/{subscriptionId}",
-        [&af_qos_subs, &af_client, self_base_url](const sbi_core::http2::Request& req) {
-            const auto af_id = req.path_params.at("afId");
-            const auto sub_id = req.path_params.at("subscriptionId");
+    // ADR-0520 (TS 23.502 4.15.6.6 steps 7-8): the PCF calls the NEF's notifUri + "/terminate"
+    // (TerminationInfo) and evSubsc.notifUri + "/notify" (EventsNotification), TS 29.514's
+    // terminationRequest and eventNotification callbacks; the NEF tells the AF in TS 29.122's own
+    // UserPlaneNotificationData, `transaction` naming the AF's resource (nef::af_reports_for for
+    // the event mapping). The NEF does not delete the PCF's app-session on a termination request
+    // (TS 29.514 4.2.5.3: the consumer "may"); the AF's subscription stays until the AF deletes it.
+    const auto deliver_qos_reports =
+        [&af_qos_subs, &af_client, self_base_url](
+            const std::string& af_id,
+            const std::string& sub_id,
+            const std::vector<sbi_gen::UserPlaneEventReport>& reports) {
             const auto subscription = af_qos_subs.get(af_id, sub_id);
             if (!subscription.has_value()) {
                 // Tells PCF the callback is dead rather than absorbing events for a subscription
                 // the AF has deleted.
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AsSessionWithQoS subscription", std::nullopt);
+                    404,
+                    "Not Found",
+                    "No such AsSessionWithQoS subscription",
+                    "SUBSCRIPTION_NOT_FOUND"); // TS 29.500 table 5.2.7.2-1
             }
+            sbi_core::http2::Response accepted;
+            accepted.status = 204;
             const auto destination = subscription->value("notificationDestination", std::string{});
-            if (destination.empty()) {
-                spdlog::warn("nef: QoS event for {}/{} has nowhere to go -- the AF subscription "
-                             "carries no notificationDestination",
+            if (destination.empty() || reports.empty()) {
+                spdlog::warn("nef: QoS event for {}/{} not delivered ({})",
                              af_id,
-                             sub_id);
-                sbi_core::http2::Response accepted;
-                accepted.status = 204;
+                             sub_id,
+                             destination.empty() ? "no notificationDestination"
+                                                 : "no AF event to report");
                 return accepted;
             }
 
-            // The AF subscribed through TS 29.122 and is entitled to that API's own shape, so the
-            // notification names the AF's OWN resource rather than PCF's app-session.
-            json payload;
-            payload["subscription"] = self_base_url + std::string(kAfAsSessionWithQosApiRoot) +
-                                      "/" + af_id + "/subscriptions/" + sub_id;
-            // Same disclosure as ADR-0317: PCF's EventsNotification is carried through rather than
-            // re-modelled into TS 29.122's own event types, because this build does not have that
-            // field mapping and inventing one would show an AF values it never reported.
-            try {
-                payload["_npcfEventsNotification"] = json::parse(req.body);
-            } catch (const json::exception&) {
-                // A malformed body from PCF is not the AF's problem; send what NEF can vouch for.
-            }
+            sbi_gen::UserPlaneNotificationData notification{};
+            notification.transaction = self_base_url + std::string(kAfAsSessionWithQosApiRoot) +
+                                       "/" + af_id + "/subscriptions/" + sub_id;
+            notification.eventReports = reports;
 
             sbi_core::http2::ClientRequest out;
             out.method = "POST";
             out.url = destination;
             out.headers.emplace("content-type", "application/json");
-            out.body = payload.dump();
+            out.body = json(notification).dump();
             if (auto resp = af_client.send(out); !resp.has_value() || resp->status >= 300) {
                 spdlog::warn("nef: delivering a QoS event to AF {} at {} failed (status={})",
                              af_id,
@@ -6987,12 +6984,43 @@ int main() {
                 spdlog::info(
                     "nef: QoS event delivered to AF {} for subscription {}", af_id, sub_id);
             }
-
-            sbi_core::http2::Response accepted;
-            accepted.status = 204;
             return accepted;
+        };
+    server.add_route(
+        "POST",
+        "/nnef-callback/v1/qos-notify/{afId}/{subscriptionId}/notify",
+        [deliver_qos_reports](const sbi_core::http2::Request& req) {
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<
+                sbi_gen::EventsNotification_Npcf_PolicyAuthorization>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto plan = nef::af_reports_for(*body);
+            for (const auto& event : plan.not_mapped) {
+                spdlog::warn("nef: PCF event {} has no AF event in this build; not reported",
+                             event);
+            }
+            return deliver_qos_reports(
+                req.path_params.at("afId"), req.path_params.at("subscriptionId"), plan.reports);
         },
         // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
+    server.add_route(
+        "POST",
+        "/nnef-callback/v1/qos-notify/{afId}/{subscriptionId}/terminate",
+        [deliver_qos_reports](const sbi_core::http2::Request& req) {
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::TerminationInfo>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            spdlog::info(
+                "nef: PCF terminated app-session {} ({})", body->resUri, body->termCause.value);
+            return deliver_qos_reports(req.path_params.at("afId"),
+                                       req.path_params.at("subscriptionId"),
+                                       {nef::session_termination_report()});
+        },
         sbi_core::http2::RouteAuth::None);
 
     // --- ADR-0317: notification delivery, the piece every AF-facing service was missing ---

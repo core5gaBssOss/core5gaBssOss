@@ -2,7 +2,9 @@
 
 // AF AsSessionWithQoS (TS 29.122 5.14, TS29122_AsSessionWithQoS.yaml) -> Npcf_PolicyAuthorization
 // (TS 29.514, TS29514_Npcf_PolicyAuthorization.yaml), the NEF's side of TS 23.502 4.15.6.6
-// steps 3 and 6 and 4.15.6.6a steps 3-4 (ADR-0519). Private to nfs/nef.
+// steps 3 and 6 and 4.15.6.6a steps 3-4 (ADR-0519), and back: the PCF's
+// Npcf_PolicyAuthorization_Notify
+// -> the AF's UserPlaneNotificationData, steps 7-8 (ADR-0520). Private to nfs/nef.
 
 #include <nlohmann/json.hpp>
 
@@ -39,8 +41,10 @@ nlohmann::json pcf_session_state(const sbi_gen::AsSessionWithQoSSubscription& su
 
 // Npcf_PolicyAuthorization_Create's AppSessionContextReqData: pcf_session_state plus the UE address
 // (ueIpv4Addr/ueIpv6Addr/macAddr -> ueIpv4/ueIpv6/ueMac), dnn, snssai -> sliceInfo, the NEF's
-// callback as notifUri, and suppFeat "0" (the NEF negotiates no optional Npcf_PolicyAuthorization
-// feature; the AF's supportedFeatures are TS 29.122 bits, a different list).
+// callback as notifUri and evSubsc.notifUri (the PCF appends "/terminate" and "/notify", TS 29.514
+// callbacks terminationRequest and eventNotification), and suppFeat "0" (the NEF negotiates no
+// optional Npcf_PolicyAuthorization feature; the AF's supportedFeatures are TS 29.122 bits, a
+// different list).
 sbi_gen::AppSessionContextReqData
 app_session_request(const sbi_gen::AsSessionWithQoSSubscription& sub,
                     const std::string& nef_notif_uri);
@@ -57,5 +61,26 @@ nlohmann::json merge_patch_between(const nlohmann::json& from, const nlohmann::j
 // changed.
 nlohmann::json pcf_update_patch(const sbi_gen::AsSessionWithQoSSubscription& before,
                                 const sbi_gen::AsSessionWithQoSSubscription& after);
+
+// TS 23.502 4.15.6.6 steps 7-8, TS 29.522 4.4.9.2.2: the AF's UserPlaneEventReports for one PCF
+// EventsNotification, and the PCF events that have no AF event in this build.
+//   SUCCESSFUL_/FAILED_RESOURCES_ALLOCATION -> the same event, flowIds from the matching
+//     succ/failedResourcAllocReports and the event's own flows;
+//   QOS_NOTIF -> one report per qncReports entry: notifType GUARANTEED / NOT_GUARANTEED /
+//     NOT_GUARANTEED_DL / NOT_GUARANTEED_UL -> QOS_GUARANTEED / QOS_NOT_GUARANTEED / _DL / _UL,
+//     altSerReqNotSuppInd -> altQosNotSuppInd (none when the PCF sent no qncReports);
+//   USAGE_REPORT -> accumulatedUsage from usgRep; ACCESS_TYPE_CHANGE -> ratType; PLMN_CHG ->
+//   plmnId.
+// flowIds are the fNums of media component 1 (the only one the NEF creates, ADR-0519), which are
+// the AF's flowIds; omitted when the PCF names no flow numbers (the event applies to all flows).
+struct AfReportPlan {
+    std::vector<sbi_gen::UserPlaneEventReport> reports;
+    std::vector<std::string> not_mapped;
+};
+AfReportPlan
+af_reports_for(const sbi_gen::EventsNotification_Npcf_PolicyAuthorization& notification);
+
+// TS 29.122 4.4.13: the PCF's terminationRequest (TerminationInfo) is a SESSION_TERMINATION report.
+sbi_gen::UserPlaneEventReport session_termination_report();
 
 } // namespace nef

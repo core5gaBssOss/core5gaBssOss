@@ -146,6 +146,18 @@ def main() -> int:
                          "TS29514_Npcf_PolicyAuthorization.yaml", schema_name)
         )
 
+    # ADR-0520: the NEF's notification to the AF (tests/conformance/test_nef_qos_mapping.cpp).
+    registry.load_file("TS29122_AsSessionWithQoS.yaml")
+    sample_path = samples_dir / "nef_af_user_plane_notification.json"
+    if not sample_path.exists():
+        print(f"FAIL: {sample_path} not found", file=sys.stderr)
+        return 1
+    all_errors.extend(
+        check_object(registry.schemas[("TS29122_AsSessionWithQoS.yaml", "UserPlaneNotificationData")],
+                     json.loads(sample_path.read_text()), registry,
+                     "TS29122_AsSessionWithQoS.yaml", "UserPlaneNotificationData")
+    )
+
     if all_errors:
         print("FAIL: structural conformance violations:", file=sys.stderr)
         for e in all_errors:
