@@ -1,7 +1,7 @@
 # Architecture diagram — conventions
 
-The diagram lives in `README.md`, because that is what a reader sees first; the product/license
-table lives in `docs/OVERVIEW.md`. This file is the rulebook for keeping them true.
+The diagram and the product/license table live in `README.md`, because that is what a reader
+sees first. This file is the rulebook for keeping them true.
 
 ## Legend
 
