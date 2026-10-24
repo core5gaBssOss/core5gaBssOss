@@ -481,7 +481,8 @@
   "ADR-0524-charging-mapping-decisions-tm-forum-homes-for-event-based.md",
   "ADR-0525-smf-allocates-the-ue-ipv4-address-from-a-per-dnn-pool-ts-23.md",
   "ADR-0526-pcf-session-binding-of-af-sessions-and-termination-on-pdu.md",
-  "ADR-0527-nef-monitoring-notifications-as-ts-29-122.md"
+  "ADR-0527-nef-monitoring-notifications-as-ts-29-122.md",
+  "ADR-0528-ai-quota-sizing-never-changes-the-price-per-octet-the.md"
  ],
  "split_commit": "0530e4f"
 }

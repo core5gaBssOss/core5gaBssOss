@@ -624,6 +624,18 @@ int main() {
         config, "ai_quota_latency_budget_us", "CHF_AI_QUOTA_LATENCY_BUDGET_US")};
     chf::AiQuotaSizer ai_quota_sizer(
         quota_model_path, ai_quota_sizing_enabled, ai_quota_latency_budget);
+    // ADR-0528: how far the model may move a grant from its price-configured base. Operator
+    // configuration (the GUI's CHF form, schema derived from config/chf.json); 0 < min <= 1 <= max.
+    {
+        const auto min_m = nf_config::require<double>(
+            config, "ai_quota_multiplier_min", "CHF_AI_QUOTA_MULTIPLIER_MIN");
+        const auto max_m = nf_config::require<double>(
+            config, "ai_quota_multiplier_max", "CHF_AI_QUOTA_MULTIPLIER_MAX");
+        if (!(min_m > 0.0 && min_m <= 1.0 && max_m >= 1.0)) {
+            nf_config::fatal("chf: ai_quota_multiplier_min/_max must satisfy 0 < min <= 1 <= max");
+        }
+        ai_quota_sizer.set_multiplier_bounds(min_m, max_m);
+    }
     chf::QuotaFeatureStore quota_feature_store(redis);
 
     // CHF's own client to bss/product-catalog (ADR-0048) -- mTLS only, no OAuth2 (product-catalog

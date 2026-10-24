@@ -484,6 +484,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0525](decisions/ADR-0525-smf-allocates-the-ue-ipv4-address-from-a-per-dnn-pool-ts-23.md) SMF allocates the UE IPv4 address from a per-DNN pool (TS 23.501 5.8.2.2.1)
 - [0526](decisions/ADR-0526-pcf-session-binding-of-af-sessions-and-termination-on-pdu.md) PCF session binding of AF sessions and termination on PDU session end (TS 29.513, TS 29.514 4.2.2.2, 4.2.5.3)
 - [0527](decisions/ADR-0527-nef-monitoring-notifications-as-ts-29-122.md) NEF monitoring notifications as TS 29.122 MonitoringEventReports (SPEC-06)
+- [0528](decisions/ADR-0528-ai-quota-sizing-never-changes-the-price-per-octet-the.md) AI quota sizing never changes the price per octet: the reservation follows the grant (CHG-01, amends ADR-0074/0297)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

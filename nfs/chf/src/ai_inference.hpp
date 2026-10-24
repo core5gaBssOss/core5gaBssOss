@@ -87,10 +87,21 @@ public:
 
     std::chrono::microseconds latency_budget() const { return latency_budget_; }
 
+    // ADR-0528: the operator's bounds on how far the model may move a grant from its
+    // price-configured base (config/chf.json ai_quota_multiplier_min / _max; were fixed 0.5/2.0).
+    void set_multiplier_bounds(double min_multiplier, double max_multiplier) {
+        min_multiplier_ = min_multiplier;
+        max_multiplier_ = max_multiplier;
+    }
+    double min_multiplier() const { return min_multiplier_; }
+    double max_multiplier() const { return max_multiplier_; }
+
 private:
     std::unique_ptr<Ort::Session> session_;
     std::string model_version_;
     std::chrono::microseconds latency_budget_;
+    double min_multiplier_ = 0.5;
+    double max_multiplier_ = 2.0;
 };
 
 } // namespace chf
