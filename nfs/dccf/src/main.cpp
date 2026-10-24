@@ -103,23 +103,6 @@ constexpr const char* kNrfNfmRoot = "/nnrf-nfm/v1";
 constexpr const char* kNsacfSliceEeRoot = "/nnsacf-slice-ee/v1";
 constexpr const char* kNwdafEventsSubscriptionRoot = "/nnwdaf-eventssubscription/v1";
 
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 sbi_core::http2::Response
 problem(int status, const std::string& title, const std::string& detail, const char* cause) {
     auto pd = sbi_core::make_problem_details(status, title, detail, cause);
@@ -755,9 +738,6 @@ int main() {
         "POST",
         std::string(kDataManagementRoot) + "/data-subscriptions",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto = sbi_core::http2::parse_json_body<sbi_gen::NdccfDataSubscription>(req, err);
             if (!dto) {
@@ -780,14 +760,14 @@ int main() {
         "PUT",
         std::string(kDataManagementRoot) + "/data-subscriptions/{subscriptionId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("subscriptionId");
             const auto old = store.get_subscription(id);
             if (!old || old->kind != dccf::Kind::Data) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "no Individual DCCF Data Subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no Individual DCCF Data Subscription " +
+                                                             id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response err;
             auto dto = sbi_core::http2::parse_json_body<sbi_gen::NdccfDataSubscription>(req, err);
@@ -816,14 +796,11 @@ int main() {
         });
     const auto unsubscribe = [&](dccf::Kind kind) {
         return [&, kind](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("subscriptionId");
             const auto sub = store.get_subscription(id);
             if (!sub || sub->kind != kind) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "no such Individual DCCF Subscription " + id);
+                    404, "Not Found", "no such Individual DCCF Subscription " + id, std::nullopt);
             }
             leave_collection(id, *sub);
             store.remove_subscription(id);
@@ -841,9 +818,6 @@ int main() {
         "POST",
         std::string(kDataManagementRoot) + "/analytics-subscriptions",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto =
                 sbi_core::http2::parse_json_body<sbi_gen::NdccfAnalyticsSubscription>(req, err);
@@ -863,14 +837,14 @@ int main() {
         "PUT",
         std::string(kDataManagementRoot) + "/analytics-subscriptions/{subscriptionId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("subscriptionId");
             const auto old = store.get_subscription(id);
             if (!old || old->kind != dccf::Kind::Analytics) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "no Individual DCCF Analytics Subscription " + id);
+                    404,
+                    "Not Found",
+                    "no Individual DCCF Analytics Subscription " + id,
+                    "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response err;
             auto dto =
@@ -899,62 +873,52 @@ int main() {
                      unsubscribe(dccf::Kind::Analytics));
 
     // ---- Ndccf_ContextManagement: data collection profiles -------------------------------------
-    server.add_route(
-        "POST",
-        std::string(kContextManagementRoot) + "/data-collection-profiles",
-        [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto p =
-                sbi_core::http2::parse_json_body<sbi_gen::NdccfDataCollectionProfile>(req, err);
-            if (!p) {
-                return err;
-            }
-            const auto id = store.create_profile(*p);
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kContextManagementRoot) +
-                                     "/data-collection-profiles/" + id);
-            resp.body = json(*p).dump();
-            return resp;
-        });
-    server.add_route(
-        "PUT",
-        std::string(kContextManagementRoot) + "/data-collection-profiles/{profileId}",
-        [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto p =
-                sbi_core::http2::parse_json_body<sbi_gen::NdccfDataCollectionProfile>(req, err);
-            if (!p) {
-                return err;
-            }
-            if (!store.replace_profile(req.path_params.at("profileId"), *p)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "no such data collection profile");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 200;
-            resp.headers.emplace("content-type", "application/json");
-            resp.body = json(*p).dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kContextManagementRoot) + "/data-collection-profiles",
+                     [&](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto p =
+                             sbi_core::http2::parse_json_body<sbi_gen::NdccfDataCollectionProfile>(
+                                 req, err);
+                         if (!p) {
+                             return err;
+                         }
+                         const auto id = store.create_profile(*p);
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kContextManagementRoot) +
+                                                  "/data-collection-profiles/" + id);
+                         resp.body = json(*p).dump();
+                         return resp;
+                     });
+    server.add_route("PUT",
+                     std::string(kContextManagementRoot) + "/data-collection-profiles/{profileId}",
+                     [&](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto p =
+                             sbi_core::http2::parse_json_body<sbi_gen::NdccfDataCollectionProfile>(
+                                 req, err);
+                         if (!p) {
+                             return err;
+                         }
+                         if (!store.replace_profile(req.path_params.at("profileId"), *p)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "no such data collection profile", std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 200;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.body = json(*p).dump();
+                         return resp;
+                     });
     server.add_route("DELETE",
                      std::string(kContextManagementRoot) + "/data-collection-profiles/{profileId}",
                      [&](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                             return sbi_core::http2::problem_response(
-                                 401, "Unauthorized", auth->error);
-                         }
                          if (!store.remove_profile(req.path_params.at("profileId"))) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "no such data collection profile");
+                                 404, "Not Found", "no such data collection profile", std::nullopt);
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;

@@ -39,6 +39,7 @@
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
+#include "sbi_core/json_body.hpp"
 #include "sbi_core/jwt.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
@@ -91,16 +92,8 @@ constexpr const char* kNfType = "NRF";
 // so it could just pass itself its own freshly-generated id -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-sbi_core::http2::Response
-problem_response(int status, const std::string& title, const std::string& detail) {
-    auto pd = sbi_core::make_problem_details(status, title, detail);
-    json j = pd;
-    sbi_core::http2::Response r;
-    r.status = status;
-    r.headers.emplace("content-type", "application/problem+json");
-    r.body = j.dump();
-    return r;
-}
+// The sbi-core helper (json_body.hpp); a local copy lagged behind it (no cause, ADR-0502).
+using sbi_core::http2::problem_response;
 
 // application/x-www-form-urlencoded parsing for POST /oauth2/token. Minimal: splits on '&'/'=',
 // percent-decodes values. Good enough for the fixed field set AccessTokenReq actually needs here.
@@ -462,10 +455,11 @@ int main() {
     // ADR-0499 phase 4: every route needs an access token for the NRF (aud) and its service (scopes
     // nnrf-nfm, nnrf-disc) unless `oauth2_required` is false. Exempt (below): the token endpoints
     // and bootstrapping (no security scheme in their YAMLs) and NFRegister.
+    const bool oauth2_required =
+        nf_config::optional<bool>(config, "oauth2_required", "NRF_OAUTH2_REQUIRED").value_or(true);
     const auto nrf_authorizer = std::make_shared<const sbi_core::http2::Authorizer>(
         sbi_core::http2::AuthorizerConfig{
-            .required = nf_config::optional<bool>(config, "oauth2_required", "NRF_OAUTH2_REQUIRED")
-                            .value_or(true),
+            .required = oauth2_required,
             .nf_type = kNfType,
             .nf_instance_id = nrf_instance_id,
         },
@@ -491,19 +485,16 @@ int main() {
     server.add_route(
         "GET",
         "/bootstrapping",
-        [](const sbi_core::http2::Request& /*req*/) {
+        [oauth2_required](const sbi_core::http2::Request& /*req*/) {
             sbi_gen::BootstrappingInfo info;
             info.status = sbi_gen::Status{sbi_gen::Status::OPERATIVE};
             info.nrfInstanceId = std::string(kNrfInstanceId);
-            // Real, disclosed: every route above (check_bearer) validates a bearer token only if
-            // one is present -- the YAML's own `security: [{}, oAuth2ClientCredentials]` on those
-            // operations explicitly permits the anonymous alternative, so this NRF does not
-            // actually require OAuth2 today. oauth2Required is honestly false for the exact three
-            // real services this NRF implements, not a placeholder value. Map keys per this
-            // field's own YAML description ("e.g. nnrf-nfm or nnrf-disc").
+            // "whether the NRF requires Oauth2-based authorization for accessing its services"
+            // (TS29510_Nnrf_Bootstrapping.yaml): nnrf-nfm and nnrf-disc follow `oauth2_required`
+            // (the sbi-core Authorizer, ADR-0499); the token endpoint itself takes no token.
             info.oauth2Required = json{
-                {"nnrf-nfm", false},
-                {"nnrf-disc", false},
+                {"nnrf-nfm", oauth2_required},
+                {"nnrf-disc", oauth2_required},
                 {"nnrf-oauth2", false},
             };
             // Real, disclosed gap: TS 29.510 clause 6.4.6.3.3 (the real link-relation vocabulary
@@ -602,17 +593,18 @@ int main() {
             try {
                 body = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return problem_response(400, "Malformed JSON", e.what());
+                return problem_response(400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!body.contains("issuer") || !body.contains("headerParameters")) {
                 return problem_response(400,
                                         "Missing mandatory IE",
-                                        "RetrieveKeyReq requires issuer and headerParameters");
+                                        "RetrieveKeyReq requires issuer and headerParameters",
+                                        "MANDATORY_IE_MISSING");
             }
             const auto requested_issuer = body.at("issuer").get<std::string>();
             if (requested_issuer != nrf_instance_id) {
                 return problem_response(
-                    404, "Not Found", "No key known for issuer " + requested_issuer);
+                    404, "Not Found", "No key known for issuer " + requested_issuer, std::nullopt);
             }
             std::ifstream key_file(certs_dir + "/nrf-jwt/public.pem");
             std::string raw_pub_key;
@@ -640,7 +632,7 @@ int main() {
          &nfs_reg_succ_counter,
          &nfs_reg_fail_encode_counter](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
+                return problem_response(401, "Unauthorized", auth->error, std::nullopt);
             }
             // TS 28.552 5.10.1.1(c): counted on RECEIPT of the NFRegister request. An
             // unauthenticated caller is not an NFRegister request from an NF, so 401 is counted as
@@ -659,19 +651,20 @@ int main() {
                 profile = json::parse(req.body);
             } catch (const json::parse_error& e) {
                 nfs_reg_fail_encode_counter->Add(1);
-                return problem_response(400, "Malformed JSON", e.what());
+                return problem_response(400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             for (const char* required : {"nfInstanceId", "nfType", "nfStatus"}) {
                 if (!profile.contains(required)) {
                     nfs_reg_fail_encode_counter->Add(1);
                     return problem_response(400,
                                             "Missing mandatory IE",
-                                            std::string("NFProfile missing '") + required + "'");
+                                            std::string("NFProfile missing '") + required + "'",
+                                            "MANDATORY_IE_MISSING");
                 }
             }
             if (auto err = validate_nf_profile(profile); err.has_value()) {
                 nfs_reg_fail_encode_counter->Add(1);
-                return problem_response(400, "Invalid NFProfile", *err);
+                return problem_response(400, "Invalid NFProfile", *err, "UNSPECIFIED_MSG_FAILURE");
             }
             const bool is_new = nf_registry->put(path_id, profile);
             spdlog::info("nrf: {} NF instance {} (type={}, status={})",
@@ -700,58 +693,49 @@ int main() {
         // (TS 33.501 13.4.1.1.2); an NFUpdate of an existing instance is checked in the handler.
         sbi_core::http2::RouteAuth::None);
 
-    server.add_route(
-        "GET",
-        "/nnrf-nfm/v1/nf-instances/{nfInstanceID}",
-        [&verifier, nf_registry](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto path_id = req.path_params.at("nfInstanceID");
-            auto profile = nf_registry->get(path_id);
-            if (!profile.has_value()) {
-                return problem_response(404, "Not Found", "No NF instance with id " + path_id);
-            }
-            return sbi_core::http2::Response::json(200, profile->dump());
-        });
-
     server.add_route("GET",
-                     "/nnrf-nfm/v1/nf-instances",
-                     [&verifier, nf_registry](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier);
-                             auth.has_value() && !auth->valid) {
-                             return problem_response(401, "Unauthorized", auth->error);
+                     "/nnrf-nfm/v1/nf-instances/{nfInstanceID}",
+                     [nf_registry](const sbi_core::http2::Request& req) {
+                         const auto path_id = req.path_params.at("nfInstanceID");
+                         auto profile = nf_registry->get(path_id);
+                         if (!profile.has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No NF instance with id " + path_id,
+                                                     std::nullopt);
                          }
-                         json arr = json::array();
-                         for (const auto& profile : nf_registry->list_all()) {
-                             arr.push_back(profile);
-                         }
-                         return sbi_core::http2::Response::json(200, arr.dump());
+                         return sbi_core::http2::Response::json(200, profile->dump());
                      });
+
+    server.add_route(
+        "GET", "/nnrf-nfm/v1/nf-instances", [nf_registry](const sbi_core::http2::Request& req) {
+            json arr = json::array();
+            for (const auto& profile : nf_registry->list_all()) {
+                arr.push_back(profile);
+            }
+            return sbi_core::http2::Response::json(200, arr.dump());
+        });
 
     server.add_route(
         "PATCH",
         "/nnrf-nfm/v1/nf-instances/{nfInstanceID}",
-        [&verifier, nf_registry, &notify, &heartbeats_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [nf_registry, &notify, &heartbeats_counter](const sbi_core::http2::Request& req) {
             const auto path_id = req.path_params.at("nfInstanceID");
             json patch_ops;
             try {
                 patch_ops = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return problem_response(400, "Malformed JSON", e.what());
+                return problem_response(400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             std::optional<json> patched;
             try {
                 patched = nf_registry->apply_patch(path_id, patch_ops);
             } catch (const json::exception& e) {
-                return problem_response(400, "Invalid JSON Patch", e.what());
+                return problem_response(400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!patched.has_value()) {
-                return problem_response(404, "Not Found", "No NF instance with id " + path_id);
+                return problem_response(
+                    404, "Not Found", "No NF instance with id " + path_id, std::nullopt);
             }
             spdlog::info("nrf: heartbeat/update for {}", path_id);
             heartbeats_counter->Add(1);
@@ -763,11 +747,7 @@ int main() {
     server.add_route(
         "DELETE",
         "/nnrf-nfm/v1/nf-instances/{nfInstanceID}",
-        [&verifier, nf_registry, &notify, &deregistrations_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [nf_registry, &notify, &deregistrations_counter](const sbi_core::http2::Request& req) {
             const auto path_id = req.path_params.at("nfInstanceID");
             const bool existed = nf_registry->remove(path_id);
             spdlog::info(
@@ -800,7 +780,7 @@ int main() {
             nfs_disc_req_counter->Add(1);
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 nfs_disc_fail_unauth_counter->Add(1);
-                return problem_response(401, "Unauthorized", auth->error);
+                return problem_response(401, "Unauthorized", auth->error, std::nullopt);
             }
             // Query string parsing: http2::Request doesn't split query params out (Phase 0's
             // router never needed to), so parse target-nf-type directly out of req.path here.
@@ -814,8 +794,10 @@ int main() {
             }
             if (target_type.empty()) {
                 nfs_disc_fail_input_counter->Add(1);
-                return problem_response(
-                    400, "Missing mandatory query parameter", "target-nf-type is required");
+                return problem_response(400,
+                                        "Missing mandatory query parameter",
+                                        "target-nf-type is required",
+                                        "MANDATORY_QUERY_PARAM_MISSING");
             }
             // TS 33.501 13.3.1.3 / TS 29.510 6.2.3.2.3.1: requester info for the allowed* checks
             // (ADR-0477). requester-plmn-list / requester-snssais are JSON-encoded arrays.
@@ -837,7 +819,8 @@ int main() {
                             nfs_disc_fail_input_counter->Add(1);
                             return problem_response(400,
                                                     "Invalid query parameter",
-                                                    std::string(name) + " must be a JSON array");
+                                                    std::string(name) + " must be a JSON array",
+                                                    "MANDATORY_IE_INCORRECT");
                         }
                     }
                 }
@@ -864,47 +847,38 @@ int main() {
     // RetrieveCompleteSearch. Real, disclosed: this NRF has no partial-vs-complete-profile
     // filtering, so both real operations return the same real nfInstances SearchNFInstances
     // already cached for this searchId -- not a fabricated distinction.
-    server.add_route(
-        "GET",
-        "/nnrf-disc/v1/searches/{searchId}",
-        [&verifier, stored_searches](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto search_id = req.path_params.at("searchId");
-            auto instances = stored_searches->get(search_id);
-            if (!instances.has_value()) {
-                return problem_response(404, "Not Found", "No stored search " + search_id);
-            }
-            json result{{"nfInstances", *instances}};
-            return sbi_core::http2::Response::json(200, result.dump());
-        });
+    server.add_route("GET",
+                     "/nnrf-disc/v1/searches/{searchId}",
+                     [stored_searches](const sbi_core::http2::Request& req) {
+                         const auto search_id = req.path_params.at("searchId");
+                         auto instances = stored_searches->get(search_id);
+                         if (!instances.has_value()) {
+                             return problem_response(
+                                 404, "Not Found", "No stored search " + search_id, std::nullopt);
+                         }
+                         json result{{"nfInstances", *instances}};
+                         return sbi_core::http2::Response::json(200, result.dump());
+                     });
 
-    server.add_route(
-        "GET",
-        "/nnrf-disc/v1/searches/{searchId}/complete",
-        [&verifier, stored_searches](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto search_id = req.path_params.at("searchId");
-            auto instances = stored_searches->get(search_id);
-            if (!instances.has_value()) {
-                return problem_response(404, "Not Found", "No stored search " + search_id);
-            }
-            json result{{"nfInstances", *instances}};
-            return sbi_core::http2::Response::json(200, result.dump());
-        });
+    server.add_route("GET",
+                     "/nnrf-disc/v1/searches/{searchId}/complete",
+                     [stored_searches](const sbi_core::http2::Request& req) {
+                         const auto search_id = req.path_params.at("searchId");
+                         auto instances = stored_searches->get(search_id);
+                         if (!instances.has_value()) {
+                             return problem_response(
+                                 404, "Not Found", "No stored search " + search_id, std::nullopt);
+                         }
+                         json result{{"nfInstances", *instances}};
+                         return sbi_core::http2::Response::json(200, result.dump());
+                     });
 
     // Gap-closure: OptionsNFInstances (TS29510_Nnrf_NFManagement.yaml). Real capability-discovery
     // response, same real pattern already established for NSSF's own OPTIONS route (ADR-0183):
     // no `supportedFeatures` bitmask is implemented for NRF, so an honest 200 with just the real
     // `Accept-Encoding` header (no body) is returned rather than fabricating a features list.
     server.add_route(
-        "OPTIONS", "/nnrf-nfm/v1/nf-instances", [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        "OPTIONS", "/nnrf-nfm/v1/nf-instances", [](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response resp;
             resp.status = 200;
             resp.headers.emplace("accept-encoding", "identity");
@@ -912,22 +886,18 @@ int main() {
         });
 
     server.add_route(
-        "POST",
-        "/nnrf-nfm/v1/subscriptions",
-        [&verifier, sub_registry](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        "POST", "/nnrf-nfm/v1/subscriptions", [sub_registry](const sbi_core::http2::Request& req) {
             json sub_data;
             try {
                 sub_data = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return problem_response(400, "Malformed JSON", e.what());
+                return problem_response(400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!sub_data.contains("nfStatusNotificationUri")) {
                 return problem_response(400,
                                         "Missing mandatory IE",
-                                        "SubscriptionData requires nfStatusNotificationUri");
+                                        "SubscriptionData requires nfStatusNotificationUri",
+                                        "MANDATORY_IE_MISSING");
             }
             auto created = sub_registry->create(sub_data);
             sbi_core::http2::Response resp;
@@ -940,34 +910,30 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "PATCH",
-        "/nnrf-nfm/v1/subscriptions/{subscriptionID}",
-        [&verifier, sub_registry](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sub_id = req.path_params.at("subscriptionID");
-            json sub_data;
-            try {
-                sub_data = json::parse(req.body);
-            } catch (const json::parse_error& e) {
-                return problem_response(400, "Malformed JSON", e.what());
-            }
-            auto updated = sub_registry->update(sub_id, sub_data);
-            if (!updated.has_value()) {
-                return problem_response(404, "Not Found", "No subscription with id " + sub_id);
-            }
-            return sbi_core::http2::Response::json(200, updated->dump());
-        });
+    server.add_route("PATCH",
+                     "/nnrf-nfm/v1/subscriptions/{subscriptionID}",
+                     [sub_registry](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subscriptionID");
+                         json sub_data;
+                         try {
+                             sub_data = json::parse(req.body);
+                         } catch (const json::parse_error& e) {
+                             return problem_response(
+                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         auto updated = sub_registry->update(sub_id, sub_data);
+                         if (!updated.has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No subscription with id " + sub_id,
+                                                     "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, updated->dump());
+                     });
 
     server.add_route("DELETE",
                      "/nnrf-nfm/v1/subscriptions/{subscriptionID}",
-                     [&verifier, sub_registry](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier);
-                             auth.has_value() && !auth->valid) {
-                             return problem_response(401, "Unauthorized", auth->error);
-                         }
+                     [sub_registry](const sbi_core::http2::Request& req) {
                          const auto sub_id = req.path_params.at("subscriptionID");
                          sub_registry->remove(sub_id);
                          sbi_core::http2::Response resp;

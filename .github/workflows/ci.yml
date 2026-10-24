@@ -1058,6 +1058,10 @@ jobs:
 
       - name: architecture diagram in sync with README
         run: python3 tools/diagrams/check_readme_sync.py
+      # ADR-0503: deploy/docker/lab/ is generated from config/ -- a config/ change without
+      # `make lab-config` would leave the compose lab running the old values.
+      - name: compose lab config set in sync with config/
+        run: python3 tools/lab/gen_compose_config.py --check
       - name: clang-format check
         run: |
           find libs nfs tests -name '*.hpp' -o -name '*.cpp' | xargs clang-format-18 --dry-run --Werror
