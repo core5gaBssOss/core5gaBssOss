@@ -388,4 +388,21 @@ TEST(N28SyEndToEnd, SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession) {
         EXPECT_EQ(resp->status, 404);
         EXPECT_NE(resp->body.find("POLICY_CONTEXT_NOT_FOUND"), std::string::npos) << resp->body;
     }
+
+    // ADR-0522, TS 23.502 4.3.4.2 steps 1c, 2a-2b, 3c: ReleaseSMContext releases the N4 session at
+    // the real UPF (the counter moves only on the UPF's RequestAccepted) and then terminates
+    // charging at the real CHF with trigger FINAL (TS 32.255 5.2.2.2.4).
+    {
+        sbi_core::http2::ClientRequest release;
+        release.method = "POST";
+        release.url =
+            "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/" + sm_context_ref + "/release";
+        release.headers.emplace("authorization", "Bearer " + smf_token);
+        auto resp = client.send(release);
+        ASSERT_TRUE(resp.has_value());
+        EXPECT_EQ(resp->status, 204) << resp->body;
+        EXPECT_EQ(scrape_metric_value("127.0.0.1", 9466, "smf_n4_session_deletion_total"), 1)
+            << "the UPF did not accept an N4 Session Release for the released PDU session";
+        EXPECT_EQ(scrape_metric_value("127.0.0.1", 9466, "smf_chf_charging_data_release_total"), 1);
+    }
 }
