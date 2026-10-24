@@ -481,6 +481,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0522](decisions/ADR-0522-smf-releases-the-n4-session-at-the-upf-on-pdu-session.md) SMF releases the N4 session at the UPF on PDU session release; final usage to the CHF
 - [0523](decisions/ADR-0523-ue-and-pcf-requested-pdu-session-release-ts-23-502-4-3-4-2.md) UE- and PCF-requested PDU session release (TS 23.502 4.3.4.2, N1 path)
 - [0524](decisions/ADR-0524-charging-mapping-decisions-tm-forum-homes-for-event-based.md) Charging mapping decisions: TM Forum homes for event-based charging, grants, sharing, ordering (CHG-02)
+- [0525](decisions/ADR-0525-smf-allocates-the-ue-ipv4-address-from-a-per-dnn-pool-ts-23.md) SMF allocates the UE IPv4 address from a per-DNN pool (TS 23.501 5.8.2.2.1)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

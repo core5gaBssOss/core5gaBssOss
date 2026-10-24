@@ -221,6 +221,15 @@ void establish_pdu_session(NgapTestGnb& gnb,
     EXPECT_EQ((*n1_sm)[1], pdu_session_id);
     EXPECT_EQ((*n1_sm)[2], pti);
     EXPECT_EQ((*n1_sm)[3], 0xC2) << "expected a PDU Session Establishment Accept";
+    // ADR-0525: the PDU address (TS 24.501 9.11.4.10) follows the mandatory IEs (header 4, SSC
+    // mode/type 1, QoS rules 2+6, Session-AMBR 1+6 = octet 20): IPv4 from config/smf.json's
+    // "internet" pool, 10.45.0.0/16.
+    ASSERT_GE(n1_sm->size(), 27u) << "no PDU address in the Accept";
+    EXPECT_EQ((*n1_sm)[20], 0x29);
+    EXPECT_EQ((*n1_sm)[21], 0x05);
+    EXPECT_EQ((*n1_sm)[22], 0x01) << "PDU session type IPv4";
+    EXPECT_EQ((*n1_sm)[23], 10);
+    EXPECT_EQ((*n1_sm)[24], 45);
 }
 
 // ADR-0523: same Prometheus scrape as test_n28_sy_end_to_end.cpp's copy (value line anchored at

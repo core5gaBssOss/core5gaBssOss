@@ -42,6 +42,7 @@ enum class IeType : std::uint16_t {
     Cause = 19,
     SourceInterface = 20,
     FTeid = 21,
+    UeIpAddress = 93, // TS 29.244 8.2.62 (ADR-0525)
     VolumeThreshold = 31,
     Precedence = 29,
     ReportingTriggers = 37,

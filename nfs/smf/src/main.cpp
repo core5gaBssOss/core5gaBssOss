@@ -148,6 +148,7 @@
 #include "pfcp_peer.hpp"
 #include "qos_mon_producer.hpp"
 #include "sm_context_store.hpp"
+#include "ue_ip_pool.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
 #include "nf_config/nf_config.hpp"
@@ -846,20 +847,23 @@ std::vector<nlohmann::json> fetch_matching_influence_data(sbi_core::http2::Clien
     return matches;
 }
 
-std::optional<N4EstablishmentResult>
-perform_n4_session_establishment(smf::PfcpPeer& pfcp_peer,
-                                 const std::string& upf_ip,
-                                 std::uint8_t pdu_session_id,
-                                 std::optional<std::uint64_t> granted_total_volume_octets,
-                                 // ADR-0308: PCF's own authorised session AMBR, so UPF actually
-                                 // ENFORCES the throttle PCF decided. Absent = no QER sent, which
-                                 // is exactly the previous behaviour.
-                                 const std::optional<std::string>& ambr_uplink = std::nullopt,
-                                 const std::optional<std::string>& ambr_downlink = std::nullopt,
-                                 // ADR-0464: called with the CP SEID just before the Session
-                                 // Establishment Request leaves, for the LI CC-TF (TS 33.128
-                                 // 6.2.3.3.1: it triggers when the request is sent). Null = no-op.
-                                 const std::function<void(std::uint64_t)>& before_send = nullptr) {
+std::optional<N4EstablishmentResult> perform_n4_session_establishment(
+    smf::PfcpPeer& pfcp_peer,
+    const std::string& upf_ip,
+    std::uint8_t pdu_session_id,
+    std::optional<std::uint64_t> granted_total_volume_octets,
+    // ADR-0308: PCF's own authorised session AMBR, so UPF actually
+    // ENFORCES the throttle PCF decided. Absent = no QER sent, which
+    // is exactly the previous behaviour.
+    const std::optional<std::string>& ambr_uplink = std::nullopt,
+    const std::optional<std::string>& ambr_downlink = std::nullopt,
+    // ADR-0464: called with the CP SEID just before the Session
+    // Establishment Request leaves, for the LI CC-TF (TS 33.128
+    // 6.2.3.3.1: it triggers when the request is sent). Null = no-op.
+    const std::function<void(std::uint64_t)>& before_send = nullptr,
+    // ADR-0525: the UE's IPv4 address, matched as the source of
+    // uplink packets (UE IP Address IE in the PDI, TS 29.244 8.2.62).
+    std::optional<std::array<std::uint8_t, 4>> ue_ipv4 = std::nullopt) {
     const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
                                                       g_upf_pfcp_port);
 
@@ -873,6 +877,11 @@ perform_n4_session_establishment(smf::PfcpPeer& pfcp_peer,
     pfcp_core::encode_ie(pdi,
                          static_cast<std::uint16_t>(pfcp_core::IeType::FTeid),
                          pfcp_core::encode_f_teid_choose_ipv4());
+    if (ue_ipv4.has_value()) {
+        pfcp_core::encode_ie(pdi,
+                             static_cast<std::uint16_t>(pfcp_core::IeType::UeIpAddress),
+                             pfcp_core::encode_ue_ip_address_ipv4(*ue_ipv4, /*destination=*/false));
+    }
 
     std::vector<std::uint8_t> create_pdr;
     pfcp_core::encode_ie(create_pdr,
@@ -1902,6 +1911,7 @@ void report_pdu_session_to_nsacf(sbi_core::http2::Client& nsacf_client,
 // does is in its own route; the steps are here.
 struct ReleaseDeps {
     smf::SmContextStore& sm_contexts;
+    smf::UeIpPool& ue_ip_pool;
     smf::PfcpPeer& pfcp_peer;
     CpSeidSessionStore& cp_seid_sessions;
     sbi_core::http2::Client& pcf_client;
@@ -2003,6 +2013,11 @@ void delete_sm_policy(ReleaseDeps& d, const json& stored) {
 // (ADR-0464).
 void remove_sm_context(ReleaseDeps& d, const std::string& ref, const json& stored) {
     d.sm_contexts.remove(ref);
+    // ADR-0525, TS 23.502 4.3.4.2 step 2: the UE's IP address goes back to the DNN's pool.
+    if (const auto ip = smf::UeIpPool::parse(stored.value("ueIpv4", std::string{}));
+        ip.has_value()) {
+        d.ue_ip_pool.release(stored.value("dnn", std::string{}), *ip);
+    }
     if (d.li_poi && stored.contains("li")) {
         d.li_poi->report_release(smf::li_session_from_context(stored));
     }
@@ -2455,6 +2470,8 @@ int main() {
     });
 
     smf::SmContextStore sm_contexts;
+    // ADR-0525: UE IPv4 pools per DNN (TS 23.501 5.8.2.2.1), operator configuration.
+    smf::UeIpPool ue_ip_pool(config.value("ue_ipv4_pools", std::map<std::string, std::string>{}));
 
     // LI IRI-POI (TS 33.127 6.2.3, ADR-0463), disabled unless config/smf.json's li_poi.enabled is
     // true. Process lifetime; nullptr keeps the SMF's behaviour unchanged.
@@ -2629,6 +2646,7 @@ int main() {
     const auto create_sm_context_inner =
 
         [&sm_contexts,
+         &ue_ip_pool,
          &create_counter,
          &pcf_client,
          &pcf_oauth,
@@ -2729,6 +2747,60 @@ int main() {
                 return resp;
             }
 
+            // ADR-0525, TS 23.501 5.8.2.2.1: the SMF allocates the UE's IPv4 address from the
+            // DNN's pool before anything else is set up for the session. None free (or no pool for
+            // the DNN): PDU SESSION ESTABLISHMENT REJECT with 5GSM cause #26 "insufficient
+            // resources" (TS 24.501 6.4.1.4.1 lists it for the network's resource shortage).
+            const auto ue_ipv4 = ue_ip_pool.allocate(*body->dnn);
+            if (!ue_ipv4.has_value()) {
+                constexpr std::uint8_t kSmCauseInsufficientResources = 26;
+                const std::uint8_t pti = extract_request_pti(req).value_or(0);
+                const auto reject = smf::nas5gsm::encode_establishment_reject(
+                    static_cast<std::uint8_t>(*body->pduSessionId),
+                    pti,
+                    kSmCauseInsufficientResources);
+                sbi_gen::ExtProblemDetails_Nsmf_PDUSession problem{};
+                problem.status = 403;
+                problem.title = "No UE IP address available";
+                problem.detail = "No free IPv4 address for DNN " + *body->dnn;
+                sbi_gen::SmContextCreateError error{};
+                error.error = problem;
+                sbi_gen::RefToBinaryData n1_ref{};
+                n1_ref.contentId = "n1SmMsg";
+                error.n1SmMsg = n1_ref;
+                sbi_core::multipart::Part json_part;
+                json_part.content_type = "application/problem+json";
+                json_part.body = json(error).dump();
+                sbi_core::multipart::Part n1_part;
+                n1_part.content_type = "application/vnd.3gpp.5gnas";
+                n1_part.content_id = "n1SmMsg";
+                n1_part.body = std::string(reject.begin(), reject.end());
+                const auto encoded = sbi_core::multipart::encode({json_part, n1_part});
+                spdlog::warn("smf: PDU SESSION REFUSED for SUPI {} pduSessionId {} -- no UE IPv4 "
+                             "address for DNN {} (5GSM cause #26)",
+                             *body->supi,
+                             *body->pduSessionId,
+                             *body->dnn);
+                sbi_core::http2::Response resp;
+                resp.status = 403;
+                resp.headers.emplace("content-type", encoded.content_type_header);
+                resp.body = encoded.body;
+                return resp;
+            }
+            // Released on every early return below; kept once the 201 is sent.
+            struct UeIpLease {
+                smf::UeIpPool& pool;
+                std::string dnn;
+                std::array<std::uint8_t, 4> address;
+                bool committed = false;
+                ~UeIpLease() {
+                    if (!committed) {
+                        pool.release(dnn, address);
+                    }
+                }
+            } ue_ip_lease{ue_ip_pool, *body->dnn, *ue_ipv4};
+            const auto ue_ipv4_text = smf::UeIpPool::to_string(*ue_ipv4);
+
             const auto sm_context_ref = sm_contexts.create(json::object());
             create_counter->Add(1);
 
@@ -2750,6 +2822,7 @@ int main() {
             // Disclosed fixed default, not the UE's real requested type -- see file header.
             pcf_req.pduSessionType.value = sbi_gen::PduSessionType::IPV4;
             pcf_req.dnn = *body->dnn;
+            pcf_req.ipv4Address = ue_ipv4_text; // ADR-0525: the PCF binds AF sessions on it
             pcf_req.notificationUri = self_base_url + std::string(kApiRoot) + "/sm-contexts/" +
                                       sm_context_ref + "/pcf-notify";
             pcf_req.sliceInfo = *body->sNssai;
@@ -2811,6 +2884,9 @@ int main() {
                                     // PDU session ID for the N1 command and N1N2MessageTransfer,
                                     // and the AMF's callback for SMContextStatusNotify (step 11).
                                     {"pduSessionId", *body->pduSessionId},
+                                    // ADR-0525: released at PDU session release (step 2).
+                                    {"ueIpv4", ue_ipv4_text},
+                                    {"dnn", *body->dnn},
                                     {"smContextStatusUri", body->smContextStatusUri}});
             pcf_sm_policy_create_counter->Add(1);
 
@@ -2922,7 +2998,8 @@ int main() {
                             cc_triggered_seid = cp_seid;
                             li_poi->cc_begin(li);
                         }
-                    });
+                    },
+                    *ue_ipv4);
                 if (!n4_result.has_value() && cc_triggered_seid.has_value()) {
                     // The establishment failed after the trigger went out; withdraw it.
                     li_poi->cc_end(*cc_triggered_seid);
@@ -3035,7 +3112,7 @@ int main() {
                     }
 
                     const auto accept_bytes = smf::nas5gsm::encode_establishment_accept(
-                        req_info->pdu_session_id, req_info->pti, ambr_ul, ambr_dl, qfi);
+                        req_info->pdu_session_id, req_info->pti, ambr_ul, ambr_dl, qfi, *ue_ipv4);
 
                     auto amf_token = amf_oauth.get_bearer_token();
                     if (!amf_token.has_value()) {
@@ -3105,6 +3182,7 @@ int main() {
             resp_data.sNssai = body->sNssai;
             json j = resp_data;
             sbi_core::http2::Response resp;
+            ue_ip_lease.committed = true;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
             resp.headers.emplace("location",
@@ -3114,6 +3192,7 @@ int main() {
         };
 
     ReleaseDeps release_deps{sm_contexts,
+                             ue_ip_pool,
                              pfcp_peer,
                              cp_seid_sessions,
                              pcf_client,

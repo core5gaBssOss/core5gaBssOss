@@ -478,7 +478,8 @@
   "ADR-0521-n7-callbacks-pcf-posts-to-notificationuri-update-smf-serves.md",
   "ADR-0522-smf-releases-the-n4-session-at-the-upf-on-pdu-session.md",
   "ADR-0523-ue-and-pcf-requested-pdu-session-release-ts-23-502-4-3-4-2.md",
-  "ADR-0524-charging-mapping-decisions-tm-forum-homes-for-event-based.md"
+  "ADR-0524-charging-mapping-decisions-tm-forum-homes-for-event-based.md",
+  "ADR-0525-smf-allocates-the-ue-ipv4-address-from-a-per-dnn-pool-ts-23.md"
  ],
  "split_commit": "0530e4f"
 }
