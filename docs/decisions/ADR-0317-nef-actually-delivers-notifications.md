@@ -29,7 +29,8 @@ could go stale.
 - **Correction (REVIEW-5ae0ef1 DOC-02, 2026-10-23).** "Rebuilt in the AF's own API shape" overstates
   it: only `subscription` is TS 29.122; the event content is the raw UDM report under
   `_nudmEeReport`, which TS 29.122 `MonitoringNotification` does not define. The notification is
-  NOT conformant until SPEC-06 maps it onto `monitoringEventReports`.
+  NOT conformant until SPEC-06 maps it onto `monitoringEventReports`. **Resolved by ADR-0527
+  (2026-10-24):** `_nudmEeReport` is gone; the notification carries `monitoringEventReports`.
 - **The raw UDM report is carried under `_nudmEeReport` rather than re-modelled.** This build does
   not map every `Nudm_EE` report field onto TS 29.122's `MonitoringEventReport`, and inventing that
   mapping would put fabricated values in front of an AF. The AF gets everything NEF can vouch for,
