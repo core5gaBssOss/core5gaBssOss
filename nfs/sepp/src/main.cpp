@@ -52,6 +52,7 @@
 
 #include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
+#include <openssl/rand.h>
 #include <spdlog/spdlog.h>
 
 #include <atomic>
@@ -125,10 +126,17 @@ std::optional<std::string> header(const http2::Request& req, const char* name) {
     return it == req.headers.end() ? std::nullopt : std::optional{it->second};
 }
 
+// REVIEW-5ae0ef1 SEC-14 (ADR-0530): the handshake id correlates N32-f to N32-c among a peer's
+// contexts, so it comes from the CSPRNG, as random_n32f_context_id() does.
 std::string random_handshake_id() {
-    static thread_local std::mt19937_64 rng{std::random_device{}()};
+    unsigned char bytes[8];
+    if (RAND_bytes(bytes, sizeof(bytes)) != 1) {
+        throw std::runtime_error("sepp: RAND_bytes failed for an N32 handshake id");
+    }
     char buf[17];
-    std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(rng()));
+    for (std::size_t i = 0; i < sizeof(bytes); ++i) {
+        std::snprintf(buf + 2 * i, 3, "%02x", bytes[i]);
+    }
     return buf;
 }
 
@@ -393,7 +401,8 @@ int main() {
         "sepp: {} serving PLMN {} ({} peer(s))", policy.own_fqdn, own_domain, policy.peers.size());
 
     sepp::ContextStore contexts;
-    sepp::TelescopicTable telescopic;
+    // SEC-12 (ADR-0530): bounded; operator configuration.
+    sepp::TelescopicTable telescopic(config.value("telescopic_table_max", std::size_t{10000}));
     http2::Client client(sepp_tls());
     http2::Client n32_client(n32_tls()); // ADR-0529: N32-f towards peer SEPPs
 
@@ -672,7 +681,8 @@ int main() {
         const auto peer_cfg = std::ranges::find_if(
             policy.peers, [&](const sepp::PeerConfig& x) { return x.fqdn == pc->peer_fqdn; });
         for (const auto& [name, value] : in.headers) {
-            if (name != "authorization" || peer_cfg == policy.peers.end()) {
+            // SEC-11: header names are case-insensitive (RFC 9110 5.1).
+            if (lower(name) != "authorization" || peer_cfg == policy.peers.end()) {
                 continue;
             }
             const auto plmn = token_consumer_plmn(value);

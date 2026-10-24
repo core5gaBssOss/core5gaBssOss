@@ -31,6 +31,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | CHG-02 | Fixed (2026-10-24): mapping questions decided by the user and recorded; header refreshed; CHARGING_PROMPT.md aligned. Open, separate work: TMF622 ProductOrder (after CHG-01) | ADR-0524 |
 > | SPEC-06 | Fixed (2026-10-24): Nudm_EE reports mapped to TS 29.122 MonitoringEventReports per TS 29.522 4.4.2; `_nudmEeReport` removed; immediate reports returned in the 201 | ADR-0527 |
 > | CHG-01 | Fixed (2026-10-24, user decision "both"): the reservation scales with the AI-enlarged grant, so the price per octet is the catalog's; multiplier bounds are operator configuration in the GUI | ADR-0528 |
+> | SEC-11, SEC-12, SEC-14, SUS-01, SUS-03 | Fixed (2026-10-24): case-insensitive headers, bounded telescopic table, CSPRNG handshake ids, linear Via scan, bounded PRINS iePaths | ADR-0530 |
 > | Everything else | Open | |
 >
 > **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI

@@ -144,6 +144,9 @@
     "handshake_retry_seconds": {
       "type": "integer"
     },
+    "telescopic_table_max": {
+      "type": "integer"
+    },
     "peers": {
       "type": "array",
       "items": {

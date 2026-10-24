@@ -483,7 +483,8 @@
   "ADR-0526-pcf-session-binding-of-af-sessions-and-termination-on-pdu.md",
   "ADR-0527-nef-monitoring-notifications-as-ts-29-122.md",
   "ADR-0528-ai-quota-sizing-never-changes-the-price-per-octet-the.md",
-  "ADR-0529-sepp-per-plmn-trust-anchors-on-n32-ts-33-501-13-1-2-sec-01.md"
+  "ADR-0529-sepp-per-plmn-trust-anchors-on-n32-ts-33-501-13-1-2-sec-01.md",
+  "ADR-0530-sepp-hardening-csprng-handshake-ids-case-insensitive.md"
  ],
  "split_commit": "0530e4f"
 }

@@ -486,6 +486,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0527](decisions/ADR-0527-nef-monitoring-notifications-as-ts-29-122.md) NEF monitoring notifications as TS 29.122 MonitoringEventReports (SPEC-06)
 - [0528](decisions/ADR-0528-ai-quota-sizing-never-changes-the-price-per-octet-the.md) AI quota sizing never changes the price per octet: the reservation follows the grant (CHG-01, amends ADR-0074/0297)
 - [0529](decisions/ADR-0529-sepp-per-plmn-trust-anchors-on-n32-ts-33-501-13-1-2-sec-01.md) SEPP per-PLMN trust anchors on N32 (TS 33.501 13.1.2, SEC-01)
+- [0530](decisions/ADR-0530-sepp-hardening-csprng-handshake-ids-case-insensitive.md) SEPP hardening: CSPRNG handshake ids, case-insensitive headers, bounded telescopic table, linear Via scan, bounded PRINS iePaths
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
