@@ -22,7 +22,7 @@ namespace cdrgen {
 
 enum class Segment { Consumer, Enterprise };
 
-// The CHF products docs/OVERVIEW.md documents. Each maps to a real rating path: a unit of measure,
+// The CHF products README.md documents. Each maps to a real rating path: a unit of measure,
 // a charging scope, or a rating-group set -- not a label.
 enum class ProductKind {
     DataBundle,   // GB/MB -> GrantedUnit.totalVolume
