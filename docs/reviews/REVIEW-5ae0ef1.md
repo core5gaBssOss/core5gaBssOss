@@ -27,6 +27,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | SBI-03 | Partly fixed (2026-10-20): `problem_response` takes a required `cause`; the parse helpers answer `INVALID_MSG_FORMAT` / `MANDATORY_IE_MISSING` / `MANDATORY_IE_INCORRECT`; 440 of 986 calls carry a Table 5.2.7.2-1 cause. Open: 488 404s whose causes are API-specific (TS 29.5xx texts, per NF), `invalidParams` (NOTE 1). The 964 per-handler 401 checks the Authorizer made unreachable are removed (6 kept 401s still lack `WWW-Authenticate`) | ADR-0502; `SbiJsonBody.*` |
 > | SPEC-01 | Fixed in 2 increments (2026-10-23): the NEF's Npcf_PolicyAuthorization create carries the UE address, one media component and an event subscription, AF PUT/PATCH reach the PCF (ADR-0519); the PCF's `/notify` and `/terminate` callbacks reach the AF as `UserPlaneNotificationData`, `_npcfEventsNotification` removed (ADR-0520). Open, separate gap: the PCF itself sends no events yet | ADR-0519, ADR-0520 |
 > | DOC-02 | ADR-0318 corrected (now true); ADR-0317 corrected to state the monitoring notification is not conformant until SPEC-06 | ADR-0520 |
+> | SPEC-05 | Fixed (2026-10-24): PCF posts to `{notificationUri}/update`; SMF serves `/update` and `/terminate`. Open: the SMF does not release the PDU session on `/terminate` (TS 23.502 4.3.4.2 not implemented) | ADR-0521 |
 > | Everything else | Open | |
 >
 > **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI

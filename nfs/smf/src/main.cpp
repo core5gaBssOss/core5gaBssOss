@@ -2235,6 +2235,11 @@ int main() {
     // rejection cause (§5.3.1.5(c)).
     // ADR-0286: how often PCF actually pushed a policy change to this SMF -- the N28 chain's own
     // observable proof that it is live rather than merely wired.
+    // ADR-0521: PCF-requested SM policy terminations received (recorded, not yet acted on).
+    auto pcf_termination_request_counter =
+        meter->CreateUInt64Counter("smf_pcf_termination_requests_total",
+                                   "SM Policy Association termination requests received from PCF "
+                                   "({notificationUri}/terminate)");
     auto pcf_policy_update_counter = meter->CreateUInt64Counter(
         "smf_pcf_policy_updates_total",
         "SM policy decisions pushed by PCF to SMF's notificationUri (N28/Sy chain)");
@@ -2947,9 +2952,13 @@ int main() {
     // would assert that blocking one flow blocks the session -- an enforcement semantic the spec
     // does not state. Fully barring a subscriber is a PDU session release, a different procedure.
     // Named here rather than approximated.
+    //
+    // ADR-0521 (REVIEW-5ae0ef1 SPEC-05): TS 29.512's callbacks are "{notificationUri}/update"
+    // (SmPolicyUpdateNotification) and "{notificationUri}/terminate"
+    // (SmPolicyControlTerminationRequestNotification); the bare notificationUri is not served.
     server.add_route(
         "POST",
-        std::string(kApiRoot) + "/sm-contexts/{smContextRef}/pcf-notify",
+        std::string(kApiRoot) + "/sm-contexts/{smContextRef}/pcf-notify/update",
         [&sm_contexts, &pcf_policy_update_counter, &pcf_policy_enforced_counter, &pfcp_peer](
             const sbi_core::http2::Request& req) {
             // No bearer check: this is a notification endpoint PCF calls back on a URI SMF itself
@@ -2957,11 +2966,11 @@ int main() {
             const auto ref = req.path_params.at("smContextRef");
             auto stored = sm_contexts.get(ref);
             if (!stored.has_value()) {
-                return sbi_core::http2::problem_response(404,
-                                                         "Not Found",
-                                                         "No SM context " + ref +
-                                                             " for this policy notification",
-                                                         std::nullopt);
+                return sbi_core::http2::problem_response(
+                    404,
+                    "Not Found",
+                    "No SM context " + ref + " for this policy notification",
+                    "POLICY_CONTEXT_NOT_FOUND"); // TS 29.512 4.2.3.2, table 5.7.3-2
             }
 
             sbi_core::http2::Response err;
@@ -3044,6 +3053,45 @@ int main() {
                              ref);
             }
 
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
+
+    // ADR-0521: TS 29.512 4.2.3.3, PCF-requested SM Policy Association termination. The SMF
+    // answers 204 and records the request against the session. NOT done yet: what TS 29.512 says
+    // follows -- Npcf_SMPolicyControl_Delete and the network-requested PDU session release (TS
+    // 23.502 4.3.4.2), a procedure of its own that this SMF does not implement.
+    server.add_route(
+        "POST",
+        std::string(kApiRoot) + "/sm-contexts/{smContextRef}/pcf-notify/terminate",
+        [&sm_contexts, &pcf_termination_request_counter](const sbi_core::http2::Request& req) {
+            const auto ref = req.path_params.at("smContextRef");
+            auto stored = sm_contexts.get(ref);
+            if (!stored.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404,
+                    "Not Found",
+                    "No SM context " + ref + " for this termination request",
+                    "POLICY_CONTEXT_NOT_FOUND"); // TS 29.512 table 5.7.3-2
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<
+                sbi_gen::TerminationNotification_Npcf_SMPolicyControl>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            auto updated = *stored;
+            updated["pcfTerminationRequest"] = json(*body);
+            sm_contexts.update(ref, updated);
+            pcf_termination_request_counter->Add(1);
+            spdlog::warn("smf: PCF requests termination of the SM policy for smContextRef {} "
+                         "(cause {}) -- recorded; PDU session release is not implemented, the "
+                         "session stays up",
+                         ref,
+                         json(body->cause).dump());
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
