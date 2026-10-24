@@ -1,4 +1,4 @@
-## ADR-0344/0345/0346/0347/0348: charging any product, on any protocol, at 700M-CDR scale
+## ADR-0344/0345/0346/0347/0348: charging any product, on any protocol, designed for 700M CDRs
 
 **Date:** 2026-09-11. **Status:** accepted. User-directed: the charging system must be comparable
 to a production vendor's, with no capability gaps.

@@ -495,4 +495,4 @@ Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 - [Deletion correctly identified as not applicable to this project's own N4 interface](decisions/_other/deletion-correctly-identified-as-not-applicable-to-this.md)
 - [ADR-0300 mandate: complete](decisions/_other/adr-0300-mandate-complete.md)
 - [ADR-0318/0319: QoS event delivery, and the UEId service](decisions/_other/adr-0318-0319-qos-event-delivery-and-the-ueid-service.md)
-- [ADR-0344/0345/0346/0347/0348: charging any product, on any protocol, at 700M-CDR scale](decisions/_other/adr-0344-0345-0346-0347-0348-charging-any-product-on-any.md)
+- [ADR-0344/0345/0346/0347/0348: charging any product, on any protocol, designed for 700M CDRs](decisions/_other/adr-0344-0345-0346-0347-0348-charging-any-product-on-any.md)

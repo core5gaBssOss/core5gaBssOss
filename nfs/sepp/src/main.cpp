@@ -23,8 +23,8 @@
 // DISCLOSED, not hidden:
 //   * PRINS (ADR-0493): selectable in 5.2.2 by `security_capabilities`; 5.2.3 cipher suites with
 //     the N32-f master key exported from the TLS connection carrying the request, and the
-//     protection policy exchange; 5.2.4 termination. JOSE-protected forwarding (5.3.2) is NOT built
-//     yet: traffic towards a PRINS peer gets 504. No RI security information, no security profiles.
+//     protection policy exchange; 5.2.4 termination; JOSE-protected forwarding (5.3.2, ADR-0494).
+//     No RI security information, no security profiles.
 //   * N32-f always carries 3gpp-Sbi-Target-apiRoot (both SEPPs indicate support -- this one
 //     always does); forwarding to a peer that does not support the header (the target URI itself
 //     on N32-f) is not built. Telescopic FQDNs (ADR-0492): served; only the Location header of a
