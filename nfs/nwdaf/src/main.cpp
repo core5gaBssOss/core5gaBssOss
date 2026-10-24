@@ -154,7 +154,7 @@ constexpr const char* kNrfSource = "nrf";
 // SERVICE_EXPERIENCE analytic aggregates per S-NSSAI.
 constexpr const char* kSmfQosMonSource = "smf_qos_mon";
 
-// ADR-0380: state the energy-efficiency observable gauge's callback reads on each scrape. The
+// ADR-0381: state the energy-efficiency observable gauge's callback reads on each scrape. The
 // callback is a captureless function pointer (OTel AddCallback takes void* state), so what it
 // needs travels here: the collection store to read the QOS_MON window from, and the disclosed
 // power model. Lives for the program's lifetime (a local in main outliving the meter).
@@ -846,8 +846,9 @@ int main() {
     analytics.thresholds.confidence_full_at_sessions =
         nf_config::require<std::int64_t>(config, "abnormal_confidence_full_at_sessions");
 
-    // ADR-0380: the energy-efficiency KPI's disclosed power model (a TS 28.552 PEEC stand-in --
-    // the 5G SBI carries no energy telemetry). Both terms come from config, never a source literal.
+    // ADR-0381: the energy-efficiency KPI's disclosed power model (a stand-in for TS 28.552
+    // PEE.Energy -- the 5G SBI carries no energy telemetry). Both terms come from config, never a
+    // source literal.
     nwdaf::EnergyModel energy_model;
     energy_model.static_watts_per_slice = nf_config::require<double>(
         config, "energy_static_watts_per_slice", "NWDAF_ENERGY_STATIC_WATTS_PER_SLICE");
@@ -1048,16 +1049,16 @@ int main() {
         "Nnwdaf_DataManagement subscriptions answered SUBSCRIPTION_CANNOT_BE_SERVED / "
         "USER_CONSENT_NOT_GRANTED");
 
-    // ADR-0380: energy-efficiency analytics. There is no Nnwdaf energy eventId (energy is OAM/TS
+    // ADR-0381: energy-efficiency analytics. There is no Nnwdaf energy eventId (energy is OAM/TS
     // 28.552-sourced), so the R19-faithful surface is an OAM-style metric, not an analytics
-    // response: a per-S-NSSAI TS 28.554 6.7.1 Energy-Efficiency KPI (data volume / energy) over the
-    // collected SMF QOS_MON window, with energy from the disclosed power model. Observed on each
-    // scrape, one point per slice labelled with its verbatim S-NSSAI (any SST/SD).
+    // response: a per-S-NSSAI TS 28.554 6.7.2.2 Energy-Efficiency KPI (data volume / energy) over
+    // the collected SMF QOS_MON window, with energy from the disclosed power model. Observed on
+    // each scrape, one point per slice labelled with its verbatim S-NSSAI (any SST/SD).
     EnergyEfficiencyGaugeState ee_state{&collected, energy_model};
     auto energy_efficiency_gauge = meter->CreateDoubleObservableGauge(
         "nwdaf_slice_energy_efficiency_bit_per_joule",
-        "TS 28.554 6.7.1 slice energy efficiency (data volume / energy consumption); energy from a "
-        "disclosed TS 28.552 PEEC stand-in power model");
+        "TS 28.554 6.7.2.2 slice energy efficiency (data volume / energy consumption); energy from "
+        "a disclosed power model standing in for TS 28.552 PEE.Energy");
     energy_efficiency_gauge->AddCallback(
         [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
             auto* st = static_cast<EnergyEfficiencyGaugeState*>(state);
