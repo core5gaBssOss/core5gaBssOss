@@ -476,6 +476,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0510](decisions/ADR-0510-github-organization-core5gabssoss-repository-moved-to.md) GitHub organization core5gaBssOss: repository moved to core5gaBssOss/core5gaBssOss, one repository plus an org profile, runner stays repository-level
 - [0519](decisions/ADR-0519-nef-assessionwithqos-media-component-and-pcf-event.md) NEF AsSessionWithQoS: media component and PCF event subscription (SPEC-01, increment 1)
 - [0520](decisions/ADR-0520-nef-assessionwithqos-pcf-event-and-termination.md) NEF AsSessionWithQoS: PCF event and termination notifications to the AF (SPEC-01, increment 2)
+- [0521](decisions/ADR-0521-n7-callbacks-pcf-posts-to-notificationuri-update-smf-serves.md) N7 callbacks: PCF posts to {notificationUri}/update, SMF serves /update and /terminate (SPEC-05)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
