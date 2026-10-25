@@ -162,6 +162,7 @@
 #include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "monitoring_mapping.hpp"
 #include "qos_mapping.hpp"
 // TS29122_AsSessionWithQoS.hpp (ADR-0315) merged into TS26510_CommonData_grp.hpp once TS29565
 // joined the codegen (ADR-0498).
@@ -7059,24 +7060,31 @@ int main() {
                 return accepted;
             }
 
-            // Rebuilt as the AF-facing TS 29.122 shape rather than forwarded verbatim: UDM sends a
-            // Nudm_EE MonitoredResourceReport, and an AF is entitled to the API it subscribed
-            // through. `subscription` points at the AF's OWN resource, not UDM's.
+            // ADR-0527 (REVIEW-5ae0ef1 SPEC-06, TS 29.522 4.4.2): the Nudm_EE MonitoringReports
+            // become TS 29.122 MonitoringEventReports (nef::af_monitoring_reports); `subscription`
+            // names the AF's own resource.
             sbi_gen::MonitoringNotification notification{};
             notification.subscription = self_base_url + std::string(kAfMonitoringEventApiRoot) +
                                         "/" + af_id + "/subscriptions/" + sub_id;
-
-            json payload = notification;
-            // The event content UDM reported is carried through under its own key rather than
-            // being re-modelled: this build does not map every Nudm_EE report field onto
-            // TS 29.122's MonitoringEventReport, and inventing that mapping would put fabricated
-            // values in front of an AF. Stated here rather than silently dropped.
+            nef::AfMonitoringPlan plan;
             try {
-                payload["_nudmEeReport"] = json::parse(req.body);
-            } catch (const json::exception&) {
-                // A malformed body from UDM is not the AF's problem; the notification still goes
-                // out, carrying only what NEF can vouch for.
+                plan = nef::af_monitoring_reports(
+                    json::parse(req.body),
+                    subscription->get<sbi_gen::MonitoringEventSubscription>());
+            } catch (const json::exception& e) {
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
+            for (const auto& t : plan.not_mapped) {
+                spdlog::warn("nef: Nudm_EE event {} has no AF monitoring report in this build", t);
+            }
+            sbi_core::http2::Response accepted;
+            accepted.status = 204;
+            if (plan.reports.empty()) {
+                return accepted;
+            }
+            notification.monitoringEventReports = plan.reports;
+            const json payload = notification;
 
             sbi_core::http2::ClientRequest out;
             out.method = "POST";
@@ -7093,9 +7101,6 @@ int main() {
                 spdlog::info(
                     "nef: monitoring report delivered to AF {} for subscription {}", af_id, sub_id);
             }
-
-            sbi_core::http2::Response accepted;
-            accepted.status = 204;
             return accepted;
         },
         // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
@@ -7185,6 +7190,20 @@ int main() {
                 udm_req.body = json(ee).dump();
                 auto udm_resp = udr_client.send(udm_req);
                 if (udm_resp.has_value() && udm_resp->status < 300) {
+                    // ADR-0527: an immediate report the UDM returned (CreatedEeSubscription
+                    // eventReports) is the AF's monitoringEventReport in this 201 (TS 29.122
+                    // MonitoringEventSubscription; one member, so the first report).
+                    try {
+                        const auto created = json::parse(udm_resp->body);
+                        if (created.contains("eventReports")) {
+                            const auto plan =
+                                nef::af_monitoring_reports(created.at("eventReports"), *body);
+                            if (!plan.reports.empty()) {
+                                j["monitoringEventReport"] = plan.reports.front();
+                            }
+                        }
+                    } catch (const json::exception&) {
+                    }
                     if (const auto loc = udm_resp->headers.find("location");
                         loc != udm_resp->headers.end()) {
                         const auto slash = loc->second.rfind('/');

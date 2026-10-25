@@ -481,6 +481,13 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0522](decisions/ADR-0522-smf-releases-the-n4-session-at-the-upf-on-pdu-session.md) SMF releases the N4 session at the UPF on PDU session release; final usage to the CHF
 - [0523](decisions/ADR-0523-ue-and-pcf-requested-pdu-session-release-ts-23-502-4-3-4-2.md) UE- and PCF-requested PDU session release (TS 23.502 4.3.4.2, N1 path)
 - [0524](decisions/ADR-0524-charging-mapping-decisions-tm-forum-homes-for-event-based.md) Charging mapping decisions: TM Forum homes for event-based charging, grants, sharing, ordering (CHG-02)
+- [0525](decisions/ADR-0525-smf-allocates-the-ue-ipv4-address-from-a-per-dnn-pool-ts-23.md) SMF allocates the UE IPv4 address from a per-DNN pool (TS 23.501 5.8.2.2.1)
+- [0526](decisions/ADR-0526-pcf-session-binding-of-af-sessions-and-termination-on-pdu.md) PCF session binding of AF sessions and termination on PDU session end (TS 29.513, TS 29.514 4.2.2.2, 4.2.5.3)
+- [0527](decisions/ADR-0527-nef-monitoring-notifications-as-ts-29-122.md) NEF monitoring notifications as TS 29.122 MonitoringEventReports (SPEC-06)
+- [0528](decisions/ADR-0528-ai-quota-sizing-never-changes-the-price-per-octet-the.md) AI quota sizing never changes the price per octet: the reservation follows the grant (CHG-01, amends ADR-0074/0297)
+- [0529](decisions/ADR-0529-sepp-per-plmn-trust-anchors-on-n32-ts-33-501-13-1-2-sec-01.md) SEPP per-PLMN trust anchors on N32 (TS 33.501 13.1.2, SEC-01)
+- [0530](decisions/ADR-0530-sepp-hardening-csprng-handshake-ids-case-insensitive.md) SEPP hardening: CSPRNG handshake ids, case-insensitive headers, bounded telescopic table, linear Via scan, bounded PRINS iePaths
+- [0531](decisions/ADR-0531-udr-serves-only-the-yaml-s-methods-no-item-get-on-three.md) UDR serves only the YAML's methods: no item GET on three application-data resources, no pseudo-operation (SPEC-08/09)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
@@ -489,4 +496,4 @@ Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 - [Deletion correctly identified as not applicable to this project's own N4 interface](decisions/_other/deletion-correctly-identified-as-not-applicable-to-this.md)
 - [ADR-0300 mandate: complete](decisions/_other/adr-0300-mandate-complete.md)
 - [ADR-0318/0319: QoS event delivery, and the UEId service](decisions/_other/adr-0318-0319-qos-event-delivery-and-the-ueid-service.md)
-- [ADR-0344/0345/0346/0347/0348: charging any product, on any protocol, at 700M-CDR scale](decisions/_other/adr-0344-0345-0346-0347-0348-charging-any-product-on-any.md)
+- [ADR-0344/0345/0346/0347/0348: charging any product, on any protocol, designed for 700M CDRs](decisions/_other/adr-0344-0345-0346-0347-0348-charging-any-product-on-any.md)

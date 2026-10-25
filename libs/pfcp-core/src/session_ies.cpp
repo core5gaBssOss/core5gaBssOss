@@ -85,6 +85,17 @@ std::vector<std::uint8_t> encode_f_teid_choose_ipv4() {
     return {kFTeidV4Bit | kFTeidChBit};
 }
 
+std::vector<std::uint8_t> encode_ue_ip_address_ipv4(std::array<std::uint8_t, 4> ipv4,
+                                                    bool destination) {
+    constexpr std::uint8_t kV4 = 0x02; // bit 2
+    constexpr std::uint8_t kSd = 0x04; // bit 3, S/D
+    return {static_cast<std::uint8_t>(kV4 | (destination ? kSd : 0)),
+            ipv4[0],
+            ipv4[1],
+            ipv4[2],
+            ipv4[3]};
+}
+
 std::vector<std::uint8_t> encode_f_teid_allocated_ipv4(std::uint32_t teid,
                                                        std::array<std::uint8_t, 4> ipv4) {
     std::vector<std::uint8_t> out;

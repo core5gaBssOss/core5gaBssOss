@@ -12,7 +12,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | Finding | Status | Where |
 > |---|---|---|
 > | SEC-05, SEC-10, SEC-13 | Fixed | `3049778` (ADR-0494, ADR-0491) |
-> | SEC-01 | Partly fixed: N32-c `sender` must be a client-certificate dNSName SAN; per-PLMN trust anchors and the lab's shared SEPP certificate remain | `3049778` (ADR-0491) |
+> | SEC-01 | Fixed (2026-10-24): `sender` bound to the certificate (ADR-0491) and per-PLMN trust anchors on N32 (TS 33.501 13.1.2); one SEPP certificate per PLMN in the lab. Open: N32-f/N32-c PLMN subset check (SEC-02) | `3049778`, ADR-0491, ADR-0529 |
 > | SEC-02 | Fixed (unit tests pass and fail on the old code; SEPP e2e 4/4 pass) | `0d8683c` (local), ADR-0491 review fix |
 > | SBI-01, SBI-02, SEC-03 | Fixed (2026-10-17): tokens required by default on 25 NFs (SEPP: no OAuth2-protected API); NRF issues tokens only to registered, certificate-bound consumers (`config/nrf.json` check on); SEC-03: AAnF register/remove only from the AUSF, `afId` bound to the calling AF | ADR-0499 (phase table) |
 > | The PCF ModAppSession wrapper bug (§0, "already known") | Fixed | `4255e69` (ADR-0498) |
@@ -29,6 +29,12 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | DOC-02 | ADR-0318 corrected (now true); ADR-0317 corrected to state the monitoring notification is not conformant until SPEC-06 | ADR-0520 |
 > | SPEC-05 | Fixed (2026-10-24): PCF posts to `{notificationUri}/update`; SMF serves `/update` and `/terminate`. Open: the SMF does not release the PDU session on `/terminate` (TS 23.502 4.3.4.2 not implemented) | ADR-0521 |
 > | CHG-02 | Fixed (2026-10-24): mapping questions decided by the user and recorded; header refreshed; CHARGING_PROMPT.md aligned. Open, separate work: TMF622 ProductOrder (after CHG-01) | ADR-0524 |
+> | SPEC-06 | Fixed (2026-10-24): Nudm_EE reports mapped to TS 29.122 MonitoringEventReports per TS 29.522 4.4.2; `_nudmEeReport` removed; immediate reports returned in the 201 | ADR-0527 |
+> | CHG-01 | Fixed (2026-10-24, user decision "both"): the reservation scales with the AI-enlarged grant, so the price per octet is the catalog's; multiplier bounds are operator configuration in the GUI | ADR-0528 |
+> | SEC-11, SEC-12, SEC-14, SUS-01, SUS-03 | Fixed (2026-10-24): case-insensitive headers, bounded telescopic table, CSPRNG handshake ids, linear Via scan, bounded PRINS iePaths | ADR-0530 |
+> | DOC-01, DOC-04, DOC-05, DOC-06, DOC-07 | Fixed (2026-10-24): COMPONENT_STATUS lists the SEPP's real gaps, totals 23 of 47 / 21 in pipeline and date; renamed tests named in ADR-0493/0270; SEPP header comment; ADR-0344 title "designed for 700M CDRs" | docs only |
+> | SPEC-08, SPEC-09, SPEC-10 | Fixed (2026-10-24): item GETs and the data-restoration pseudo-operation removed (ADR-0531); SPEC-10 already removed by `d9ef9dc` | ADR-0531 |
+> | SUS-04 | Fixed (2026-10-25): AUSF compares RES* with CRYPTO_memcmp | `nfs/ausf/src/main.cpp` |
 > | Everything else | Open | |
 >
 > **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI

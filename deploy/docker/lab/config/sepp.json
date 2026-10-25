@@ -5,6 +5,21 @@
   "metrics_bind_address": "0.0.0.0:9494",
   "nrf_base_url": "https://nrf:7777",
   "fqdn": "sepp.5gc.mnc001.mcc001.3gppnetwork.org",
+  "cert_path": "sepp/cert.pem",
+  "key_path": "sepp/key.pem",
+  "trust_anchors": [
+    {
+      "roots": [
+        "ca/ca.crt"
+      ],
+      "plmns": [
+        {
+          "mcc": "001",
+          "mnc": "02"
+        }
+      ]
+    }
+  ],
   "mcc": "001",
   "mnc": "01",
   "allowed_purposes": [
@@ -42,6 +57,7 @@
     ]
   },
   "handshake_retry_seconds": 2,
+  "telescopic_table_max": 10000,
   "peers": [
     {
       "fqdn": "sepp.5gc.mnc002.mcc001.3gppnetwork.org",

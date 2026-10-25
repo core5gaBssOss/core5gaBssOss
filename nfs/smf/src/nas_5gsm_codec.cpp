@@ -95,11 +95,13 @@ decode_establishment_request(const std::vector<std::uint8_t>& p) {
     return out;
 }
 
-std::vector<std::uint8_t> encode_establishment_accept(std::uint8_t pdu_session_id,
-                                                      std::uint8_t pti,
-                                                      const std::string& session_ambr_uplink,
-                                                      const std::string& session_ambr_downlink,
-                                                      std::uint8_t qfi) {
+std::vector<std::uint8_t>
+encode_establishment_accept(std::uint8_t pdu_session_id,
+                            std::uint8_t pti,
+                            const std::string& session_ambr_uplink,
+                            const std::string& session_ambr_downlink,
+                            std::uint8_t qfi,
+                            std::optional<std::array<std::uint8_t, 4>> pdu_address) {
     std::vector<std::uint8_t> out;
     out.push_back(kEpdSessionManagement);
     out.push_back(pdu_session_id);
@@ -142,6 +144,17 @@ std::vector<std::uint8_t> encode_establishment_accept(std::uint8_t pdu_session_i
     out.push_back(static_cast<std::uint8_t>(ul.unit));
     out.push_back(static_cast<std::uint8_t>(ul.value >> 8));
     out.push_back(static_cast<std::uint8_t>(ul.value & 0xFF));
+
+    // ADR-0525: PDU address (TS 24.501 8.3.2.1.1, IEI 0x29, TLV; 9.11.4.10): length 5, octet 3 =
+    // SI6LLA 0 | PDU session type value 001 (IPv4), then the four address octets. The first
+    // optional IE this Accept sends, so the TS 24.501 IE order is kept.
+    if (pdu_address.has_value()) {
+        constexpr std::uint8_t kIeiPduAddress = 0x29;
+        out.push_back(kIeiPduAddress);
+        out.push_back(0x05);
+        out.push_back(kPduSessionTypeIpv4);
+        out.insert(out.end(), pdu_address->begin(), pdu_address->end());
+    }
 
     return out;
 }

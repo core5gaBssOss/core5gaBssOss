@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -204,14 +205,21 @@ ParamDecision exchange_params(const NegotiationPolicy& policy,
 std::string telescopic_label(const std::string& foreign_fqdn);
 
 // Labels this SEPP has handed out (5.4.2), resolvable back to the foreign FQDN (5.4.3).
+// REVIEW-5ae0ef1 SEC-12 (ADR-0530): at most `max_entries` mappings; the oldest is evicted first.
+// The label is a pure function of the FQDN, so an evicted FQDN gets the same label again the next
+// time it is mapped.
 class TelescopicTable {
 public:
+    explicit TelescopicTable(std::size_t max_entries = 10000) : max_entries_(max_entries) {}
     std::string label_for(const std::string& foreign_fqdn); // records the mapping
     std::optional<std::string> foreign_for(const std::string& label) const;
+    std::size_t size() const;
 
 private:
     mutable std::mutex mutex_;
+    std::size_t max_entries_;
     std::map<std::string, std::string> by_label_;
+    std::deque<std::string> order_; // labels, oldest first
 };
 
 // "<label>.<sepp_fqdn>" -> the label (one DNS label, nothing else in front), else nullopt.

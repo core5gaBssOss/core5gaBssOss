@@ -34,6 +34,43 @@
       "x-env-override": "SEPP_FQDN",
       "x-cpp-type": "std::string"
     },
+    "cert_path": {
+      "type": "string"
+    },
+    "key_path": {
+      "type": "string"
+    },
+    "trust_anchors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "plmns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mcc": {
+                  "type": "string"
+                },
+                "mnc": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "x-cpp-type": "nlohmann::json"
+    },
     "mcc": {
       "type": "string",
       "x-env-override": "SEPP_MCC",
@@ -107,6 +144,9 @@
     "handshake_retry_seconds": {
       "type": "integer"
     },
+    "telescopic_table_max": {
+      "type": "integer"
+    },
     "peers": {
       "type": "array",
       "items": {
@@ -149,7 +189,8 @@
     "n32_port",
     "nrf_base_url",
     "port",
-    "sbi_bind_address"
+    "sbi_bind_address",
+    "trust_anchors"
   ],
   "x-config-file": "config/sepp.json",
   "x-source": [
@@ -157,6 +198,8 @@
   ],
   "x-apply": "restart",
   "x-review": [
+    "trust_anchors[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "trust_anchors[].plmns[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "protection_policy: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "protection_policy.apiIeMappingList[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "protection_policy.apiIeMappingList[].IeList[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",

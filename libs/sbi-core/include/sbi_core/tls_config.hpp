@@ -1,6 +1,9 @@
 #pragma once
 
+#include <openssl/types.h>
+
 #include <cstdlib>
+#include <functional>
 #include <stdexcept>
 #include <string>
 
@@ -19,6 +22,11 @@ struct TlsConfig {
     std::string cert_path;
     std::string key_path;
     std::string ca_path;
+    // ADR-0529: an additional check of the peer's certificate chain, run by OpenSSL's verify
+    // callback (server and client) after its own verification against `ca_path`: `preverified` is
+    // OpenSSL's verdict for the current certificate; returning false fails the handshake. Unset =
+    // no additional check. The SEPP uses it for TS 33.501 13.1.2 per-PLMN trust anchors.
+    std::function<bool(bool preverified, X509_STORE_CTX* ctx)> verify;
 };
 
 // ADR-0478. The process-wide TLS version floor. Default (variable unset) is TLS 1.3 only, exactly

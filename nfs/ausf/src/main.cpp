@@ -54,6 +54,7 @@
 
 #include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
+#include <openssl/crypto.h>
 
 #include <algorithm>
 #include <array>
@@ -561,7 +562,10 @@ int main() {
 
             confirm_5g_aka_counter->Add(1);
             sbi_gen::ConfirmationDataResponse resp_data{};
-            if (*res_star == ctx->xres_star) {
+            // REVIEW-5ae0ef1 SUS-04: constant-time comparison of RES* with the stored XRES*.
+            // Both are fixed 16-octet arrays (aka_crypto::ResStar).
+            if (CRYPTO_memcmp(res_star->data(), ctx->xres_star.data(), ctx->xres_star.size()) ==
+                0) {
                 resp_data.authResult.value =
                     sbi_gen::AuthResult_Nausf_UEAuthentication::AUTHENTICATION_SUCCESS;
                 resp_data.supi = ctx->supi;
