@@ -489,6 +489,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0530](decisions/ADR-0530-sepp-hardening-csprng-handshake-ids-case-insensitive.md) SEPP hardening: CSPRNG handshake ids, case-insensitive headers, bounded telescopic table, linear Via scan, bounded PRINS iePaths
 - [0531](decisions/ADR-0531-udr-serves-only-the-yaml-s-methods-no-item-get-on-three.md) UDR serves only the YAML's methods: no item GET on three application-data resources, no pseudo-operation (SPEC-08/09)
 - [0532](decisions/ADR-0532-lab-listeners-bind-0-0-0-0-so-a-gnb-can-attach-first-ue.md) Lab: listeners bind 0.0.0.0, so a gNB can attach; first UE through the compose lab
+- [0534](decisions/ADR-0534-www-authenticate-on-routes-that-check-their-own-token-spec.md) WWW-Authenticate on routes that check their own token; spec causes on non-404 errors (SBI-03 increment 1)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
