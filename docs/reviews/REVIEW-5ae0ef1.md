@@ -35,6 +35,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | DOC-01, DOC-04, DOC-05, DOC-06, DOC-07 | Fixed (2026-10-24): COMPONENT_STATUS lists the SEPP's real gaps, totals 23 of 47 / 21 in pipeline and date; renamed tests named in ADR-0493/0270; SEPP header comment; ADR-0344 title "designed for 700M CDRs" | docs only |
 > | SPEC-08, SPEC-09, SPEC-10 | Fixed (2026-10-24): item GETs and the data-restoration pseudo-operation removed (ADR-0531); SPEC-10 already removed by `d9ef9dc` | ADR-0531 |
 > | SUS-04 | Fixed (2026-10-25): AUSF compares RES* with CRYPTO_memcmp | `nfs/ausf/src/main.cpp` |
+> | SPEC-07 | Fixed (2026-10-26): the 14 NEF PUT handlers whose YAML has no 201 replace only; PUT on a missing id is 404 (SUBSCRIPTION_NOT_FOUND on the CP provisioning and time sync subscriptions, no cause elsewhere: none defined) and creates nothing. Open, "Related": NIDD rds-ports PUT 200 (YAML 201/202), AM PolicyAuthorization events-subscription 201 without `Location`. Tests added, not run locally | ADR-0533; `NefPutReplacesOnly.*` |
 > | Everything else | Open | |
 >
 > **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI

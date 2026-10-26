@@ -485,7 +485,8 @@
   "ADR-0528-ai-quota-sizing-never-changes-the-price-per-octet-the.md",
   "ADR-0529-sepp-per-plmn-trust-anchors-on-n32-ts-33-501-13-1-2-sec-01.md",
   "ADR-0530-sepp-hardening-csprng-handshake-ids-case-insensitive.md",
-  "ADR-0531-udr-serves-only-the-yaml-s-methods-no-item-get-on-three.md"
+  "ADR-0531-udr-serves-only-the-yaml-s-methods-no-item-get-on-three.md",
+  "ADR-0533-nef-northbound-put-only-replaces-404-on-a-missing-resource.md"
  ],
  "split_commit": "0530e4f"
 }
