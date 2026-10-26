@@ -36,6 +36,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | SPEC-08, SPEC-09, SPEC-10 | Fixed (2026-10-24): item GETs and the data-restoration pseudo-operation removed (ADR-0531); SPEC-10 already removed by `d9ef9dc` | ADR-0531 |
 > | SUS-04 | Fixed (2026-10-25): AUSF compares RES* with CRYPTO_memcmp | `nfs/ausf/src/main.cpp` |
 > | DOC-03 (part 2) | Fixed (2026-10-26): independent KAKMA / A-TID / KAF known-answer vectors, S spelled out and HMAC-SHA-256 computed outside the project (Python stdlib, openssl CLI); `aka_crypto` matches all three. Part 1 (SEPP correlation test) not covered by this row | `tests/conformance/test_akma_kdf_vectors.cpp`, ADR-0495 |
+> | SUS-02 | Partly fixed (2026-10-26), confirmed for the UDM: its 13 stores are bounded per store and per access-token `sub` (operator configuration; 500 `INSUFFICIENT_RESOURCES` beyond the bound), and SDM, shared-data and EE subscriptions get a confirmed expiry (TS 29.503 6.1.6.2.3, 6.4.6.2.6) and are swept once it passes. Open: the NEF (18 stores) and the UDR | ADR-0535; `UdmStoreBounds.*`, `SbiStoreQuota.*` |
 > | Everything else | Open | |
 >
 > **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI

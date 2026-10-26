@@ -61,6 +61,10 @@ struct Request {
     // entry per label registered with Server::set_tls_exporters; empty otherwise. ADR-0493: the
     // SEPP's N32-f master key ("EXPORTER_3GPP_N32_MASTER", TS 33.501 13.2.4.4.1).
     std::map<std::string, std::vector<std::uint8_t>> tls_exports;
+    // The verified access token's `sub` (AccessTokenClaims.sub: the consumer's NfInstanceId), set
+    // once the Authorizer accepts the request; empty on a route it does not guard or for a request
+    // it accepted without a token. ADR-0535: per-consumer store quotas (REVIEW-5ae0ef1 SUS-02).
+    std::string token_sub;
 };
 
 // A TLS exporter to run on every accepted connection: label, empty context, `length` octets.

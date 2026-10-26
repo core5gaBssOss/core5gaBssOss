@@ -486,7 +486,8 @@
   "ADR-0529-sepp-per-plmn-trust-anchors-on-n32-ts-33-501-13-1-2-sec-01.md",
   "ADR-0530-sepp-hardening-csprng-handshake-ids-case-insensitive.md",
   "ADR-0531-udr-serves-only-the-yaml-s-methods-no-item-get-on-three.md",
-  "ADR-0532-lab-listeners-bind-0-0-0-0-so-a-gnb-can-attach-first-ue.md"
+  "ADR-0532-lab-listeners-bind-0-0-0-0-so-a-gnb-can-attach-first-ue.md",
+  "ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md"
  ],
  "split_commit": "0530e4f"
 }
