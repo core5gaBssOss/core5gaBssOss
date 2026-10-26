@@ -22,6 +22,8 @@
   "cdr_direct_insert": true,
   "cdr_event_bus_flush_timeout_ms": 10000,
   "ai_quota_sizing_enabled": false,
+  "ai_quota_multiplier_min": 0.5,
+  "ai_quota_multiplier_max": 2.0,
   "quota_model_path": "/build/models/quota_sizing.onnx",
   "ai_quota_latency_budget_us": 50000,
   "diameter_port": 3868,

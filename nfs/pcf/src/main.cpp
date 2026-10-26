@@ -513,7 +513,9 @@ void notify_smf_of_policy_change(sbi_core::http2::Client& client,
 
             sbi_core::http2::ClientRequest req;
             req.method = "POST";
-            req.url = notification_uri;
+            // TS 29.512 4.2.3.2 / SmPolicyUpdateNotification callback: "{notificationUri}/update"
+            // (REVIEW-5ae0ef1 SPEC-05, ADR-0521).
+            req.url = notification_uri + "/update";
             req.headers.emplace("content-type", "application/json");
             req.body = nlohmann::json(notification).dump();
             auto resp = client.send(req);
@@ -591,6 +593,7 @@ int main() {
     sbi_core::http2::Client sm_policy_notify_client(std::move(sm_notify_tls));
     pcf::SpendingLimitTrackingStore spending_limit_tracking;
     pcf::AppSessionStore app_sessions;
+    pcf::AppSessionBindings app_bindings; // ADR-0526
     pcf::UePolicyStore ue_policies;
     pcf::PcEventExposureStore pc_event_subs;
     pcf::AppAmContextStore app_am_contexts;
@@ -1032,36 +1035,70 @@ int main() {
                          return sbi_core::http2::Response::json(200, j.dump());
                      });
 
-    server.add_route("POST",
-                     std::string(kSmApiRoot) + "/sm-policies/{smPolicyId}/delete",
-                     [&sm_policies,
-                      &sm_delete_counter,
-                      &chf_client,
-                      &chf_oauth,
-                      &chf_base_url,
-                      &spending_limit_tracking,
-                      &deregister_binding](const sbi_core::http2::Request& req) {
-                         // SmPolicyDeleteData has no mandatory fields (TS29512) -- accept whatever
-                         // body is sent without requiring it to parse as a specific typed DTO.
-                         const auto sm_policy_id = req.path_params.at("smPolicyId");
-                         if (!sm_policies.remove(sm_policy_id)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No SM policy " + sm_policy_id, std::nullopt);
-                         }
-                         sm_delete_counter->Add(1);
-                         deregister_binding(sm_policy_id);
-                         // ADR-0072: real, best-effort CHF unsubscribe if this SM policy ever
-                         // opened a real spending-limit subscription -- no-op (not an error) if it
-                         // never did.
-                         if (auto tracked = spending_limit_tracking.remove(sm_policy_id);
-                             tracked.has_value()) {
-                             unsubscribe_spending_limit(
-                                 chf_client, chf_oauth, chf_base_url, tracked->chf_subscription_id);
-                         }
-                         sbi_core::http2::Response resp;
-                         resp.status = 204;
-                         return resp;
-                     });
+    server.add_route(
+        "POST",
+        std::string(kSmApiRoot) + "/sm-policies/{smPolicyId}/delete",
+        [&sm_policies,
+         &sm_delete_counter,
+         &chf_client,
+         &chf_oauth,
+         &chf_base_url,
+         &spending_limit_tracking,
+         &deregister_binding,
+         &app_sessions,
+         &app_bindings,
+         &sm_policy_notify_client,
+         self_base_url](const sbi_core::http2::Request& req) {
+            // SmPolicyDeleteData has no mandatory fields (TS29512) -- accept whatever
+            // body is sent without requiring it to parse as a specific typed DTO.
+            const auto sm_policy_id = req.path_params.at("smPolicyId");
+            if (!sm_policies.remove(sm_policy_id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No SM policy " + sm_policy_id, std::nullopt);
+            }
+            sm_delete_counter->Add(1);
+            deregister_binding(sm_policy_id);
+            // ADR-0526, TS 29.514 4.2.5.3: the PDU session is gone, so every AF
+            // session bound to it is no longer valid -- the PCF requests its
+            // termination at "{notifUri}/terminate" (terminationRequest callback),
+            // termCause PDU_SESSION_TERMINATION. The app session itself stays until
+            // the AF deletes it (4.2.4.2). Notifications carry no OAuth2 token.
+            for (const auto& app_id : app_bindings.unbind_sm_policy(sm_policy_id)) {
+                const auto app = app_sessions.get(app_id);
+                const auto notif = app.has_value() && app->contains("ascReqData")
+                                       ? app->at("ascReqData").value("notifUri", std::string{})
+                                       : std::string{};
+                if (notif.empty()) {
+                    continue;
+                }
+                sbi_gen::TerminationInfo info{};
+                info.termCause.value = "PDU_SESSION_TERMINATION";
+                info.resUri =
+                    self_base_url + std::string(kPolicyAuthApiRoot) + "/app-sessions/" + app_id;
+                sbi_core::http2::ClientRequest term;
+                term.method = "POST";
+                term.url = notif + "/terminate";
+                term.headers.emplace("content-type", "application/json");
+                term.body = json(info).dump();
+                const auto r = sm_policy_notify_client.send(term);
+                spdlog::info("pcf: SM policy {} deleted -- termination request for "
+                             "app session {} to {} ({})",
+                             sm_policy_id,
+                             app_id,
+                             term.url,
+                             r.has_value() ? std::to_string(r->status) : r.error());
+            }
+            // ADR-0072: real, best-effort CHF unsubscribe if this SM policy ever
+            // opened a real spending-limit subscription -- no-op (not an error) if it
+            // never did.
+            if (auto tracked = spending_limit_tracking.remove(sm_policy_id); tracked.has_value()) {
+                unsubscribe_spending_limit(
+                    chf_client, chf_oauth, chf_base_url, tracked->chf_subscription_id);
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
 
     // ADR-0072 (gap-closure: real N28 end-to-end). PCF's own real statusNotification callback
     // target -- the path this project chose for the notifUri it supplies at subscribe time (see
@@ -1140,7 +1177,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kPolicyAuthApiRoot) + "/app-sessions",
-        [&app_sessions, &policy_auth_create_counter](const sbi_core::http2::Request& req) {
+        [&app_sessions, &policy_auth_create_counter, &sm_policies, &app_bindings](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AppSessionContext>(req, err);
             if (!body.has_value()) {
@@ -1153,6 +1191,29 @@ int main() {
                                                          "MANDATORY_IE_MISSING");
             }
 
+            // ADR-0526, TS 29.514 4.2.2.2 / TS 29.513: session binding to the PDU session's SM
+            // policy -- UE IPv4 address, plus dnn and sliceInfo when given. Failure: 500
+            // PDU_SESSION_NOT_AVAILABLE. Binding on ueIpv6 / ueMac is not implemented (the SMF
+            // allocates IPv4 only, ADR-0525), so such a request fails binding too.
+            const json asc = *body->ascReqData;
+            std::optional<std::string> bound_sm_policy;
+            if (const auto ip = asc.value("ueIpv4", std::string{}); !ip.empty()) {
+                bound_sm_policy = sm_policies.find_binding(
+                    ip,
+                    asc.contains("dnn")
+                        ? std::optional<std::string>(asc.at("dnn").get<std::string>())
+                        : std::nullopt,
+                    asc.contains("sliceInfo") ? std::optional<json>(asc.at("sliceInfo"))
+                                              : std::nullopt);
+            }
+            if (!bound_sm_policy.has_value()) {
+                return sbi_core::http2::problem_response(
+                    500,
+                    "Internal Server Error",
+                    "No PDU session matches the UE address, DNN and slice of this request",
+                    "PDU_SESSION_NOT_AVAILABLE"); // TS 29.514 table 5.7.3-1
+            }
+
             sbi_gen::AppSessionContext ctx{};
             ctx.ascReqData = body->ascReqData;
             // No ServAuthInfo failure code set = the real "authorized" outcome -- see this file's
@@ -1160,6 +1221,7 @@ int main() {
             ctx.ascRespData = sbi_gen::AppSessionContextRespData{};
             json j = ctx;
             const auto id = app_sessions.create(j);
+            app_bindings.bind(id, *bound_sm_policy);
             policy_auth_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -1227,23 +1289,24 @@ int main() {
             return sbi_core::http2::Response::json(200, ctx->dump());
         });
 
-    server.add_route(
-        "POST",
-        std::string(kPolicyAuthApiRoot) + "/app-sessions/{appSessionId}/delete",
-        [&app_sessions, &policy_auth_delete_counter](const sbi_core::http2::Request& req) {
-            // EventsSubscReqData (the optional real request body here) has no mandatory fields --
-            // accepted without requiring a specific typed parse, same convention as DeleteSMPolicy
-            // above.
-            const auto id = req.path_params.at("appSessionId");
-            if (!app_sessions.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No app session " + id, std::nullopt);
-            }
-            policy_auth_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kPolicyAuthApiRoot) + "/app-sessions/{appSessionId}/delete",
+                     [&app_sessions, &policy_auth_delete_counter, &app_bindings](
+                         const sbi_core::http2::Request& req) {
+                         // EventsSubscReqData (the optional real request body here) has no
+                         // mandatory fields -- accepted without requiring a specific typed parse,
+                         // same convention as DeleteSMPolicy above.
+                         const auto id = req.path_params.at("appSessionId");
+                         if (!app_sessions.remove(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No app session " + id, std::nullopt);
+                         }
+                         app_bindings.unbind_app(id);
+                         policy_auth_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "PUT",

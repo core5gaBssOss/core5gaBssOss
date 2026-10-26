@@ -8797,21 +8797,6 @@ int main() {
         });
 
     server.add_route(
-        "GET", bdt_policy_data_item_path, [&bdt_policy_data](const sbi_core::http2::Request& req) {
-            const auto id = req.path_params.at("bdtPolicyId");
-            auto doc = bdt_policy_data.get(id);
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such resource: " + id, std::nullopt);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 200;
-            resp.headers.emplace("content-type", "application/json");
-            resp.body = doc->dump();
-            return resp;
-        });
-
-    server.add_route(
         "PUT",
         bdt_policy_data_item_path,
         [&bdt_policy_data, bdt_policy_data_item_path](const sbi_core::http2::Request& req) {
@@ -8884,22 +8869,6 @@ int main() {
                          resp.status = 200;
                          resp.headers.emplace("content-type", "application/json");
                          resp.body = nlohmann::json(iptv_config_data.list()).dump();
-                         return resp;
-                     });
-
-    server.add_route("GET",
-                     iptv_config_data_item_path,
-                     [&iptv_config_data](const sbi_core::http2::Request& req) {
-                         const auto id = req.path_params.at("configurationId");
-                         auto doc = iptv_config_data.get(id);
-                         if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such resource: " + id, std::nullopt);
-                         }
-                         sbi_core::http2::Response resp;
-                         resp.status = 200;
-                         resp.headers.emplace("content-type", "application/json");
-                         resp.body = doc->dump();
                          return resp;
                      });
 
@@ -8976,22 +8945,6 @@ int main() {
                          resp.status = 200;
                          resp.headers.emplace("content-type", "application/json");
                          resp.body = nlohmann::json(service_param_data.list()).dump();
-                         return resp;
-                     });
-
-    server.add_route("GET",
-                     service_param_data_item_path,
-                     [&service_param_data](const sbi_core::http2::Request& req) {
-                         const auto id = req.path_params.at("serviceParamId");
-                         auto doc = service_param_data.get(id);
-                         if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such resource: " + id, std::nullopt);
-                         }
-                         sbi_core::http2::Response resp;
-                         resp.status = 200;
-                         resp.headers.emplace("content-type", "application/json");
-                         resp.body = doc->dump();
                          return resp;
                      });
 
@@ -9631,27 +9584,10 @@ int main() {
     // Note the spec's own operationId typo, reproduced verbatim rather than tidied:
     // `CreateIndividualSubcription`.
 
-    const std::string data_restoration_events_path =
-        std::string(kApiRoot) + "/data-restoration-events";
-
-    server.add_route("POST",
-                     data_restoration_events_path,
-                     [&data_restoration_subscriptions](const sbi_core::http2::Request& req) {
-                         nlohmann::json body;
-                         try {
-                             body = nlohmann::json::parse(req.body);
-                         } catch (const nlohmann::json::parse_error& e) {
-                             return sbi_core::http2::problem_response(
-                                 400,
-                                 "Bad Request",
-                                 std::string("malformed request body: ") + e.what(),
-                                 "INVALID_MSG_FORMAT");
-                         }
-                         data_restoration_subscriptions.add(sbi_core::generate_uuid_v4(), body);
-                         sbi_core::http2::Response resp;
-                         resp.status = 204;
-                         return resp;
-                     });
+    // REVIEW-5ae0ef1 SPEC-09 (ADR-0531): TS29504_Nudr_DR.yaml marks POST /data-restoration-events a
+    // pseudo operation ("clients shall NOT invoke this method!") describing only the
+    // restorationNotification callback, so no route is served for it.
+    (void)data_restoration_subscriptions;
 
     udr::oam::register_routes(server, subscriber_provisioning, oam_provisioning_allowed_clients);
 
