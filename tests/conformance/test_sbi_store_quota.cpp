@@ -65,9 +65,8 @@ TEST(SbiConfirmExpiry, AProposalWithinTheLifetimeIsKept) {
 
 TEST(SbiConfirmExpiry, ALaterOrMissingProposalGetsTheMaximumLessASpread) {
     const auto now = system_clock::now();
-    for (const auto proposed :
-         {std::optional<system_clock::time_point>(now + hours(24 * 10)),
-          std::optional<system_clock::time_point>()}) {
+    for (const auto proposed : {std::optional<system_clock::time_point>(now + hours(24 * 10)),
+                                std::optional<system_clock::time_point>()}) {
         for (int i = 0; i < 50; ++i) {
             const auto confirmed = sbi_core::confirm_expiry(proposed, now, hours(24));
             EXPECT_LE(confirmed, now + hours(24));
