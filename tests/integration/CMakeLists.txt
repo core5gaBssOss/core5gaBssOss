@@ -28,6 +28,7 @@ add_executable(integration_tests
     test_udm_sdm_gap_closure_228.cpp
     test_udm_sdm_gap_closure_230.cpp
     test_udm_sdm_gap_closure_232.cpp
+    test_udm_store_bounds.cpp
     test_udm_sdm_gap_closure_233.cpp
     test_udm_sdm_gap_closure_234.cpp
     test_udm_sdm_gap_closure_235.cpp

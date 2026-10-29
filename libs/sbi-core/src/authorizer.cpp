@@ -108,10 +108,14 @@ std::string Authorizer::required_scope(const std::string& path) {
 }
 
 std::optional<Response> Authorizer::check(const Request& req) const {
+    return authorize(req).rejection;
+}
+
+Authorization Authorizer::authorize(const Request& req) const {
     const auto header = req.headers.find("authorization");
     if (header == req.headers.end()) {
         if (!config_.required) {
-            return std::nullopt;
+            return {};
         }
         return challenge(401, req, "", "", "the request carries no OAuth2 access token");
     }
@@ -156,7 +160,7 @@ std::optional<Response> Authorizer::check(const Request& req) const {
                          scope,
                          "the access token's scope does not cover this API");
     }
-    return std::nullopt;
+    return {std::nullopt, result.subject};
 }
 
 Response invalid_token_response(const Request& req, std::string detail) {

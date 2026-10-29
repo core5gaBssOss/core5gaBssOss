@@ -1,8 +1,12 @@
 #pragma once
 
+#include "sbi_core/store_quota.hpp"
+
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -14,8 +18,21 @@
 // Private to nfs/udm -- not shared with any other NF, per CLAUDE.md's "no NF includes another NF's
 // private headers" rule. In-memory only, no persistence across restarts -- same disclosed
 // simplification as every other NF's store so far (ADR-0015).
+//
+// ADR-0535 (REVIEW-5ae0ef1 SUS-02): every store is bounded by an sbi_core::StoreQuota -- at most
+// `max_entries` keys, and `max_per_consumer` keys created by one access-token sub. An insert of a
+// new key that the quota refuses changes nothing and reports it (false / std::nullopt); the
+// handler answers 500 INSUFFICIENT_RESOURCES. The three subscription stores also keep each
+// subscription's confirmed expiry and drop it once passed (remove_expired, run by a sweeper).
 
 namespace udm {
+
+using Clock = std::chrono::system_clock;
+
+// Re-confirms, under a subscription store's lock, the expiry of a document a modify produced:
+// writes the confirmed time into the document and returns it. Throws std::invalid_argument when
+// the proposed value is not an RFC 3339 date-time; the store then changes nothing.
+using ExpiryFinisher = std::function<Clock::time_point(nlohmann::json&)>;
 
 // One subscriber's AKA material as the UDM uses it for vector generation. Since ADR-0383 it is read
 // from the UDR's authentication-subscription document on every request (udr_auth_source.hpp) --
@@ -38,7 +55,10 @@ struct AuthenticationSubscription {
 // nfs/udm's own SdmSubscriptionStore.
 class AuthEventStore {
 public:
-    std::string create(const std::string& supi, nlohmann::json event);
+    explicit AuthEventStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // std::nullopt: the store is full.
+    std::optional<std::string>
+    create(const std::string& supi, nlohmann::json event, const std::string& consumer);
     bool remove(const std::string& supi, const std::string& auth_event_id);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0214). Backs `GetRgAuthData`:
     // real, disclosed design choice -- since TS29503_Nudm_UEAU.yaml's own `RgAuthCtx.authInd`
@@ -56,6 +76,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, Entry> events_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // Backs Nudm_UECM's AMF-3GPP-access registration group (3GppRegistration, Get3GppRegistration,
@@ -64,7 +85,9 @@ private:
 // collection).
 class AmfRegistrationStore {
 public:
-    void put(const std::string& ue_id, nlohmann::json registration);
+    explicit AmfRegistrationStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // false: a new ue_id and the store is full; nothing stored.
+    bool put(const std::string& ue_id, nlohmann::json registration, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id);
     // Applies an RFC 7396 JSON Merge Patch (already parsed) via nlohmann::json's built-in
     // .merge_patch(). Returns nullopt if ue_id doesn't exist.
@@ -75,6 +98,7 @@ public:
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> registrations_;
+    sbi_core::StoreQuota quota_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0216). Backs Nudm_UECM's AMF
@@ -84,7 +108,9 @@ private:
 // TS29503_Nudm_UECM.yaml's own `/{ueId}/registrations/amf-non-3gpp-access`).
 class AmfNon3GppRegistrationStore {
 public:
-    void put(const std::string& ue_id, nlohmann::json registration);
+    explicit AmfNon3GppRegistrationStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // false: a new ue_id and the store is full; nothing stored.
+    bool put(const std::string& ue_id, nlohmann::json registration, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id);
     std::optional<nlohmann::json> merge_patch(const std::string& ue_id,
                                               const nlohmann::json& patch);
@@ -92,6 +118,7 @@ public:
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> registrations_;
+    sbi_core::StoreQuota quota_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0215). Backs
@@ -102,12 +129,15 @@ private:
 // document itself).
 class RoamingInfoUpdateStore {
 public:
-    void put(const std::string& ue_id, nlohmann::json info);
+    explicit RoamingInfoUpdateStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // false: a new ue_id and the store is full; nothing stored.
+    bool put(const std::string& ue_id, nlohmann::json info, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id);
 
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> info_;
+    sbi_core::StoreQuota quota_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0217). Backs Nudm_UECM's SMSF
@@ -120,7 +150,9 @@ private:
 // ueId, in-memory, same shape as `AmfRegistrationStore` above.
 class SmsfRegistrationStore {
 public:
-    void put(const std::string& ue_id, nlohmann::json registration);
+    explicit SmsfRegistrationStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // false: a new ue_id and the store is full; nothing stored.
+    bool put(const std::string& ue_id, nlohmann::json registration, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id);
     std::optional<nlohmann::json> merge_patch(const std::string& ue_id,
                                               const nlohmann::json& patch);
@@ -129,6 +161,7 @@ public:
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> registrations_;
+    sbi_core::StoreQuota quota_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0218). Backs Nudm_UECM's IP-SM-GW
@@ -137,13 +170,16 @@ private:
 // in-memory, same shape as `AmfRegistrationStore` above minus `merge_patch`.
 class IpSmGwRegistrationStore {
 public:
-    void put(const std::string& ue_id, nlohmann::json registration);
+    explicit IpSmGwRegistrationStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // false: a new ue_id and the store is full; nothing stored.
+    bool put(const std::string& ue_id, nlohmann::json registration, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id);
     bool remove(const std::string& ue_id);
 
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> registrations_;
+    sbi_core::StoreQuota quota_;
 };
 
 // Backs Nudm_UECM's SMF registration group (Registration, RetrieveSmfRegistration,
@@ -155,8 +191,12 @@ private:
 // flat map keyed by a composed string.
 class SmfRegistrationStore {
 public:
-    void
-    put(const std::string& ue_id, const std::string& pdu_session_id, nlohmann::json registration);
+    explicit SmfRegistrationStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // false: a new (ue_id, pdu_session_id) and the store is full; nothing stored.
+    bool put(const std::string& ue_id,
+             const std::string& pdu_session_id,
+             nlohmann::json registration,
+             const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id, const std::string& pdu_session_id);
     std::optional<nlohmann::json> merge_patch(const std::string& ue_id,
                                               const std::string& pdu_session_id,
@@ -168,6 +208,7 @@ public:
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, std::unordered_map<std::string, nlohmann::json>> registrations_;
+    sbi_core::StoreQuota quota_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0219). Backs Nudm_UECM's NWDAF
@@ -180,9 +221,12 @@ private:
 // `SmfRegistrationStore` above.
 class NwdafRegistrationStore {
 public:
-    void put(const std::string& ue_id,
+    explicit NwdafRegistrationStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // false: a new (ue_id, nwdaf_registration_id) and the store is full; nothing stored.
+    bool put(const std::string& ue_id,
              const std::string& nwdaf_registration_id,
-             nlohmann::json registration);
+             nlohmann::json registration,
+             const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id,
                                       const std::string& nwdaf_registration_id);
     std::optional<nlohmann::json> merge_patch(const std::string& ue_id,
@@ -195,6 +239,7 @@ public:
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, std::unordered_map<std::string, nlohmann::json>> registrations_;
+    sbi_core::StoreQuota quota_;
 };
 
 // Backs Nudm_SDM's Subscribe/Unsubscribe (`/{ueId}/sdm-subscriptions`). Same
@@ -206,11 +251,14 @@ private:
 struct SdmSubscriptionEntry {
     std::string ue_id;
     nlohmann::json data;
+    Clock::time_point expires_at; // the confirmed `expires` (ADR-0535)
 };
 
 class SdmSubscriptionStore {
 public:
-    std::string create(SdmSubscriptionEntry entry);
+    explicit SdmSubscriptionStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // std::nullopt: the store is full.
+    std::optional<std::string> create(SdmSubscriptionEntry entry, const std::string& consumer);
     std::optional<SdmSubscriptionEntry> get(const std::string& subscription_id);
     bool remove(const std::string& subscription_id);
     // Gap-closure (ADR-0232, task #169): backs Modify (real RFC 7396 JSON Merge Patch, same
@@ -218,14 +266,19 @@ public:
     // use). Real ownership check baked in -- a subscription_id that exists but belongs to a
     // different ue_id returns nullopt, same real 404 semantics `remove` above already applies via
     // the caller's own check in Unsubscribe.
+    // ADR-0535: `finish` re-confirms the patched document's `expires`.
     std::optional<SdmSubscriptionEntry> merge_patch(const std::string& subscription_id,
                                                     const std::string& ue_id,
-                                                    const nlohmann::json& patch);
+                                                    const nlohmann::json& patch,
+                                                    const ExpiryFinisher& finish);
+    // Drops every subscription whose confirmed expiry is not after `now`; returns how many.
+    std::size_t remove_expired(Clock::time_point now);
 
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, SdmSubscriptionEntry> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // Gap-closure (ADR-0235, task #169): backs Nudm_SDM's shared-data subscription group
@@ -235,16 +288,28 @@ private:
 // by), same real `SdmSubscription` schema and create/id-assign/merge-patch shape otherwise.
 class SharedDataSubscriptionStore {
 public:
-    std::string create(nlohmann::json data);
+    explicit SharedDataSubscriptionStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // std::nullopt: the store is full. `expires_at` is the confirmed `expires` (ADR-0535).
+    std::optional<std::string>
+    create(nlohmann::json data, Clock::time_point expires_at, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& subscription_id);
     bool remove(const std::string& subscription_id);
+    // ADR-0535: `finish` re-confirms the patched document's `expires`.
     std::optional<nlohmann::json> merge_patch(const std::string& subscription_id,
-                                              const nlohmann::json& patch);
+                                              const nlohmann::json& patch,
+                                              const ExpiryFinisher& finish);
+    // Drops every subscription whose confirmed expiry is not after `now`; returns how many.
+    std::size_t remove_expired(Clock::time_point now);
 
 private:
+    struct Entry {
+        nlohmann::json data;
+        Clock::time_point expires_at;
+    };
     std::mutex mutex_;
-    std::unordered_map<std::string, nlohmann::json> subscriptions_;
+    std::unordered_map<std::string, Entry> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #105, ADR-0082): backs Nudm_EE's
@@ -257,24 +322,32 @@ private:
 struct EeSubscriptionEntry {
     std::string ue_identity;
     nlohmann::json data;
+    Clock::time_point expires_at; // the confirmed reportingOptions.expiry (ADR-0535)
 };
 
 class EeSubscriptionStore {
 public:
-    std::string create(EeSubscriptionEntry entry);
+    explicit EeSubscriptionStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    // std::nullopt: the store is full.
+    std::optional<std::string> create(EeSubscriptionEntry entry, const std::string& consumer);
     std::optional<EeSubscriptionEntry> get(const std::string& subscription_id);
     // Applies an RFC 6902 JSON Patch (already parsed, UpdateEeSubscription's own real
     // application/json-patch+json content type -- confirmed by reading TS29503_Nudm_EE.yaml
     // directly, NOT the RFC 7396 merge-patch AmfRegistrationStore/PpDataStore below use).
-    // Returns nullopt if subscription_id doesn't exist.
+    // Returns nullopt if subscription_id doesn't exist. ADR-0535: `finish` re-confirms the patched
+    // document's reportingOptions.expiry.
     std::optional<nlohmann::json> apply_patch(const std::string& subscription_id,
-                                              const nlohmann::json& patch_ops);
+                                              const nlohmann::json& patch_ops,
+                                              const ExpiryFinisher& finish);
     bool remove(const std::string& subscription_id);
+    // Drops every subscription whose confirmed expiry is not after `now`; returns how many.
+    std::size_t remove_expired(Clock::time_point now);
 
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, EeSubscriptionEntry> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #105, ADR-0082): backs Nudm_PP's Get/Update
@@ -284,14 +357,17 @@ private:
 // TS29503_Nudm_PP.yaml directly.
 class PpDataStore {
 public:
-    void put(const std::string& ue_id, nlohmann::json pp_data);
+    explicit PpDataStore(sbi_core::StoreLimits limits) : quota_(limits) {}
     std::optional<nlohmann::json> get(const std::string& ue_id);
-    std::optional<nlohmann::json> merge_patch(const std::string& ue_id,
-                                              const nlohmann::json& patch);
+    // Creates the document when absent (see stores.cpp). std::nullopt: it was absent and the store
+    // is full (ADR-0535); nothing stored.
+    std::optional<nlohmann::json>
+    merge_patch(const std::string& ue_id, const nlohmann::json& patch, const std::string& consumer);
 
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> pp_data_;
+    sbi_core::StoreQuota quota_;
 };
 
 } // namespace udm

@@ -2,6 +2,7 @@
 // (ADR-0232, docs/CAPABILITY_GAP_ANALYSIS.md's own UDM audit): real RFC 7396 JSON Merge Patch
 // (PATCH /{ueId}/sdm-subscriptions/{subscriptionId}), completing Subscribe/Unsubscribe/Modify.
 
+#include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
 
 #include <nlohmann/json.hpp>
@@ -100,19 +101,23 @@ TEST(UdmSdmGapClosure232Integration, ModifyMergePatchesExistingSubscription) {
     ASSERT_TRUE(created.subscriptionId.has_value());
     const std::string subscription_id = *created.subscriptionId;
 
-    // Modify: real RFC 7396 merge-patch, only `expires` changes.
+    // Modify: real RFC 7396 merge-patch, only `expires` changes. ADR-0535: the UDM confirms at
+    // most config/udm.json's subscription_max_lifetime_seconds ahead, so the proposal stays inside
+    // it to come back unchanged.
+    const std::string new_expires =
+        sbi_core::format_rfc3339(std::chrono::system_clock::now() + std::chrono::hours(1));
     sbi_core::http2::ClientRequest patch_req;
     patch_req.method = "PATCH";
     patch_req.url = base + "/" + subscription_id;
     patch_req.headers.emplace("content-type", "application/merge-patch+json");
     patch_req.headers.emplace("authorization", "Bearer " + token);
-    patch_req.body = json{{"expires", "2027-01-01T00:00:00Z"}}.dump();
+    patch_req.body = json{{"expires", new_expires}}.dump();
     auto patch_resp = client.send(patch_req);
     ASSERT_TRUE(patch_resp.has_value());
     ASSERT_EQ(patch_resp->status, 200) << patch_resp->body;
     const auto patched = json::parse(patch_resp->body).get<sbi_gen::SdmSubscription>();
     ASSERT_TRUE(patched.expires.has_value());
-    EXPECT_EQ(*patched.expires, "2027-01-01T00:00:00Z");
+    EXPECT_EQ(*patched.expires, new_expires);
     // Merge-patch semantics: fields not mentioned in the patch survive unchanged.
     EXPECT_EQ(patched.nfInstanceId, sub_data.nfInstanceId);
     EXPECT_EQ(patched.callbackReference, sub_data.callbackReference);

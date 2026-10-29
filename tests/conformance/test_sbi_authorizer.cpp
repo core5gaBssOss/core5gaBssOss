@@ -104,6 +104,22 @@ TEST_F(SbiAuthorizer, AValidTokenForThisNfAndApiIsAuthorized) {
     EXPECT_FALSE(authorizer_->check(request(kAmPath, "bearer " + sign(claims()))).has_value());
 }
 
+// ADR-0535 (REVIEW-5ae0ef1 SUS-02): the verified token's sub is what per-consumer store quotas
+// count by; a request accepted without a token has none.
+TEST_F(SbiAuthorizer, AnAcceptedTokensSubIsHandedOn) {
+    const auto with_token = authorizer_->authorize(request(kAmPath, "Bearer " + sign(claims())));
+    EXPECT_FALSE(with_token.rejection.has_value());
+    EXPECT_EQ(with_token.sub, "1d2c3b4a-0000-4000-8000-000000000001");
+
+    const auto without = optional_->authorize(request(kAmPath, std::nullopt));
+    EXPECT_FALSE(without.rejection.has_value());
+    EXPECT_TRUE(without.sub.empty());
+
+    const auto rejected = authorizer_->authorize(request(kAmPath, "Bearer not-a-jwt"));
+    EXPECT_TRUE(rejected.rejection.has_value());
+    EXPECT_TRUE(rejected.sub.empty());
+}
+
 TEST_F(SbiAuthorizer, NoTokenIs401WithBearerRealmAndNoErrorAttribute) {
     const auto r = authorizer_->check(request(kAmPath, std::nullopt));
     ASSERT_TRUE(r.has_value());

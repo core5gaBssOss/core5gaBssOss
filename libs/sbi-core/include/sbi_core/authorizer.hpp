@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 
 // Producer-side OAuth2 authorization of SBI requests, run by http2::Server before a route's
 // handler (ADR-0499 phase 1; REVIEW-5ae0ef1 SBI-01/02). Rules, TS 29.500 6.7.3
@@ -36,9 +37,25 @@ struct AuthorizerConfig {
     std::string nf_instance_id;
 };
 
+// The Authorizer's verdict on one request.
+struct Authorization {
+    Authorization() = default;
+    // Every rejection path returns its 401/403 Response directly.
+    Authorization(Response r) : rejection(std::move(r)) {} // NOLINT(google-explicit-constructor)
+    Authorization(std::optional<Response> r, std::string s)
+        : rejection(std::move(r)), sub(std::move(s)) {}
+
+    // The 401/403 to answer instead of running the handler; std::nullopt when authorized.
+    std::optional<Response> rejection;
+    // When authorized with a token: its verified `sub` (ADR-0535). Empty otherwise.
+    std::string sub;
+};
+
 class Authorizer {
 public:
     Authorizer(AuthorizerConfig config, std::shared_ptr<jwt::Verifier> verifier);
+
+    [[nodiscard]] Authorization authorize(const Request& req) const;
 
     // std::nullopt: authorized, run the handler. Otherwise the 401/403 to answer instead.
     [[nodiscard]] std::optional<Response> check(const Request& req) const;

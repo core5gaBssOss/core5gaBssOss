@@ -495,6 +495,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0515](decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md) Helm charts for the 17 NFs without one (DEP-03, NF half); the chart config takes compose's environment settings
 - [0506](decisions/ADR-0506-nfs-register-again-when-the-nrf-no-longer-knows-them-one.md) NFs register again when the NRF no longer knows them: one shared NRF heart-beat in sbi-core
 - [0512](decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md) README.md is append/update only: nothing is ever removed from it (user-directed, strict); pre-commit hook and CI check
+- [0535](decisions/ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md) UDM store bounds per store and per token sub, confirmed subscription expiry (SUS-02)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
