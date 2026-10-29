@@ -145,7 +145,8 @@ submit:
 - Do not add AI tools as commit co-authors (no `Co-Authored-By: Claude...`/`Claude-Session:`/
   "Generated with Claude Code" trailer). A real, repeated incident, not a hypothetical: 76 commits
   across this repo's history carried one before this rule and the enforcement below existed
-  (CLAUDE.md guardrail 9 has the full account). Run this once after cloning to activate the local
+  (CLAUDE.md guardrail 9; the full account is in `docs/project-context/guardrail-history.md`). Run
+  this once after cloning to activate the local
   enforcement hook (`.githooks/commit-msg`, which rejects a matching commit message outright):
 
   ```sh
