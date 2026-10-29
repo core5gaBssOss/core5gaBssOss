@@ -2,7 +2,8 @@ apiVersion: v2
 name: aanf
 description: >
   AAnF (AKMA Anchor Function) -- TS 33.535 / TS 29.535 Naanf_AKMA, increment 1 (ADR-0495).
-  Lab-grade Helm chart, same caveats as deploy/helm/ausf/Chart.yaml. AKMA contexts are in Valkey.
+  Lab-grade Helm chart, config and certificates as deploy/helm/ausf/Chart.yaml (ADR-0513). AKMA contexts
+  are in Valkey, which the chart does not provision.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

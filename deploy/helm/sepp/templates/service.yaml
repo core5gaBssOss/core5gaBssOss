@@ -1,7 +1,8 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-sepp
+  # The NF's name: what every peer's config and the NF's certificate (DNS:sepp) use.
+  name: {{ .Values.service.name | default "sepp" }}
   labels:
     app.kubernetes.io/name: sepp
     app.kubernetes.io/instance: {{ .Release.Name }}

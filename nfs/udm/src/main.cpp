@@ -88,10 +88,12 @@
 #include "sbi_core/jwt.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
+#include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
+#include "sbi_core/store_quota.hpp"
 #include "sbi_core/uuid.hpp"
 
 #include <boost/asio/io_context.hpp>
@@ -99,9 +101,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
+#include <stop_token>
 #include <thread>
 #include <variant>
 
@@ -306,22 +311,14 @@ void run_nrf_lifecycle(const std::string& udm_instance_id, const std::string& nr
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
 
-    while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(kHeartbeatSeconds / 2));
-
-        sbi_core::http2::ClientRequest patch_req;
-        patch_req.method = "PATCH";
-        patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + udm_instance_id;
-        patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.body =
-            json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
-                .dump();
-
-        auto patch_resp = http_client.send(patch_req);
-        if (!patch_resp.has_value() || patch_resp->status != 200) {
-            spdlog::warn("udm: heartbeat failed");
-        }
-    }
+    // TS 29.510 5.2.2.3.2; registers again if the NRF no longer knows this instance (ADR-0506).
+    sbi_core::nrf::run_heartbeats(http_client,
+                                  {.nrf_base = nrf_base,
+                                   .nf_instance_id = udm_instance_id,
+                                   .profile = profile,
+                                   .log_name = "udm",
+                                   .on_registered = sbi_core::clear_default_token_backoff},
+                                  std::chrono::seconds(kHeartbeatSeconds / 2));
 }
 
 // ADR-0293 (P4.5 stage 5b completion): UDM's MAP client had existed since ADR-0061 and NOTHING
@@ -437,6 +434,44 @@ sbi_core::http2::Response auth_data_problem(udm::AuthDataError err, const std::s
                                              std::nullopt);
 }
 
+// ADR-0535 (REVIEW-5ae0ef1 SUS-02): a create refused because the store is at its configured bound.
+// TS 29.503 defines no cause for it (its only creation refusal, CREATION_NOT_ALLOWED, is for 5G VN
+// groups), so TS 29.500 Table 5.2.7.2-1's INSUFFICIENT_RESOURCES.
+sbi_core::http2::Response store_full(const std::string& what) {
+    return sbi_core::http2::problem_response(500,
+                                             "Internal Server Error",
+                                             what + ": this UDM's store limit is reached",
+                                             "INSUFFICIENT_RESOURCES");
+}
+
+// ADR-0535: TS 29.503 6.1.6.2.3 / 6.4.6.2.6 -- a request proposes a subscription's expiry, the
+// response carries the one the UDM confirms (sbi_core::confirm_expiry: at most `max_lifetime`
+// ahead, spread when the UDM sets it). Confirms the value at `at` in `doc`, writing it back when
+// it differs from the proposal.
+// Throws std::invalid_argument when it is not an RFC 3339 date-time.
+udm::Clock::time_point
+confirm_expiry_in(json& doc, const json::json_pointer& at, std::chrono::seconds max_lifetime) {
+    std::optional<udm::Clock::time_point> proposed;
+    if (doc.contains(at) && !doc.at(at).is_null()) {
+        if (doc.at(at).is_string()) {
+            proposed = sbi_core::parse_rfc3339(doc.at(at).get<std::string>());
+        }
+        if (!proposed) {
+            throw std::invalid_argument(at.to_string() + " is not an RFC 3339 date-time");
+        }
+    }
+    const auto confirmed = sbi_core::confirm_expiry(proposed, udm::Clock::now(), max_lifetime);
+    if (confirmed != proposed) { // a proposal accepted as is keeps the consumer's own spelling
+        doc[at] = sbi_core::format_rfc3339(confirmed);
+    }
+    return confirmed;
+}
+
+// TS 29.500 Table 5.2.7.2-1: an optional IE (the expiry) with an incorrect value.
+sbi_core::http2::Response expiry_problem(const std::invalid_argument& e) {
+    return sbi_core::http2::problem_response(400, "Bad Request", e.what(), "OPTIONAL_IE_INCORRECT");
+}
+
 } // namespace
 
 int main() {
@@ -467,6 +502,22 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "UDM_NRF_BASE_URL");
     const auto udr_base_url =
         nf_config::require<std::string>(config, "udr_base_url", "UDM_UDR_BASE_URL");
+    // ADR-0535 (REVIEW-5ae0ef1 SUS-02): bounds on every in-memory store, and the longest
+    // subscription lifetime this UDM confirms -- operator configuration, not code.
+    const sbi_core::StoreLimits store_limits{
+        .max_entries =
+            nf_config::require<std::size_t>(config, "store_max_entries", "UDM_STORE_MAX_ENTRIES"),
+        .max_per_consumer = nf_config::require<std::size_t>(
+            config, "store_max_entries_per_consumer", "UDM_STORE_MAX_ENTRIES_PER_CONSUMER"),
+    };
+    const std::chrono::seconds subscription_max_lifetime{nf_config::require<std::int64_t>(
+        config, "subscription_max_lifetime_seconds", "UDM_SUBSCRIPTION_MAX_LIFETIME_SECONDS")};
+    const std::chrono::seconds store_sweep_interval{nf_config::require<std::int64_t>(
+        config, "store_sweep_interval_seconds", "UDM_STORE_SWEEP_INTERVAL_SECONDS")};
+    if (subscription_max_lifetime.count() <= 0 || store_sweep_interval.count() <= 0) {
+        nf_config::fatal("udm: subscription_max_lifetime_seconds and store_sweep_interval_seconds "
+                         "must be positive");
+    }
 
     sbi_core::init_logging("udm");
     sbi_core::init_tracing("udm");
@@ -483,7 +534,7 @@ int main() {
 
     sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
 
-    udm::AmfRegistrationStore amf_registrations;
+    udm::AmfRegistrationStore amf_registrations{store_limits};
     // ADR-0497: this UDM's home PLMNs, for the ROAMING_STATUS report (roaming = serving PLMN not
     // among them).
     const json home_plmns = config.value("home_plmns", json::array());
@@ -506,22 +557,41 @@ int main() {
                      hlr_number_digits);
     }
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0215).
-    udm::RoamingInfoUpdateStore roaming_info_updates;
+    udm::RoamingInfoUpdateStore roaming_info_updates{store_limits};
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0216).
-    udm::AmfNon3GppRegistrationStore amf_non3gpp_registrations;
+    udm::AmfNon3GppRegistrationStore amf_non3gpp_registrations{store_limits};
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0217).
-    udm::SmsfRegistrationStore smsf_3gpp_registrations;
-    udm::SmsfRegistrationStore smsf_non3gpp_registrations;
+    udm::SmsfRegistrationStore smsf_3gpp_registrations{store_limits};
+    udm::SmsfRegistrationStore smsf_non3gpp_registrations{store_limits};
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0218).
-    udm::IpSmGwRegistrationStore ip_sm_gw_registrations;
+    udm::IpSmGwRegistrationStore ip_sm_gw_registrations{store_limits};
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0219).
-    udm::NwdafRegistrationStore nwdaf_registrations;
-    udm::SmfRegistrationStore smf_registrations;
-    udm::SdmSubscriptionStore sdm_subscriptions;
-    udm::SharedDataSubscriptionStore shared_data_subscriptions;
-    udm::AuthEventStore auth_events;
-    udm::EeSubscriptionStore ee_subscriptions;
-    udm::PpDataStore pp_data;
+    udm::NwdafRegistrationStore nwdaf_registrations{store_limits};
+    udm::SmfRegistrationStore smf_registrations{store_limits};
+    udm::SdmSubscriptionStore sdm_subscriptions{store_limits};
+    udm::SharedDataSubscriptionStore shared_data_subscriptions{store_limits};
+    udm::AuthEventStore auth_events{store_limits};
+    udm::EeSubscriptionStore ee_subscriptions{store_limits};
+    udm::PpDataStore pp_data{store_limits};
+    // ADR-0535: drops subscriptions once their confirmed expiry has passed (TS 29.503 5.5.2.2.2:
+    // the subscription then "becomes invalid"). Declared after the stores, so it stops first.
+    std::jthread expiry_sweeper(
+        [&sdm_subscriptions, &shared_data_subscriptions, &ee_subscriptions, store_sweep_interval](
+            const std::stop_token& stop) {
+            std::mutex mutex;
+            std::condition_variable_any wake;
+            std::unique_lock lock(mutex);
+            while (!wake.wait_for(lock, stop, store_sweep_interval, [] { return false; }) &&
+                   !stop.stop_requested()) {
+                const auto now = udm::Clock::now();
+                const auto removed = sdm_subscriptions.remove_expired(now) +
+                                     shared_data_subscriptions.remove_expired(now) +
+                                     ee_subscriptions.remove_expired(now);
+                if (removed > 0) {
+                    spdlog::info("udm: removed {} expired subscription(s)", removed);
+                }
+            }
+        });
 
     // UDM's own client identity + token source for calling UDR (ADR-0069, gap-closure Tier 1b) --
     // same separate-http2::Client-per-target-NF pattern nfs/ausf/src/main.cpp's own udm_client
@@ -708,7 +778,9 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const bool is_new = !amf_registrations.get(ue_id).has_value();
             json j = *body;
-            amf_registrations.put(ue_id, j);
+            if (!amf_registrations.put(ue_id, j, req.token_sub)) {
+                return store_full("AMF 3GPP-access registrations");
+            }
             // ADR-0293: the UE now has a serving node on record -- push its subscriber data to the
             // legacy VLR peer, if one is configured. Fire-and-forget; see the helper's own note.
             push_subscriber_data_to_vlr(vlr_peer_address, vlr_peer_port, ue_id);
@@ -865,7 +937,9 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const bool is_new = !roaming_info_updates.get(ue_id).has_value();
             json j = *body;
-            roaming_info_updates.put(ue_id, j);
+            if (!roaming_info_updates.put(ue_id, j, req.token_sub)) {
+                return store_full("roaming information updates");
+            }
             roaming_info_update_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -905,7 +979,9 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const bool is_new = !amf_non3gpp_registrations.get(ue_id).has_value();
             json j = *body;
-            amf_non3gpp_registrations.put(ue_id, j);
+            if (!amf_non3gpp_registrations.put(ue_id, j, req.token_sub)) {
+                return store_full("AMF non-3GPP-access registrations");
+            }
             amf_non3gpp_reg_counter->Add(1);
             // ADR-0475 event 1 (TS 33.128 7.2.2.3.2), non-3GPP-access variant.
             if (li_poi) {
@@ -1009,7 +1085,9 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const bool is_new = !smsf_3gpp_registrations.get(ue_id).has_value();
             json j = *body;
-            smsf_3gpp_registrations.put(ue_id, j);
+            if (!smsf_3gpp_registrations.put(ue_id, j, req.token_sub)) {
+                return store_full("SMSF 3GPP-access registrations");
+            }
             smsf_3gpp_reg_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -1095,7 +1173,9 @@ int main() {
                          const auto ue_id = req.path_params.at("ueId");
                          const bool is_new = !smsf_non3gpp_registrations.get(ue_id).has_value();
                          json j = *body;
-                         smsf_non3gpp_registrations.put(ue_id, j);
+                         if (!smsf_non3gpp_registrations.put(ue_id, j, req.token_sub)) {
+                             return store_full("SMSF non-3GPP-access registrations");
+                         }
                          smsf_non3gpp_reg_counter->Add(1);
 
                          sbi_core::http2::Response resp;
@@ -1187,7 +1267,9 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const bool is_new = !ip_sm_gw_registrations.get(ue_id).has_value();
             json j = *body;
-            ip_sm_gw_registrations.put(ue_id, j);
+            if (!ip_sm_gw_registrations.put(ue_id, j, req.token_sub)) {
+                return store_full("IP-SM-GW registrations");
+            }
             ip_sm_gw_reg_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -1271,7 +1353,9 @@ int main() {
             const auto nwdaf_registration_id = req.path_params.at("nwdafRegistrationId");
             const bool is_new = !nwdaf_registrations.get(ue_id, nwdaf_registration_id).has_value();
             json j = *body;
-            nwdaf_registrations.put(ue_id, nwdaf_registration_id, j);
+            if (!nwdaf_registrations.put(ue_id, nwdaf_registration_id, j, req.token_sub)) {
+                return store_full("NWDAF registrations");
+            }
             nwdaf_reg_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -1367,7 +1451,9 @@ int main() {
             const auto pdu_session_id = req.path_params.at("pduSessionId");
             const bool is_new = !smf_registrations.get(ue_id, pdu_session_id).has_value();
             json j = *body;
-            smf_registrations.put(ue_id, pdu_session_id, j);
+            if (!smf_registrations.put(ue_id, pdu_session_id, j, req.token_sub)) {
+                return store_full("SMF registrations");
+            }
             smf_reg_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -2425,24 +2511,37 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSdmApiRoot) + "/{ueId}/sdm-subscriptions",
-        [&sdm_subscriptions, &sdm_subscribe_counter](const sbi_core::http2::Request& req) {
+        [&sdm_subscriptions, &sdm_subscribe_counter, subscription_max_lifetime](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SdmSubscription>(req, err);
             if (!body.has_value()) {
                 return err;
             }
             const auto ue_id = req.path_params.at("ueId");
-            const auto id =
-                sdm_subscriptions.create(udm::SdmSubscriptionEntry{.ue_id = ue_id, .data = *body});
+            json data = *body;
+            udm::Clock::time_point expires_at;
+            try {
+                expires_at = confirm_expiry_in(
+                    data, json::json_pointer("/expires"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            const auto id = sdm_subscriptions.create(
+                udm::SdmSubscriptionEntry{.ue_id = ue_id, .data = data, .expires_at = expires_at},
+                req.token_sub);
+            if (!id) {
+                return store_full("SDM subscriptions");
+            }
             sdm_subscribe_counter->Add(1);
 
-            body->subscriptionId = id;
-            json j = *body;
+            json j = data;
+            j["subscriptionId"] = *id;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
             resp.headers.emplace(
-                "location", std::string(kSdmApiRoot) + "/" + ue_id + "/sdm-subscriptions/" + id);
+                "location", std::string(kSdmApiRoot) + "/" + ue_id + "/sdm-subscriptions/" + *id);
             resp.body = j.dump();
             return resp;
         });
@@ -2473,12 +2572,20 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kSdmApiRoot) + "/{ueId}/sdm-subscriptions/{subscriptionId}",
-        [&sdm_subscriptions,
-         &sdm_subscription_modify_counter](const sbi_core::http2::Request& req) {
+        [&sdm_subscriptions, &sdm_subscription_modify_counter, subscription_max_lifetime](
+            const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto subscription_id = req.path_params.at("subscriptionId");
-            auto patched =
-                sdm_subscriptions.merge_patch(subscription_id, ue_id, json::parse(req.body));
+            std::optional<udm::SdmSubscriptionEntry> patched;
+            try {
+                patched = sdm_subscriptions.merge_patch(
+                    subscription_id, ue_id, json::parse(req.body), [&](json& doc) {
+                        return confirm_expiry_in(
+                            doc, json::json_pointer("/expires"), subscription_max_lifetime);
+                    });
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such SDM subscription", "SUBSCRIPTION_NOT_FOUND");
@@ -2652,23 +2759,33 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSdmApiRoot) + "/shared-data-subscriptions",
-        [&shared_data_subscriptions,
-         &shared_data_subscribe_counter](const sbi_core::http2::Request& req) {
+        [&shared_data_subscriptions, &shared_data_subscribe_counter, subscription_max_lifetime](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SdmSubscription>(req, err);
             if (!body.has_value()) {
                 return err;
             }
             json j = *body;
-            const auto id = shared_data_subscriptions.create(j);
+            udm::Clock::time_point expires_at;
+            try {
+                expires_at =
+                    confirm_expiry_in(j, json::json_pointer("/expires"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            const auto id = shared_data_subscriptions.create(j, expires_at, req.token_sub);
+            if (!id) {
+                return store_full("shared-data subscriptions");
+            }
             shared_data_subscribe_counter->Add(1);
-            body->subscriptionId = id;
-            json j2 = *body;
+            json j2 = j;
+            j2["subscriptionId"] = *id;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
             resp.headers.emplace("location",
-                                 std::string(kSdmApiRoot) + "/shared-data-subscriptions/" + id);
+                                 std::string(kSdmApiRoot) + "/shared-data-subscriptions/" + *id);
             resp.body = j2.dump();
             return resp;
         });
@@ -2691,11 +2808,19 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kSdmApiRoot) + "/shared-data-subscriptions/{subscriptionId}",
-        [&shared_data_subscriptions,
-         &shared_data_modify_counter](const sbi_core::http2::Request& req) {
+        [&shared_data_subscriptions, &shared_data_modify_counter, subscription_max_lifetime](
+            const sbi_core::http2::Request& req) {
             const auto subscription_id = req.path_params.at("subscriptionId");
-            auto patched =
-                shared_data_subscriptions.merge_patch(subscription_id, json::parse(req.body));
+            std::optional<json> patched;
+            try {
+                patched = shared_data_subscriptions.merge_patch(
+                    subscription_id, json::parse(req.body), [&](json& doc) {
+                        return confirm_expiry_in(
+                            doc, json::json_pointer("/expires"), subscription_max_lifetime);
+                    });
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such shared-data subscription", "SUBSCRIPTION_NOT_FOUND");
@@ -3188,7 +3313,10 @@ int main() {
                          }
                          const auto supi = req.path_params.at("supi");
                          json j = *body;
-                         const auto id = auth_events.create(supi, j);
+                         const auto id = auth_events.create(supi, j, req.token_sub);
+                         if (!id) {
+                             return store_full("authentication events");
+                         }
                          confirm_auth_counter->Add(1);
 
                          sbi_core::http2::Response resp;
@@ -3196,7 +3324,7 @@ int main() {
                          resp.headers.emplace("content-type", "application/json");
                          resp.headers.emplace("location",
                                               std::string(kUeauApiRoot) + "/" + supi +
-                                                  "/auth-events/" + id);
+                                                  "/auth-events/" + *id);
                          resp.body = j.dump();
                          return resp;
                      });
@@ -3229,8 +3357,11 @@ int main() {
     server.add_route(
         "POST",
         std::string(kEeApiRoot) + "/{ueIdentity}/ee-subscriptions",
-        [&ee_subscriptions, &ee_subscribe_counter, &amf_registrations, &home_plmns](
-            const sbi_core::http2::Request& req) {
+        [&ee_subscriptions,
+         &ee_subscribe_counter,
+         &amf_registrations,
+         &home_plmns,
+         subscription_max_lifetime](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::EeSubscription>(req, err);
             if (!body.has_value()) {
@@ -3238,14 +3369,6 @@ int main() {
             }
             const auto ue_identity = req.path_params.at("ueIdentity");
             json j = *body;
-            const auto id = ee_subscriptions.create(
-                udm::EeSubscriptionEntry{.ue_identity = ue_identity, .data = j});
-            ee_subscribe_counter->Add(1);
-
-            j["subscriptionId"] = id;
-            sbi_gen::CreatedEeSubscription created{};
-            created.eeSubscription = j.get<sbi_gen::EeSubscription>();
-            json resp_j = created;
             // ADR-0497: ROAMING_STATUS with immediateFlag -> an immediate RoamingStatusReport in
             // eventReports (TS 29.503 Nudm_EE; consumer: the AAnF, TS 33.535 6.2.1 step 5-6). The
             // serving PLMN is the one of the UE's AMF registration (guami.plmnId); roaming = not
@@ -3283,6 +3406,33 @@ int main() {
                               {"accessType", "3GPP_ACCESS"}}}});
                 }
             }
+            udm::Clock::time_point expires_at;
+            try {
+                expires_at = confirm_expiry_in(
+                    j, json::json_pointer("/reportingOptions/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            // ADR-0535: TS 29.503 6.4.6.2.6 -- maxNumOfReports 1 and the event report in this
+            // response: "the value of the expiry included in the response shall be an immediate
+            // timestamp".
+            if (!reports.empty() && j.at("reportingOptions").value("maxNumOfReports", 0) == 1) {
+                expires_at = udm::Clock::now();
+                j["reportingOptions"]["expiry"] = sbi_core::format_rfc3339(expires_at);
+            }
+            const auto id = ee_subscriptions.create(
+                udm::EeSubscriptionEntry{
+                    .ue_identity = ue_identity, .data = j, .expires_at = expires_at},
+                req.token_sub);
+            if (!id) {
+                return store_full("EE subscriptions");
+            }
+            ee_subscribe_counter->Add(1);
+
+            j["subscriptionId"] = *id;
+            sbi_gen::CreatedEeSubscription created{};
+            created.eeSubscription = j.get<sbi_gen::EeSubscription>();
+            json resp_j = created;
             if (!reports.empty()) {
                 resp_j["eventReports"] = reports;
             }
@@ -3291,7 +3441,7 @@ int main() {
             resp.headers.emplace("content-type", "application/json");
             resp.headers.emplace("location",
                                  std::string(kEeApiRoot) + "/" + ue_identity +
-                                     "/ee-subscriptions/" + id);
+                                     "/ee-subscriptions/" + *id);
             resp.body = resp_j.dump();
             return resp;
         });
@@ -3318,7 +3468,8 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kEeApiRoot) + "/{ueIdentity}/ee-subscriptions/{subscriptionId}",
-        [&ee_subscriptions, &ee_update_counter](const sbi_core::http2::Request& req) {
+        [&ee_subscriptions, &ee_update_counter, subscription_max_lifetime](
+            const sbi_core::http2::Request& req) {
             const auto ue_identity = req.path_params.at("ueIdentity");
             const auto subscription_id = req.path_params.at("subscriptionId");
             auto existing = ee_subscriptions.get(subscription_id);
@@ -3337,10 +3488,16 @@ int main() {
             }
             std::optional<json> patched;
             try {
-                patched = ee_subscriptions.apply_patch(subscription_id, patch_ops);
+                patched = ee_subscriptions.apply_patch(subscription_id, patch_ops, [&](json& doc) {
+                    return confirm_expiry_in(doc,
+                                             json::json_pointer("/reportingOptions/expiry"),
+                                             subscription_max_lifetime);
+                });
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
                     400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
@@ -3380,7 +3537,10 @@ int main() {
                              return sbi_core::http2::problem_response(
                                  400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
                          }
-                         auto patched = pp_data.merge_patch(ue_id, patch_doc);
+                         auto patched = pp_data.merge_patch(ue_id, patch_doc, req.token_sub);
+                         if (!patched) {
+                             return store_full("parameter provisioning data");
+                         }
                          pp_update_counter->Add(1);
                          return sbi_core::http2::Response::json(200, patched->dump());
                      });
