@@ -1035,7 +1035,9 @@ int main() {
                     "Service Unavailable",
                     "SoR protection service is suspended for SUPI " + supi +
                         " (CounterSoR wrap-around, TS 33.501 6.14.2.3 -- requires a fresh KAUSF)",
-                    std::nullopt);
+                    // TS 29.509 table 6.2.7.3-1 (5.3.2.2.1's text spells it "COUNTER-WRAP";
+                    // the table's spelling, by user decision: ADR-0534).
+                    "COUNTER_WRAP");
             }
 
             const auto mac_iausf = aka_crypto::derive_sor_mac_iausf(

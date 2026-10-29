@@ -38,6 +38,9 @@ the shape of the last path segment.
 - Several of these APIs define PUT as an upsert: the AF names the resource and PUT creates it if
   absent. `AfDocumentStore::put` only replaces, so `create_with_id` was added rather than letting a
   legitimate create fall through to a 404.
+  (Amended by ADR-0533, REVIEW-5ae0ef1 SPEC-07: only NIDD `rds-ports/{portId}` and AM
+  PolicyAuthorization `events-subscription` have a 201 for PUT in their YAML; the other 14 PUTs
+  replace only and answer 404 for a missing id.)
 
 `MBSSession` also declares RFC 6902 on `/mbs-sessions/{mbsSessionRef}` while its sibling
 `/mbs-pp/{mbsPpId}` declares merge-patch -- two patch semantics inside one specification, handled
