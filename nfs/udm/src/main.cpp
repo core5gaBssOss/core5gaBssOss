@@ -163,9 +163,6 @@ constexpr const char* kDefaultServingPlmnId = "99970";
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
 // Real `plmn-id` query param handling (TS29503_Nudm_SDM.yaml: optional, `content:
 // application/json` PlmnIdNid) -- ADR-0069, gap-closure Tier 1b. Builds the real UDR VarPlmnId
 // path segment (mcc+mnc concatenated) from a parsed PlmnIdNid if the caller supplied one, else
@@ -254,23 +251,6 @@ std::optional<std::string> deconceal_suci_if_needed(const std::string& supi_or_s
         return std::nullopt;
     }
     return "imsi-" + mcc + mnc + tbcd_core::decode_tbcd(*plaintext_msin_bcd);
-}
-
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
 }
 
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
@@ -437,17 +417,20 @@ sbi_core::http2::Response auth_data_problem(udm::AuthDataError err, const std::s
     switch (err) {
         case udm::AuthDataError::NotFound:
             return sbi_core::http2::problem_response(
-                404, "Not Found", "No authentication subscription for " + supi);
+                404, "Not Found", "No authentication subscription for " + supi, std::nullopt);
         case udm::AuthDataError::Invalid:
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "Authentication subscription for " + supi +
-                                                         " is not usable for AKA");
+                                                         " is not usable for AKA",
+                                                     "SYSTEM_FAILURE");
         case udm::AuthDataError::Unavailable:
             break;
     }
-    return sbi_core::http2::problem_response(
-        503, "Service Unavailable", "Authentication data repository (UDR) unavailable");
+    return sbi_core::http2::problem_response(503,
+                                             "Service Unavailable",
+                                             "Authentication data repository (UDR) unavailable",
+                                             std::nullopt);
 }
 
 } // namespace
@@ -716,15 +699,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access",
-        [&verifier,
-         &amf_registrations,
-         &amf_reg_counter,
-         &vlr_peer_address,
-         &vlr_peer_port,
-         &li_poi](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&amf_registrations, &amf_reg_counter, &vlr_peer_address, &vlr_peer_port, &li_poi](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::Amf3GppAccessRegistration>(req, err);
@@ -763,29 +739,25 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access",
-        [&verifier, &amf_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            auto registration = amf_registrations.get(ue_id);
-            if (!registration.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF 3GPP-access registration for ueId " + ue_id);
-            }
-            return sbi_core::http2::Response::json(200, registration->dump());
-        });
+    server.add_route("GET",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access",
+                     [&amf_registrations](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto registration = amf_registrations.get(ue_id);
+                         if (!registration.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No AMF 3GPP-access registration for ueId " + ue_id,
+                                 std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, registration->dump());
+                     });
 
     server.add_route(
         "PATCH",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access",
-        [&verifier, &amf_registrations, &li_poi](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&amf_registrations, &li_poi](const sbi_core::http2::Request& req) {
             // application/merge-patch+json (RFC 7396) -- validate it parses as the documented
             // Amf3GppAccessRegistrationModification shape before applying it, even though
             // .merge_patch() itself would accept any JSON object.
@@ -800,7 +772,10 @@ int main() {
             auto patched = amf_registrations.merge_patch(ue_id, json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF 3GPP-access registration for ueId " + ue_id);
+                    404,
+                    "Not Found",
+                    "No AMF 3GPP-access registration for ueId " + ue_id,
+                    std::nullopt);
             }
             // ADR-0475 event 3 (TS 33.128 7.2.2.3.4, bullet 2): purgeFlag=true on this real
             // Amf3GppAccessRegistrationModification is this build's only conformant trigger for
@@ -818,15 +793,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access/dereg-amf",
-        [&verifier,
-         &amf_registrations,
-         &amf_dereg_counter,
-         &vlr_peer_address,
-         &vlr_peer_port,
-         &li_poi](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&amf_registrations, &amf_dereg_counter, &vlr_peer_address, &vlr_peer_port, &li_poi](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AmfDeregInfo>(req, err);
             if (!body.has_value()) {
@@ -835,7 +803,10 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             if (!amf_registrations.get(ue_id).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF 3GPP-access registration for ueId " + ue_id);
+                    404,
+                    "Not Found",
+                    "No AMF 3GPP-access registration for ueId " + ue_id,
+                    std::nullopt);
             }
             amf_registrations.remove(ue_id);
             cancel_location_at_vlr(vlr_peer_address, vlr_peer_port, ue_id, body->deregReason.value);
@@ -858,10 +829,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access/pei-update",
-        [&verifier, &amf_registrations, &pei_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&amf_registrations, &pei_update_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::PeiUpdateInfo_Nudm_UECM>(req, err);
@@ -872,7 +840,10 @@ int main() {
             const json patch = json{{"pei", body->pei}};
             if (!amf_registrations.merge_patch(ue_id, patch).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF 3GPP-access registration for ueId " + ue_id);
+                    404,
+                    "Not Found",
+                    "No AMF 3GPP-access registration for ueId " + ue_id,
+                    std::nullopt);
             }
             pei_update_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -887,11 +858,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access/roaming-info-update",
-        [&verifier, &roaming_info_updates, &roaming_info_update_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&roaming_info_updates, &roaming_info_update_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::RoamingInfoUpdate>(req, err);
             if (!body.has_value()) {
@@ -929,11 +896,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-non-3gpp-access",
-        [&verifier, &amf_non3gpp_registrations, &amf_non3gpp_reg_counter, &li_poi](
+        [&amf_non3gpp_registrations, &amf_non3gpp_reg_counter, &li_poi](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::AmfNon3GppAccessRegistration>(req, err);
@@ -967,30 +931,26 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-non-3gpp-access",
-        [&verifier, &amf_non3gpp_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            auto registration = amf_non3gpp_registrations.get(ue_id);
-            if (!registration.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF non-3GPP-access registration for ueId " + ue_id);
-            }
-            return sbi_core::http2::Response::json(200, registration->dump());
-        });
+    server.add_route("GET",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-non-3gpp-access",
+                     [&amf_non3gpp_registrations](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto registration = amf_non3gpp_registrations.get(ue_id);
+                         if (!registration.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No AMF non-3GPP-access registration for ueId " + ue_id,
+                                 std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, registration->dump());
+                     });
 
     server.add_route(
         "PATCH",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-non-3gpp-access",
-        [&verifier, &amf_non3gpp_registrations, &amf_non3gpp_patch_counter, &li_poi](
+        [&amf_non3gpp_registrations, &amf_non3gpp_patch_counter, &li_poi](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto patch_dto =
                 sbi_core::http2::parse_json_body<sbi_gen::AmfNon3GppAccessRegistrationModification>(
@@ -1002,7 +962,10 @@ int main() {
             auto patched = amf_non3gpp_registrations.merge_patch(ue_id, json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF non-3GPP-access registration for ueId " + ue_id);
+                    404,
+                    "Not Found",
+                    "No AMF non-3GPP-access registration for ueId " + ue_id,
+                    std::nullopt);
             }
             amf_non3gpp_patch_counter->Add(1);
             // ADR-0475 event 3 (TS 33.128 7.2.2.3.4, bullet 3), non-3GPP-access variant.
@@ -1039,11 +1002,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-3gpp-access",
-        [&verifier, &smsf_3gpp_registrations, &smsf_3gpp_reg_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&smsf_3gpp_registrations, &smsf_3gpp_reg_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SmsfRegistration>(req, err);
             if (!body.has_value()) {
@@ -1067,34 +1026,32 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-3gpp-access",
-        [&verifier, &smsf_3gpp_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            auto registration = smsf_3gpp_registrations.get(ue_id);
-            if (!registration.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SMSF 3GPP-access registration for ueId " + ue_id);
-            }
-            return sbi_core::http2::Response::json(200, registration->dump());
-        });
+    server.add_route("GET",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-3gpp-access",
+                     [&smsf_3gpp_registrations](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto registration = smsf_3gpp_registrations.get(ue_id);
+                         if (!registration.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No SMSF 3GPP-access registration for ueId " + ue_id,
+                                 std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, registration->dump());
+                     });
 
     server.add_route(
         "DELETE",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-3gpp-access",
-        [&verifier, &smsf_3gpp_registrations, &smsf_3gpp_dereg_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&smsf_3gpp_registrations, &smsf_3gpp_dereg_counter](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             if (!smsf_3gpp_registrations.remove(ue_id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SMSF 3GPP-access registration for ueId " + ue_id);
+                    404,
+                    "Not Found",
+                    "No SMSF 3GPP-access registration for ueId " + ue_id,
+                    std::nullopt);
             }
             smsf_3gpp_dereg_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1105,11 +1062,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-3gpp-access",
-        [&verifier, &smsf_3gpp_registrations, &smsf_3gpp_patch_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&smsf_3gpp_registrations, &smsf_3gpp_patch_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto patch_dto =
                 sbi_core::http2::parse_json_body<sbi_gen::SmsfRegistrationModification>(req, err);
@@ -1120,7 +1073,10 @@ int main() {
             auto patched = smsf_3gpp_registrations.merge_patch(ue_id, json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SMSF 3GPP-access registration for ueId " + ue_id);
+                    404,
+                    "Not Found",
+                    "No SMSF 3GPP-access registration for ueId " + ue_id,
+                    std::nullopt);
             }
             smsf_3gpp_patch_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1128,80 +1084,72 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "PUT",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-non-3gpp-access",
-        [&verifier, &smsf_non3gpp_registrations, &smsf_non3gpp_reg_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::SmsfRegistration>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            const bool is_new = !smsf_non3gpp_registrations.get(ue_id).has_value();
-            json j = *body;
-            smsf_non3gpp_registrations.put(ue_id, j);
-            smsf_non3gpp_reg_counter->Add(1);
+    server.add_route("PUT",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-non-3gpp-access",
+                     [&smsf_non3gpp_registrations,
+                      &smsf_non3gpp_reg_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::SmsfRegistration>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto ue_id = req.path_params.at("ueId");
+                         const bool is_new = !smsf_non3gpp_registrations.get(ue_id).has_value();
+                         json j = *body;
+                         smsf_non3gpp_registrations.put(ue_id, j);
+                         smsf_non3gpp_reg_counter->Add(1);
 
-            sbi_core::http2::Response resp;
-            resp.status = is_new ? 201 : 200;
-            resp.headers.emplace("content-type", "application/json");
-            if (is_new) {
-                resp.headers.emplace("location",
-                                     std::string(kUecmApiRoot) + "/" + ue_id +
-                                         "/registrations/smsf-non-3gpp-access");
-            }
-            resp.body = j.dump();
-            return resp;
-        });
+                         sbi_core::http2::Response resp;
+                         resp.status = is_new ? 201 : 200;
+                         resp.headers.emplace("content-type", "application/json");
+                         if (is_new) {
+                             resp.headers.emplace("location",
+                                                  std::string(kUecmApiRoot) + "/" + ue_id +
+                                                      "/registrations/smsf-non-3gpp-access");
+                         }
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-non-3gpp-access",
-        [&verifier, &smsf_non3gpp_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            auto registration = smsf_non3gpp_registrations.get(ue_id);
-            if (!registration.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SMSF non-3GPP-access registration for ueId " + ue_id);
-            }
-            return sbi_core::http2::Response::json(200, registration->dump());
-        });
+    server.add_route("GET",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-non-3gpp-access",
+                     [&smsf_non3gpp_registrations](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto registration = smsf_non3gpp_registrations.get(ue_id);
+                         if (!registration.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No SMSF non-3GPP-access registration for ueId " + ue_id,
+                                 std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, registration->dump());
+                     });
 
-    server.add_route(
-        "DELETE",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-non-3gpp-access",
-        [&verifier, &smsf_non3gpp_registrations, &smsf_non3gpp_dereg_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            if (!smsf_non3gpp_registrations.remove(ue_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SMSF non-3GPP-access registration for ueId " + ue_id);
-            }
-            smsf_non3gpp_dereg_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-non-3gpp-access",
+                     [&smsf_non3gpp_registrations,
+                      &smsf_non3gpp_dereg_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         if (!smsf_non3gpp_registrations.remove(ue_id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No SMSF non-3GPP-access registration for ueId " + ue_id,
+                                 std::nullopt);
+                         }
+                         smsf_non3gpp_dereg_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "PATCH",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/smsf-non-3gpp-access",
-        [&verifier, &smsf_non3gpp_registrations, &smsf_non3gpp_patch_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&smsf_non3gpp_registrations,
+         &smsf_non3gpp_patch_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto patch_dto =
                 sbi_core::http2::parse_json_body<sbi_gen::SmsfRegistrationModification>(req, err);
@@ -1212,7 +1160,10 @@ int main() {
             auto patched = smsf_non3gpp_registrations.merge_patch(ue_id, json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SMSF non-3GPP-access registration for ueId " + ue_id);
+                    404,
+                    "Not Found",
+                    "No SMSF non-3GPP-access registration for ueId " + ue_id,
+                    std::nullopt);
             }
             smsf_non3gpp_patch_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1229,11 +1180,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/ip-sm-gw",
-        [&verifier, &ip_sm_gw_registrations, &ip_sm_gw_reg_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ip_sm_gw_registrations, &ip_sm_gw_reg_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::IpSmGwRegistration>(req, err);
             if (!body.has_value()) {
@@ -1260,15 +1207,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/ip-sm-gw",
-        [&verifier, &ip_sm_gw_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ip_sm_gw_registrations](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             auto registration = ip_sm_gw_registrations.get(ue_id);
             if (!registration.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No IP-SM-GW registration for ueId " + ue_id);
+                    404, "Not Found", "No IP-SM-GW registration for ueId " + ue_id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, registration->dump());
         });
@@ -1276,15 +1220,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/ip-sm-gw",
-        [&verifier, &ip_sm_gw_registrations, &ip_sm_gw_dereg_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ip_sm_gw_registrations, &ip_sm_gw_dereg_counter](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             if (!ip_sm_gw_registrations.remove(ue_id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No IP-SM-GW registration for ueId " + ue_id);
+                    404, "Not Found", "No IP-SM-GW registration for ueId " + ue_id, std::nullopt);
             }
             ip_sm_gw_dereg_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1305,15 +1245,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/nwdaf-registrations",
-        [&verifier, &nwdaf_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&nwdaf_registrations](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             auto list = nwdaf_registrations.list_for_ue(ue_id);
             if (list.empty()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NWDAF registration for ueId " + ue_id);
+                    404, "Not Found", "No NWDAF registration for ueId " + ue_id, std::nullopt);
             }
             json arr = json::array();
             for (const auto& registration : list) {
@@ -1326,10 +1263,7 @@ int main() {
         "PUT",
         std::string(kUecmApiRoot) +
             "/{ueId}/registrations/nwdaf-registrations/{nwdafRegistrationId}",
-        [&verifier, &nwdaf_registrations, &nwdaf_reg_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&nwdaf_registrations, &nwdaf_reg_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NwdafRegistration>(req, err);
             if (!body.has_value()) {
@@ -1359,11 +1293,7 @@ int main() {
         "DELETE",
         std::string(kUecmApiRoot) +
             "/{ueId}/registrations/nwdaf-registrations/{nwdafRegistrationId}",
-        [&verifier, &nwdaf_registrations, &nwdaf_dereg_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&nwdaf_registrations, &nwdaf_dereg_counter](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto nwdaf_registration_id = req.path_params.at("nwdafRegistrationId");
             if (!nwdaf_registrations.remove(ue_id, nwdaf_registration_id)) {
@@ -1371,7 +1301,8 @@ int main() {
                     404,
                     "Not Found",
                     "No NWDAF registration for ueId/nwdafRegistrationId " + ue_id + "/" +
-                        nwdaf_registration_id);
+                        nwdaf_registration_id,
+                    std::nullopt);
             }
             nwdaf_dereg_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1383,11 +1314,7 @@ int main() {
         "PATCH",
         std::string(kUecmApiRoot) +
             "/{ueId}/registrations/nwdaf-registrations/{nwdafRegistrationId}",
-        [&verifier, &nwdaf_registrations, &nwdaf_patch_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&nwdaf_registrations, &nwdaf_patch_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto patch_dto =
                 sbi_core::http2::parse_json_body<sbi_gen::NwdafRegistrationModification>(req, err);
@@ -1403,7 +1330,8 @@ int main() {
                     404,
                     "Not Found",
                     "No NWDAF registration for ueId/nwdafRegistrationId " + ue_id + "/" +
-                        nwdaf_registration_id);
+                        nwdaf_registration_id,
+                    std::nullopt);
             }
             nwdaf_patch_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1413,31 +1341,25 @@ int main() {
 
     // --- Nudm_UECM: SMF registration group ---
 
-    server.add_route(
-        "GET",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/smf-registrations",
-        [&verifier, &smf_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            json arr = json::array();
-            for (const auto& registration : smf_registrations.list_for_ue(ue_id)) {
-                arr.push_back(registration);
-            }
-            sbi_gen::SmfRegistrationInfo resp_data;
-            resp_data.smfRegistrationList = arr.get<std::vector<sbi_gen::SmfRegistration>>();
-            json j = resp_data;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("GET",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/smf-registrations",
+                     [&smf_registrations](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         json arr = json::array();
+                         for (const auto& registration : smf_registrations.list_for_ue(ue_id)) {
+                             arr.push_back(registration);
+                         }
+                         sbi_gen::SmfRegistrationInfo resp_data;
+                         resp_data.smfRegistrationList =
+                             arr.get<std::vector<sbi_gen::SmfRegistration>>();
+                         json j = resp_data;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/smf-registrations/{pduSessionId}",
-        [&verifier, &smf_registrations, &smf_reg_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&smf_registrations, &smf_reg_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SmfRegistration>(req, err);
             if (!body.has_value()) {
@@ -1465,10 +1387,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/smf-registrations/{pduSessionId}",
-        [&verifier, &smf_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&smf_registrations](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto pdu_session_id = req.path_params.at("pduSessionId");
             auto registration = smf_registrations.get(ue_id, pdu_session_id);
@@ -1476,7 +1395,8 @@ int main() {
                 return sbi_core::http2::problem_response(
                     404,
                     "Not Found",
-                    "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id);
+                    "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id,
+                    std::nullopt);
             }
             return sbi_core::http2::Response::json(200, registration->dump());
         });
@@ -1484,10 +1404,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/smf-registrations/{pduSessionId}",
-        [&verifier, &smf_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&smf_registrations](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto patch_dto =
                 sbi_core::http2::parse_json_body<sbi_gen::SmfRegistrationModification>(req, err);
@@ -1502,7 +1419,8 @@ int main() {
                 return sbi_core::http2::problem_response(
                     404,
                     "Not Found",
-                    "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id);
+                    "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id,
+                    std::nullopt);
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -1510,17 +1428,15 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/smf-registrations/{pduSessionId}",
-        [&verifier, &smf_registrations, &smf_dereg_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&smf_registrations, &smf_dereg_counter](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto pdu_session_id = req.path_params.at("pduSessionId");
             if (!smf_registrations.get(ue_id, pdu_session_id).has_value()) {
                 return sbi_core::http2::problem_response(
                     404,
                     "Not Found",
-                    "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id);
+                    "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id,
+                    std::nullopt);
             }
             smf_registrations.remove(ue_id, pdu_session_id);
             smf_dereg_counter->Add(1);
@@ -1544,17 +1460,13 @@ int main() {
     server.add_route(
         "GET",
         std::string(kUecmApiRoot) + "/{ueId}/registrations",
-        [&verifier,
-         &amf_registrations,
+        [&amf_registrations,
          &amf_non3gpp_registrations,
          &smf_registrations,
          &smsf_3gpp_registrations,
          &smsf_non3gpp_registrations,
          &ip_sm_gw_registrations,
          &nwdaf_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto ue_id = req.path_params.at("ueId");
             std::vector<std::string> names;
             if (const auto it = req.query_params.find("registration-dataset-names");
@@ -1565,7 +1477,8 @@ int main() {
                 return sbi_core::http2::problem_response(
                     400,
                     "Bad Request",
-                    "registration-dataset-names requires at least 2 real dataset names");
+                    "registration-dataset-names requires at least 2 real dataset names",
+                    "UNSPECIFIED_MSG_FAILURE");
             }
             const auto wanted = [&names](const char* name) {
                 return std::find(names.begin(), names.end(), name) != names.end();
@@ -1639,14 +1552,10 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/send-routing-info-sm",
-        [&verifier,
-         &smsf_3gpp_registrations,
+        [&smsf_3gpp_registrations,
          &smsf_non3gpp_registrations,
          &ip_sm_gw_registrations,
          &send_routing_info_sm_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::RoutingInfoSmRequest>(req, err);
             if (!body.has_value()) {
@@ -1672,7 +1581,10 @@ int main() {
             }
             if (!found_any) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SMS routing information available for ueId " + ue_id);
+                    404,
+                    "Not Found",
+                    "No SMS routing information available for ueId " + ue_id,
+                    std::nullopt);
             }
             result.supi = ue_id;
             send_routing_info_sm_counter->Add(1);
@@ -1696,11 +1608,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUecmApiRoot) + "/restore-pcscf",
-        [&verifier, &amf_registrations, &amf_non3gpp_registrations, &restore_pcscf_counter](
+        [&amf_registrations, &amf_non3gpp_registrations, &restore_pcscf_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TriggerRequest>(req, err);
             if (!body.has_value()) {
@@ -1710,7 +1619,7 @@ int main() {
             if (!amf_registrations.get(supi).has_value() &&
                 !amf_non3gpp_registrations.get(supi).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF registration known for supi " + supi);
+                    404, "Not Found", "No AMF registration known for supi " + supi, std::nullopt);
             }
             restore_pcscf_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1731,11 +1640,8 @@ int main() {
     server.add_route(
         "GET",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/location",
-        [&verifier, &amf_registrations, &amf_non3gpp_registrations, &get_location_info_counter](
+        [&amf_registrations, &amf_non3gpp_registrations, &get_location_info_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto ue_id = req.path_params.at("ueId");
             sbi_gen::LocationInfo_Nudm_UECM result{};
             if (auto v = amf_registrations.get(ue_id); v.has_value()) {
@@ -1769,7 +1675,7 @@ int main() {
             }
             if (result.registrationLocationInfoList.empty()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF registration known for ueId " + ue_id);
+                    404, "Not Found", "No AMF registration known for ueId " + ue_id, std::nullopt);
             }
             result.supi = ue_id;
             get_location_info_counter->Add(1);
@@ -1787,11 +1693,8 @@ int main() {
     server.add_route(
         "GET",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/trigger-auth",
-        [&verifier, &amf_registrations, &amf_non3gpp_registrations, &auth_trigger_counter](
+        [&amf_registrations, &amf_non3gpp_registrations, &auth_trigger_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AuthTriggerInfo>(req, err);
             if (!body.has_value()) {
@@ -1801,7 +1704,7 @@ int main() {
             if (!amf_registrations.get(ue_id).has_value() &&
                 !amf_non3gpp_registrations.get(ue_id).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF registration known for ueId " + ue_id);
+                    404, "Not Found", "No AMF registration known for ueId " + ue_id, std::nullopt);
             }
             auth_trigger_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1827,7 +1730,8 @@ int main() {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDM could not obtain a token for UDR: " +
-                                                         token.error());
+                                                         token.error(),
+                                                     "SYSTEM_FAILURE");
         }
         sbi_core::http2::ClientRequest udr_req;
         udr_req.method = "GET";
@@ -1836,18 +1740,21 @@ int main() {
         udr_req.headers.emplace("authorization", "Bearer " + *token);
         auto udr_resp = udr_client.send(udr_req);
         if (!udr_resp.has_value()) {
-            return sbi_core::http2::problem_response(
-                500, "Internal Server Error", "UDM could not reach UDR: " + udr_resp.error());
+            return sbi_core::http2::problem_response(500,
+                                                     "Internal Server Error",
+                                                     "UDM could not reach UDR: " + udr_resp.error(),
+                                                     "SYSTEM_FAILURE");
         }
         if (udr_resp->status == 404) {
             return sbi_core::http2::problem_response(
-                404, "Not Found", "No provisioned " + segment + " for ueId " + ue_id);
+                404, "Not Found", "No provisioned " + segment + " for ueId " + ue_id, std::nullopt);
         }
         if (udr_resp->status != 200) {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDR returned unexpected status " +
-                                                         std::to_string(udr_resp->status));
+                                                         std::to_string(udr_resp->status),
+                                                     "SYSTEM_FAILURE");
         }
         try {
             return json::parse(udr_resp->body);
@@ -1855,7 +1762,8 @@ int main() {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDR returned malformed JSON: " +
-                                                         std::string(e.what()));
+                                                         std::string(e.what()),
+                                                     "SYSTEM_FAILURE");
         }
     };
 
@@ -1897,123 +1805,101 @@ int main() {
         li_poi->start();
     }
 
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/am-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            auto result = fetch_from_udr(supi, resolve_serving_plmn_id(req), "am-data");
-            if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
-                return *err;
-            }
-            return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/am-data",
+                     [&sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         auto result =
+                             fetch_from_udr(supi, resolve_serving_plmn_id(req), "am-data");
+                         if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
+                             return *err;
+                         }
+                         return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/smf-select-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            auto result = fetch_from_udr(
-                supi, resolve_serving_plmn_id(req), "smf-selection-subscription-data");
-            if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
-                return *err;
-            }
-            return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/smf-select-data",
+                     [&sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         auto result = fetch_from_udr(
+                             supi, resolve_serving_plmn_id(req), "smf-selection-subscription-data");
+                         if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
+                             return *err;
+                         }
+                         return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/sm-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            auto result = fetch_from_udr(supi, resolve_serving_plmn_id(req), "sm-data");
-            if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
-                return *err;
-            }
-            return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/sm-data",
+                     [&sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         auto result =
+                             fetch_from_udr(supi, resolve_serving_plmn_id(req), "sm-data");
+                         if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
+                             return *err;
+                         }
+                         return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
+                     });
 
     // Gap-closure (ADR-0228, Nudm_SDM group A): 4 more real individual-resource GET ops --
     // identical fetch_from_udr shape to am-data/smf-select-data/sm-data above, each backed by
     // UDR's own real individual provisioned-data route (TS29505_Subscription_Data.yaml, real
     // response schemas confirmed against TS29503_Nudm_SDM.yaml directly, not inferred from the
     // operationId).
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/sms-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            auto result = fetch_from_udr(supi, resolve_serving_plmn_id(req), "sms-data");
-            if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
-                return *err;
-            }
-            return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/sms-data",
+                     [&sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         auto result =
+                             fetch_from_udr(supi, resolve_serving_plmn_id(req), "sms-data");
+                         if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
+                             return *err;
+                         }
+                         return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/sms-mng-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            auto result = fetch_from_udr(supi, resolve_serving_plmn_id(req), "sms-mng-data");
-            if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
-                return *err;
-            }
-            return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/sms-mng-data",
+                     [&sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         auto result =
+                             fetch_from_udr(supi, resolve_serving_plmn_id(req), "sms-mng-data");
+                         if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
+                             return *err;
+                         }
+                         return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/trace-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            auto result = fetch_from_udr(supi, resolve_serving_plmn_id(req), "trace-data");
-            if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
-                return *err;
-            }
-            return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/trace-data",
+                     [&sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         auto result =
+                             fetch_from_udr(supi, resolve_serving_plmn_id(req), "trace-data");
+                         if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
+                             return *err;
+                         }
+                         return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/lcs-bca-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            auto result = fetch_from_udr(supi, resolve_serving_plmn_id(req), "lcs-bca-data");
-            if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
-                return *err;
-            }
-            return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/lcs-bca-data",
+                     [&sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         auto result =
+                             fetch_from_udr(supi, resolve_serving_plmn_id(req), "lcs-bca-data");
+                         if (auto* err = std::get_if<sbi_core::http2::Response>(&result)) {
+                             return *err;
+                         }
+                         return sbi_core::http2::Response::json(200, std::get<json>(result).dump());
+                     });
 
     // Gap-closure (ADR-0228, Nudm_SDM group B): 9 real individual-resource GET ops whose data
     // exists in UDR's own real ProvisionedDataSets aggregate (ADR-0212, Nudr_DataRepository
@@ -2035,7 +1921,8 @@ int main() {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDM could not obtain a token for UDR: " +
-                                                         token.error());
+                                                         token.error(),
+                                                     "SYSTEM_FAILURE");
         }
         sbi_core::http2::ClientRequest udr_req;
         udr_req.method = "GET";
@@ -2044,14 +1931,17 @@ int main() {
         udr_req.headers.emplace("authorization", "Bearer " + *token);
         auto udr_resp = udr_client.send(udr_req);
         if (!udr_resp.has_value()) {
-            return sbi_core::http2::problem_response(
-                500, "Internal Server Error", "UDM could not reach UDR: " + udr_resp.error());
+            return sbi_core::http2::problem_response(500,
+                                                     "Internal Server Error",
+                                                     "UDM could not reach UDR: " + udr_resp.error(),
+                                                     "SYSTEM_FAILURE");
         }
         if (udr_resp->status != 200) {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDR returned unexpected status " +
-                                                         std::to_string(udr_resp->status));
+                                                         std::to_string(udr_resp->status),
+                                                     "SYSTEM_FAILURE");
         }
         json parsed;
         try {
@@ -2060,11 +1950,15 @@ int main() {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDR returned malformed JSON: " +
-                                                         std::string(e.what()));
+                                                         std::string(e.what()),
+                                                     "SYSTEM_FAILURE");
         }
         if (!parsed.contains(field_name)) {
-            return sbi_core::http2::problem_response(
-                404, "Not Found", "No provisioned " + field_name + " for ueId " + ue_id);
+            return sbi_core::http2::problem_response(404,
+                                                     "Not Found",
+                                                     "No provisioned " + field_name + " for ueId " +
+                                                         ue_id,
+                                                     std::nullopt);
         }
         return parsed.at(field_name);
     };
@@ -2084,7 +1978,8 @@ int main() {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDM could not obtain a token for UDR: " +
-                                                         token.error());
+                                                         token.error(),
+                                                     "SYSTEM_FAILURE");
         }
         sbi_core::http2::ClientRequest udr_req;
         udr_req.method = "GET";
@@ -2092,18 +1987,21 @@ int main() {
         udr_req.headers.emplace("authorization", "Bearer " + *token);
         auto udr_resp = udr_client.send(udr_req);
         if (!udr_resp.has_value()) {
-            return sbi_core::http2::problem_response(
-                500, "Internal Server Error", "UDM could not reach UDR: " + udr_resp.error());
+            return sbi_core::http2::problem_response(500,
+                                                     "Internal Server Error",
+                                                     "UDM could not reach UDR: " + udr_resp.error(),
+                                                     "SYSTEM_FAILURE");
         }
         if (udr_resp->status == 404) {
             return sbi_core::http2::problem_response(
-                404, "Not Found", "No provisioned " + segment + " for ueId " + ue_id);
+                404, "Not Found", "No provisioned " + segment + " for ueId " + ue_id, std::nullopt);
         }
         if (udr_resp->status != 200) {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDR returned unexpected status " +
-                                                         std::to_string(udr_resp->status));
+                                                         std::to_string(udr_resp->status),
+                                                     "SYSTEM_FAILURE");
         }
         try {
             return json::parse(udr_resp->body);
@@ -2111,7 +2009,8 @@ int main() {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDR returned malformed JSON: " +
-                                                         std::string(e.what()));
+                                                         std::string(e.what()),
+                                                     "SYSTEM_FAILURE");
         }
     };
 
@@ -2130,7 +2029,8 @@ int main() {
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
                                                      "UDM could not obtain a token for UDR: " +
-                                                         token.error());
+                                                         token.error(),
+                                                     "SYSTEM_FAILURE");
         }
         sbi_core::http2::ClientRequest udr_req;
         udr_req.method = method;
@@ -2142,8 +2042,10 @@ int main() {
         }
         auto udr_resp = udr_client.send(udr_req);
         if (!udr_resp.has_value()) {
-            return sbi_core::http2::problem_response(
-                500, "Internal Server Error", "UDM could not reach UDR: " + udr_resp.error());
+            return sbi_core::http2::problem_response(500,
+                                                     "Internal Server Error",
+                                                     "UDM could not reach UDR: " + udr_resp.error(),
+                                                     "SYSTEM_FAILURE");
         }
         sbi_core::http2::Response resp;
         resp.status = static_cast<int>(udr_resp->status);
@@ -2157,11 +2059,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{ueId}/lcs-privacy-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_bulk_field](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_bulk_field](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto ue_id = req.path_params.at("ueId");
             auto result =
@@ -2175,11 +2073,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/lcs-mo-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_bulk_field](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_bulk_field](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result =
@@ -2193,11 +2087,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/lcs-subscription-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_bulk_field](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_bulk_field](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result = fetch_from_udr_bulk_field(
@@ -2211,11 +2101,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/v2x-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_bulk_field](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_bulk_field](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result = fetch_from_udr_bulk_field(supi, resolve_serving_plmn_id(req), "v2xData");
@@ -2228,11 +2114,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/prose-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_bulk_field](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_bulk_field](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result =
@@ -2246,11 +2128,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/5mbs-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_bulk_field](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_bulk_field](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result = fetch_from_udr_bulk_field(
@@ -2268,11 +2146,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/uc-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_bulk_field](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_bulk_field](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result = fetch_from_udr_bulk_field(supi, resolve_serving_plmn_id(req), "ucData");
@@ -2285,11 +2159,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/a2x-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_bulk_field](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_bulk_field](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result = fetch_from_udr_bulk_field(supi, resolve_serving_plmn_id(req), "a2xData");
@@ -2302,11 +2172,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{ueId}/rangingsl-privacy-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_bulk_field](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_bulk_field](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto ue_id = req.path_params.at("ueId");
             auto result = fetch_from_udr_bulk_field(
@@ -2328,10 +2194,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/nssai",
-        [&verifier, &sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result = fetch_from_udr(supi, resolve_serving_plmn_id(req), "am-data");
@@ -2341,7 +2204,7 @@ int main() {
             auto& am_data = std::get<json>(result);
             if (!am_data.contains("nssai")) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No provisioned nssai for ueId " + supi);
+                    404, "Not Found", "No provisioned nssai for ueId " + supi, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, am_data.at("nssai").dump());
         });
@@ -2354,44 +2217,40 @@ int main() {
     // has no required fields at all, so this is always a real `200` (never a fabricated `404`);
     // `amfInfo` itself is omitted (not an empty array) when neither registration exists, since the
     // real schema's own `minItems: 1` on that field forbids an empty array.
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/ue-context-in-amf-data",
-        [&verifier, &sdm_get_counter, &amf_registrations, &amf_non3gpp_registrations](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            std::vector<sbi_gen::AmfInfo_Nudm_SDM> amf_info_list;
-            if (auto v = amf_registrations.get(supi); v.has_value()) {
-                auto amf = v->get<sbi_gen::Amf3GppAccessRegistration>();
-                sbi_gen::AmfInfo_Nudm_SDM info{};
-                info.amfInstanceId = amf.amfInstanceId;
-                info.guami = amf.guami;
-                sbi_gen::AccessType access_type{};
-                access_type.value = sbi_gen::AccessType::V3GPP_ACCESS;
-                info.accessType = access_type;
-                amf_info_list.push_back(info);
-            }
-            if (auto v = amf_non3gpp_registrations.get(supi); v.has_value()) {
-                auto amf = v->get<sbi_gen::AmfNon3GppAccessRegistration>();
-                sbi_gen::AmfInfo_Nudm_SDM info{};
-                info.amfInstanceId = amf.amfInstanceId;
-                info.guami = amf.guami;
-                sbi_gen::AccessType access_type{};
-                access_type.value = sbi_gen::AccessType::NON_3GPP_ACCESS;
-                info.accessType = access_type;
-                amf_info_list.push_back(info);
-            }
-            sbi_gen::UeContextInAmfData result{};
-            if (!amf_info_list.empty()) {
-                result.amfInfo = amf_info_list;
-            }
-            json j = result;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/ue-context-in-amf-data",
+                     [&sdm_get_counter, &amf_registrations, &amf_non3gpp_registrations](
+                         const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         std::vector<sbi_gen::AmfInfo_Nudm_SDM> amf_info_list;
+                         if (auto v = amf_registrations.get(supi); v.has_value()) {
+                             auto amf = v->get<sbi_gen::Amf3GppAccessRegistration>();
+                             sbi_gen::AmfInfo_Nudm_SDM info{};
+                             info.amfInstanceId = amf.amfInstanceId;
+                             info.guami = amf.guami;
+                             sbi_gen::AccessType access_type{};
+                             access_type.value = sbi_gen::AccessType::V3GPP_ACCESS;
+                             info.accessType = access_type;
+                             amf_info_list.push_back(info);
+                         }
+                         if (auto v = amf_non3gpp_registrations.get(supi); v.has_value()) {
+                             auto amf = v->get<sbi_gen::AmfNon3GppAccessRegistration>();
+                             sbi_gen::AmfInfo_Nudm_SDM info{};
+                             info.amfInstanceId = amf.amfInstanceId;
+                             info.guami = amf.guami;
+                             sbi_gen::AccessType access_type{};
+                             access_type.value = sbi_gen::AccessType::NON_3GPP_ACCESS;
+                             info.accessType = access_type;
+                             amf_info_list.push_back(info);
+                         }
+                         sbi_gen::UeContextInAmfData result{};
+                         if (!amf_info_list.empty()) {
+                             result.amfInfo = amf_info_list;
+                         }
+                         json j = result;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     // GetUeCtxInSmfData (`GET /{supi}/ue-context-in-smf-data`) -- real, near-complete local
     // composition of `pduSessions` from the already-stored SmfRegistrationStore (its own
@@ -2404,70 +2263,62 @@ int main() {
     // fabricating the field, so that entry is skipped rather than invented. Real, disclosed gap:
     // `pgwInfo`/`emergencyInfo` have no data source anywhere in this file -- omitted. Real, honest:
     // `UeContextInSmfData` has no required fields, always a real `200`.
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/ue-context-in-smf-data",
-        [&verifier, &sdm_get_counter, &smf_registrations](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            json pdu_sessions = json::object();
-            for (const auto& reg_json : smf_registrations.list_for_ue(supi)) {
-                auto reg = reg_json.get<sbi_gen::SmfRegistration>();
-                if (!reg.dnn.has_value()) {
-                    continue;
-                }
-                sbi_gen::PduSession session{};
-                session.dnn = *reg.dnn;
-                session.smfInstanceId = reg.smfInstanceId;
-                session.plmnId = reg.plmnId;
-                session.singleNssai = reg.singleNssai;
-                pdu_sessions[std::to_string(reg.pduSessionId)] = session;
-            }
-            json result = json::object();
-            if (!pdu_sessions.empty()) {
-                result["pduSessions"] = pdu_sessions;
-            }
-            return sbi_core::http2::Response::json(200, result.dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/ue-context-in-smf-data",
+                     [&sdm_get_counter, &smf_registrations](const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         json pdu_sessions = json::object();
+                         for (const auto& reg_json : smf_registrations.list_for_ue(supi)) {
+                             auto reg = reg_json.get<sbi_gen::SmfRegistration>();
+                             if (!reg.dnn.has_value()) {
+                                 continue;
+                             }
+                             sbi_gen::PduSession session{};
+                             session.dnn = *reg.dnn;
+                             session.smfInstanceId = reg.smfInstanceId;
+                             session.plmnId = reg.plmnId;
+                             session.singleNssai = reg.singleNssai;
+                             pdu_sessions[std::to_string(reg.pduSessionId)] = session;
+                         }
+                         json result = json::object();
+                         if (!pdu_sessions.empty()) {
+                             result["pduSessions"] = pdu_sessions;
+                         }
+                         return sbi_core::http2::Response::json(200, result.dump());
+                     });
 
     // GetUeCtxInSmsfData (`GET /{supi}/ue-context-in-smsf-data`) -- real, COMPLETE local
     // composition from the already-stored SMSF 3GPP/non-3GPP registration records: `SmsfInfo`'s
     // own `smsfInstanceId`/`plmnId`/`smsfSetId` fields are an exact 1:1 match with
     // `SmsfRegistration`'s own fields (confirmed by direct read of both schemas), no gap. Real,
     // honest: `UeContextInSmsfData` has no required fields, always a real `200`.
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/{supi}/ue-context-in-smsf-data",
-        [&verifier, &sdm_get_counter, &smsf_3gpp_registrations, &smsf_non3gpp_registrations](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sdm_get_counter->Add(1);
-            const auto supi = req.path_params.at("supi");
-            sbi_gen::UeContextInSmsfData result{};
-            if (auto v = smsf_3gpp_registrations.get(supi); v.has_value()) {
-                auto smsf = v->get<sbi_gen::SmsfRegistration>();
-                sbi_gen::SmsfInfo_Nudm_SDM info{};
-                info.smsfInstanceId = smsf.smsfInstanceId;
-                info.plmnId = smsf.plmnId;
-                info.smsfSetId = smsf.smsfSetId;
-                result.smsfInfo3GppAccess = info;
-            }
-            if (auto v = smsf_non3gpp_registrations.get(supi); v.has_value()) {
-                auto smsf = v->get<sbi_gen::SmsfRegistration>();
-                sbi_gen::SmsfInfo_Nudm_SDM info{};
-                info.smsfInstanceId = smsf.smsfInstanceId;
-                info.plmnId = smsf.plmnId;
-                info.smsfSetId = smsf.smsfSetId;
-                result.smsfInfoNon3GppAccess = info;
-            }
-            json j = result;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/{supi}/ue-context-in-smsf-data",
+                     [&sdm_get_counter, &smsf_3gpp_registrations, &smsf_non3gpp_registrations](
+                         const sbi_core::http2::Request& req) {
+                         sdm_get_counter->Add(1);
+                         const auto supi = req.path_params.at("supi");
+                         sbi_gen::UeContextInSmsfData result{};
+                         if (auto v = smsf_3gpp_registrations.get(supi); v.has_value()) {
+                             auto smsf = v->get<sbi_gen::SmsfRegistration>();
+                             sbi_gen::SmsfInfo_Nudm_SDM info{};
+                             info.smsfInstanceId = smsf.smsfInstanceId;
+                             info.plmnId = smsf.plmnId;
+                             info.smsfSetId = smsf.smsfSetId;
+                             result.smsfInfo3GppAccess = info;
+                         }
+                         if (auto v = smsf_non3gpp_registrations.get(supi); v.has_value()) {
+                             auto smsf = v->get<sbi_gen::SmsfRegistration>();
+                             sbi_gen::SmsfInfo_Nudm_SDM info{};
+                             info.smsfInstanceId = smsf.smsfInstanceId;
+                             info.plmnId = smsf.plmnId;
+                             info.smsfSetId = smsf.smsfSetId;
+                             result.smsfInfoNon3GppAccess = info;
+                         }
+                         json j = result;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     // GetEcrData (`GET /{supi}/am-data/ecr-data`) -- real, confirmed by direct schema read:
     // `EnhancedCoverageRestrictionData` (`{plmnEcInfoList}`) is an exact match for UDR's own
@@ -2475,11 +2326,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/am-data/ecr-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_no_plmn](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_no_plmn](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result = fetch_from_udr_no_plmn(supi, "coverage-restriction-data");
@@ -2499,11 +2346,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/time-sync-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_no_plmn](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_no_plmn](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result = fetch_from_udr_no_plmn(supi, "time-sync-data");
@@ -2516,11 +2359,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{supi}/ranging-slpos-data",
-        [&verifier, &sdm_get_counter, &fetch_from_udr_no_plmn](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_get_counter, &fetch_from_udr_no_plmn](const sbi_core::http2::Request& req) {
             sdm_get_counter->Add(1);
             const auto supi = req.path_params.at("supi");
             auto result = fetch_from_udr_no_plmn(supi, "ranging-slpos-data");
@@ -2565,10 +2404,7 @@ int main() {
         server.add_route(
             "PUT",
             std::string(kSdmApiRoot) + "/{supi}/am-data/" + segment,
-            [&verifier, &fetch_from_udr, &sdm_ack_counter](const sbi_core::http2::Request& req) {
-                if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                    return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-                }
+            [&fetch_from_udr, &sdm_ack_counter](const sbi_core::http2::Request& req) {
                 sbi_core::http2::Response err;
                 auto body = sbi_core::http2::parse_json_body<sbi_gen::AcknowledgeInfo>(req, err);
                 if (!body.has_value()) {
@@ -2591,11 +2427,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSdmApiRoot) + "/{ueId}/sdm-subscriptions",
-        [&verifier, &sdm_subscriptions, &sdm_subscribe_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_subscriptions, &sdm_subscribe_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SdmSubscription>(req, err);
             if (!body.has_value()) {
@@ -2617,25 +2449,23 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kSdmApiRoot) + "/{ueId}/sdm-subscriptions/{subscriptionId}",
-        [&verifier, &sdm_subscriptions](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            const auto subscription_id = req.path_params.at("subscriptionId");
-            auto existing = sdm_subscriptions.get(subscription_id);
-            if (!existing.has_value() || existing->ue_id != ue_id) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such SDM subscription");
-            }
-            sdm_subscriptions.remove(subscription_id);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kSdmApiRoot) + "/{ueId}/sdm-subscriptions/{subscriptionId}",
+                     [&sdm_subscriptions](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         const auto subscription_id = req.path_params.at("subscriptionId");
+                         auto existing = sdm_subscriptions.get(subscription_id);
+                         if (!existing.has_value() || existing->ue_id != ue_id) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such SDM subscription",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sdm_subscriptions.remove(subscription_id);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // Gap-closure (ADR-0232, task #169): Modify -- real RFC 7396 JSON Merge Patch
     // (`application/merge-patch+json`, `SdmSubsModification`), same merge-patch shape already used
@@ -2645,18 +2475,15 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kSdmApiRoot) + "/{ueId}/sdm-subscriptions/{subscriptionId}",
-        [&verifier, &sdm_subscriptions, &sdm_subscription_modify_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&sdm_subscriptions,
+         &sdm_subscription_modify_counter](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto subscription_id = req.path_params.at("subscriptionId");
             auto patched =
                 sdm_subscriptions.merge_patch(subscription_id, ue_id, json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such SDM subscription");
+                    404, "Not Found", "No such SDM subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             sdm_subscription_modify_counter->Add(1);
             json j = patched->data;
@@ -2677,18 +2504,16 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/shared-data/{sharedDataId}",
-        [&verifier, &udr_client, &udr_oauth, &udr_base_url, &shared_data_get_counter](
+        [&udr_client, &udr_oauth, &udr_base_url, &shared_data_get_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto shared_data_id = req.path_params.at("sharedDataId");
             auto token = udr_oauth.get_bearer_token();
             if (!token.has_value()) {
                 return sbi_core::http2::problem_response(500,
                                                          "Internal Server Error",
                                                          "UDM could not obtain a token for UDR: " +
-                                                             token.error());
+                                                             token.error(),
+                                                         "SYSTEM_FAILURE");
             }
             sbi_core::http2::ClientRequest udr_req;
             udr_req.method = "GET";
@@ -2697,18 +2522,25 @@ int main() {
             udr_req.headers.emplace("authorization", "Bearer " + *token);
             auto udr_resp = udr_client.send(udr_req);
             if (!udr_resp.has_value()) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", "UDM could not reach UDR: " + udr_resp.error());
+                return sbi_core::http2::problem_response(500,
+                                                         "Internal Server Error",
+                                                         "UDM could not reach UDR: " +
+                                                             udr_resp.error(),
+                                                         "SYSTEM_FAILURE");
             }
             if (udr_resp->status == 404) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No shared data for sharedDataId " + shared_data_id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No shared data for sharedDataId " +
+                                                             shared_data_id,
+                                                         std::nullopt);
             }
             if (udr_resp->status != 200) {
                 return sbi_core::http2::problem_response(500,
                                                          "Internal Server Error",
                                                          "UDR returned unexpected status " +
-                                                             std::to_string(udr_resp->status));
+                                                             std::to_string(udr_resp->status),
+                                                         "SYSTEM_FAILURE");
             }
             shared_data_get_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -2727,22 +2559,20 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/shared-data",
-        [&verifier, &udr_client, &udr_oauth, &udr_base_url, &shared_data_get_counter](
+        [&udr_client, &udr_oauth, &udr_base_url, &shared_data_get_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto ids_it = req.query_params.find("shared-data-ids");
             if (ids_it == req.query_params.end()) {
                 return sbi_core::http2::problem_response(
-                    400, "Bad Request", "shared-data-ids is required");
+                    400, "Bad Request", "shared-data-ids is required", "MANDATORY_IE_MISSING");
             }
             auto token = udr_oauth.get_bearer_token();
             if (!token.has_value()) {
                 return sbi_core::http2::problem_response(500,
                                                          "Internal Server Error",
                                                          "UDM could not obtain a token for UDR: " +
-                                                             token.error());
+                                                             token.error(),
+                                                         "SYSTEM_FAILURE");
             }
             json result = json::array();
             for (const auto& shared_data_id : sbi_core::http2::split_form_array(ids_it->second)) {
@@ -2768,23 +2598,24 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/group-data/group-identifiers",
-        [&verifier, &udr_client, &udr_oauth, &udr_base_url, &group_identifiers_get_counter](
+        [&udr_client, &udr_oauth, &udr_base_url, &group_identifiers_get_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto ext_it = req.query_params.find("ext-group-id");
             const auto int_it = req.query_params.find("int-group-id");
             if (ext_it == req.query_params.end() && int_it == req.query_params.end()) {
                 return sbi_core::http2::problem_response(
-                    400, "Bad Request", "At least one of ext-group-id or int-group-id is required");
+                    400,
+                    "Bad Request",
+                    "At least one of ext-group-id or int-group-id is required",
+                    "MANDATORY_IE_MISSING");
             }
             auto token = udr_oauth.get_bearer_token();
             if (!token.has_value()) {
                 return sbi_core::http2::problem_response(500,
                                                          "Internal Server Error",
                                                          "UDM could not obtain a token for UDR: " +
-                                                             token.error());
+                                                             token.error(),
+                                                         "SYSTEM_FAILURE");
             }
             sbi_core::http2::ClientRequest udr_req;
             udr_req.method = "GET";
@@ -2795,18 +2626,22 @@ int main() {
             udr_req.headers.emplace("authorization", "Bearer " + *token);
             auto udr_resp = udr_client.send(udr_req);
             if (!udr_resp.has_value()) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", "UDM could not reach UDR: " + udr_resp.error());
+                return sbi_core::http2::problem_response(500,
+                                                         "Internal Server Error",
+                                                         "UDM could not reach UDR: " +
+                                                             udr_resp.error(),
+                                                         "SYSTEM_FAILURE");
             }
             if (udr_resp->status == 404) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Group Identifiers found");
+                    404, "Not Found", "No Group Identifiers found", std::nullopt);
             }
             if (udr_resp->status != 200) {
                 return sbi_core::http2::problem_response(500,
                                                          "Internal Server Error",
                                                          "UDR returned unexpected status " +
-                                                             std::to_string(udr_resp->status));
+                                                             std::to_string(udr_resp->status),
+                                                         "SYSTEM_FAILURE");
             }
             group_identifiers_get_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -2819,11 +2654,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSdmApiRoot) + "/shared-data-subscriptions",
-        [&verifier, &shared_data_subscriptions, &shared_data_subscribe_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&shared_data_subscriptions,
+         &shared_data_subscribe_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SdmSubscription>(req, err);
             if (!body.has_value()) {
@@ -2846,14 +2678,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kSdmApiRoot) + "/shared-data-subscriptions/{subscriptionId}",
-        [&verifier, &shared_data_subscriptions](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&shared_data_subscriptions](const sbi_core::http2::Request& req) {
             const auto subscription_id = req.path_params.at("subscriptionId");
             if (!shared_data_subscriptions.get(subscription_id).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such shared-data subscription");
+                    404, "Not Found", "No such shared-data subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             shared_data_subscriptions.remove(subscription_id);
             sbi_core::http2::Response resp;
@@ -2864,17 +2693,14 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kSdmApiRoot) + "/shared-data-subscriptions/{subscriptionId}",
-        [&verifier, &shared_data_subscriptions, &shared_data_modify_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&shared_data_subscriptions,
+         &shared_data_modify_counter](const sbi_core::http2::Request& req) {
             const auto subscription_id = req.path_params.at("subscriptionId");
             auto patched =
                 shared_data_subscriptions.merge_patch(subscription_id, json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such shared-data subscription");
+                    404, "Not Found", "No such shared-data subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             shared_data_modify_counter->Add(1);
             return sbi_core::http2::Response::json(200, patched->dump());
@@ -2892,15 +2718,8 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/{ueId}/id-translation-result",
-        [&verifier,
-         &fetch_from_udr,
-         &id_translation_counter,
-         &udr_client,
-         &udr_oauth,
-         &udr_base_url](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&fetch_from_udr, &id_translation_counter, &udr_client, &udr_oauth, &udr_base_url](
+            const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const bool is_supi_shaped = ue_id.rfind("imsi-", 0) == 0 ||
                                         ue_id.rfind("nai-", 0) == 0 ||
@@ -2919,14 +2738,17 @@ int main() {
                 }
                 const auto r = udr_client.send(q);
                 if (!r || r->status != 200) {
-                    return sbi_core::http2::problem_response(
-                        404, "Not Found", "no identity data for " + ue_id + " at the UDR");
+                    return sbi_core::http2::problem_response(404,
+                                                             "Not Found",
+                                                             "no identity data for " + ue_id +
+                                                                 " at the UDR",
+                                                             std::nullopt);
                 }
                 const auto ident = json::parse(r->body, nullptr, false);
                 if (!ident.is_object() || !ident.contains("supiList") ||
                     !ident.at("supiList").is_array() || ident.at("supiList").empty()) {
                     return sbi_core::http2::problem_response(
-                        404, "Not Found", "no SUPI is associated with " + ue_id);
+                        404, "Not Found", "no SUPI is associated with " + ue_id, std::nullopt);
                 }
                 sbi_gen::IdTranslationResult out;
                 out.supi = ident.at("supiList").at(0).get<std::string>();
@@ -2953,10 +2775,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kSdmApiRoot) + "/multiple-identifiers",
-        [&verifier, &fetch_from_udr, &id_translation_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&fetch_from_udr, &id_translation_counter](const sbi_core::http2::Request& req) {
             json ue_id_gpsi_list = json::object();
             const auto supi_list_it = req.query_params.find("supi-list");
             if (supi_list_it != req.query_params.end()) {
@@ -2986,11 +2805,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUeauApiRoot) + "/{supiOrSuci}/security-information/generate-auth-data",
-        [&verifier, &auth_subscriptions, &generate_auth_data_counter, &li_poi](
+        [&auth_subscriptions, &generate_auth_data_counter, &li_poi](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::AuthenticationInfoRequest>(req, err);
@@ -3004,7 +2820,8 @@ int main() {
                     400,
                     "Bad Request",
                     "Could not de-conceal SUCI " + raw_supi_or_suci +
-                        " (malformed, unsupported protection scheme, or MAC verification failed)");
+                        " (malformed, unsupported protection scheme, or MAC verification failed)",
+                    "MANDATORY_IE_INCORRECT");
             }
             const auto supi_or_suci = *deconcealed;
 
@@ -3019,7 +2836,10 @@ int main() {
                     aka_crypto::from_hex<14>(body->resynchronizationInfo->auts);
                 if (!resync_rand.has_value() || !resync_auts.has_value()) {
                     return sbi_core::http2::problem_response(
-                        400, "Bad Request", "resynchronizationInfo.rand/auts are not valid hex");
+                        400,
+                        "Bad Request",
+                        "resynchronizationInfo.rand/auts are not valid hex",
+                        "UNSPECIFIED_MSG_FAILURE");
                 }
                 const auto resync_result =
                     auth_subscriptions.resync_sqn(supi_or_suci, *resync_rand, *resync_auts);
@@ -3032,7 +2852,8 @@ int main() {
                         "Bad Request",
                         "resynchronizationInfo.auts failed to verify for " + supi_or_suci +
                             " -- wrong subscriber key material, tampered, or the RAND doesn't "
-                            "match the AuthenticationRequest the UE is responding to");
+                            "match the AuthenticationRequest the UE is responding to",
+                        "UNSPECIFIED_MSG_FAILURE");
                 }
             }
 
@@ -3115,11 +2936,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUeauApiRoot) + "/{supiOrSuci}/prose-security-information/generate-av",
-        [&verifier, &auth_subscriptions, &generate_prose_av_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&auth_subscriptions, &generate_prose_av_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::ProSeAuthenticationInfoRequest>(req, err);
@@ -3133,7 +2950,8 @@ int main() {
                     400,
                     "Bad Request",
                     "Could not de-conceal SUCI " + raw_supi_or_suci +
-                        " (malformed, unsupported protection scheme, or MAC verification failed)");
+                        " (malformed, unsupported protection scheme, or MAC verification failed)",
+                    "MANDATORY_IE_INCORRECT");
             }
             const auto supi_or_suci = *deconcealed;
 
@@ -3183,13 +3001,13 @@ int main() {
     server.add_route(
         "GET",
         std::string(kUeauApiRoot) + "/{supiOrSuci}/security-information-rg",
-        [&verifier, &auth_events, &get_rg_auth_data_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&auth_events, &get_rg_auth_data_counter](const sbi_core::http2::Request& req) {
             if (req.query_params.find("authenticated-ind") == req.query_params.end()) {
                 return sbi_core::http2::problem_response(
-                    400, "Bad Request", "Required query parameter authenticated-ind is missing");
+                    400,
+                    "Bad Request",
+                    "Required query parameter authenticated-ind is missing",
+                    "MANDATORY_QUERY_PARAM_MISSING");
             }
             const auto raw_supi_or_suci = req.path_params.at("supiOrSuci");
             const auto deconcealed = deconceal_suci_if_needed(raw_supi_or_suci);
@@ -3198,7 +3016,8 @@ int main() {
                     400,
                     "Bad Request",
                     "Could not de-conceal SUCI " + raw_supi_or_suci +
-                        " (malformed, unsupported protection scheme, or MAC verification failed)");
+                        " (malformed, unsupported protection scheme, or MAC verification failed)",
+                    "MANDATORY_IE_INCORRECT");
             }
             const auto supi_or_suci = *deconcealed;
 
@@ -3222,11 +3041,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUeauApiRoot) + "/{supi}/hss-security-information/{hssAuthType}/generate-av",
-        [&verifier, &auth_subscriptions, &generate_av_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&auth_subscriptions, &generate_av_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::HssAuthenticationInfoRequest>(req, err);
@@ -3241,7 +3056,8 @@ int main() {
                     501,
                     "Not Implemented",
                     "eps-aka KASME derivation (TS 33.401 Annex A.2) is not yet implemented in "
-                    "libs/aka-crypto");
+                    "libs/aka-crypto",
+                    std::nullopt);
             }
             std::string serving_network_name;
             if (hss_auth_type == "eap-aka-prime") {
@@ -3249,7 +3065,8 @@ int main() {
                     return sbi_core::http2::problem_response(
                         400,
                         "Bad Request",
-                        "servingNetworkId is required to derive CK'/IK' for eap-aka-prime");
+                        "servingNetworkId is required to derive CK'/IK' for eap-aka-prime",
+                        "MANDATORY_IE_MISSING");
                 }
                 const auto& mnc = body->servingNetworkId->mnc;
                 const std::string padded_mnc =
@@ -3258,8 +3075,11 @@ int main() {
                                        body->servingNetworkId->mcc + ".3gppnetwork.org";
             } else if (hss_auth_type != "eap-aka" && hss_auth_type != "ims-aka" &&
                        hss_auth_type != "gba-aka") {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "Unrecognized hssAuthType " + hss_auth_type);
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         "Unrecognized hssAuthType " +
+                                                             hss_auth_type,
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
 
             const std::int64_t num_vectors = body->numOfRequestedVectors;
@@ -3325,11 +3145,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUeauApiRoot) + "/{supi}/gba-security-information/generate-av",
-        [&verifier, &auth_subscriptions, &generate_gba_av_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&auth_subscriptions, &generate_gba_av_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::GbaAuthenticationInfoRequest>(req, err);
@@ -3364,66 +3180,59 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "POST",
-        std::string(kUeauApiRoot) + "/{supi}/auth-events",
-        [&verifier, &auth_events, &confirm_auth_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::AuthEvent>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto supi = req.path_params.at("supi");
-            json j = *body;
-            const auto id = auth_events.create(supi, j);
-            confirm_auth_counter->Add(1);
+    server.add_route("POST",
+                     std::string(kUeauApiRoot) + "/{supi}/auth-events",
+                     [&auth_events, &confirm_auth_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::AuthEvent>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto supi = req.path_params.at("supi");
+                         json j = *body;
+                         const auto id = auth_events.create(supi, j);
+                         confirm_auth_counter->Add(1);
 
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kUeauApiRoot) + "/" + supi + "/auth-events/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kUeauApiRoot) + "/" + supi +
+                                                  "/auth-events/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
-    server.add_route(
-        "PUT",
-        std::string(kUeauApiRoot) + "/{supi}/auth-events/{authEventId}",
-        [&verifier, &auth_events, &delete_auth_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::AuthEvent>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto supi = req.path_params.at("supi");
-            const auto auth_event_id = req.path_params.at("authEventId");
-            if (!auth_events.remove(supi, auth_event_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No auth event " + auth_event_id + " for supi " + supi);
-            }
-            delete_auth_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("PUT",
+                     std::string(kUeauApiRoot) + "/{supi}/auth-events/{authEventId}",
+                     [&auth_events, &delete_auth_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::AuthEvent>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto supi = req.path_params.at("supi");
+                         const auto auth_event_id = req.path_params.at("authEventId");
+                         if (!auth_events.remove(supi, auth_event_id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No auth event " + auth_event_id + " for supi " + supi,
+                                 std::nullopt);
+                         }
+                         delete_auth_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nudm_EE (ADR-0082, gap-closure task #105) ---
 
     server.add_route(
         "POST",
         std::string(kEeApiRoot) + "/{ueIdentity}/ee-subscriptions",
-        [&verifier, &ee_subscriptions, &ee_subscribe_counter, &amf_registrations, &home_plmns](
+        [&ee_subscriptions, &ee_subscribe_counter, &amf_registrations, &home_plmns](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::EeSubscription>(req, err);
             if (!body.has_value()) {
@@ -3489,40 +3298,35 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kEeApiRoot) + "/{ueIdentity}/ee-subscriptions/{subscriptionId}",
-        [&verifier, &ee_subscriptions, &ee_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_identity = req.path_params.at("ueIdentity");
-            const auto subscription_id = req.path_params.at("subscriptionId");
-            auto existing = ee_subscriptions.get(subscription_id);
-            if (!existing.has_value() || existing->ue_identity != ue_identity) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such EE subscription");
-            }
-            ee_subscriptions.remove(subscription_id);
-            ee_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kEeApiRoot) + "/{ueIdentity}/ee-subscriptions/{subscriptionId}",
+                     [&ee_subscriptions, &ee_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_identity = req.path_params.at("ueIdentity");
+                         const auto subscription_id = req.path_params.at("subscriptionId");
+                         auto existing = ee_subscriptions.get(subscription_id);
+                         if (!existing.has_value() || existing->ue_identity != ue_identity) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such EE subscription",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         ee_subscriptions.remove(subscription_id);
+                         ee_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "PATCH",
         std::string(kEeApiRoot) + "/{ueIdentity}/ee-subscriptions/{subscriptionId}",
-        [&verifier, &ee_subscriptions, &ee_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ee_subscriptions, &ee_update_counter](const sbi_core::http2::Request& req) {
             const auto ue_identity = req.path_params.at("ueIdentity");
             const auto subscription_id = req.path_params.at("subscriptionId");
             auto existing = ee_subscriptions.get(subscription_id);
             if (!existing.has_value() || existing->ue_identity != ue_identity) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such EE subscription");
+                    404, "Not Found", "No such EE subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             // Real spec: application/json-patch+json (RFC 6902) -- see stores.hpp's own comment
             // for why this differs from PP Data's own RFC 7396 merge-patch below.
@@ -3530,17 +3334,19 @@ int main() {
             try {
                 patch_ops = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             std::optional<json> patched;
             try {
                 patched = ee_subscriptions.apply_patch(subscription_id, patch_ops);
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(400, "Invalid JSON Patch", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such EE subscription");
+                    404, "Not Found", "No such EE subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             ee_update_counter->Add(1);
             return sbi_core::http2::Response::json(200, patched->dump());
@@ -3548,45 +3354,38 @@ int main() {
 
     // --- Nudm_PP (ADR-0082, gap-closure task #105) ---
 
-    server.add_route(
-        "GET",
-        std::string(kPpApiRoot) + "/{ueId}/pp-data",
-        [&verifier, &pp_data, &pp_get_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            auto data = pp_data.get(ue_id);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No PP data for ueId " + ue_id);
-            }
-            pp_get_counter->Add(1);
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    server.add_route("GET",
+                     std::string(kPpApiRoot) + "/{ueId}/pp-data",
+                     [&pp_data, &pp_get_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto data = pp_data.get(ue_id);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No PP data for ueId " + ue_id, std::nullopt);
+                         }
+                         pp_get_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
-    server.add_route(
-        "PATCH",
-        std::string(kPpApiRoot) + "/{ueId}/pp-data",
-        [&verifier, &pp_data, &pp_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            // Real spec: application/merge-patch+json (RFC 7396) -- confirmed by reading
-            // TS29503_Nudm_PP.yaml's own Update requestBody content type directly, same real
-            // distinction PCF's own ModAppSession (ADR-0080) already established for this
-            // project.
-            json patch_doc;
-            try {
-                patch_doc = json::parse(req.body);
-            } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
-            }
-            auto patched = pp_data.merge_patch(ue_id, patch_doc);
-            pp_update_counter->Add(1);
-            return sbi_core::http2::Response::json(200, patched->dump());
-        });
+    server.add_route("PATCH",
+                     std::string(kPpApiRoot) + "/{ueId}/pp-data",
+                     [&pp_data, &pp_update_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         // Real spec: application/merge-patch+json (RFC 7396) -- confirmed by
+                         // reading TS29503_Nudm_PP.yaml's own Update requestBody content type
+                         // directly, same real distinction PCF's own ModAppSession (ADR-0080)
+                         // already established for this project.
+                         json patch_doc;
+                         try {
+                             patch_doc = json::parse(req.body);
+                         } catch (const json::parse_error& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         auto patched = pp_data.merge_patch(ue_id, patch_doc);
+                         pp_update_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, patched->dump());
+                     });
 
     // --- Nudm_PP gap-closure (ADR-0237, task #169): 11 real ops across 3 real UDR-backed
     // sub-groups named in ADR-0082's own disclosed scope-narrowing (5G VN Group CRUD, PP Data
@@ -3604,30 +3403,23 @@ int main() {
 
     // PP Data Entry: Create/Delete/Get -- real, direct proxies to UDR's own already-live
     // pp-data-store/{afInstanceId} resource (ADR-0109). No Modify op exists for this resource.
-    server.add_route(
-        "PUT",
-        std::string(kPpApiRoot) + "/{ueId}/pp-data-store/{afInstanceId}",
-        [&verifier, &proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            const auto af_instance_id = req.path_params.at("afInstanceId");
-            auto resp =
-                proxy_to_udr("PUT",
-                             "/subscription-data/" + ue_id + "/pp-data-store/" + af_instance_id,
-                             req.body);
-            pp_data_entry_counter->Add(1);
-            return resp;
-        });
+    server.add_route("PUT",
+                     std::string(kPpApiRoot) + "/{ueId}/pp-data-store/{afInstanceId}",
+                     [&proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         const auto af_instance_id = req.path_params.at("afInstanceId");
+                         auto resp = proxy_to_udr("PUT",
+                                                  "/subscription-data/" + ue_id +
+                                                      "/pp-data-store/" + af_instance_id,
+                                                  req.body);
+                         pp_data_entry_counter->Add(1);
+                         return resp;
+                     });
 
     server.add_route(
         "DELETE",
         std::string(kPpApiRoot) + "/{ueId}/pp-data-store/{afInstanceId}",
-        [&verifier, &proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto af_instance_id = req.path_params.at("afInstanceId");
             auto resp = proxy_to_udr(
@@ -3639,10 +3431,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kPpApiRoot) + "/{ueId}/pp-data-store/{afInstanceId}",
-        [&verifier, &proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto af_instance_id = req.path_params.at("afInstanceId");
             auto resp = proxy_to_udr(
@@ -3656,10 +3445,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kPpApiRoot) + "/5g-vn-groups/{extGroupId}",
-        [&verifier, &proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             auto resp = proxy_to_udr(
                 "PUT", "/subscription-data/group-data/5g-vn-groups/" + ext_group_id, req.body);
@@ -3670,10 +3456,7 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kPpApiRoot) + "/5g-vn-groups/{extGroupId}",
-        [&verifier, &proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             auto resp = proxy_to_udr(
                 "DELETE", "/subscription-data/group-data/5g-vn-groups/" + ext_group_id, "");
@@ -3684,10 +3467,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kPpApiRoot) + "/5g-vn-groups/{extGroupId}",
-        [&verifier, &proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             auto resp = proxy_to_udr(
                 "GET", "/subscription-data/group-data/5g-vn-groups/" + ext_group_id, "");
@@ -3697,55 +3477,50 @@ int main() {
 
     // 5G VN Group: Modify -- real RFC 7396 merge-patch semantics via GET+merge_patch+PUT against
     // UDR's own RFC 6902 JSON-Patch-based resource (see this block's own top comment).
-    server.add_route(
-        "PATCH",
-        std::string(kPpApiRoot) + "/5g-vn-groups/{extGroupId}",
-        [&verifier, &proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ext_group_id = req.path_params.at("extGroupId");
-            const std::string udr_path =
-                "/subscription-data/group-data/5g-vn-groups/" + ext_group_id;
-            auto get_resp = proxy_to_udr("GET", udr_path, "");
-            if (get_resp.status != 200) {
-                return get_resp;
-            }
-            json patch_doc;
-            try {
-                patch_doc = json::parse(req.body);
-            } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
-            }
-            json current;
-            try {
-                current = json::parse(get_resp.body);
-            } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(500,
-                                                         "Internal Server Error",
-                                                         "UDR returned malformed JSON: " +
-                                                             std::string(e.what()));
-            }
-            current.merge_patch(patch_doc);
-            auto put_resp = proxy_to_udr("PUT", udr_path, current.dump());
-            if (put_resp.status != 201) {
-                return put_resp;
-            }
-            pp_5g_vn_group_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("PATCH",
+                     std::string(kPpApiRoot) + "/5g-vn-groups/{extGroupId}",
+                     [&proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
+                         const auto ext_group_id = req.path_params.at("extGroupId");
+                         const std::string udr_path =
+                             "/subscription-data/group-data/5g-vn-groups/" + ext_group_id;
+                         auto get_resp = proxy_to_udr("GET", udr_path, "");
+                         if (get_resp.status != 200) {
+                             return get_resp;
+                         }
+                         json patch_doc;
+                         try {
+                             patch_doc = json::parse(req.body);
+                         } catch (const json::parse_error& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         json current;
+                         try {
+                             current = json::parse(get_resp.body);
+                         } catch (const json::exception& e) {
+                             return sbi_core::http2::problem_response(
+                                 500,
+                                 "Internal Server Error",
+                                 "UDR returned malformed JSON: " + std::string(e.what()),
+                                 "SYSTEM_FAILURE");
+                         }
+                         current.merge_patch(patch_doc);
+                         auto put_resp = proxy_to_udr("PUT", udr_path, current.dump());
+                         if (put_resp.status != 201) {
+                             return put_resp;
+                         }
+                         pp_5g_vn_group_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // 5G MBS Group: Create/Delete/Get -- real, direct proxies to UDR's own already-live
     // mbs-group-membership/{externalGroupId} resource (ADR-0167).
     server.add_route(
         "PUT",
         std::string(kPpApiRoot) + "/mbs-group-membership/{extGroupId}",
-        [&verifier, &proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             auto resp =
                 proxy_to_udr("PUT",
@@ -3758,10 +3533,7 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kPpApiRoot) + "/mbs-group-membership/{extGroupId}",
-        [&verifier, &proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             auto resp = proxy_to_udr(
                 "DELETE", "/subscription-data/group-data/mbs-group-membership/" + ext_group_id, "");
@@ -3772,10 +3544,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kPpApiRoot) + "/mbs-group-membership/{extGroupId}",
-        [&verifier, &proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             auto resp = proxy_to_udr(
                 "GET", "/subscription-data/group-data/mbs-group-membership/" + ext_group_id, "");
@@ -3788,10 +3557,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kPpApiRoot) + "/mbs-group-membership/{extGroupId}",
-        [&verifier, &proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             const std::string udr_path =
                 "/subscription-data/group-data/mbs-group-membership/" + ext_group_id;
@@ -3803,7 +3569,8 @@ int main() {
             try {
                 patch_doc = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             json current;
             try {
@@ -3812,7 +3579,8 @@ int main() {
                 return sbi_core::http2::problem_response(500,
                                                          "Internal Server Error",
                                                          "UDR returned malformed JSON: " +
-                                                             std::string(e.what()));
+                                                             std::string(e.what()),
+                                                         "SYSTEM_FAILURE");
             }
             current.merge_patch(patch_doc);
             auto put_resp = proxy_to_udr("PUT", udr_path, current.dump());
@@ -3830,11 +3598,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kMtApiRoot) + "/{supi}",
-        [&verifier, &fetch_from_udr, &mt_query_ue_info_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&fetch_from_udr, &mt_query_ue_info_counter](const sbi_core::http2::Request& req) {
             const auto supi = req.path_params.at("supi");
             // Real existence check: same real UDR am-data probe GetAmData etc. already use --
             // no dedicated new store needed.
@@ -3853,11 +3617,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kMtApiRoot) + "/{supi}/loc-info/provide-loc-info",
-        [&verifier, &fetch_from_udr, &mt_provide_loc_info_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&fetch_from_udr, &mt_provide_loc_info_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::LocationInfoRequest>(req, err);
             if (!body.has_value()) {
@@ -3881,10 +3641,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kNiddauApiRoot) + "/{ueIdentity}/authorize",
-        [&verifier, &niddau_authorize_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&niddau_authorize_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AuthorizationInfo>(req, err);
             if (!body.has_value()) {
@@ -3893,62 +3650,58 @@ int main() {
             niddau_authorize_counter->Add(1);
             // Disclosed gap: no real MTC-provider/NIDD authorization policy data exists anywhere
             // in this build to authorize against.
-            return sbi_core::http2::problem_response(
-                501, "Not Implemented", "No NIDD authorization policy data configured");
+            return sbi_core::http2::problem_response(501,
+                                                     "Not Implemented",
+                                                     "No NIDD authorization policy data configured",
+                                                     std::nullopt);
         });
 
     // ---- TS29503_Nudm_RSDS.yaml (ADR-0202) ----
 
-    server.add_route(
-        "POST",
-        std::string(kRsdsApiRoot) + "/{ueIdentity}/sm-delivery-status",
-        [&verifier, &rsds_report_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::SmDeliveryStatus>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            rsds_report_counter->Add(1);
-            // Disclosed simplification: no real SMS routing/retry logic exists to act on the
-            // report -- it is structurally validated and accepted.
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kRsdsApiRoot) + "/{ueIdentity}/sm-delivery-status",
+                     [&rsds_report_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::SmDeliveryStatus>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         rsds_report_counter->Add(1);
+                         // Disclosed simplification: no real SMS routing/retry logic exists to act
+                         // on the report -- it is structurally validated and accepted.
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // ---- TS29503_Nudm_SSAU.yaml (ADR-0202) ----
 
-    server.add_route(
-        "POST",
-        std::string(kSsauApiRoot) + "/{ueIdentity}/{serviceType}/authorize",
-        [&verifier, &ssau_authorize_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<
-                sbi_gen::ServiceSpecificAuthorizationInfo_Nudm_SSAU>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            ssau_authorize_counter->Add(1);
-            // Disclosed gap: no real service-specific authorization policy data exists for any of
-            // the real AF_GUIDANCE_FOR_URSP/AF_REQUESTED_QOS/AF_PROVISION_N3GPP_DEV_ID_INFO
-            // service types in this build.
-            return sbi_core::http2::problem_response(
-                501, "Not Implemented", "No service-specific authorization policy data configured");
-        });
+    server.add_route("POST",
+                     std::string(kSsauApiRoot) + "/{ueIdentity}/{serviceType}/authorize",
+                     [&ssau_authorize_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<
+                             sbi_gen::ServiceSpecificAuthorizationInfo_Nudm_SSAU>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         ssau_authorize_counter->Add(1);
+                         // Disclosed gap: no real service-specific authorization policy data exists
+                         // for any of the real
+                         // AF_GUIDANCE_FOR_URSP/AF_REQUESTED_QOS/AF_PROVISION_N3GPP_DEV_ID_INFO
+                         // service types in this build.
+                         return sbi_core::http2::problem_response(
+                             501,
+                             "Not Implemented",
+                             "No service-specific authorization policy data configured",
+                             std::nullopt);
+                     });
 
     server.add_route(
         "POST",
         std::string(kSsauApiRoot) + "/{ueIdentity}/{serviceType}/remove",
-        [&verifier, &ssau_remove_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ssau_remove_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::ServiceSpecificAuthorizationRemoveData>(
@@ -3959,8 +3712,11 @@ int main() {
             ssau_remove_counter->Add(1);
             // Disclosed: ServiceSpecificAuthorization above always 501s, so no real authId is
             // ever issued -- no removal request can ever match one.
-            return sbi_core::http2::problem_response(
-                404, "Not Found", "No such service-specific authorization: " + body->authId);
+            return sbi_core::http2::problem_response(404,
+                                                     "Not Found",
+                                                     "No such service-specific authorization: " +
+                                                         body->authId,
+                                                     std::nullopt);
         });
 
     // ---- TS29503_Nudm_UEID.yaml (ADR-0202) ----
@@ -3968,10 +3724,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUeidApiRoot) + "/deconceal",
-        [&verifier, &ueid_deconceal_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ueid_deconceal_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::DeconcealReqData>(req, err);
             if (!body.has_value()) {
@@ -3986,7 +3739,8 @@ int main() {
                     400,
                     "Bad Request",
                     "Could not de-conceal SUCI " + body->suci +
-                        " (malformed, unsupported protection scheme, or MAC verification failed)");
+                        " (malformed, unsupported protection scheme, or MAC verification failed)",
+                    "MANDATORY_IE_INCORRECT");
             }
             ueid_deconceal_counter->Add(1);
             sbi_gen::DeconcealRspData resp_data;

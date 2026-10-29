@@ -90,26 +90,6 @@ void seed_equipment_statuses(eir::EquipmentStatusStore& store) {
     store.seed("imeisv-3510000000000030", sbi_gen::EquipmentStatus::GREYLISTED);
 }
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/ausf/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
 void run_nrf_lifecycle(const std::string& eir_instance_id,
@@ -249,21 +229,23 @@ int main() {
     server.add_route(
         "GET",
         std::string(kApiRoot) + "/equipment-status",
-        [&verifier, &statuses, &get_status_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&statuses, &get_status_counter](const sbi_core::http2::Request& req) {
             auto pei_it = req.query_params.find("pei");
             if (pei_it == req.query_params.end()) {
-                return sbi_core::http2::problem_response(
-                    400, "Missing mandatory query parameter", "pei is required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Missing mandatory query parameter",
+                                                         "pei is required",
+                                                         "MANDATORY_QUERY_PARAM_MISSING");
             }
             get_status_counter->Add(1);
 
             auto status = statuses.get(pei_it->second);
             if (!status.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "PEI Not Found", "No equipment status for pei " + pei_it->second);
+                return sbi_core::http2::problem_response(404,
+                                                         "PEI Not Found",
+                                                         "No equipment status for pei " +
+                                                             pei_it->second,
+                                                         std::nullopt);
             }
 
             sbi_gen::EirResponseData resp_body;

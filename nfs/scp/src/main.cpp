@@ -80,26 +80,6 @@ constexpr const char* kApiRoot = "/nscp-ee/v1";
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/ausf/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
 void run_nrf_lifecycle(const std::string& scp_instance_id,
@@ -243,10 +223,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/subscriptions",
-        [&verifier, &subscriptions, &sub_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&subscriptions, &sub_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::ScpEventExposureSubscription>(req, err);
@@ -271,20 +248,19 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &subscriptions, &sub_modify_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&subscriptions, &sub_modify_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             json patch_ops;
             try {
                 patch_ops = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             auto patched = subscriptions.patch(id, patch_ops);
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             sub_modify_counter->Add(1);
 
@@ -300,22 +276,21 @@ int main() {
             return sbi_core::http2::Response::json(200, json(resp_body).dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &subscriptions, &sub_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("subscriptionId");
-            if (!subscriptions.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
-            }
-            sub_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&subscriptions, &sub_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!subscriptions.remove(id)) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No subscription " + id,
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sub_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     std::thread(run_nrf_lifecycle, scp_instance_id, nrf_base, profile_ipv4).detach();
 

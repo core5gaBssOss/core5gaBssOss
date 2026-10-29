@@ -105,26 +105,6 @@ constexpr const char* kApiRoot = "/nbsf-management/v1";
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // A query parameter declared `content: application/json` in the YAML carries a JSON-encoded
 // value in the query string -- same helper/reasoning as nfs/nssf's own get_json_query_param.
 template <typename T>
@@ -453,11 +433,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/pcfBindings",
-        [&verifier, &pcf_bindings, &notify_client, &subscriptions, &create_binding_counter](
+        [&pcf_bindings, &notify_client, &subscriptions, &create_binding_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PcfBinding>(req, err);
             if (!body.has_value()) {
@@ -468,7 +445,8 @@ int main() {
                     400,
                     "Missing mandatory IE",
                     "PcfBinding requires supi for this project's own real duplicate-check (see "
-                    "this file's own top comment, simplification 1)");
+                    "this file's own top comment, simplification 1)",
+                    "MANDATORY_IE_MISSING");
             }
 
             if (auto existing =
@@ -520,36 +498,30 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kApiRoot) + "/pcfBindings",
-        [&verifier, &pcf_bindings, &get_bindings_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            get_bindings_counter->Add(1);
-            for (const auto& binding : pcf_bindings.list_all()) {
-                if (matches_pcf_binding_filter(binding, req)) {
-                    return sbi_core::http2::Response::json(200, binding.dump());
-                }
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("GET",
+                     std::string(kApiRoot) + "/pcfBindings",
+                     [&pcf_bindings, &get_bindings_counter](const sbi_core::http2::Request& req) {
+                         get_bindings_counter->Add(1);
+                         for (const auto& binding : pcf_bindings.list_all()) {
+                             if (matches_pcf_binding_filter(binding, req)) {
+                                 return sbi_core::http2::Response::json(200, binding.dump());
+                             }
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "DELETE",
         std::string(kApiRoot) + "/pcfBindings/{bindingId}",
-        [&verifier, &pcf_bindings, &notify_client, &subscriptions, &delete_binding_counter](
+        [&pcf_bindings, &notify_client, &subscriptions, &delete_binding_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("bindingId");
             auto removed = pcf_bindings.remove(id);
             if (!removed.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No PCF binding " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No PCF binding " + id, std::nullopt);
             }
             delete_binding_counter->Add(1);
             if (removed->contains("supi")) {
@@ -574,37 +546,32 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "PATCH",
-        std::string(kApiRoot) + "/pcfBindings/{bindingId}",
-        [&verifier, &pcf_bindings, &update_binding_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("bindingId");
-            json merge_patch;
-            try {
-                merge_patch = json::parse(req.body);
-            } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
-            }
-            auto patched = pcf_bindings.patch(id, merge_patch);
-            if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No PCF binding " + id);
-            }
-            update_binding_counter->Add(1);
-            return sbi_core::http2::Response::json(200, patched->dump());
-        });
+    server.add_route("PATCH",
+                     std::string(kApiRoot) + "/pcfBindings/{bindingId}",
+                     [&pcf_bindings, &update_binding_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("bindingId");
+                         json merge_patch;
+                         try {
+                             merge_patch = json::parse(req.body);
+                         } catch (const json::parse_error& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         auto patched = pcf_bindings.patch(id, merge_patch);
+                         if (!patched.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No PCF binding " + id, std::nullopt);
+                         }
+                         update_binding_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, patched->dump());
+                     });
 
     // --- Nbsf_Management: subscriptions ---
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/subscriptions",
-        [&verifier, &subscriptions, &sub_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&subscriptions, &sub_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::BsfSubscription>(req, err);
             if (!body.has_value()) {
@@ -626,10 +593,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kApiRoot) + "/subscriptions/{subId}",
-        [&verifier, &subscriptions, &sub_replace_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&subscriptions, &sub_replace_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subId");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::BsfSubscription>(req, err);
@@ -638,39 +602,36 @@ int main() {
             }
             json j = *body;
             if (!subscriptions.put(id, j)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             sub_replace_counter->Add(1);
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kApiRoot) + "/subscriptions/{subId}",
-        [&verifier, &subscriptions, &sub_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("subId");
-            if (!subscriptions.remove(id).has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
-            }
-            sub_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kApiRoot) + "/subscriptions/{subId}",
+                     [&subscriptions, &sub_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subId");
+                         if (!subscriptions.remove(id).has_value()) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No subscription " + id,
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sub_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nbsf_Management: pcf-ue-bindings ---
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/pcf-ue-bindings",
-        [&verifier, &pcf_ue_bindings, &notify_client, &subscriptions, &create_ue_binding_counter](
+        [&pcf_ue_bindings, &notify_client, &subscriptions, &create_ue_binding_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PcfForUeBinding>(req, err);
             if (!body.has_value()) {
@@ -682,7 +643,8 @@ int main() {
                     403,
                     "Forbidden",
                     "An existing PCF for a UE binding already covers this supi (see this file's "
-                    "own top comment, simplification 5)");
+                    "own top comment, simplification 5)",
+                    std::nullopt);
             }
 
             create_ue_binding_counter->Add(1);
@@ -706,11 +668,7 @@ int main() {
     server.add_route(
         "GET",
         std::string(kApiRoot) + "/pcf-ue-bindings",
-        [&verifier, &pcf_ue_bindings, &get_ue_bindings_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pcf_ue_bindings, &get_ue_bindings_counter](const sbi_core::http2::Request& req) {
             get_ue_bindings_counter->Add(1);
             const auto supi_filter = get_string_query_param(req, "supi");
             const auto gpsi_filter = get_string_query_param(req, "gpsi");
@@ -727,53 +685,47 @@ int main() {
             return sbi_core::http2::Response::json(200, results.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kApiRoot) + "/pcf-ue-bindings/{bindingId}",
-        [&verifier, &pcf_ue_bindings, &notify_client, &subscriptions, &delete_ue_binding_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("bindingId");
-            auto removed = pcf_ue_bindings.remove(id);
-            if (!removed.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No PCF for a UE binding " + id);
-            }
-            delete_ue_binding_counter->Add(1);
-            if (removed->contains("supi")) {
-                deliver_bsf_notification(notify_client,
-                                         subscriptions,
-                                         sbi_gen::BsfEvent::PCF_UE_BINDING_DEREGISTRATION,
-                                         removed->at("supi").get<std::string>(),
-                                         std::nullopt,
-                                         json());
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kApiRoot) + "/pcf-ue-bindings/{bindingId}",
+                     [&pcf_ue_bindings, &notify_client, &subscriptions, &delete_ue_binding_counter](
+                         const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("bindingId");
+                         auto removed = pcf_ue_bindings.remove(id);
+                         if (!removed.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No PCF for a UE binding " + id, std::nullopt);
+                         }
+                         delete_ue_binding_counter->Add(1);
+                         if (removed->contains("supi")) {
+                             deliver_bsf_notification(
+                                 notify_client,
+                                 subscriptions,
+                                 sbi_gen::BsfEvent::PCF_UE_BINDING_DEREGISTRATION,
+                                 removed->at("supi").get<std::string>(),
+                                 std::nullopt,
+                                 json());
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "PATCH",
         std::string(kApiRoot) + "/pcf-ue-bindings/{bindingId}",
-        [&verifier, &pcf_ue_bindings, &update_ue_binding_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pcf_ue_bindings, &update_ue_binding_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("bindingId");
             json merge_patch;
             try {
                 merge_patch = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             auto patched = pcf_ue_bindings.patch(id, merge_patch);
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No PCF for a UE binding " + id);
+                    404, "Not Found", "No PCF for a UE binding " + id, std::nullopt);
             }
             update_ue_binding_counter->Add(1);
             return sbi_core::http2::Response::json(200, patched->dump());
@@ -784,11 +736,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/pcf-mbs-bindings",
-        [&verifier, &pcf_mbs_bindings, &create_mbs_binding_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pcf_mbs_bindings, &create_mbs_binding_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PcfMbsBinding>(req, err);
             if (!body.has_value()) {
@@ -832,15 +780,13 @@ int main() {
     server.add_route(
         "GET",
         std::string(kApiRoot) + "/pcf-mbs-bindings",
-        [&verifier, &pcf_mbs_bindings, &get_mbs_binding_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pcf_mbs_bindings, &get_mbs_binding_counter](const sbi_core::http2::Request& req) {
             auto mbs_session_id = get_json_query_param<json>(req, "mbs-session-id");
             if (!mbs_session_id.has_value()) {
-                return sbi_core::http2::problem_response(
-                    400, "Missing mandatory query parameter", "mbs-session-id is required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Missing mandatory query parameter",
+                                                         "mbs-session-id is required",
+                                                         "MANDATORY_QUERY_PARAM_MISSING");
             }
             get_mbs_binding_counter->Add(1);
             json results = json::array();
@@ -854,22 +800,19 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kApiRoot) + "/pcf-mbs-bindings/{bindingId}",
-        [&verifier, &pcf_mbs_bindings, &modify_mbs_binding_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pcf_mbs_bindings, &modify_mbs_binding_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("bindingId");
             json merge_patch;
             try {
                 merge_patch = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             auto patched = pcf_mbs_bindings.patch(id, merge_patch);
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No PCF for an MBS Session binding " + id);
+                    404, "Not Found", "No PCF for an MBS Session binding " + id, std::nullopt);
             }
             modify_mbs_binding_counter->Add(1);
             return sbi_core::http2::Response::json(200, patched->dump());
@@ -878,15 +821,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kApiRoot) + "/pcf-mbs-bindings/{bindingId}",
-        [&verifier, &pcf_mbs_bindings, &delete_mbs_binding_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pcf_mbs_bindings, &delete_mbs_binding_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("bindingId");
             if (!pcf_mbs_bindings.remove(id).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No PCF for an MBS Session binding " + id);
+                    404, "Not Found", "No PCF for an MBS Session binding " + id, std::nullopt);
             }
             delete_mbs_binding_counter->Add(1);
             sbi_core::http2::Response resp;

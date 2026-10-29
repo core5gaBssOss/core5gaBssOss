@@ -105,26 +105,6 @@ constexpr const char* kEeApiRoot = "/nnsacf-slice-ee/v1";
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (the YAML's own
-// `security: [{}, oAuth2ClientCredentials:[...]]` bootstrap alternative).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // The slice quotas this NSACF enforces, from config/nsacf.json. Real values, not seeded fiction:
 // they are this lab's own configured slices, and LocalNumberUpdate can change them at runtime
 // exactly as the spec intends.
@@ -583,9 +563,6 @@ int main() {
         "POST",
         std::string(kNsacApiRoot) + "/slices/ues",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::UeACRequestData>(req, err);
             if (!body.has_value()) {
@@ -665,9 +642,6 @@ int main() {
         "POST",
         std::string(kNsacApiRoot) + "/slices/pdus",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PduACRequestData>(req, err);
             if (!body.has_value()) {
@@ -739,9 +713,6 @@ int main() {
         "POST",
         std::string(kNsacApiRoot) + "/slices/local-configs/update",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ACUpdateData>(req, err);
             if (!body.has_value()) {
@@ -775,9 +746,6 @@ int main() {
         "POST",
         std::string(kNsacApiRoot) + "/slices/roaming-quotas/query",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::QuotaUpdateRequestData>(req, err);
             if (!body.has_value()) {
@@ -786,8 +754,11 @@ int main() {
             const auto key = nsacf::slice_key(body->snssai.sst, body->snssai.sd);
             const auto quotas = slices.quotas(key);
             if (!quotas.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Slice Not Found", "No admission configuration for S-NSSAI " + key);
+                return sbi_core::http2::problem_response(404,
+                                                         "Slice Not Found",
+                                                         "No admission configuration for S-NSSAI " +
+                                                             key,
+                                                         std::nullopt);
             }
             sbi_gen::QuotaUpdateResponseData resp_body;
             resp_body.snssai = body->snssai;
@@ -810,9 +781,6 @@ int main() {
         "POST",
         std::string(kEeApiRoot) + "/subscriptions",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SACEventSubscription>(req, err);
             if (!body.has_value()) {
@@ -822,7 +790,8 @@ int main() {
                 return sbi_core::http2::problem_response(
                     400,
                     "Missing or invalid mandatory IE",
-                    "SACEvent.eventFilter must name at least one S-NSSAI (minItems: 1)");
+                    "SACEvent.eventFilter must name at least one S-NSSAI (minItems: 1)",
+                    "UNSPECIFIED_MSG_FAILURE");
             }
 
             const auto id = subscriptions.create(to_record(*body, req.body));
@@ -867,42 +836,44 @@ int main() {
         "PATCH",
         std::string(kEeApiRoot) + "/subscriptions/{subscriptionId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("subscriptionId");
             auto existing = subscriptions.get_raw(id);
             if (!existing.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Subscription Not Found", "No subscription with id " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Subscription Not Found",
+                                                         "No subscription with id " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             json current;
             try {
                 current = json::parse(*existing);
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
-                    500, "Stored subscription unreadable", e.what());
+                    500, "Stored subscription unreadable", e.what(), "SYSTEM_FAILURE");
             }
-            // REVIEW-5ae0ef1 SPEC-04: TS29536_Nnsacf_SliceEventExposure.yaml patches with
-            // application/json-patch+json, a PatchItem array (RFC 6902).
+            // REVIEW-5ae0ef1 SPEC-04: TS29536_Nnsacf_SliceEventExposure.yaml patches
+            // with application/json-patch+json, a PatchItem array (RFC 6902).
             auto patched = sbi_core::http2::apply_json_patch_body(req, current);
             if (!patched.has_value()) {
                 return patched.error();
             }
-            // Re-parse the patched result: a PATCH can change the threshold, the period or the
-            // watched slices, and the reporting loop reads the RECORD, not the raw body. Storing
-            // the patched JSON without rebuilding the record would leave reports running against
-            // the pre-patch subscription -- a silent divergence.
+            // Re-parse the patched result: a PATCH can change the threshold, the
+            // period or the watched slices, and the reporting loop reads the RECORD,
+            // not the raw body. Storing the patched JSON without rebuilding the record
+            // would leave reports running against the pre-patch subscription -- a
+            // silent divergence.
             sbi_gen::SACEventSubscription updated;
             try {
                 updated = patched->get<sbi_gen::SACEventSubscription>();
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Missing or invalid mandatory IE", e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Missing or invalid mandatory IE",
+                                                         e.what(),
+                                                         sbi_core::http2::dto_error_cause(e));
             }
             subscriptions.replace(id, to_record(updated, patched->dump()));
-            // The 200 body is CreatedSACEventSubscription (the YAML's PATCH response), as for
-            // the POST's 201.
+            // The 200 body is CreatedSACEventSubscription (the YAML's PATCH response),
+            // as for the POST's 201.
             sbi_gen::CreatedSACEventSubscription result;
             result.subscription = updated;
             result.subscriptionId = id;
@@ -913,9 +884,6 @@ int main() {
         "PUT",
         std::string(kEeApiRoot) + "/subscriptions/{subscriptionId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SACEventSubscription>(req, err);
@@ -923,28 +891,29 @@ int main() {
                 return err;
             }
             if (!subscriptions.replace(id, to_record(*body, req.body))) {
-                return sbi_core::http2::problem_response(
-                    404, "Subscription Not Found", "No subscription with id " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Subscription Not Found",
+                                                         "No subscription with id " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, req.body);
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kEeApiRoot) + "/subscriptions/{subscriptionId}",
-        [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("subscriptionId");
-            if (!subscriptions.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Subscription Not Found", "No subscription with id " + id);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kEeApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!subscriptions.remove(id)) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Subscription Not Found",
+                                                                      "No subscription with id " +
+                                                                          id,
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     std::thread(run_nrf_lifecycle, nsacf_instance_id, nrf_base, profile_ipv4).detach();
     // ADR-0394 (extended): NOT detached -- see run_periodic_reporting's own header comment. Joined

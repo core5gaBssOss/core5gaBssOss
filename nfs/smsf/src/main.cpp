@@ -93,26 +93,6 @@ constexpr const char* kApiRoot = "/nsmsf-sms/v2";
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // ProblemDetails with an application error `cause` (TS 29.540 table 6.1.7.3-1, TS 29.500 table
 // 5.2.7.2-1).
 sbi_core::http2::Response problem_with_cause(int status,
@@ -348,10 +328,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kApiRoot) + "/ue-contexts/{supi}",
-        [&verifier, &contexts, &activation_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&contexts, &activation_counter](const sbi_core::http2::Request& req) {
             const auto supi = req.path_params.at("supi");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::UeSmsContextData>(req, err);
@@ -381,21 +358,19 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kApiRoot) + "/ue-contexts/{supi}",
-        [&verifier, &contexts, &param_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&contexts, &param_update_counter](const sbi_core::http2::Request& req) {
             const auto supi = req.path_params.at("supi");
             json patch_ops;
             try {
                 patch_ops = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             auto patched = contexts.patch(supi, patch_ops);
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE SMS context for supi " + supi);
+                    404, "Not Found", "No UE SMS context for supi " + supi, std::nullopt);
             }
             param_update_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -406,18 +381,15 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kApiRoot) + "/ue-contexts/{supi}",
-        [&verifier, &contexts, &deactivation_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&contexts, &deactivation_counter](const sbi_core::http2::Request& req) {
             const auto supi = req.path_params.at("supi");
-            // Real, disclosed: the YAML documents an optional `If-Match` precondition header on
-            // this operation but declares no `412` response for a mismatch -- accepted but not
-            // enforced, a real spec gap, not a shortcut (same class as 5G-EIR's own disclosed
-            // structural gaps, ADR-0187).
+            // Real, disclosed: the YAML documents an optional `If-Match` precondition
+            // header on this operation but declares no `412` response for a mismatch
+            // -- accepted but not enforced, a real spec gap, not a shortcut (same
+            // class as 5G-EIR's own disclosed structural gaps, ADR-0187).
             if (!contexts.remove(supi)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE SMS context for supi " + supi);
+                    404, "Not Found", "No UE SMS context for supi " + supi, std::nullopt);
             }
             deactivation_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -428,37 +400,34 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{supi}/sendsms",
-        [&verifier,
-         &contexts,
-         &send_sms_counter,
-         &mo_sms_policy,
-         &mt_transactions,
-         &n1n2_sender,
-         &li_poi](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&contexts, &send_sms_counter, &mo_sms_policy, &mt_transactions, &n1n2_sender, &li_poi](
+            const sbi_core::http2::Request& req) {
             const auto supi = req.path_params.at("supi");
             const auto ue_context = contexts.get(supi);
             if (!ue_context.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE SMS context for supi " + supi);
+                    404, "Not Found", "No UE SMS context for supi " + supi, std::nullopt);
             }
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "Content-Type header is required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "Content-Type header is required",
+                                                         "MANDATORY_IE_MISSING");
             }
             auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
             if (!parts.has_value() || parts->empty()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "Malformed multipart/related body");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "Malformed multipart/related body",
+                                                         "MANDATORY_IE_INCORRECT");
             }
             sbi_gen::SmsRecordData jsonData;
             try {
                 jsonData = json::parse((*parts)[0].body).get<sbi_gen::SmsRecordData>();
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(400, "Invalid Service Request", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Invalid Service Request", e.what(), sbi_core::http2::dto_error_cause(e));
             }
             const sbi_core::multipart::Part* payload_part = nullptr;
             for (const auto& part : *parts) {
@@ -469,8 +438,10 @@ int main() {
                 }
             }
             if (payload_part == nullptr) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "smsPayload binary part not found");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "smsPayload binary part not found",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
 
             // ADR-0486: TS 24.011 CP/RP and TS 23.040 TPDU handling (sms_procedures.hpp).
@@ -482,7 +453,8 @@ int main() {
                 return sbi_core::http2::problem_response(400,
                                                          "Invalid Service Request",
                                                          "smsPayload is not an SM-CP message: " +
-                                                             outcome.error());
+                                                             outcome.error(),
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
             if (outcome->rp_error) {
                 spdlog::warn("smsf: CP-DATA from {} acknowledged, {}", supi, *outcome->rp_error);
@@ -553,11 +525,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{supi}/send-mt-sms",
-        [&verifier, &contexts, &send_mt_sms_counter, &mt_transactions, &n1n2_sender, &li_poi](
+        [&contexts, &send_mt_sms_counter, &mt_transactions, &n1n2_sender, &li_poi](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto supi = req.path_params.at("supi");
             const auto ue_context = contexts.get(supi);
             if (!ue_context.has_value()) {
@@ -566,19 +535,24 @@ int main() {
             }
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "Content-Type header is required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "Content-Type header is required",
+                                                         "MANDATORY_IE_MISSING");
             }
             auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
             if (!parts.has_value() || parts->empty()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "Malformed multipart/related body");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "Malformed multipart/related body",
+                                                         "MANDATORY_IE_INCORRECT");
             }
             sbi_gen::SmsData jsonData;
             try {
                 jsonData = json::parse((*parts)[0].body).get<sbi_gen::SmsData>();
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(400, "Invalid Service Request", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Invalid Service Request", e.what(), sbi_core::http2::dto_error_cause(e));
             }
             const sbi_core::multipart::Part* payload_part = nullptr;
             for (const auto& part : *parts) {
@@ -617,8 +591,11 @@ int main() {
             const auto not_delivered = [&](const std::string& why) {
                 spdlog::warn("smsf: MT SMS for {} not delivered: {}", supi, why);
                 report_failed_attempt();
-                return sbi_core::http2::problem_response(
-                    504, "MT SMS not delivered", "MT SMS for " + supi + " not delivered: " + why);
+                return sbi_core::http2::problem_response(504,
+                                                         "MT SMS not delivered",
+                                                         "MT SMS for " + supi +
+                                                             " not delivered: " + why,
+                                                         std::nullopt);
             };
 
             // Step 4: Namf_MT_EnableUEReachability.

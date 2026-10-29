@@ -106,6 +106,41 @@ struct CtxFree {
 
 } // namespace
 
+// SUS-03 (ADR-0530): every array index in `ptr` addresses an existing element or the next one, so
+// reconstructing a body from iePaths cannot be made to allocate a huge array.
+bool ie_path_within_bounds(const json& body, const std::string& ptr) {
+    const json* node = &body;
+    std::size_t pos = 1; // past the leading '/'
+    while (pos <= ptr.size()) {
+        const std::size_t next = ptr.find('/', pos);
+        const std::string token =
+            ptr.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+        const bool numeric = !token.empty() && std::ranges::all_of(token, [](unsigned char c) {
+            return std::isdigit(c) != 0;
+        });
+        if (numeric) {
+            const std::size_t size = node != nullptr && node->is_array() ? node->size() : 0;
+            if (token.size() > 9 || std::stoul(token) > size) {
+                return false;
+            }
+        }
+        if (node != nullptr) {
+            if (numeric && node->is_array() && std::stoul(token) < node->size()) {
+                node = &(*node)[std::stoul(token)];
+            } else if (!numeric && node->is_object() && node->contains(token)) {
+                node = &node->at(token);
+            } else {
+                node = nullptr; // the rest of the path is created fresh
+            }
+        }
+        if (next == std::string::npos) {
+            break;
+        }
+        pos = next + 1;
+    }
+    return true;
+}
+
 JweKeys derive_keys(const std::vector<std::uint8_t>& master_key,
                     const std::string& n32f_context_id,
                     KeyUse use,
@@ -547,10 +582,15 @@ open(const sbi_gen::FlatJweJson& jwe,
             if (!v || !v->is_string()) {
                 return malformed("header " + h.header + " has no string value");
             }
+            // SEC-11 (ADR-0530): header names are case-insensitive; the policy's are lower case.
+            std::string name = h.header;
+            std::ranges::transform(name, name.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
             if (!secret) {
-                clear_headers.insert(h.header);
+                clear_headers.insert(name);
             }
-            msg.headers.emplace_back(h.header, v->get<std::string>());
+            msg.headers.emplace_back(name, v->get<std::string>());
         }
     }
     std::vector<std::string> clear_pointers;
@@ -567,6 +607,10 @@ open(const sbi_gen::FlatJweJson& jwe,
             }
             if (p.iePath.empty()) {
                 body = *v;
+            } else if (!ie_path_within_bounds(body, p.iePath)) {
+                // SUS-03 (ADR-0530): an array index beyond the next free element would make
+                // nlohmann allocate every element up to it ("/x/100000000").
+                return malformed("iePath " + p.iePath + " skips array elements");
             } else {
                 try {
                     body[json::json_pointer(p.iePath)] = *v;

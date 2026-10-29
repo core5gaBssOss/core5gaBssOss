@@ -123,6 +123,16 @@
       "x-env-override": "CHF_AI_QUOTA_SIZING_ENABLED",
       "x-cpp-type": "bool"
     },
+    "ai_quota_multiplier_min": {
+      "type": "number",
+      "x-env-override": "CHF_AI_QUOTA_MULTIPLIER_MIN",
+      "x-cpp-type": "double"
+    },
+    "ai_quota_multiplier_max": {
+      "type": "number",
+      "x-env-override": "CHF_AI_QUOTA_MULTIPLIER_MAX",
+      "x-cpp-type": "double"
+    },
     "quota_model_path": {
       "type": "string",
       "x-env-override": "CHF_QUOTA_MODEL_PATH",
@@ -207,6 +217,8 @@
   "required": [
     "advertised_ipv4",
     "ai_quota_latency_budget_us",
+    "ai_quota_multiplier_max",
+    "ai_quota_multiplier_min",
     "ai_quota_sizing_enabled",
     "cap_port",
     "cdr_event_bus_flush_timeout_ms",

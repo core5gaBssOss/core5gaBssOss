@@ -547,3 +547,10 @@ target_link_libraries(upf_datapath_internal_tests PRIVATE
 target_compile_definitions(upf_datapath_internal_tests PRIVATE
     GTPU_BPF_OBJ_PATH="unused-by-this-test")
 gtest_discover_tests(upf_datapath_internal_tests PROPERTIES TIMEOUT 60)
+
+# A UE through the running compose lab (test_lab_smoke.cpp). Deliberately not registered with ctest:
+# it needs `make lab-up`, not spawned NFs, and skips without LAB_AMF_N2.
+add_executable(lab_smoke_tests test_lab_smoke.cpp ngap_test_gnb.cpp ue_nas_driver.cpp)
+target_link_libraries(lab_smoke_tests PRIVATE
+    sbi_core ngap_core ngap_generated aka_crypto OpenSSL::SSL OpenSSL::Crypto
+    GTest::gtest GTest::gtest_main)

@@ -271,6 +271,22 @@ void finalize_subscriber_balance(sbi_core::http2::Client& balance_client,
 // (the subscriber's balance never held more than that), and a missing or zero grant means no
 // proportion can be computed, in which case the FULL reserved amount is returned rather than zero
 // -- failing toward charging what was reserved, not toward giving usage away.
+// ADR-0528 (REVIEW-5ae0ef1 CHG-01, guardrail 7): the AI quota model may enlarge or shrink a volume
+// grant within [min_multiplier, max_multiplier] of the price-configured base, and the money
+// reserved for it scales by exactly the multiplier applied -- so reserved / granted, and with
+// proportional_debit the price per octet, stays the ProductOfferingPrice's. The model informs the
+// size of the grant; the price is never its to change.
+struct AiScaledGrant {
+    std::uint64_t volume = 0;
+    double cost = 0.0;
+    double multiplier = 1.0; // applied: volume / base_volume
+};
+AiScaledGrant ai_scaled_grant(std::uint64_t base_volume,
+                              double base_cost,
+                              double predicted_usage,
+                              double min_multiplier,
+                              double max_multiplier);
+
 double proportional_debit(double total_reserved,
                           double granted_volume,
                           double used_volume,

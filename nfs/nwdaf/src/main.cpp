@@ -194,32 +194,26 @@ void register_vfl_crud(sbi_core::http2::Server& server,
     const std::string collection = root + "/subscriptions";
     const std::string item = collection + "/{subscriptionId}";
 
-    server.add_route(
-        "POST", collection, [&store, &verifier, collection](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<SubT>(req, err);
-            if (!body) {
-                return err;
-            }
-            const auto id = store.create(nlohmann::json(*body));
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("location", collection + "/" + id);
-            resp.headers.emplace("content-type", "application/json");
-            resp.body = nlohmann::json(*body).dump();
-            return resp;
-        });
-
-    server.add_route("GET", item, [&store, &verifier](const sbi_core::http2::Request& req) {
-        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+    server.add_route("POST", collection, [&store, collection](const sbi_core::http2::Request& req) {
+        sbi_core::http2::Response err;
+        auto body = sbi_core::http2::parse_json_body<SubT>(req, err);
+        if (!body) {
+            return err;
         }
+        const auto id = store.create(nlohmann::json(*body));
+        sbi_core::http2::Response resp;
+        resp.status = 201;
+        resp.headers.emplace("location", collection + "/" + id);
+        resp.headers.emplace("content-type", "application/json");
+        resp.body = nlohmann::json(*body).dump();
+        return resp;
+    });
+
+    server.add_route("GET", item, [&store](const sbi_core::http2::Request& req) {
         const auto sub = store.get(req.path_params.at("subscriptionId"));
         if (!sub) {
-            return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+            return sbi_core::http2::problem_response(
+                404, "Not Found", "no such subscription", std::nullopt);
         }
         sbi_core::http2::Response resp;
         resp.status = 200;
@@ -228,17 +222,15 @@ void register_vfl_crud(sbi_core::http2::Server& server,
         return resp;
     });
 
-    server.add_route("PUT", item, [&store, &verifier](const sbi_core::http2::Request& req) {
-        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-        }
+    server.add_route("PUT", item, [&store](const sbi_core::http2::Request& req) {
         sbi_core::http2::Response err;
         auto body = sbi_core::http2::parse_json_body<SubT>(req, err);
         if (!body) {
             return err;
         }
         if (!store.replace(req.path_params.at("subscriptionId"), nlohmann::json(*body))) {
-            return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+            return sbi_core::http2::problem_response(
+                404, "Not Found", "no such subscription", "SUBSCRIPTION_NOT_FOUND");
         }
         sbi_core::http2::Response resp;
         resp.status = 200;
@@ -247,10 +239,7 @@ void register_vfl_crud(sbi_core::http2::Server& server,
         return resp;
     });
 
-    server.add_route("PATCH", item, [&store, &verifier](const sbi_core::http2::Request& req) {
-        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-        }
+    server.add_route("PATCH", item, [&store](const sbi_core::http2::Request& req) {
         sbi_core::http2::Response err;
         auto patch = sbi_core::http2::parse_json_body<PatchT>(req, err);
         if (!patch) {
@@ -259,7 +248,8 @@ void register_vfl_crud(sbi_core::http2::Server& server,
         const auto merged =
             store.merge_patch(req.path_params.at("subscriptionId"), nlohmann::json(*patch));
         if (!merged) {
-            return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+            return sbi_core::http2::problem_response(
+                404, "Not Found", "no such subscription", "SUBSCRIPTION_NOT_FOUND");
         }
         sbi_core::http2::Response resp;
         resp.status = 200;
@@ -268,12 +258,10 @@ void register_vfl_crud(sbi_core::http2::Server& server,
         return resp;
     });
 
-    server.add_route("DELETE", item, [&store, &verifier](const sbi_core::http2::Request& req) {
-        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-        }
+    server.add_route("DELETE", item, [&store](const sbi_core::http2::Request& req) {
         if (!store.remove(req.path_params.at("subscriptionId"))) {
-            return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+            return sbi_core::http2::problem_response(
+                404, "Not Found", "no such subscription", "SUBSCRIPTION_NOT_FOUND");
         }
         sbi_core::http2::Response resp;
         resp.status = 204;
@@ -1172,27 +1160,29 @@ int main() {
         "GET",
         std::string(kAnalyticsInfoRoot) + "/analytics",
         with_li_query([&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto ev = req.query_params.find("event-id");
             if (ev == req.query_params.end()) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "query parameter 'event-id' is required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         "query parameter 'event-id' is required",
+                                                         "MANDATORY_QUERY_PARAM_MISSING");
             }
             std::string err;
             auto filter =
                 json_query<sbi_gen::EventFilter_Nnwdaf_AnalyticsInfo>(req, "event-filter", err);
             if (!err.empty()) {
-                return sbi_core::http2::problem_response(400, "Bad Request", err);
+                return sbi_core::http2::problem_response(
+                    400, "Bad Request", err, "UNSPECIFIED_MSG_FAILURE");
             }
             auto target = json_query<sbi_gen::TargetUeInformation>(req, "tgt-ue", err);
             if (!err.empty()) {
-                return sbi_core::http2::problem_response(400, "Bad Request", err);
+                return sbi_core::http2::problem_response(
+                    400, "Bad Request", err, "UNSPECIFIED_MSG_FAILURE");
             }
             auto ana_req = json_query<sbi_gen::EventReportingRequirement>(req, "ana-req", err);
             if (!err.empty()) {
-                return sbi_core::http2::problem_response(400, "Bad Request", err);
+                return sbi_core::http2::problem_response(
+                    400, "Bad Request", err, "UNSPECIFIED_MSG_FAILURE");
             }
             std::optional<sbi_gen::AnalyticsData_Nnwdaf_AnalyticsInfo> data;
             {
@@ -1219,7 +1209,7 @@ int main() {
                         : "analytics ID '" + ev->second +
                               "' is not computed by this NWDAF (NF_LOAD, "
                               "ABNORMAL_BEHAVIOUR, SERVICE_EXPERIENCE)";
-                return sbi_core::http2::problem_response(404, "Not Found", why);
+                return sbi_core::http2::problem_response(404, "Not Found", why, std::nullopt);
             }
             analytics_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1232,10 +1222,6 @@ int main() {
     server.add_route("GET",
                      std::string(kAnalyticsInfoRoot) + "/context",
                      [&](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                             return sbi_core::http2::problem_response(
-                                 401, "Unauthorized", auth->error);
-                         }
                          // GetNwdafContext returns ContextData for the requested context-ids. Phase
                          // A holds no per-UE context (no DataManagement yet), so the YAML's 204 "no
                          // content" is the true answer rather than an empty object pretending to be
@@ -1250,9 +1236,6 @@ int main() {
         "POST",
         std::string(kEventsSubscriptionRoot) + "/subscriptions",
         with_li_subscription(SubscriptionOp::Post, [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::NnwdafEventsSubscription>(req, err);
@@ -1260,8 +1243,10 @@ int main() {
                 return err;
             }
             if (body->eventSubscriptions.empty()) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "eventSubscriptions must not be empty");
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         "eventSubscriptions must not be empty",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
             const auto id = store.create_subscription(*body);
             sbi_core::http2::Response resp;
@@ -1277,9 +1262,6 @@ int main() {
         "PUT",
         std::string(kEventsSubscriptionRoot) + "/subscriptions/{subscriptionId}",
         with_li_subscription(SubscriptionOp::Put, [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::NnwdafEventsSubscription>(req, err);
@@ -1288,7 +1270,8 @@ int main() {
             }
             const auto id = req.path_params.at("subscriptionId");
             if (!store.replace_subscription(id, *body)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "no subscription " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 200;
@@ -1301,12 +1284,10 @@ int main() {
         "DELETE",
         std::string(kEventsSubscriptionRoot) + "/subscriptions/{subscriptionId}",
         with_li_subscription(SubscriptionOp::Delete, [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("subscriptionId");
             if (!store.remove_subscription(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "no subscription " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -1318,9 +1299,6 @@ int main() {
         "POST",
         std::string(kEventsSubscriptionRoot) + "/transfers",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::AnalyticsSubscriptionsTransfer>(req, err);
@@ -1341,9 +1319,6 @@ int main() {
         "PUT",
         std::string(kEventsSubscriptionRoot) + "/transfers/{transferId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::AnalyticsSubscriptionsTransfer>(req, err);
@@ -1352,27 +1327,25 @@ int main() {
             }
             const auto id = req.path_params.at("transferId");
             if (!store.replace_transfer(id, *body)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "no transfer " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no transfer " + id, std::nullopt);
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
         });
-    server.add_route(
-        "DELETE",
-        std::string(kEventsSubscriptionRoot) + "/transfers/{transferId}",
-        [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("transferId");
-            if (!store.remove_transfer(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "no transfer " + id);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kEventsSubscriptionRoot) + "/transfers/{transferId}",
+                     [&](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("transferId");
+                         if (!store.remove_transfer(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "no transfer " + id, std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // ============ Phase C: data collection via the DCCF, and Nnwdaf_DataManagement ============
 
@@ -1456,7 +1429,8 @@ int main() {
             try {
                 body = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             // NmfafDataRetrievalNotification (TS 29.576): dataAnaNotif.dataNotif.nrfEventNotifs.
             const json dan = body.value("dataAnaNotif", json::object());
@@ -1476,7 +1450,8 @@ int main() {
                     fresh.push_back(collected.append(kNrfSource, n));
                 }
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
             collected_counter->Add(fresh.size());
             spdlog::info("nwdaf: collected {} NRF event(s) via the DCCF", fresh.size());
@@ -1507,7 +1482,8 @@ int main() {
             try {
                 body = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             const auto reports = nwdaf::qos_mon_event_notifs(body);
             for (const auto& report : reports) {
@@ -1534,13 +1510,14 @@ int main() {
                 try {
                     body = json::parse(req.body);
                 } catch (const json::parse_error& e) {
-                    return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                    return sbi_core::http2::problem_response(
+                        400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
                 }
                 try {
                     ml_consumer.on_notification(body);
                 } catch (const std::exception& e) {
                     return sbi_core::http2::problem_response(
-                        500, "Internal Server Error", e.what());
+                        500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
                 }
                 sbi_core::http2::Response resp;
                 resp.status = 204;
@@ -1593,10 +1570,6 @@ int main() {
     const auto monitor_validate = [&](const sbi_core::http2::Request& req,
                                       json& record,
                                       std::optional<sbi_core::http2::Response>& err) {
-        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-            err = sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            return;
-        }
         sbi_core::http2::Response bad;
         auto dto = sbi_core::http2::parse_json_body<sbi_gen::MLModelMonitorSub>(req, bad);
         if (!dto) {
@@ -1656,7 +1629,10 @@ int main() {
                 const auto existing = accuracy.get_subscription(id);
                 if (!existing) {
                     return sbi_core::http2::problem_response(
-                        404, "Not Found", "no ML model monitoring subscription " + id);
+                        404,
+                        "Not Found",
+                        "no ML model monitoring subscription " + id,
+                        "SUBSCRIPTION_NOT_FOUND");
                 }
                 json record;
                 std::optional<sbi_core::http2::Response> err;
@@ -1666,7 +1642,10 @@ int main() {
                 }
                 if (!accuracy.replace_subscription(id, record)) {
                     return sbi_core::http2::problem_response(
-                        404, "Not Found", "no ML model monitoring subscription " + id);
+                        404,
+                        "Not Found",
+                        "no ML model monitoring subscription " + id,
+                        "SUBSCRIPTION_NOT_FOUND");
                 }
                 json body = record;
                 if (record.value("eventReportReq", json::object()).value("immRep", false)) {
@@ -1683,14 +1662,13 @@ int main() {
         server.add_route("DELETE",
                          std::string(kMonitorRoot) + "/subscriptions/{subscriptionId}",
                          [&](const sbi_core::http2::Request& req) {
-                             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                                 return sbi_core::http2::problem_response(
-                                     401, "Unauthorized", auth->error);
-                             }
                              const auto id = req.path_params.at("subscriptionId");
                              if (!accuracy.remove_subscription(id)) {
                                  return sbi_core::http2::problem_response(
-                                     404, "Not Found", "no ML model monitoring subscription " + id);
+                                     404,
+                                     "Not Found",
+                                     "no ML model monitoring subscription " + id,
+                                     "SUBSCRIPTION_NOT_FOUND");
                              }
                              sbi_core::http2::Response resp;
                              resp.status = 204;
@@ -1704,7 +1682,8 @@ int main() {
         std::string(kInboundPrefix) + "/fetch",
         [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+                return sbi_core::http2::problem_response(
+                    401, "Unauthorized", auth->error, std::nullopt);
             }
             sbi_core::http2::Response err;
             auto ids = sbi_core::http2::parse_json_body<std::vector<std::string>>(req, err);
@@ -1733,7 +1712,10 @@ int main() {
             }
             if (merged.is_null()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "no buffered notification for those fetch correlation ids");
+                    404,
+                    "Not Found",
+                    "no buffered notification for those fetch correlation ids",
+                    std::nullopt);
             }
             merged["dataNotification"]["nrfEventNotifs"] = nrf_notifs;
             merged["notifTimestamp"] = sbi_core::format_rfc3339(std::chrono::system_clock::now());
@@ -1827,9 +1809,6 @@ int main() {
         "POST",
         std::string(kDataManagementRoot) + "/subscriptions",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto =
                 sbi_core::http2::parse_json_body<sbi_gen::NnwdafDataManagementSubsc>(req, err);
@@ -1875,9 +1854,6 @@ int main() {
         "PUT",
         std::string(kDataManagementRoot) + "/subscriptions/{subscriptionId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto =
                 sbi_core::http2::parse_json_body<sbi_gen::NnwdafDataManagementSubsc>(req, err);
@@ -1895,8 +1871,10 @@ int main() {
             sub.source = source;
             sub.request = request;
             if (!collected.replace_dm_subscription(id, sub)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "no such data management subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no such data management subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             deliver_history(id, sub);
             sbi_core::http2::Response resp;
@@ -1911,12 +1889,11 @@ int main() {
         "DELETE",
         std::string(kDataManagementRoot) + "/subscriptions/{subscriptionId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             if (!collected.remove_dm_subscription(req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "no such data management subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no such data management subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;

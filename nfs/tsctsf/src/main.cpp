@@ -96,22 +96,6 @@ http2::Response problem(int status,
     return r;
 }
 
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    const auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (it->second.size() <= kPrefix.size() ||
-        it->second.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(it->second.substr(kPrefix.size()));
-}
-
 bool has_feature(const std::optional<std::string>& supp_feat, unsigned bit) {
     if (!supp_feat || supp_feat->empty()) {
         return false;
@@ -313,9 +297,6 @@ int main() {
     // ---- Ntsctsf_QoSandTSCAssistance_Create (TS 29.565 5.3.2.2.2 / 5.3.2.2.8) ------------------
     server.add_route(
         "POST", std::string(kApiRoot) + "/tsc-app-sessions", [&](const http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return problem(401, "Unauthorized", auth->error);
-            }
             sbi_gen::TscAppSessionContextData body;
             try {
                 body = json::parse(req.body).get<sbi_gen::TscAppSessionContextData>();
@@ -471,9 +452,6 @@ int main() {
     server.add_route("GET",
                      std::string(kApiRoot) + "/tsc-app-sessions/{appSessionId}",
                      [&](const http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                             return problem(401, "Unauthorized", auth->error);
-                         }
                          const std::lock_guard<std::mutex> lock(mutex);
                          const auto it = contexts.find(req.path_params.at("appSessionId"));
                          if (it == contexts.end()) {
@@ -487,9 +465,6 @@ int main() {
         "PATCH",
         std::string(kApiRoot) + "/tsc-app-sessions/{appSessionId}",
         [&](const http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return problem(401, "Unauthorized", auth->error);
-            }
             const auto patch = json::parse(req.body, nullptr, false);
             if (!patch.is_object()) {
                 return problem(400, "Bad Request", "not JSON", "INVALID_MSG_FORMAT");
@@ -537,9 +512,6 @@ int main() {
     server.add_route("POST",
                      std::string(kApiRoot) + "/tsc-app-sessions/{appSessionId}/delete",
                      [&](const http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                             return problem(401, "Unauthorized", auth->error);
-                         }
                          Context ctx;
                          {
                              const std::lock_guard<std::mutex> lock(mutex);

@@ -312,18 +312,17 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/determine-location",
-        [&verifier, &determine_location_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&determine_location_counter](const sbi_core::http2::Request& req) {
             std::string json_body_str = req.body;
             if (const auto content_type_it = req.headers.find("content-type");
                 content_type_it != req.headers.end() &&
                 sbi_core::multipart::is_multipart_related(content_type_it->second)) {
                 auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
                 if (!parts.has_value() || parts->empty()) {
-                    return sbi_core::http2::problem_response(
-                        400, "Invalid Service Request", "Malformed multipart/related body");
+                    return sbi_core::http2::problem_response(400,
+                                                             "Invalid Service Request",
+                                                             "Malformed multipart/related body",
+                                                             "MANDATORY_IE_INCORRECT");
                 }
                 json_body_str = (*parts)[0].body;
             }
@@ -331,15 +330,19 @@ int main() {
             try {
                 body = json::parse(json_body_str).get<sbi_gen::InputData_Nlmf_Location>();
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Missing or invalid mandatory IE", e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Missing or invalid mandatory IE",
+                                                         e.what(),
+                                                         sbi_core::http2::dto_error_cause(e));
             }
             // Real, declared YAML constraint (`not: required: [ecgi, ncgi]`): ecgi and ncgi
             // must not both be present. The codegen's own structural typing doesn't enforce
             // this automatically, so it's checked explicitly here.
             if (body.ecgi.has_value() && body.ncgi.has_value()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "ecgi and ncgi must not both be present");
+                return sbi_core::http2::problem_response(400,
+                                                         "Invalid Service Request",
+                                                         "ecgi and ncgi must not both be present",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
             determine_location_counter->Add(1);
             // Real, disclosed -- see this file's own top comment: no real LPP/GNSS positioning
@@ -350,17 +353,14 @@ int main() {
                 "Not Implemented",
                 "LMF DetermineLocation requires a real LPP (TS 37.355) UE positioning exchange "
                 "or real GNSS assistance data, neither implemented in this project -- see "
-                "docs/DECISIONS.md ADR-0190");
+                "docs/DECISIONS.md ADR-0190",
+                std::nullopt);
         });
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/up-subscriptions",
-        [&verifier, &up_subscriptions, &up_subscriptions_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&up_subscriptions, &up_subscriptions_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::UpSubscription>(req, err);
             if (!body.has_value()) {
@@ -382,14 +382,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kApiRoot) + "/up-subscriptions/{subscriptionId}",
-        [&verifier, &up_subscriptions, &delete_subscription_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&up_subscriptions, &delete_subscription_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             if (!up_subscriptions.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             delete_subscription_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -397,56 +394,49 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "POST",
-        std::string(kApiRoot) + "/cancel-location",
-        [&verifier, &cancel_location_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body =
-                sbi_core::http2::parse_json_body<sbi_gen::CancelLocData_Nlmf_Location>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            cancel_location_counter->Add(1);
-            // Real, disclosed -- see this file's own top comment: DetermineLocation never
-            // issues a real ldrReference in this project, so no cancellation request can ever
-            // match one. The real, honest 404, not a fabricated success.
-            return sbi_core::http2::problem_response(
-                404,
-                "Not Found",
-                "No active location request for ldrReference " + body->ldrReference);
-        });
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/cancel-location",
+                     [&cancel_location_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::CancelLocData_Nlmf_Location>(
+                                 req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         cancel_location_counter->Add(1);
+                         // Real, disclosed -- see this file's own top comment: DetermineLocation
+                         // never issues a real ldrReference in this project, so no cancellation
+                         // request can ever match one. The real, honest 404, not a fabricated
+                         // success.
+                         return sbi_core::http2::problem_response(
+                             404,
+                             "Not Found",
+                             "No active location request for ldrReference " + body->ldrReference,
+                             std::nullopt);
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kApiRoot) + "/location-context-transfer",
-        [&verifier, &location_contexts, &location_context_transfer_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::LocContextData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            location_context_transfer_counter->Add(1);
-            location_contexts.put(body->ldrReference, json(*body));
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/location-context-transfer",
+                     [&location_contexts,
+                      &location_context_transfer_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::LocContextData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         location_context_transfer_counter->Add(1);
+                         location_contexts.put(body->ldrReference, json(*body));
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/measure-location",
-        [&verifier, &location_measure_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&location_measure_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::LocMeasurementReq>(req, err);
             if (!body.has_value()) {
@@ -461,39 +451,40 @@ int main() {
                 "Not Implemented",
                 "LMF LocationMeasure requires a real PRU/NRPPa measurement capability (TS "
                 "38.305/38.455), not implemented in this project -- see docs/DECISIONS.md "
-                "ADR-0190");
+                "ADR-0190",
+                std::nullopt);
         });
 
-    server.add_route(
-        "POST",
-        std::string(kApiRoot) + "/configure-up",
-        [&verifier, &up_configs, &up_config_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::UpConfig>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            // Real, declared YAML constraint (`anyOf: [required:[supi], required:[gpsi]]`) --
-            // enforced here since the codegen's own structural typing leaves both optional.
-            if (!body->supi.has_value() && !body->gpsi.has_value()) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid Service Request", "At least one of supi or gpsi is required");
-            }
-            up_config_counter->Add(1);
-            const std::string key = body->supi.has_value() ? *body->supi : *body->gpsi;
-            if (body->lcsUpConnectionInd.has_value() &&
-                body->lcsUpConnectionInd->value == "TERMINATION") {
-                up_configs.terminate(key);
-            } else {
-                up_configs.put(key, json(*body));
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/configure-up",
+                     [&up_configs, &up_config_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::UpConfig>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         // Real, declared YAML constraint (`anyOf: [required:[supi],
+                         // required:[gpsi]]`) -- enforced here since the codegen's own structural
+                         // typing leaves both optional.
+                         if (!body->supi.has_value() && !body->gpsi.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 400,
+                                 "Invalid Service Request",
+                                 "At least one of supi or gpsi is required",
+                                 "MANDATORY_IE_MISSING");
+                         }
+                         up_config_counter->Add(1);
+                         const std::string key = body->supi.has_value() ? *body->supi : *body->gpsi;
+                         if (body->lcsUpConnectionInd.has_value() &&
+                             body->lcsUpConnectionInd->value == "TERMINATION") {
+                             up_configs.terminate(key);
+                         } else {
+                             up_configs.put(key, json(*body));
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nlmf_Broadcast (gap-closure, ADR-0193 audit, ADR-0196) ---
 
@@ -502,7 +493,8 @@ int main() {
         std::string(kBroadcastApiRoot) + "/cipher-key-data",
         [&verifier, &ciphering_key_data_counter](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+                return sbi_core::http2::problem_response(
+                    401, "Unauthorized", auth->error, std::nullopt);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::CipherRequestData>(req, err);
@@ -533,11 +525,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kDataExposureApiRoot) + "/subscriptions",
-        [&verifier, &data_exposure_subscriptions, &data_exposure_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&data_exposure_subscriptions,
+         &data_exposure_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::LmfDataExposureSubscription>(req, err);
@@ -556,53 +545,53 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "PATCH",
-        std::string(kDataExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &data_exposure_subscriptions, &data_exposure_modify_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("subscriptionId");
-            json patch_ops;
-            try {
-                patch_ops = json::parse(req.body);
-            } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
-            }
-            std::optional<json> patched;
-            try {
-                patched = data_exposure_subscriptions.apply_patch(id, patch_ops);
-            } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(400, "Invalid JSON Patch", e.what());
-            }
-            if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
-            }
-            data_exposure_modify_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("PATCH",
+                     std::string(kDataExposureApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&data_exposure_subscriptions,
+                      &data_exposure_modify_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         json patch_ops;
+                         try {
+                             patch_ops = json::parse(req.body);
+                         } catch (const json::parse_error& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         std::optional<json> patched;
+                         try {
+                             patched = data_exposure_subscriptions.apply_patch(id, patch_ops);
+                         } catch (const json::exception& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         if (!patched.has_value()) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No subscription " + id,
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         data_exposure_modify_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "DELETE",
-        std::string(kDataExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &data_exposure_subscriptions, &data_exposure_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("subscriptionId");
-            if (!data_exposure_subscriptions.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
-            }
-            data_exposure_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kDataExposureApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&data_exposure_subscriptions,
+                      &data_exposure_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!data_exposure_subscriptions.remove(id)) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No subscription " + id,
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         data_exposure_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     std::thread(run_nrf_lifecycle, lmf_instance_id, nrf_base, profile_ipv4).detach();
 

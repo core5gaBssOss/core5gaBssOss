@@ -500,3 +500,39 @@ TEST(SeppN32, Base64UrlRoundTrips) {
     }
     EXPECT_EQ(sepp::base64url_encode({'f', 'o', 'o', 'b'}), "Zm9vYg"); // RFC 4648 vector, no pad
 }
+
+// ADR-0530 (REVIEW-5ae0ef1 SUS-01): the Via header is scanned linearly; a ~40 KB entry that crashed
+// the old std::regex matcher is handled, and the peer named in it still correlates.
+TEST(SeppN32, AHugeViaHeaderIsScannedWithoutRecursion) {
+    sepp::Context a;
+    a.peer_fqdn = kA;
+    a.purposes = {"ROAMING"};
+    const std::string via =
+        std::string("2.0 SEPP-") + kA + ", 2.0 SEPP-" + std::string(40000, 'a') + ".example";
+    EXPECT_TRUE(sepp::correlate({a}, {kA, kB}, via, std::nullopt, std::nullopt).has_value());
+}
+
+// ADR-0530 (SEC-12): the telescopic table keeps at most its configured number of mappings, oldest
+// first out; an evicted FQDN maps to the same label again.
+TEST(SeppN32, TheTelescopicTableIsBounded) {
+    sepp::TelescopicTable table(2);
+    const auto l1 = table.label_for("nrf.5gc.mnc002.mcc001.3gppnetwork.org");
+    table.label_for("amf.5gc.mnc002.mcc001.3gppnetwork.org");
+    table.label_for("smf.5gc.mnc002.mcc001.3gppnetwork.org");
+    EXPECT_EQ(table.size(), 2U);
+    EXPECT_FALSE(table.foreign_for(l1).has_value()) << "the oldest mapping is evicted";
+    EXPECT_EQ(table.label_for("nrf.5gc.mnc002.mcc001.3gppnetwork.org"), l1);
+    EXPECT_TRUE(table.foreign_for(l1).has_value());
+}
+
+// ADR-0530 (SUS-03): a PRINS iePath may only address existing array elements or the next one.
+TEST(SeppN32, PrinsIePathsCannotSkipArrayElements) {
+    using nlohmann::json;
+    EXPECT_FALSE(sepp::ie_path_within_bounds(json::object(), "/x/100000000"));
+    EXPECT_TRUE(sepp::ie_path_within_bounds(json::object(), "/x/0"));
+    EXPECT_TRUE(sepp::ie_path_within_bounds(json::object(), "/supiOrSuci"));
+    const json body{{"x", json::array({1, 2})}};
+    EXPECT_TRUE(sepp::ie_path_within_bounds(body, "/x/2"));
+    EXPECT_FALSE(sepp::ie_path_within_bounds(body, "/x/3"));
+    EXPECT_TRUE(sepp::ie_path_within_bounds(body, "/x/1/y"));
+}

@@ -12,6 +12,7 @@
   "chf_base_url": "https://127.0.0.1:7784",
   "udr_base_url": "https://127.0.0.1:7781",
   "qos_mon_interval_seconds": 30,
+  "ue_ipv4_pools": { "internet": "10.45.0.0/16" },
   "li_poi": {
     "enabled": false,
     "x1_bind_address": "0.0.0.0",
