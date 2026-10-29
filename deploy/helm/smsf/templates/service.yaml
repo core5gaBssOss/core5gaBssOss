@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The NF's name: what every peer's config and the NF's certificate (DNS:smsf) use.
+  name: {{ .Values.service.name | default "smsf" }}
+  labels:
+    app.kubernetes.io/name: smsf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: smsf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: sbi
+      port: 7793
+      targetPort: sbi
+      protocol: TCP
+    - name: metrics
+      port: 9481
+      targetPort: metrics
+      protocol: TCP
+    # LI_X1 from the LI-ADMF (SMSF IRI-POI).
+    - name: li-x1
+      port: 7814
+      targetPort: li-x1
+      protocol: TCP

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The NF's name: what every peer's config and the NF's certificate (DNS:udsf) use.
+  name: {{ .Values.service.name | default "udsf" }}
+  labels:
+    app.kubernetes.io/name: udsf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: udsf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: sbi
+      port: 7830
+      targetPort: sbi
+      protocol: TCP
+    - name: metrics
+      port: 9530
+      targetPort: metrics
+      protocol: TCP

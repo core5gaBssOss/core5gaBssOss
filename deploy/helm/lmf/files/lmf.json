@@ -1,0 +1,8 @@
+{
+  "port": 7795,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9483",
+  "nrf_base_url": "https://nrf:7777",
+  "self_base_url": "https://lmf:7795",
+  "oauth2_required": true
+}

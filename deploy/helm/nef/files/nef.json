@@ -1,0 +1,28 @@
+{
+  "port": 7790,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9478",
+  "nrf_base_url": "https://nrf:7777",
+  "self_base_url": "https://nef:7790",
+  "udr_base_url": "https://udr:7781",
+  "pcf_base_url": "https://pcf:7783",
+  "udm_base_url": "https://udm:7780",
+  "aanf_base_url": "https://aanf:7824",
+  "li_poi": {
+    "enabled": false,
+    "x1_bind_address": "0.0.0.0",
+    "x1_port": 7815,
+    "ne_identifier": "nef-poi-01",
+    "network_function_id": "nef-01.5gc.example.net",
+    "interception_point_id": "NEF-IRI-POI-1",
+    "mdf2_host": "li-mdf",
+    "mdf2_port": 7806,
+    "mdf2_sni": "localhost",
+    "x1_keepalive_p1_seconds": 60,
+    "x1_keepalive_p2_seconds": 180,
+    "x1_keepalive_p3_seconds": 300,
+    "x1_allow_deactivate_all": true
+  },
+  "tsctsf_base_url": "https://tsctsf:7825",
+  "oauth2_required": true
+}

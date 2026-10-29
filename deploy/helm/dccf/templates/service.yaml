@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The NF's name: what every peer's config and the NF's certificate (DNS:dccf) use.
+  name: {{ .Values.service.name | default "dccf" }}
+  labels:
+    app.kubernetes.io/name: dccf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: dccf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: sbi
+      port: 7803
+      targetPort: sbi
+      protocol: TCP
+    - name: metrics
+      port: 9489
+      targetPort: metrics
+      protocol: TCP

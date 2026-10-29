@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The NF's name: what every peer's config and the NF's certificate (DNS:nwdaf) use.
+  name: {{ .Values.service.name | default "nwdaf" }}
+  labels:
+    app.kubernetes.io/name: nwdaf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: nwdaf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: sbi
+      port: 7798
+      targetPort: sbi
+      protocol: TCP
+    - name: metrics
+      port: 9485
+      targetPort: metrics
+      protocol: TCP
+    # LI_X1 from the LI-ADMF (NWDAF IRI-POI).
+    - name: li-x1
+      port: 7817
+      targetPort: li-x1
+      protocol: TCP

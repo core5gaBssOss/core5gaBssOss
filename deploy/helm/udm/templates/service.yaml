@@ -1,7 +1,8 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-udm
+  # The NF's name: what every peer's config and the NF's certificate (DNS:udm) use.
+  name: {{ .Values.service.name | default "udm" }}
   labels:
     app.kubernetes.io/name: udm
     app.kubernetes.io/instance: {{ .Release.Name }}

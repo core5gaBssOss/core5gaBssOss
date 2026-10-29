@@ -1,3 +1,4 @@
+{{- $cfg := include "upf.config" . | fromJson }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,10 +16,16 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         app.kubernetes.io/name: upf
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      # No Kubernetes service-link variables: they are named <SERVICE>_PORT etc., the same names
+      # as nf_config's <SERVICE>_<KEY> overrides, so e.g. AANF_PORT=tcp://10.96.0.12:7824 would
+      # replace the NF's own port setting.
+      enableServiceLinks: false
       containers:
         - name: upf
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -29,18 +36,22 @@ spec:
           {{- end }}
           ports:
             - name: sbi
-              containerPort: {{ .Values.config.port }}
+              containerPort: {{ $cfg.port }}
               protocol: TCP
             - name: pfcp
-              containerPort: {{ .Values.config.pfcp_bind_port }}
+              containerPort: {{ $cfg.pfcp_bind_port }}
               protocol: UDP
             - name: metrics
               containerPort: 9471
               protocol: TCP
           volumeMounts:
+            # ADR-0453 in Helm: the image holds only the binary.
             - name: config
               mountPath: /build/config/upf.json
               subPath: upf.json
+              readOnly: true
+            - name: certs
+              mountPath: /build/certs
               readOnly: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -48,3 +59,18 @@ spec:
         - name: config
           configMap:
             name: {{ .Release.Name }}-upf-config
+        # The NF's own TLS material only, laid out as CERTS_DIR expects. Create it with
+        # scripts/helm/lab-pki-secrets.sh (lab PKI) or from your own CA with the same keys.
+        - name: certs
+          secret:
+            secretName: {{ .Values.certs.secretName | default "upf-certs" }}
+            defaultMode: 0440
+            items:
+              - key: ca.crt
+                path: ca/ca.crt
+              - key: cert.pem
+                path: upf/cert.pem
+              - key: key.pem
+                path: upf/key.pem
+              - key: nrf-jwt-public.pem
+                path: nrf-jwt/public.pem

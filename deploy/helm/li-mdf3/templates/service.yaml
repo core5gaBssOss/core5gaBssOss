@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The NF's name: what every peer's config and the NF's certificate (DNS:li-mdf3) use.
+  name: {{ .Values.service.name | default "li-mdf3" }}
+  labels:
+    app.kubernetes.io/name: li-mdf3
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: li-mdf3
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    # LI_X1 provisioning from the LI-ADMF.
+    - name: x1
+      port: 7811
+      targetPort: x1
+      protocol: TCP
+    # LI_X3 from the UPF CC-POI.
+    - name: x3
+      port: 7812
+      targetPort: x3
+      protocol: TCP
+    - name: metrics
+      port: 9493
+      targetPort: metrics
+      protocol: TCP

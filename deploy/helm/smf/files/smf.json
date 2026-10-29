@@ -1,0 +1,39 @@
+{
+  "port": 7779,
+  "upf_pfcp_port": 8805,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9466",
+  "nrf_base_url": "https://nrf:7777",
+  "self_base_url": "https://smf:7779",
+  "pcf_base_url": "https://pcf:7783",
+  "nsacf_base_url": "https://nsacf:7797",
+  "amf_base_url": "https://amf:7778",
+  "chf_base_url": "https://chf:7784",
+  "udr_base_url": "https://udr:7781",
+  "qos_mon_interval_seconds": 30,
+  "ue_ipv4_pools": {
+    "internet": "10.45.0.0/16"
+  },
+  "li_poi": {
+    "enabled": false,
+    "x1_bind_address": "0.0.0.0",
+    "x1_port": 7809,
+    "ne_identifier": "smf-poi-01",
+    "network_function_id": "smf-01.5gc.example.net",
+    "interception_point_id": "SMF-IRI-POI-1",
+    "mdf2_host": "li-mdf",
+    "mdf2_port": 7806,
+    "mdf2_sni": "localhost",
+    "x1_keepalive_p1_seconds": 60,
+    "x1_keepalive_p2_seconds": 180,
+    "x1_keepalive_p3_seconds": 300,
+    "x1_allow_deactivate_all": true,
+    "cc_tf": {
+      "enabled": false,
+      "tf_identifier": "smf-cc-tf-01",
+      "upf_ne_identifier": "upf-poi-01",
+      "upf_x1_url": "https://upf:7810/X1/NE"
+    }
+  },
+  "oauth2_required": true
+}
