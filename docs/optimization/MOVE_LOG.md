@@ -23,6 +23,11 @@ All moves are verbatim; `python3 scripts/docs/verify_claude_md_move.py` checks t
 | Commercialization mandate (ADR-0049) | docs/project-context/commercialization-mandate.md | moved |
 | Charging data-plane consistency/performance (ADR-0445) | docs/project-context/adr-0445-charging-dataplane-debt.md | moved |
 | NEW (not from the old file): Context discipline, Compact instructions, Session start, Moved-context pointers | CLAUDE.md | added |
+| Project goal: the R19 / 6G name rationale (2026-10-29 trim; whole original paragraph kept there) | docs/project-context/project-name-rationale.md | moved; CLAUDE.md keeps the goal + pointer |
+| Guardrail 9: incident history and enforcement-layer detail (2026-10-29 trim) | docs/project-context/guardrail-history.md | moved; CLAUDE.md keeps the rule, the override clause, the hook step + pointer |
+| Guardrail 10: incident history and enforcement detail (2026-10-29 trim) | docs/project-context/guardrail-history.md | moved; CLAUDE.md keeps every rule sentence + pointer |
+| Definition of done item 7: the ADR-0453 incident parenthetical (2026-10-29 trim) | docs/project-context/guardrail-history.md | moved; CLAUDE.md keeps the rule |
+| Session start: the duplicate attribution reminder (2026-10-29 trim; guardrail 9 already says it) | docs/project-context/guardrail-history.md | moved |
 
 Note: `docs/DECISIONS.md` was separately split (scripts/docs/split_decisions.py); CLAUDE.md's references to it stay valid because the index keeps the path.
 
