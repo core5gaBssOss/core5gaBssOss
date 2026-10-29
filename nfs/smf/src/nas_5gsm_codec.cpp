@@ -95,11 +95,13 @@ decode_establishment_request(const std::vector<std::uint8_t>& p) {
     return out;
 }
 
-std::vector<std::uint8_t> encode_establishment_accept(std::uint8_t pdu_session_id,
-                                                      std::uint8_t pti,
-                                                      const std::string& session_ambr_uplink,
-                                                      const std::string& session_ambr_downlink,
-                                                      std::uint8_t qfi) {
+std::vector<std::uint8_t>
+encode_establishment_accept(std::uint8_t pdu_session_id,
+                            std::uint8_t pti,
+                            const std::string& session_ambr_uplink,
+                            const std::string& session_ambr_downlink,
+                            std::uint8_t qfi,
+                            std::optional<std::array<std::uint8_t, 4>> pdu_address) {
     std::vector<std::uint8_t> out;
     out.push_back(kEpdSessionManagement);
     out.push_back(pdu_session_id);
@@ -143,6 +145,17 @@ std::vector<std::uint8_t> encode_establishment_accept(std::uint8_t pdu_session_i
     out.push_back(static_cast<std::uint8_t>(ul.value >> 8));
     out.push_back(static_cast<std::uint8_t>(ul.value & 0xFF));
 
+    // ADR-0525: PDU address (TS 24.501 8.3.2.1.1, IEI 0x29, TLV; 9.11.4.10): length 5, octet 3 =
+    // SI6LLA 0 | PDU session type value 001 (IPv4), then the four address octets. The first
+    // optional IE this Accept sends, so the TS 24.501 IE order is kept.
+    if (pdu_address.has_value()) {
+        constexpr std::uint8_t kIeiPduAddress = 0x29;
+        out.push_back(kIeiPduAddress);
+        out.push_back(0x05);
+        out.push_back(kPduSessionTypeIpv4);
+        out.insert(out.end(), pdu_address->begin(), pdu_address->end());
+    }
+
     return out;
 }
 
@@ -161,6 +174,32 @@ encode_establishment_reject(std::uint8_t pdu_session_id, std::uint8_t pti, std::
     out.push_back(kMessageTypeEstablishmentReject);
     out.push_back(sm_cause);
     return out;
+}
+
+std::optional<SmHeader> decode_sm_header(const std::vector<std::uint8_t>& bytes) {
+    if (bytes.size() < 4 || bytes[0] != kEpdSessionManagement) {
+        return std::nullopt;
+    }
+    SmHeader h;
+    h.pdu_session_id = bytes[1];
+    h.pti = bytes[2];
+    h.message_type = bytes[3];
+    // TS 24.501 8.3.12.1.1 / 8.3.15.1.1: the 5GSM cause is the first optional IE (IEI 0x59, TV,
+    // two octets) of RELEASE REQUEST and RELEASE COMPLETE.
+    constexpr std::uint8_t kIei5gsmCause = 0x59;
+    if (bytes.size() >= 6 && bytes[4] == kIei5gsmCause) {
+        h.sm_cause = bytes[5];
+    }
+    return h;
+}
+
+std::vector<std::uint8_t>
+encode_release_command(std::uint8_t pdu_session_id, std::uint8_t pti, std::uint8_t sm_cause) {
+    return {kEpdSessionManagement,
+            pdu_session_id,
+            pti,
+            static_cast<std::uint8_t>(SmMessage::kReleaseCommand),
+            sm_cause};
 }
 
 } // namespace smf::nas5gsm

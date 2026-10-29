@@ -56,6 +56,10 @@ bool decode_apply_action_has_forward(const std::vector<std::uint8_t>& value);
 //  - "allocated" (UP -> CP, inside a Created PDR): V4 bit set, real TEID (4 octets) + real IPv4
 //    address (4 octets), no CH/CHID bits.
 std::vector<std::uint8_t> encode_f_teid_choose_ipv4();
+// ADR-0525: TS 29.244 8.2.62 UE IP Address with an IPv4 address (V4 set). `destination` is the
+// S/D flag of a PDI: false = the address is the packets' source (uplink), true = destination.
+std::vector<std::uint8_t> encode_ue_ip_address_ipv4(std::array<std::uint8_t, 4> ipv4,
+                                                    bool destination);
 std::vector<std::uint8_t> encode_f_teid_allocated_ipv4(std::uint32_t teid,
                                                        std::array<std::uint8_t, 4> ipv4);
 struct FTeidAllocated {
