@@ -15,6 +15,32 @@ namespace sbi_core::http2 {
 
 namespace {
 
+// ADR-0529: OpenSSL verify callback that defers to TlsConfig::verify, found through the SSL_CTX's
+// app data (OpenSSL's callback carries no user pointer of its own).
+int extra_verify_callback(int preverified, X509_STORE_CTX* store) {
+    const auto* ssl =
+        static_cast<SSL*>(X509_STORE_CTX_get_ex_data(store, SSL_get_ex_data_X509_STORE_CTX_idx()));
+    const auto* fn = ssl != nullptr
+                         ? static_cast<const std::function<bool(bool, X509_STORE_CTX*)>*>(
+                               SSL_CTX_get_app_data(SSL_get_SSL_CTX(ssl)))
+                         : nullptr;
+    if (fn == nullptr || !*fn) {
+        return preverified;
+    }
+    return (*fn)(preverified != 0, store) ? 1 : 0;
+}
+
+CURLcode install_extra_verify(CURL*, void* ssl_ctx, void* data) {
+    auto* ctx = static_cast<SSL_CTX*>(ssl_ctx);
+    SSL_CTX_set_app_data(ctx, data);
+    SSL_CTX_set_verify(ctx, SSL_CTX_get_verify_mode(ctx), &extra_verify_callback);
+    return CURLE_OK;
+}
+
+} // namespace
+
+namespace {
+
 // Upper bound on IDLE handles retained between calls. Concurrency above this still works (checkout
 // creates on demand); it just stops the pool retaining more than this many afterwards, so a single
 // burst can't leave hundreds of connections parked open for the process's lifetime.
@@ -215,6 +241,12 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
     curl_easy_setopt(curl, CURLOPT_CAINFO, tls_.ca_path.c_str());
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    if (tls_.verify) {
+        // ADR-0529: run TlsConfig::verify from OpenSSL's verify callback. curl hands over the
+        // SSL_CTX before the handshake; the std::function travels as the context's app data.
+        curl_easy_setopt(curl, CURLOPT_SSL_CTX_FUNCTION, &install_extra_verify);
+        curl_easy_setopt(curl, CURLOPT_SSL_CTX_DATA, &tls_.verify);
+    }
 
     if (!request.body.empty() || request.method == "PUT" || request.method == "POST" ||
         request.method == "PATCH") {

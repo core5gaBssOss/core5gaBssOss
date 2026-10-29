@@ -8,6 +8,12 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ## [Unreleased]
 
+### Changed
+
+- The README is the full project page again, updated for the organization move, licensing and
+  process changes, with four stale security-compliance rows corrected
+  ([ADR-0511](docs/decisions/ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md)).
+
 ### Security
 
 - The AAnF stores KAKMA sealed with AES-256-GCM under a key-encryption key file, never in the

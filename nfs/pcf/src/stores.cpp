@@ -49,6 +49,57 @@ std::optional<nlohmann::json> SmPolicyStore::get(const std::string& sm_policy_id
     return std::make_optional(it->second);
 }
 
+std::optional<std::string> SmPolicyStore::find_binding(const std::string& ue_ipv4,
+                                                       const std::optional<std::string>& dnn,
+                                                       const std::optional<nlohmann::json>& slice) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::optional<std::string> found;
+    for (const auto& [id, policy] : policies_) {
+        if (!policy.contains("context")) {
+            continue;
+        }
+        const auto& c = policy.at("context");
+        if (c.value("ipv4Address", std::string{}) != ue_ipv4) {
+            continue;
+        }
+        if (dnn.has_value() && c.value("dnn", std::string{}) != *dnn) {
+            continue;
+        }
+        if (slice.has_value() && (!c.contains("sliceInfo") || c.at("sliceInfo") != *slice)) {
+            continue;
+        }
+        if (found.has_value()) {
+            return std::nullopt; // ambiguous: binding is not unique
+        }
+        found = id;
+    }
+    return found;
+}
+
+void AppSessionBindings::bind(const std::string& app_session_id, const std::string& sm_policy_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sm_policy_of_[app_session_id] = sm_policy_id;
+}
+
+void AppSessionBindings::unbind_app(const std::string& app_session_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sm_policy_of_.erase(app_session_id);
+}
+
+std::vector<std::string> AppSessionBindings::unbind_sm_policy(const std::string& sm_policy_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> out;
+    for (auto it = sm_policy_of_.begin(); it != sm_policy_of_.end();) {
+        if (it->second == sm_policy_id) {
+            out.push_back(it->first);
+            it = sm_policy_of_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    return out;
+}
+
 bool SmPolicyStore::put(const std::string& sm_policy_id, nlohmann::json sm_policy_control) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = policies_.find(sm_policy_id);

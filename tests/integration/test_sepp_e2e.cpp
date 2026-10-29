@@ -48,6 +48,12 @@ std::string write_config_b(const json& capabilities = json::array({"TLS"})) {
     cfg["metrics_bind_address"] = "0.0.0.0:9495";
     cfg["fqdn"] = kSeppB;
     cfg["mnc"] = "02";
+    // ADR-0529: PLMN B's own certificate, and PLMN A as its N32 trust anchor's PLMN.
+    cfg["cert_path"] = "sepp-b/cert.pem";
+    cfg["key_path"] = "sepp-b/key.pem";
+    cfg["trust_anchors"] =
+        json::array({json{{"roots", json::array({"ca/ca.crt"})},
+                          {"plmns", json::array({json{{"mcc", "001"}, {"mnc", "01"}}})}}});
     cfg["peers"] = json::array({json{{"fqdn", kSeppA},
                                      {"mcc", "001"},
                                      {"mnc", "01"},
@@ -150,10 +156,16 @@ TEST(SeppEndToEnd, AnN32fRequestFromAPeerWithoutAContextIsRefused) {
     spoof.headers.emplace("content-type", "application/json");
     spoof.body =
         json{{"sender", kSeppA}, {"supportedSecCapabilityList", json::array({"TLS"})}}.dump();
+    // ADR-0529 (TS 33.501 13.1.2): a certificate with no PLMN-ID maps to no trust anchor, so the
+    // N32 TLS handshake itself fails -- before any N32-c request is processed.
     const auto sp = impostor.send(spoof);
-    ASSERT_TRUE(sp.has_value());
-    EXPECT_EQ(sp->status, 403) << sp->body;
-    EXPECT_EQ(json::parse(sp->body).value("cause", ""), "NEGOTIATION_NOT_ALLOWED");
+    EXPECT_FALSE(sp.has_value()) << "an NF certificate was accepted on N32: "
+                                 << (sp.has_value() ? sp->body : "");
+    // A SEPP certificate of a PLMN that is not in B's trust anchors (B's own, 001/02): refused at
+    // the handshake as well.
+    sbi_core::http2::Client wrong_plmn(tls("sepp-b"));
+    EXPECT_FALSE(wrong_plmn.send(spoof).has_value())
+        << "a certificate of a PLMN outside the trust anchors was accepted on N32";
 
     // An exchange-capability from an unconfigured SEPP is refused NEGOTIATION_NOT_ALLOWED.
     sbi_core::http2::ClientRequest neg;

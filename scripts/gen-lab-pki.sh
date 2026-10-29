@@ -44,15 +44,18 @@ else
 fi
 
 # ADR-0491: the SEPP is identified on N32 by its PLMN FQDN (TS 23.003 28.2), and the peer SEPP
-# correlates an N32-f connection by the FQDN in this certificate (TS 29.573 5.3.3.2). The lab runs
-# both partner SEPPs (PLMN 001/01 and 001/02) from one certificate, which therefore names both --
-# the "common certificate" case of 5.3.3.2.1's NOTE, resolved by the Via header.
-LAB_SEPP_FQDNS="${LAB_SEPP_FQDNS:-sepp.5gc.mnc001.mcc001.3gppnetwork.org sepp.5gc.mnc002.mcc001.3gppnetwork.org}"
+# correlates an N32-f connection by the FQDN in this certificate (TS 29.573 5.3.3.2).
+# ADR-0529 (TS 33.501 13.1.2): one certificate per PLMN's SEPP, naming only that PLMN -- a
+# certificate whose PLMN-IDs map to different trust anchors is rejected. `sepp` is PLMN 001/01,
+# `sepp-b` (the lab's partner) PLMN 001/02.
+LAB_SEPP_FQDNS="${LAB_SEPP_FQDNS:-sepp.5gc.mnc001.mcc001.3gppnetwork.org}"
+LAB_SEPP_B_FQDNS="${LAB_SEPP_B_FQDNS:-sepp.5gc.mnc002.mcc001.3gppnetwork.org}"
 extra_sans() {
-    if [ "$1" = "sepp" ]; then
-        # The wildcard serves telescopic FQDNs "<label>.<SEPP FQDN>" (TS 33.501 13.1, ADR-0492).
-        for f in ${LAB_SEPP_FQDNS}; do printf ',DNS:%s,DNS:*.%s' "${f}" "${f}"; done
-    fi
+    local fqdns=""
+    if [ "$1" = "sepp" ]; then fqdns="${LAB_SEPP_FQDNS}"; fi
+    if [ "$1" = "sepp-b" ]; then fqdns="${LAB_SEPP_B_FQDNS}"; fi
+    # The wildcard serves telescopic FQDNs "<label>.<SEPP FQDN>" (TS 33.501 13.1, ADR-0492).
+    for f in ${fqdns}; do printf ',DNS:%s,DNS:*.%s' "${f}" "${f}"; done
 }
 
 for nf in "${NF_NAMES[@]}"; do

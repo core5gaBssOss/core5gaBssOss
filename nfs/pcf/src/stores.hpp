@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 // Private to nfs/pcf -- not shared with any other NF, per CLAUDE.md's "no NF includes another
 // NF's private headers" rule. In-memory only, no persistence across restarts -- same disclosed
@@ -45,11 +46,32 @@ public:
     std::optional<nlohmann::json> get(const std::string& sm_policy_id);
     bool put(const std::string& sm_policy_id, nlohmann::json sm_policy_control);
     bool remove(const std::string& sm_policy_id);
+    // ADR-0526, TS 29.513 / TS 29.514 4.2.2.2 session binding: the SM policy whose context has
+    // `ipv4Address` == ue_ipv4 and, when given, the same `dnn` and `sliceInfo` ("all attributes
+    // must match, if provided"). std::nullopt when none (or more than one) matches.
+    std::optional<std::string> find_binding(const std::string& ue_ipv4,
+                                            const std::optional<std::string>& dnn,
+                                            const std::optional<nlohmann::json>& slice);
 
 private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> policies_;
     std::uint64_t next_id_ = 1;
+};
+
+// ADR-0526: which Individual Application Session Context is bound to which SM policy (session
+// binding). Kept apart from the stored AppSessionContext so nothing outside TS 29.514 appears in
+// its GET representation.
+class AppSessionBindings {
+public:
+    void bind(const std::string& app_session_id, const std::string& sm_policy_id);
+    void unbind_app(const std::string& app_session_id);
+    // Removes and returns every app session bound to `sm_policy_id`.
+    std::vector<std::string> unbind_sm_policy(const std::string& sm_policy_id);
+
+private:
+    std::mutex mutex_;
+    std::unordered_map<std::string, std::string> sm_policy_of_;
 };
 
 // ADR-0072 (gap-closure: real N28 end-to-end). Backs PCF's own real subscription lifecycle with

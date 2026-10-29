@@ -54,4 +54,23 @@ double proportional_debit(double total_reserved,
     return std::clamp(total_reserved * fraction, 0.0, total_reserved);
 }
 
+AiScaledGrant ai_scaled_grant(std::uint64_t base_volume,
+                              double base_cost,
+                              double predicted_usage,
+                              double min_multiplier,
+                              double max_multiplier) {
+    AiScaledGrant out{base_volume, base_cost, 1.0};
+    if (base_volume == 0) {
+        return out;
+    }
+    const double base = static_cast<double>(base_volume);
+    const double m = std::clamp(predicted_usage / base, min_multiplier, max_multiplier);
+    out.volume = static_cast<std::uint64_t>(base * m);
+    // The multiplier actually applied after rounding the volume to whole octets, so the cost
+    // follows the granted volume exactly.
+    out.multiplier = static_cast<double>(out.volume) / base;
+    out.cost = base_cost * out.multiplier;
+    return out;
+}
+
 } // namespace chf

@@ -79,12 +79,15 @@ def rewrite(node, key, ports, ips, svc, unresolved):
         return {k: rewrite(v, k, ports, ips, svc, unresolved) for k, v in node.items()}
     if isinstance(node, list):
         return [rewrite(v, key, ports, ips, svc, unresolved) for v in node]
+    if isinstance(node, str) and key.endswith('bind_address'):
+        # A listener inside a container: on any 127/8 address it is unreachable from every other
+        # container and from the host (e.g. the AMF's N2 at 127.0.0.5, so no gNB could ever attach).
+        # The port, when the value carries one, is kept.
+        return re.sub(r'\b127(?:\.\d{1,3}){3}\b|\blocalhost\b', '0.0.0.0', node)
     if not isinstance(node, str) or not re.search(LOOPBACK, node):
         return node
     if key == 'advertised_ipv4':
         return ips[svc]
-    if key in ('bind_address', 'sbi_bind_address'):
-        return '0.0.0.0'
     if key.endswith('_sni') or key == 'sni':
         return node  # every lab certificate carries DNS:localhost (scripts/gen-lab-pki.sh)
     if key in HOST_KEYS and re.fullmatch(LOOPBACK, node):
