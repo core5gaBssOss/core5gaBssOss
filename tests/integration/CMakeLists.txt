@@ -45,6 +45,7 @@ add_executable(integration_tests
     test_lmf_authorization.cpp
     test_nssf_authorization.cpp
     test_bsf_authorization.cpp
+    test_bsf_existing_binding.cpp
     test_nsacf_smsf_tsctsf_authorization.cpp
     test_dccf_mfaf_authorization.cpp
     test_upf_ausf_authorization.cpp

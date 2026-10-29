@@ -632,7 +632,7 @@ int main() {
          &nfs_reg_succ_counter,
          &nfs_reg_fail_encode_counter](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error, std::nullopt);
+                return sbi_core::http2::invalid_token_response(req, auth->error);
             }
             // TS 28.552 5.10.1.1(c): counted on RECEIPT of the NFRegister request. An
             // unauthenticated caller is not an NFRegister request from an NF, so 401 is counted as
@@ -780,7 +780,7 @@ int main() {
             nfs_disc_req_counter->Add(1);
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 nfs_disc_fail_unauth_counter->Add(1);
-                return problem_response(401, "Unauthorized", auth->error, std::nullopt);
+                return sbi_core::http2::invalid_token_response(req, auth->error);
             }
             // Query string parsing: http2::Request doesn't split query params out (Phase 0's
             // router never needed to), so parse target-nf-type directly out of req.path here.
