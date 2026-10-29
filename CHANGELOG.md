@@ -17,6 +17,17 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   and a `readme-append-only` CI job
   ([ADR-0512](docs/decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md)).
 
+### Added
+
+- Helm charts for the 17 NFs that had none (CHF, NEF, NSSF, SCP, BSF, ADRF, DCCF, EIR, GMLC,
+  LI-MDF, LI-MDF3, LMF, MFAF, NSACF, NWDAF, SMSF, UDSF), in the ADR-0513 shape
+  ([ADR-0515](docs/decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md)).
+
+### Fixed
+
+- The LI-ADMF Helm chart's database URL pointed at 127.0.0.1; chart configs now take the settings
+  compose passes through the environment (ADR-0515).
+
 ## [0.1.0] - not yet tagged
 
 The first tagged release. It records the state of the project after its first eleven weeks of

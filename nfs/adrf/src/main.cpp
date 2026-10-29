@@ -75,6 +75,7 @@
 #include "sbi_core/jwt.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
+#include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
 #include "sbi_core/problem_details.hpp"
@@ -375,17 +376,14 @@ void run_nrf_lifecycle(const std::string& instance_id,
                      put_resp ? std::to_string(put_resp->status) : put_resp.error());
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
-    while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(heartbeat_seconds / 2));
-        sbi_core::http2::ClientRequest patch_req;
-        patch_req.method = "PATCH";
-        patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
-        patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.body =
-            json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
-                .dump();
-        static_cast<void>(http_client.send(patch_req));
-    }
+    // TS 29.510 5.2.2.3.2; registers again if the NRF no longer knows this instance (ADR-0506).
+    sbi_core::nrf::run_heartbeats(http_client,
+                                  {.nrf_base = nrf_base,
+                                   .nf_instance_id = instance_id,
+                                   .profile = profile,
+                                   .log_name = "adrf",
+                                   .on_registered = sbi_core::clear_default_token_backoff},
+                                  std::chrono::seconds(heartbeat_seconds / 2));
 }
 
 } // namespace
@@ -553,6 +551,14 @@ int main() {
             out.location = it->second;
         }
         return out;
+    };
+    // TS 29.500 6.4.2.1 and table 5.2.7.2-1: a 5xx or 429 from the peer this ADRF needed is
+    // INBOUND_SERVER_ERROR; a 4xx or no answer has no defined cause (REVIEW-5ae0ef1 SBI-03).
+    const auto inbound_cause = [](const PeerResult& r) -> std::optional<std::string> {
+        if (r.status >= 500 || r.status == 429) {
+            return "INBOUND_SERVER_ERROR";
+        }
+        return std::nullopt;
     };
 
     // ---- storage handling policy (4.2.2.2.2 / 4.2.2.3.2: operator policy bounds the lifetime) --
@@ -757,7 +763,7 @@ int main() {
                     "Bad Gateway",
                     "the DCCF did not accept the storage subscription (" +
                         (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")",
-                    std::nullopt);
+                    inbound_cause(r));
                 return std::nullopt;
             }
             col.resource_uri = r.location;
@@ -775,7 +781,7 @@ int main() {
                     "Bad Gateway",
                     "the NWDAF did not accept the analytics subscription (" +
                         (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")",
-                    std::nullopt);
+                    inbound_cause(r));
                 return std::nullopt;
             }
             col.resource_uri = r.location;
@@ -1699,8 +1705,7 @@ int main() {
         std::string(kModelFilesPrefix) + "/{modelUniqueId}",
         [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(
-                    401, "Unauthorized", auth->error, std::nullopt);
+                return sbi_core::http2::invalid_token_response(req, auth->error);
             }
             std::int64_t id = 0;
             try {

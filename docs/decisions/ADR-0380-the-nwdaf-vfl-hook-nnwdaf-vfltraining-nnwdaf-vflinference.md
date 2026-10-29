@@ -27,10 +27,12 @@ needed, the YAML exists.
 
 **Not in this set: the energy-efficiency analytic.** CLAUDE.md lists it as an R19 addition, but the
 frozen R19 Nnwdaf SBI has **no** energy-efficiency `NwdafEvent` or output DTO (the 23-value enum has
-none, and there is no energy YAML). TS 23.288 clause 6.16 energy analytics is OAM/TS 28.552-sourced,
-off the service-based interface. Building it as an Nnwdaf analytic would require inventing an
-eventId/field, which the project's #1 rule forbids -- so it is flagged, not fabricated (see the
-`project_nwdaf_energy_gap` note). A faithful path (stage-2 computation from the SMF's
-ENERGY_USAGE_DATA event + OAM, exposed via metrics rather than a fabricated Nnwdaf surface) awaits a
+none, and there is no energy YAML). Energy consumption is OAM/TS 28.552-sourced (TS 23.501
+5.51.2.2.3; TS 23.288 defines no energy analytic -- its clause 6.16 is PFD Determination Analytics,
+a citation corrected 2026-10-22, issue #15), off the service-based interface. Building it as an
+Nnwdaf analytic would require inventing an eventId/field, which the project's #1 rule forbids -- so
+it is flagged, not fabricated (see the `project_nwdaf_energy_gap` note). A faithful path (stage-2
+computation from the SMF's ENERGY_USAGE_DATA event + OAM, exposed via metrics rather than a
+fabricated Nnwdaf surface) awaits a
 decision. **That decision was taken -- see ADR-0381, which builds it.**
 
