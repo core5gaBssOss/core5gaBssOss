@@ -21,6 +21,10 @@
 namespace udm {
 namespace {
 
+// TS 29.002 j10 MAP-Errors: systemFailure ERROR ::= { ... CODE local:34 }; updateLocation lists it
+// among its ERRORS (ADR-0535).
+constexpr std::int32_t kMapSystemFailure = 34;
+
 void send_m3ua(ss7_core::SctpSocket& sock,
                std::uint8_t message_class,
                std::uint8_t message_type,
@@ -218,12 +222,20 @@ void MapServer::handle_connection(ss7_core::SctpSocket socket) {
             registration["servingNode"] = "MAP-VLR";
             registration["vlrNumber"] = tbcd_core::decode_tbcd(arg->vlr_number);
             registration["mscNumber"] = tbcd_core::decode_tbcd(arg->msc_number);
-            amf_registrations_.put(ue_id, registration);
-            spdlog::info("udm: real MAP updateLocation accepted for {} (VLR={})",
-                         ue_id,
-                         registration["vlrNumber"].get<std::string>());
-            answer_context = map_core::kNetworkLocUpContextV3Oid;
-            result_parameter = map_core::encode_update_location_res(hlr_number_);
+            // ADR-0535: MAP carries no access token, so only the store's total bound applies.
+            if (!amf_registrations_.put(ue_id, registration, "")) {
+                spdlog::warn("udm: MAP updateLocation for {} refused: the AMF registration store "
+                             "is at its configured bound",
+                             ue_id);
+                error_code = kMapSystemFailure;
+                answer_context = map_core::kNetworkLocUpContextV3Oid;
+            } else {
+                spdlog::info("udm: real MAP updateLocation accepted for {} (VLR={})",
+                             ue_id,
+                             registration["vlrNumber"].get<std::string>());
+                answer_context = map_core::kNetworkLocUpContextV3Oid;
+                result_parameter = map_core::encode_update_location_res(hlr_number_);
+            }
         } else if (opcode == map_core::Opcode::kPurgeMs) {
             const auto arg = map_core::decode_purge_ms_arg(invoke.parameter);
             if (!arg.has_value()) {
@@ -268,7 +280,8 @@ void MapServer::handle_connection(ss7_core::SctpSocket socket) {
             // increment's research (map_dictionary.hpp records the same gap for
             // insertSubscriberData's errors), so no invented error number is sent -- the component
             // is a real ReturnError whose error code carries the unimplemented opcode, and that
-            // narrowing is stated rather than dressed up as a real MAP error value.
+            // narrowing is stated rather than dressed up as a real MAP error value. (ADR-0535
+            // located systemFailure, local:34, and sends it for a full registration store.)
             re.error_code.local = *error_code;
             end.components.push_back(tcap_core::encode_return_error(re));
         }

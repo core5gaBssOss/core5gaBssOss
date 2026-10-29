@@ -30,5 +30,5 @@ outside the operator's network, via the NEF (6.3). `nfs/nef` served TS 29.522's
 
 **Verified.** `AkmaEndToEnd.AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives`, extended:
 an internal AF on the GPSI list gets the GPSI and no SUPI; an external AF through the real NEF gets
-the same KAF the UE derives, the GPSI and no SUPI; with anonInd no GPSI; an unknown A-KID through
-the NEF gets the AAnF's 403.
+the same KAF the test derives as the UE (same `aka_crypto` functions, see ADR-0495 Verified), the
+GPSI and no SUPI; with anonInd no GPSI; an unknown A-KID through the NEF gets the AAnF's 403.
