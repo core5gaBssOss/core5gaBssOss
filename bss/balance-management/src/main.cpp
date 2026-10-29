@@ -76,7 +76,8 @@ using nlohmann::json;
 constexpr const char* kApiRoot = "/tmf-api/prepayBalanceManagement/v4";
 
 sbi_core::http2::Response not_found(const std::string& resource, const std::string& id) {
-    return sbi_core::http2::problem_response(404, "Not Found", "No " + resource + " " + id);
+    return sbi_core::http2::problem_response(
+        404, "Not Found", "No " + resource + " " + id, std::nullopt);
 }
 
 } // namespace
@@ -88,7 +89,7 @@ template <typename Handler> auto guarded(Handler handler) {
         try {
             return handler(req);
         } catch (const balance_management::InvalidRequest& e) {
-            return sbi_core::http2::problem_response(400, "Bad Request", e.what());
+            return sbi_core::http2::problem_response(400, "Bad Request", e.what(), std::nullopt);
         }
     };
 }
@@ -215,7 +216,10 @@ int main() {
                          const auto it = req.query_params.find("partyAccount.id");
                          if (it == req.query_params.end()) {
                              return sbi_core::http2::problem_response(
-                                 400, "Bad Request", "partyAccount.id query parameter is required");
+                                 400,
+                                 "Bad Request",
+                                 "partyAccount.id query parameter is required",
+                                 std::nullopt);
                          }
                          const auto accumulated = store.get_accumulated_balance(it->second);
                          return sbi_core::http2::Response::json(200, json(accumulated).dump());
@@ -234,7 +238,7 @@ int main() {
                          }
                          if (!body->bucket.has_value() || body->bucket->id.empty()) {
                              return sbi_core::http2::problem_response(
-                                 400, "Bad Request", "bucket.id is required");
+                                 400, "Bad Request", "bucket.id is required", std::nullopt);
                          }
                          const auto result = store.topup(*body);
                          topup_counter->Add(1);
@@ -273,7 +277,7 @@ int main() {
                          }
                          if (!body->bucket.has_value() || body->bucket->id.empty()) {
                              return sbi_core::http2::problem_response(
-                                 400, "Bad Request", "bucket.id is required");
+                                 400, "Bad Request", "bucket.id is required", std::nullopt);
                          }
                          const auto result = store.adjust(*body);
                          adjust_counter->Add(1);
@@ -318,7 +322,7 @@ int main() {
                          }
                          if (!body->bucket.has_value() || body->bucket->id.empty()) {
                              return sbi_core::http2::problem_response(
-                                 400, "Bad Request", "bucket.id is required");
+                                 400, "Bad Request", "bucket.id is required", std::nullopt);
                          }
                          // ADR-0445/0446 increment 2: NOT a TMF654 field -- see
                          // BalanceStore::reserve's own header comment. Absent on any caller that

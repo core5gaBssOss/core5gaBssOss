@@ -191,26 +191,6 @@ constexpr const char* kChfSpendingLimitApiRoot = "/nchf-spendinglimitcontrol/v1"
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // Builds a default AuthorizedDefaultQos: 5QI 9 (non-GBR, per TS 23.501's 5QI table -- the one
 // piece of this sourced from a real spec table) with a fixed ARP. The ARP priorityLevel (8) is an
 // arbitrary placeholder, NOT sourced from any TS 23.501 table -- disclosed here, not just in the
@@ -533,7 +513,9 @@ void notify_smf_of_policy_change(sbi_core::http2::Client& client,
 
             sbi_core::http2::ClientRequest req;
             req.method = "POST";
-            req.url = notification_uri;
+            // TS 29.512 4.2.3.2 / SmPolicyUpdateNotification callback: "{notificationUri}/update"
+            // (REVIEW-5ae0ef1 SPEC-05, ADR-0521).
+            req.url = notification_uri + "/update";
             req.headers.emplace("content-type", "application/json");
             req.body = nlohmann::json(notification).dump();
             auto resp = client.send(req);
@@ -611,6 +593,7 @@ int main() {
     sbi_core::http2::Client sm_policy_notify_client(std::move(sm_notify_tls));
     pcf::SpendingLimitTrackingStore spending_limit_tracking;
     pcf::AppSessionStore app_sessions;
+    pcf::AppSessionBindings app_bindings; // ADR-0526
     pcf::UePolicyStore ue_policies;
     pcf::PcEventExposureStore pc_event_subs;
     pcf::AppAmContextStore app_am_contexts;
@@ -830,48 +813,42 @@ int main() {
 
     // --- Npcf_AMPolicyControl ---
 
-    server.add_route(
-        "POST",
-        std::string(kAmApiRoot) + "/policies",
-        [&verifier, &am_policies, &am_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<
-                sbi_gen::PolicyAssociationRequest_Npcf_AMPolicyControl>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
+    server.add_route("POST",
+                     std::string(kAmApiRoot) + "/policies",
+                     [&am_policies, &am_create_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<
+                             sbi_gen::PolicyAssociationRequest_Npcf_AMPolicyControl>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
 
-            sbi_gen::PolicyAssociation_Npcf_AMPolicyControl association{};
-            association.request = *body;
-            association.ueAmbr = body->ueAmbr.value_or(default_session_ambr());
-            association.suppFeat = body->suppFeat;
-            json j = association;
-            const auto id = am_policies.create(j);
-            am_create_counter->Add(1);
+                         sbi_gen::PolicyAssociation_Npcf_AMPolicyControl association{};
+                         association.request = *body;
+                         association.ueAmbr = body->ueAmbr.value_or(default_session_ambr());
+                         association.suppFeat = body->suppFeat;
+                         json j = association;
+                         const auto id = am_policies.create(j);
+                         am_create_counter->Add(1);
 
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location", std::string(kAmApiRoot) + "/policies/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kAmApiRoot) + "/policies/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
     server.add_route(
         "GET",
         std::string(kAmApiRoot) + "/policies/{polAssoId}",
-        [&verifier, &am_policies](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&am_policies](const sbi_core::http2::Request& req) {
             const auto pol_asso_id = req.path_params.at("polAssoId");
             auto association = am_policies.get(pol_asso_id);
             if (!association.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AM policy association " + pol_asso_id);
+                    404, "Not Found", "No AM policy association " + pol_asso_id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, association->dump());
         });
@@ -879,14 +856,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAmApiRoot) + "/policies/{polAssoId}",
-        [&verifier, &am_policies, &am_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&am_policies, &am_delete_counter](const sbi_core::http2::Request& req) {
             const auto pol_asso_id = req.path_params.at("polAssoId");
             if (!am_policies.remove(pol_asso_id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AM policy association " + pol_asso_id);
+                    404, "Not Found", "No AM policy association " + pol_asso_id, std::nullopt);
             }
             am_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -897,10 +871,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAmApiRoot) + "/policies/{polAssoId}/update",
-        [&verifier, &am_policies, &am_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&am_policies, &am_update_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
                 sbi_gen::PolicyAssociationUpdateRequest_Npcf_AMPolicyControl>(req, err);
@@ -911,7 +882,7 @@ int main() {
             auto stored = am_policies.get(pol_asso_id);
             if (!stored.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AM policy association " + pol_asso_id);
+                    404, "Not Found", "No AM policy association " + pol_asso_id, std::nullopt);
             }
             auto association = stored->get<sbi_gen::PolicyAssociation_Npcf_AMPolicyControl>();
             if (body->ueAmbr.has_value()) {
@@ -940,8 +911,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSmApiRoot) + "/sm-policies",
-        [&verifier,
-         &sm_policies,
+        [&sm_policies,
          &sm_create_counter,
          &udr_client,
          &udr_oauth,
@@ -953,9 +923,6 @@ int main() {
          &spending_limit_tracking,
          &spending_limit_subscribe_counter,
          &register_binding](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SmPolicyContextData>(req, err);
             if (!body.has_value()) {
@@ -1022,82 +989,108 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kSmApiRoot) + "/sm-policies/{smPolicyId}",
-        [&verifier, &sm_policies](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sm_policy_id = req.path_params.at("smPolicyId");
-            auto control = sm_policies.get(sm_policy_id);
-            if (!control.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM policy " + sm_policy_id);
-            }
-            return sbi_core::http2::Response::json(200, control->dump());
-        });
+    server.add_route("GET",
+                     std::string(kSmApiRoot) + "/sm-policies/{smPolicyId}",
+                     [&sm_policies](const sbi_core::http2::Request& req) {
+                         const auto sm_policy_id = req.path_params.at("smPolicyId");
+                         auto control = sm_policies.get(sm_policy_id);
+                         if (!control.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No SM policy " + sm_policy_id, std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, control->dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kSmApiRoot) + "/sm-policies/{smPolicyId}/update",
-        [&verifier, &sm_policies, &sm_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            // SmPolicyUpdateContextData is an opaque fallback in the generated DTOs (an `allOf`
-            // shape tools/sbi-codegen doesn't model -- see nfs/pcf/src/stores.hpp's header),
-            // parsed here as raw JSON rather than a typed struct.
-            json body;
-            try {
-                body = json::parse(req.body);
-            } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
-            }
-            const auto sm_policy_id = req.path_params.at("smPolicyId");
-            auto stored = sm_policies.get(sm_policy_id);
-            if (!stored.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM policy " + sm_policy_id);
-            }
-            auto control = stored->get<sbi_gen::SmPolicyControl>();
-            // This build's decisioning is entirely a function of the ORIGINAL context (see
-            // build_default_decision) -- there is no real trigger-driven re-evaluation, so an
-            // UpdateSMPolicy call re-derives the same decision from the stored context rather than
-            // reading the report itself. Disclosed, not silently assumed: matches the file
-            // header's stated simplification.
-            control.policy = build_default_decision(control.context);
-            sm_policies.put(sm_policy_id, json(control));
-            sm_update_counter->Add(1);
-            json j = control.policy;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("POST",
+                     std::string(kSmApiRoot) + "/sm-policies/{smPolicyId}/update",
+                     [&sm_policies, &sm_update_counter](const sbi_core::http2::Request& req) {
+                         // SmPolicyUpdateContextData is an opaque fallback in the generated DTOs
+                         // (an `allOf` shape tools/sbi-codegen doesn't model -- see
+                         // nfs/pcf/src/stores.hpp's header), parsed here as raw JSON rather than a
+                         // typed struct.
+                         json body;
+                         try {
+                             body = json::parse(req.body);
+                         } catch (const json::parse_error& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         const auto sm_policy_id = req.path_params.at("smPolicyId");
+                         auto stored = sm_policies.get(sm_policy_id);
+                         if (!stored.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No SM policy " + sm_policy_id, std::nullopt);
+                         }
+                         auto control = stored->get<sbi_gen::SmPolicyControl>();
+                         // This build's decisioning is entirely a function of the ORIGINAL context
+                         // (see build_default_decision) -- there is no real trigger-driven
+                         // re-evaluation, so an UpdateSMPolicy call re-derives the same decision
+                         // from the stored context rather than reading the report itself.
+                         // Disclosed, not silently assumed: matches the file header's stated
+                         // simplification.
+                         control.policy = build_default_decision(control.context);
+                         sm_policies.put(sm_policy_id, json(control));
+                         sm_update_counter->Add(1);
+                         json j = control.policy;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kSmApiRoot) + "/sm-policies/{smPolicyId}/delete",
-        [&verifier,
-         &sm_policies,
+        [&sm_policies,
          &sm_delete_counter,
          &chf_client,
          &chf_oauth,
          &chf_base_url,
          &spending_limit_tracking,
-         &deregister_binding](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            // SmPolicyDeleteData has no mandatory fields (TS29512) -- accept whatever body is
-            // sent without requiring it to parse as a specific typed DTO.
+         &deregister_binding,
+         &app_sessions,
+         &app_bindings,
+         &sm_policy_notify_client,
+         self_base_url](const sbi_core::http2::Request& req) {
+            // SmPolicyDeleteData has no mandatory fields (TS29512) -- accept whatever
+            // body is sent without requiring it to parse as a specific typed DTO.
             const auto sm_policy_id = req.path_params.at("smPolicyId");
             if (!sm_policies.remove(sm_policy_id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM policy " + sm_policy_id);
+                    404, "Not Found", "No SM policy " + sm_policy_id, std::nullopt);
             }
             sm_delete_counter->Add(1);
             deregister_binding(sm_policy_id);
-            // ADR-0072: real, best-effort CHF unsubscribe if this SM policy ever opened a real
-            // spending-limit subscription -- no-op (not an error) if it never did.
+            // ADR-0526, TS 29.514 4.2.5.3: the PDU session is gone, so every AF
+            // session bound to it is no longer valid -- the PCF requests its
+            // termination at "{notifUri}/terminate" (terminationRequest callback),
+            // termCause PDU_SESSION_TERMINATION. The app session itself stays until
+            // the AF deletes it (4.2.4.2). Notifications carry no OAuth2 token.
+            for (const auto& app_id : app_bindings.unbind_sm_policy(sm_policy_id)) {
+                const auto app = app_sessions.get(app_id);
+                const auto notif = app.has_value() && app->contains("ascReqData")
+                                       ? app->at("ascReqData").value("notifUri", std::string{})
+                                       : std::string{};
+                if (notif.empty()) {
+                    continue;
+                }
+                sbi_gen::TerminationInfo info{};
+                info.termCause.value = "PDU_SESSION_TERMINATION";
+                info.resUri =
+                    self_base_url + std::string(kPolicyAuthApiRoot) + "/app-sessions/" + app_id;
+                sbi_core::http2::ClientRequest term;
+                term.method = "POST";
+                term.url = notif + "/terminate";
+                term.headers.emplace("content-type", "application/json");
+                term.body = json(info).dump();
+                const auto r = sm_policy_notify_client.send(term);
+                spdlog::info("pcf: SM policy {} deleted -- termination request for "
+                             "app session {} to {} ({})",
+                             sm_policy_id,
+                             app_id,
+                             term.url,
+                             r.has_value() ? std::to_string(r->status) : r.error());
+            }
+            // ADR-0072: real, best-effort CHF unsubscribe if this SM policy ever
+            // opened a real spending-limit subscription -- no-op (not an error) if it
+            // never did.
             if (auto tracked = spending_limit_tracking.remove(sm_policy_id); tracked.has_value()) {
                 unsubscribe_spending_limit(
                     chf_client, chf_oauth, chf_base_url, tracked->chf_subscription_id);
@@ -1139,14 +1132,16 @@ int main() {
             try {
                 status = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             const auto sm_policy_id = req.path_params.at("smPolicyId");
             if (!spending_limit_tracking.update_status(sm_policy_id, status)) {
                 return sbi_core::http2::problem_response(
                     404,
                     "Not Found",
-                    "No tracked spending-limit subscription for SM policy " + sm_policy_id);
+                    "No tracked spending-limit subscription for SM policy " + sm_policy_id,
+                    std::nullopt);
             }
             spending_limit_notify_counter->Add(1);
             spdlog::info("pcf: received real spending-limit statusNotification for SM policy {}",
@@ -1182,19 +1177,41 @@ int main() {
     server.add_route(
         "POST",
         std::string(kPolicyAuthApiRoot) + "/app-sessions",
-        [&verifier, &app_sessions, &policy_auth_create_counter](
+        [&app_sessions, &policy_auth_create_counter, &sm_policies, &app_bindings](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AppSessionContext>(req, err);
             if (!body.has_value()) {
                 return err;
             }
             if (!body->ascReqData.has_value()) {
+                return sbi_core::http2::problem_response(400,
+                                                         "Missing mandatory IE",
+                                                         "AppSessionContext requires ascReqData",
+                                                         "MANDATORY_IE_MISSING");
+            }
+
+            // ADR-0526, TS 29.514 4.2.2.2 / TS 29.513: session binding to the PDU session's SM
+            // policy -- UE IPv4 address, plus dnn and sliceInfo when given. Failure: 500
+            // PDU_SESSION_NOT_AVAILABLE. Binding on ueIpv6 / ueMac is not implemented (the SMF
+            // allocates IPv4 only, ADR-0525), so such a request fails binding too.
+            const json asc = *body->ascReqData;
+            std::optional<std::string> bound_sm_policy;
+            if (const auto ip = asc.value("ueIpv4", std::string{}); !ip.empty()) {
+                bound_sm_policy = sm_policies.find_binding(
+                    ip,
+                    asc.contains("dnn")
+                        ? std::optional<std::string>(asc.at("dnn").get<std::string>())
+                        : std::nullopt,
+                    asc.contains("sliceInfo") ? std::optional<json>(asc.at("sliceInfo"))
+                                              : std::nullopt);
+            }
+            if (!bound_sm_policy.has_value()) {
                 return sbi_core::http2::problem_response(
-                    400, "Missing mandatory IE", "AppSessionContext requires ascReqData");
+                    500,
+                    "Internal Server Error",
+                    "No PDU session matches the UE address, DNN and slice of this request",
+                    "PDU_SESSION_NOT_AVAILABLE"); // TS 29.514 table 5.7.3-1
             }
 
             sbi_gen::AppSessionContext ctx{};
@@ -1204,6 +1221,7 @@ int main() {
             ctx.ascRespData = sbi_gen::AppSessionContextRespData{};
             json j = ctx;
             const auto id = app_sessions.create(j);
+            app_bindings.bind(id, *bound_sm_policy);
             policy_auth_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -1215,33 +1233,27 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kPolicyAuthApiRoot) + "/app-sessions/{appSessionId}",
-        [&verifier, &app_sessions](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("appSessionId");
-            auto ctx = app_sessions.get(id);
-            if (!ctx.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No app session " + id);
-            }
-            return sbi_core::http2::Response::json(200, ctx->dump());
-        });
+    server.add_route("GET",
+                     std::string(kPolicyAuthApiRoot) + "/app-sessions/{appSessionId}",
+                     [&app_sessions](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("appSessionId");
+                         auto ctx = app_sessions.get(id);
+                         if (!ctx.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No app session " + id, std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, ctx->dump());
+                     });
 
     server.add_route(
         "PATCH",
         std::string(kPolicyAuthApiRoot) + "/app-sessions/{appSessionId}",
-        [&verifier, &app_sessions, &policy_auth_update_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&app_sessions, &policy_auth_update_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("appSessionId");
             auto ctx = app_sessions.get(id);
             if (!ctx.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No app session " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No app session " + id, std::nullopt);
             }
             // application/merge-patch+json (RFC 7396) per the real spec -- NOT RFC 6902 JSON
             // Patch (which NRF's own UpdateNFInstance uses); confirmed by reading
@@ -1251,7 +1263,8 @@ int main() {
             try {
                 patch_doc = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             // The body is AppSessionContextUpdateDataPatch, i.e. {"ascReqData": <update>}; the
             // update merges into the stored ascReqData (before ADR-0498's review it merged the
@@ -1259,7 +1272,10 @@ int main() {
             if (!patch_doc.is_object() ||
                 (patch_doc.contains("ascReqData") && !patch_doc.at("ascReqData").is_object())) {
                 return sbi_core::http2::problem_response(
-                    400, "Bad Request", "body is not an AppSessionContextUpdateDataPatch");
+                    400,
+                    "Bad Request",
+                    "body is not an AppSessionContextUpdateDataPatch",
+                    "UNSPECIFIED_MSG_FAILURE");
             }
             if (const auto upd = patch_doc.find("ascReqData"); upd != patch_doc.end()) {
                 if (ctx->contains("ascReqData")) {
@@ -1273,38 +1289,34 @@ int main() {
             return sbi_core::http2::Response::json(200, ctx->dump());
         });
 
-    server.add_route(
-        "POST",
-        std::string(kPolicyAuthApiRoot) + "/app-sessions/{appSessionId}/delete",
-        [&verifier, &app_sessions, &policy_auth_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            // EventsSubscReqData (the optional real request body here) has no mandatory fields --
-            // accepted without requiring a specific typed parse, same convention as DeleteSMPolicy
-            // above.
-            const auto id = req.path_params.at("appSessionId");
-            if (!app_sessions.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No app session " + id);
-            }
-            policy_auth_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kPolicyAuthApiRoot) + "/app-sessions/{appSessionId}/delete",
+                     [&app_sessions, &policy_auth_delete_counter, &app_bindings](
+                         const sbi_core::http2::Request& req) {
+                         // EventsSubscReqData (the optional real request body here) has no
+                         // mandatory fields -- accepted without requiring a specific typed parse,
+                         // same convention as DeleteSMPolicy above.
+                         const auto id = req.path_params.at("appSessionId");
+                         if (!app_sessions.remove(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No app session " + id, std::nullopt);
+                         }
+                         app_bindings.unbind_app(id);
+                         policy_auth_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "PUT",
         std::string(kPolicyAuthApiRoot) + "/app-sessions/{appSessionId}/events-subscription",
-        [&verifier, &app_sessions](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&app_sessions](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("appSessionId");
             auto ctx = app_sessions.get(id);
             if (!ctx.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No app session " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No app session " + id, std::nullopt);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
@@ -1334,52 +1346,44 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kPolicyAuthApiRoot) + "/app-sessions/{appSessionId}/events-subscription",
-        [&verifier, &app_sessions](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("appSessionId");
-            auto ctx = app_sessions.get(id);
-            if (!ctx.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No app session " + id);
-            }
-            (*ctx)["ascReqData"].erase("evSubsc");
-            app_sessions.put(id, *ctx);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kPolicyAuthApiRoot) +
+                         "/app-sessions/{appSessionId}/events-subscription",
+                     [&app_sessions](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("appSessionId");
+                         auto ctx = app_sessions.get(id);
+                         if (!ctx.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No app session " + id, std::nullopt);
+                         }
+                         (*ctx)["ascReqData"].erase("evSubsc");
+                         app_sessions.put(id, *ctx);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kPolicyAuthApiRoot) + "/app-sessions/pcscf-restoration",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            // Real, disclosed simplification: this lab has no real per-UE App Session Context
-            // inventory keyed by UE identity to actually terminate on P-CSCF restoration (TS
-            // 29.514's own real trigger for this operation) -- acknowledges (204) without any App
-            // Session Contexts actually existing to search/terminate, same class of
-            // simplification as every other "no real trigger source in this lab yet" gap already
-            // disclosed in this file's own header.
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kPolicyAuthApiRoot) + "/app-sessions/pcscf-restoration",
+                     [](const sbi_core::http2::Request& req) {
+                         // Real, disclosed simplification: this lab has no real per-UE App Session
+                         // Context inventory keyed by UE identity to actually terminate on P-CSCF
+                         // restoration (TS 29.514's own real trigger for this operation) --
+                         // acknowledges (204) without any App Session Contexts actually existing to
+                         // search/terminate, same class of simplification as every other "no real
+                         // trigger source in this lab yet" gap already disclosed in this file's own
+                         // header.
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Npcf_UEPolicyControl (ADR-0204, gap-closure task #163) ---
 
     server.add_route(
         "POST",
         std::string(kUePolicyApiRoot) + "/policies",
-        [&verifier, &ue_policies, &ue_policy_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_policies, &ue_policy_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
                 sbi_gen::PolicyAssociationRequest_Npcf_UEPolicyControl>(req, err);
@@ -1405,15 +1409,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kUePolicyApiRoot) + "/policies/{polAssoId}",
-        [&verifier, &ue_policies](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_policies](const sbi_core::http2::Request& req) {
             const auto pol_asso_id = req.path_params.at("polAssoId");
             auto association = ue_policies.get(pol_asso_id);
             if (!association.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE policy association " + pol_asso_id);
+                    404, "Not Found", "No UE policy association " + pol_asso_id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, association->dump());
         });
@@ -1421,14 +1422,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kUePolicyApiRoot) + "/policies/{polAssoId}",
-        [&verifier, &ue_policies, &ue_policy_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_policies, &ue_policy_delete_counter](const sbi_core::http2::Request& req) {
             const auto pol_asso_id = req.path_params.at("polAssoId");
             if (!ue_policies.remove(pol_asso_id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE policy association " + pol_asso_id);
+                    404, "Not Found", "No UE policy association " + pol_asso_id, std::nullopt);
             }
             ue_policy_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1439,10 +1437,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUePolicyApiRoot) + "/policies/{polAssoId}/update",
-        [&verifier, &ue_policies, &ue_policy_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_policies, &ue_policy_update_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
                 sbi_gen::PolicyAssociationUpdateRequest_Npcf_UEPolicyControl>(req, err);
@@ -1453,7 +1448,7 @@ int main() {
             auto stored = ue_policies.get(pol_asso_id);
             if (!stored.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE policy association " + pol_asso_id);
+                    404, "Not Found", "No UE policy association " + pol_asso_id, std::nullopt);
             }
             auto association = stored->get<sbi_gen::PolicyAssociation_Npcf_UEPolicyControl>();
             if (body->triggers.has_value()) {
@@ -1479,10 +1474,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kEventExposureApiRoot) + "/subscriptions",
-        [&verifier, &pc_event_subs, &ee_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pc_event_subs, &ee_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PcEventExposureSubsc>(req, err);
             if (!body.has_value()) {
@@ -1501,33 +1493,32 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &pc_event_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sub_id = req.path_params.at("subscriptionId");
-            auto subscription = pc_event_subs.get(sub_id);
-            if (!subscription.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No policy control events subscription " + sub_id);
-            }
-            return sbi_core::http2::Response::json(200, subscription->dump());
-        });
+    server.add_route("GET",
+                     std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&pc_event_subs](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subscriptionId");
+                         auto subscription = pc_event_subs.get(sub_id);
+                         if (!subscription.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No policy control events subscription " + sub_id,
+                                 std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, subscription->dump());
+                     });
 
     server.add_route(
         "PUT",
         std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &pc_event_subs, &ee_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pc_event_subs, &ee_update_counter](const sbi_core::http2::Request& req) {
             const auto sub_id = req.path_params.at("subscriptionId");
             if (!pc_event_subs.get(sub_id).has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No policy control events subscription " + sub_id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No policy control events subscription " +
+                                                             sub_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PcEventExposureSubsc>(req, err);
@@ -1540,34 +1531,29 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &pc_event_subs, &ee_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sub_id = req.path_params.at("subscriptionId");
-            if (!pc_event_subs.remove(sub_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No policy control events subscription " + sub_id);
-            }
-            ee_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&pc_event_subs, &ee_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subscriptionId");
+                         if (!pc_event_subs.remove(sub_id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No policy control events subscription " + sub_id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         ee_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Npcf_AMPolicyAuthorization (ADR-0205, gap-closure task #163, second PCF slice) ---
 
     server.add_route(
         "POST",
         std::string(kAmPolicyAuthApiRoot) + "/app-am-contexts",
-        [&verifier, &app_am_contexts, &am_auth_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&app_am_contexts, &am_auth_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AppAmContextData>(req, err);
             if (!body.has_value()) {
@@ -1591,35 +1577,27 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAmPolicyAuthApiRoot) + "/app-am-contexts/{appAmContextId}",
-        [&verifier, &app_am_contexts](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("appAmContextId");
-            auto ctx = app_am_contexts.get(id);
-            if (!ctx.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No application AM context " + id);
-            }
-            return sbi_core::http2::Response::json(200, ctx->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAmPolicyAuthApiRoot) + "/app-am-contexts/{appAmContextId}",
+                     [&app_am_contexts](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("appAmContextId");
+                         auto ctx = app_am_contexts.get(id);
+                         if (!ctx.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No application AM context " + id, std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, ctx->dump());
+                     });
 
     server.add_route(
         "PATCH",
         std::string(kAmPolicyAuthApiRoot) + "/app-am-contexts/{appAmContextId}",
-        [&verifier, &app_am_contexts, &am_auth_update_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&app_am_contexts, &am_auth_update_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("appAmContextId");
             auto stored = app_am_contexts.get(id);
             if (!stored.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No application AM context " + id);
+                    404, "Not Found", "No application AM context " + id, std::nullopt);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AppAmContextUpdateData>(req, err);
@@ -1661,7 +1639,10 @@ int main() {
                         (void)ev.get<sbi_gen::AmEventsSubscData>();
                     } catch (const json::exception& e) {
                         return sbi_core::http2::problem_response(
-                            400, "evSubsc does not yield an AmEventsSubscData", e.what());
+                            400,
+                            "evSubsc does not yield an AmEventsSubscData",
+                            e.what(),
+                            sbi_core::http2::dto_error_cause(e));
                     }
                     j["evSubsc"] = std::move(ev);
                 }
@@ -1674,15 +1655,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAmPolicyAuthApiRoot) + "/app-am-contexts/{appAmContextId}",
-        [&verifier, &app_am_contexts, &am_auth_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&app_am_contexts, &am_auth_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("appAmContextId");
             if (!app_am_contexts.remove(id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No application AM context " + id);
+                    404, "Not Found", "No application AM context " + id, std::nullopt);
             }
             am_auth_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1693,16 +1670,12 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAmPolicyAuthApiRoot) + "/app-am-contexts/{appAmContextId}/events-subscription",
-        [&verifier, &app_am_contexts, &am_auth_evsubsc_put_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&app_am_contexts, &am_auth_evsubsc_put_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("appAmContextId");
             auto ctx = app_am_contexts.get(id);
             if (!ctx.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No application AM context " + id);
+                    404, "Not Found", "No application AM context " + id, std::nullopt);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AmEventsSubscData>(req, err);
@@ -1732,16 +1705,12 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kAmPolicyAuthApiRoot) + "/app-am-contexts/{appAmContextId}/events-subscription",
-        [&verifier, &app_am_contexts, &am_auth_evsubsc_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&app_am_contexts, &am_auth_evsubsc_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("appAmContextId");
             auto ctx = app_am_contexts.get(id);
             if (!ctx.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No application AM context " + id);
+                    404, "Not Found", "No application AM context " + id, std::nullopt);
             }
             ctx->erase("evSubsc");
             app_am_contexts.put(id, *ctx);
@@ -1756,11 +1725,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kMbsPolicyAuthApiRoot) + "/contexts",
-        [&verifier, &mbs_app_sessions, &mbs_auth_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&mbs_app_sessions, &mbs_auth_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsAppSessionCtxt>(req, err);
             if (!body.has_value()) {
@@ -1782,15 +1747,12 @@ int main() {
     server.add_route(
         "GET",
         std::string(kMbsPolicyAuthApiRoot) + "/contexts/{contextId}",
-        [&verifier, &mbs_app_sessions](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&mbs_app_sessions](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("contextId");
             auto ctx = mbs_app_sessions.get(id);
             if (!ctx.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No MBS application session context " + id);
+                    404, "Not Found", "No MBS application session context " + id, std::nullopt);
             }
             return sbi_core::http2::Response::json(200, ctx->dump());
         });
@@ -1798,16 +1760,12 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kMbsPolicyAuthApiRoot) + "/contexts/{contextId}",
-        [&verifier, &mbs_app_sessions, &mbs_auth_update_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&mbs_app_sessions, &mbs_auth_update_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("contextId");
             auto stored = mbs_app_sessions.get(id);
             if (!stored.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No MBS application session context " + id);
+                    404, "Not Found", "No MBS application session context " + id, std::nullopt);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsAppSessionCtxtPatch>(req, err);
@@ -1827,15 +1785,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kMbsPolicyAuthApiRoot) + "/contexts/{contextId}",
-        [&verifier, &mbs_app_sessions, &mbs_auth_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&mbs_app_sessions, &mbs_auth_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("contextId");
             if (!mbs_app_sessions.remove(id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No MBS application session context " + id);
+                    404, "Not Found", "No MBS application session context " + id, std::nullopt);
             }
             mbs_auth_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1848,11 +1802,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kMbsPolicyControlApiRoot) + "/mbs-policies",
-        [&verifier, &mbs_policies, &mbs_policy_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&mbs_policies, &mbs_policy_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::MbsPolicyCtxtData>(req, err);
             if (!body.has_value()) {
@@ -1873,32 +1823,26 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kMbsPolicyControlApiRoot) + "/mbs-policies/{mbsPolicyId}",
-        [&verifier, &mbs_policies](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("mbsPolicyId");
-            auto policy = mbs_policies.get(id);
-            if (!policy.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No MBS policy " + id);
-            }
-            return sbi_core::http2::Response::json(200, policy->dump());
-        });
+    server.add_route("GET",
+                     std::string(kMbsPolicyControlApiRoot) + "/mbs-policies/{mbsPolicyId}",
+                     [&mbs_policies](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("mbsPolicyId");
+                         auto policy = mbs_policies.get(id);
+                         if (!policy.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No MBS policy " + id, std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, policy->dump());
+                     });
 
     server.add_route(
         "DELETE",
         std::string(kMbsPolicyControlApiRoot) + "/mbs-policies/{mbsPolicyId}",
-        [&verifier, &mbs_policies, &mbs_policy_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&mbs_policies, &mbs_policy_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("mbsPolicyId");
             if (!mbs_policies.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No MBS policy " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No MBS policy " + id, std::nullopt);
             }
             mbs_policy_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1909,15 +1853,12 @@ int main() {
     server.add_route(
         "POST",
         std::string(kMbsPolicyControlApiRoot) + "/mbs-policies/{mbsPolicyId}/update",
-        [&verifier, &mbs_policies, &mbs_policy_update_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&mbs_policies, &mbs_policy_update_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("mbsPolicyId");
             auto stored = mbs_policies.get(id);
             if (!stored.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No MBS policy " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No MBS policy " + id, std::nullopt);
             }
             sbi_core::http2::Response err;
             auto body =
@@ -1946,10 +1887,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kPdtqPolicyControlApiRoot) + "/pdtq-policies",
-        [&verifier, &pdtq_policies, &pdtq_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&pdtq_policies, &pdtq_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PdtqPolicyData>(req, err);
             if (!body.has_value()) {
@@ -1968,80 +1906,69 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kPdtqPolicyControlApiRoot) + "/pdtq-policies/{pdtqPolicyId}",
-        [&verifier, &pdtq_policies](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("pdtqPolicyId");
-            auto policy = pdtq_policies.get(id);
-            if (!policy.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No PDTQ policy " + id);
-            }
-            return sbi_core::http2::Response::json(200, policy->dump());
-        });
+    server.add_route("GET",
+                     std::string(kPdtqPolicyControlApiRoot) + "/pdtq-policies/{pdtqPolicyId}",
+                     [&pdtq_policies](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("pdtqPolicyId");
+                         auto policy = pdtq_policies.get(id);
+                         if (!policy.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No PDTQ policy " + id, std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, policy->dump());
+                     });
 
-    server.add_route(
-        "PATCH",
-        std::string(kPdtqPolicyControlApiRoot) + "/pdtq-policies/{pdtqPolicyId}",
-        [&verifier, &pdtq_policies, &pdtq_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("pdtqPolicyId");
-            auto stored = pdtq_policies.get(id);
-            if (!stored.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No PDTQ policy " + id);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::PdtqPolicyPatchData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            auto policy = stored->get<sbi_gen::PdtqPolicyData>();
-            if (body->notifUri.has_value()) {
-                policy.notifUri = body->notifUri;
-            }
-            if (body->selPdtqPolicyId.has_value()) {
-                policy.selPdtqPolicyId = body->selPdtqPolicyId;
-            }
-            if (body->warnNotifReq.has_value()) {
-                policy.warnNotifReq = body->warnNotifReq;
-            }
-            json j = policy;
-            pdtq_policies.put(id, j);
-            pdtq_update_counter->Add(1);
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("PATCH",
+                     std::string(kPdtqPolicyControlApiRoot) + "/pdtq-policies/{pdtqPolicyId}",
+                     [&pdtq_policies, &pdtq_update_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("pdtqPolicyId");
+                         auto stored = pdtq_policies.get(id);
+                         if (!stored.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No PDTQ policy " + id, std::nullopt);
+                         }
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<sbi_gen::PdtqPolicyPatchData>(
+                             req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         auto policy = stored->get<sbi_gen::PdtqPolicyData>();
+                         if (body->notifUri.has_value()) {
+                             policy.notifUri = body->notifUri;
+                         }
+                         if (body->selPdtqPolicyId.has_value()) {
+                             policy.selPdtqPolicyId = body->selPdtqPolicyId;
+                         }
+                         if (body->warnNotifReq.has_value()) {
+                             policy.warnNotifReq = body->warnNotifReq;
+                         }
+                         json j = policy;
+                         pdtq_policies.put(id, j);
+                         pdtq_update_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
-    server.add_route(
-        "DELETE",
-        std::string(kPdtqPolicyControlApiRoot) + "/pdtq-policies/{pdtqPolicyId}",
-        [&verifier, &pdtq_policies, &pdtq_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("pdtqPolicyId");
-            if (!pdtq_policies.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No PDTQ policy " + id);
-            }
-            pdtq_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kPdtqPolicyControlApiRoot) + "/pdtq-policies/{pdtqPolicyId}",
+                     [&pdtq_policies, &pdtq_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("pdtqPolicyId");
+                         if (!pdtq_policies.remove(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No PDTQ policy " + id, std::nullopt);
+                         }
+                         pdtq_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Npcf_BDTPolicyControl (ADR-0206, gap-closure task #163, third and final PCF slice) ---
 
     server.add_route(
         "POST",
         std::string(kBdtPolicyControlApiRoot) + "/bdtpolicies",
-        [&verifier, &bdt_policies, &bdt_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&bdt_policies, &bdt_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::BdtReqData>(req, err);
             if (!body.has_value()) {
@@ -2067,32 +1994,27 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kBdtPolicyControlApiRoot) + "/bdtpolicies/{bdtPolicyId}",
-        [&verifier, &bdt_policies](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("bdtPolicyId");
-            auto policy = bdt_policies.get(id);
-            if (!policy.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No BDT policy " + id);
-            }
-            return sbi_core::http2::Response::json(200, policy->dump());
-        });
+    server.add_route("GET",
+                     std::string(kBdtPolicyControlApiRoot) + "/bdtpolicies/{bdtPolicyId}",
+                     [&bdt_policies](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("bdtPolicyId");
+                         auto policy = bdt_policies.get(id);
+                         if (!policy.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No BDT policy " + id, std::nullopt);
+                         }
+                         return sbi_core::http2::Response::json(200, policy->dump());
+                     });
 
     server.add_route(
         "PATCH",
         std::string(kBdtPolicyControlApiRoot) + "/bdtpolicies/{bdtPolicyId}",
-        [&verifier, &bdt_policies, &bdt_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&bdt_policies, &bdt_update_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("bdtPolicyId");
             auto stored = bdt_policies.get(id);
             if (!stored.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No BDT policy " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No BDT policy " + id, std::nullopt);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PatchBdtPolicy>(req, err);
@@ -2107,7 +2029,8 @@ int main() {
                     400,
                     "Bad Request",
                     "No transfer policies are available to select (no real BDT decision engine "
-                    "exists in this build)");
+                    "exists in this build)",
+                    "UNSPECIFIED_MSG_FAILURE");
             }
             auto policy = stored->get<sbi_gen::BdtPolicy>();
             if (body->bdtReqData.has_value() && policy.bdtReqData.has_value()) {
@@ -2127,22 +2050,19 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kBdtPolicyControlApiRoot) + "/bdtpolicies/{bdtPolicyId}",
-        [&verifier, &bdt_policies, &bdt_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("bdtPolicyId");
-            if (!bdt_policies.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No BDT policy " + id);
-            }
-            bdt_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kBdtPolicyControlApiRoot) + "/bdtpolicies/{bdtPolicyId}",
+                     [&bdt_policies, &bdt_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("bdtPolicyId");
+                         if (!bdt_policies.remove(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No BDT policy " + id, std::nullopt);
+                         }
+                         bdt_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     std::thread(run_nrf_lifecycle, pcf_instance_id, nrf_base_url).detach();
 

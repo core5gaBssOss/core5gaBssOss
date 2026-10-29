@@ -61,7 +61,7 @@ shared memory between them. The `HandoverCommand` also grew from 33 to 42 bytes:
 
 ### Test
 
-`AmfNgapTestGnb.FullN2HandoverRelayReachesHandoverCommand` gains an assertion on the
+`AmfNgapTestGnb.FullN2HandoverRelayThroughExecutionAndSourceRelease (renamed from FullN2HandoverRelayReachesHandoverCommand, REVIEW-5ae0ef1 DOC-04)` gains an assertion on the
 `HandoverCommand`'s own `PDUSessionResourceHandoverList`, via a new
 `NgapTestGnb::parse_handover_command`. Stated plainly because it is the point: without that
 assertion, deleting this ADR's entire SMF call would leave the relay test passing -- the NGAP

@@ -40,13 +40,24 @@ bool contains(const std::vector<std::string>& v, const std::string& s) {
 
 // The FQDNs of the "SEPP-<fqdn>" entries of a Via header (TS 29.500 5.2.2.2 / 6.10.10.3: e.g.
 // "2.0 SEPP-sepp1.operator.com"), lower-cased.
+// REVIEW-5ae0ef1 SUS-01 (ADR-0530): a linear scan, not std::regex, whose recursive matcher
+// overflowed the stack on a ~30 KB Via header. Each "SEPP-" followed by FQDN characters is one
+// entry.
 std::vector<std::string> via_sepps(const std::string& via) {
     std::vector<std::string> out;
-    static const std::regex kEntry(R"(SEPP-([A-Za-z0-9.\-]+))");
-    for (auto it = std::sregex_iterator(via.begin(), via.end(), kEntry);
-         it != std::sregex_iterator();
-         ++it) {
-        out.push_back(lower((*it)[1].str()));
+    const auto fqdn_char = [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '-';
+    };
+    for (std::size_t pos = via.find("SEPP-"); pos != std::string::npos;
+         pos = via.find("SEPP-", pos)) {
+        std::size_t end = pos + 5;
+        while (end < via.size() && fqdn_char(via[end])) {
+            ++end;
+        }
+        if (end > pos + 5) {
+            out.push_back(lower(std::string_view(via).substr(pos + 5, end - pos - 5)));
+        }
+        pos = end;
     }
     return out;
 }
@@ -579,8 +590,19 @@ std::string telescopic_label(const std::string& foreign_fqdn) {
 std::string TelescopicTable::label_for(const std::string& foreign_fqdn) {
     const std::string label = telescopic_label(foreign_fqdn);
     const std::lock_guard<std::mutex> lock(mutex_);
-    by_label_[label] = lower(foreign_fqdn);
+    if (by_label_.emplace(label, lower(foreign_fqdn)).second) {
+        order_.push_back(label);
+        while (max_entries_ > 0 && order_.size() > max_entries_) {
+            by_label_.erase(order_.front());
+            order_.pop_front();
+        }
+    }
     return label;
+}
+
+std::size_t TelescopicTable::size() const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return by_label_.size();
 }
 
 std::optional<std::string> TelescopicTable::foreign_for(const std::string& label) const {

@@ -135,7 +135,10 @@ void register_routes(sbi_core::http2::Server& server,
                 spdlog::warn("udr: OAM provisioning refused for mTLS peer CN='{}'",
                              req.peer_cert_cn);
                 return sbi_core::http2::problem_response(
-                    403, "Forbidden", "mTLS peer is not an authorised provisioning client");
+                    403,
+                    "Forbidden",
+                    "mTLS peer is not an authorised provisioning client",
+                    std::nullopt);
             }
             json body;
             try {
@@ -143,12 +146,13 @@ void register_routes(sbi_core::http2::Server& server,
             } catch (const json::parse_error&) {
                 // parse_error's what() can quote the offending input, which may contain K/OPc.
                 return sbi_core::http2::problem_response(
-                    400, "Malformed JSON", "request body is not valid JSON");
+                    400, "Malformed JSON", "request body is not valid JSON", "INVALID_MSG_FORMAT");
             }
             const auto& ue_id = req.path_params.at("ueId");
             auto docs = parse_subscriber_documents(ue_id, body);
             if (!docs.has_value()) {
-                return sbi_core::http2::problem_response(400, "Bad Request", docs.error());
+                return sbi_core::http2::problem_response(
+                    400, "Bad Request", docs.error(), "UNSPECIFIED_MSG_FAILURE");
             }
             const bool created = store.replace(ue_id, *docs);
             spdlog::info(

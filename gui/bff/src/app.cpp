@@ -40,7 +40,9 @@ void harden(Response& r) {
 }
 
 Response problem(int status, const std::string& title, const std::string& detail) {
-    return sbi_core::http2::problem_response(status, title, detail);
+    // The BFF is the operator GUI's backend, not a TS 29.500 producer: no Table 5.2.7.2-1 cause
+    // applies (ADR-0502).
+    return sbi_core::http2::problem_response(status, title, detail, std::nullopt);
 }
 
 Response json_resp(int status, const json& body) {

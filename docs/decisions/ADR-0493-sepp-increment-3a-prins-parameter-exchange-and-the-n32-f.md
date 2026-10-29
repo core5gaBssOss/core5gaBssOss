@@ -60,6 +60,6 @@ keeps both ends on one session.
 **Verified.** `SeppN32.HkdfExpandMatchesRfc5869TestCase1`, `PrinsIsSelectedByLocalPreference`,
 `ParameterExchangeNegotiatesCiphersThenPolicy`; `structural_conformance` (SecParamExchReqData /
 SecParamExchRspData against TS29573_N32_Handshake.yaml);
-`SeppEndToEnd.PrinsParameterExchangeAgreesOnOneMasterKey` (two real SEPPs: PRINS selected, ids
+`SeppEndToEnd.PrinsAgreesOnOneKeyAndForwardsJoseProtected (renamed from PrinsParameterExchangeAgreesOnOneMasterKey, REVIEW-5ae0ef1 DOC-04)` (two real SEPPs: PRINS selected, ids
 swapped, A128GCM, identical master-key fingerprints, forwarding refused 504, SEPP A's shutdown
 terminates the context at SEPP B); the TLS and telescopic e2e tests unchanged.

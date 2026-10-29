@@ -345,9 +345,20 @@ MatchAttempt try_rate_against(const bss_sid::ProductOffering& offering,
             if (const auto predicted = ai_quota_sizer->predict(features); predicted.has_value()) {
                 const double base = static_cast<double>(*grant.totalVolume);
                 const double raw_multiplier = *predicted / base;
-                const double multiplier = std::clamp(raw_multiplier, 0.5, 2.0);
-                grant.totalVolume = static_cast<std::uint64_t>(base * multiplier);
+                // ADR-0528: the reservation follows the grant, so the price per octet is the
+                // catalog's whatever the model predicts (guardrail 7).
+                const auto scaled = ai_scaled_grant(
+                    *grant.totalVolume,
+                    result.cost.has_value() ? result.cost->value.value_or(0.0) : 0.0,
+                    *predicted,
+                    ai_quota_sizer->min_multiplier(),
+                    ai_quota_sizer->max_multiplier());
+                const double multiplier = scaled.multiplier;
+                grant.totalVolume = scaled.volume;
                 result.grant = grant;
+                if (result.cost.has_value() && result.cost->value.has_value()) {
+                    result.cost->value = scaled.cost;
+                }
                 result.aiAdvisory = json{
                     {"model_version", ai_quota_sizer->model_version()},
                     {"features",
