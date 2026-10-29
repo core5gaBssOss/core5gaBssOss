@@ -13,6 +13,10 @@ What this records, per spec, in <out>/MANIFEST.tsv -- and why each column is the
     release     "19" when a Release-19 file existed, otherwise the release that WAS fetched
     note        empty, or "no Rel-19 version exists; latest is <ver>"
 
+`--from-manifest` fetches every spec in an existing MANIFEST.tsv at exactly the version recorded
+there -- the versions the code cites (e.g. "TS 23.288 V19.7.0 (specs/3gpp/TS_23.288_j70.txt)") --
+instead of the newest one. The documents are not committed (ADR-0507); this recreates them.
+
 The last column is the honest one. A specification that was not touched in Release 19 has no
 Release-19 file -- its most recent version simply remains in force -- and a manifest that silently
 reported "Release 19" for it would be a fabrication. It is written down instead.
@@ -70,7 +74,9 @@ def convert_to_text(doc: pathlib.Path, out_dir: pathlib.Path) -> pathlib.Path:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--spec", action="append", required=True, help="e.g. 33.501; repeatable")
+    ap.add_argument("--spec", action="append", default=[], help="e.g. 33.501; repeatable")
+    ap.add_argument("--from-manifest", action="store_true",
+                    help="fetch every spec in <out>/MANIFEST.tsv at its recorded version")
     ap.add_argument("--release", type=int, default=19)
     ap.add_argument("--out", default="specs/3gpp")
     args = ap.parse_args()
@@ -87,16 +93,25 @@ def main() -> int:
             if line.strip():
                 existing[line.split("\t", 1)[0]] = line
     rows = ["spec\tversion\trelease\tnote"]
+    pinned: dict[str, tuple[str, int, str]] = {}
+    if args.from_manifest:
+        for line in existing.values():
+            cols = (line.split("\t") + ["", "", "", ""])[:4]
+            if cols[1] not in ("", "-"):
+                pinned[cols[0]] = (cols[1], int(cols[2]) if cols[2].isdigit() else 0, cols[3])
+        args.spec = args.spec or sorted(pinned)
+    if not args.spec:
+        ap.error("give --spec, or --from-manifest with an existing MANIFEST.tsv")
 
     for spec in args.spec:
         series = spec.split(".")[0]
         try:
-            versions = list_versions(series, spec)
+            versions = [pinned[spec][0]] if spec in pinned else list_versions(series, spec)
             if not versions:
                 rows.append(f"{spec}\t-\t-\tno versions listed in the archive")
                 print(f"{spec}: NOTHING LISTED", file=sys.stderr)
                 continue
-            version, rel, note = pick(versions, args.release)
+            version, rel, note = pinned[spec] if spec in pinned else pick(versions, args.release)
             stem = spec.replace(".", "")
             zip_path = out / f"{stem}-{version}.zip"
             if not zip_path.exists():

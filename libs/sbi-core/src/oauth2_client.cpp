@@ -8,6 +8,8 @@
 #include <iomanip>
 #include <sstream>
 
+#include "no_destroy.hpp"
+
 namespace sbi_core {
 
 namespace {
@@ -146,14 +148,16 @@ void attach_tokens(http2::Client& client, TokenSource& source) {
 }
 
 namespace {
+// Never destroyed (no_destroy.hpp): an NF's detached NRF lifecycle thread calls
+// clear_default_token_backoff() after NFRegister, which can land while the process exits.
 std::mutex& default_source_mutex() {
-    static std::mutex m;
-    return m;
+    static detail::NoDestroy<std::mutex> m;
+    return m.get();
 }
 // The TokenSource install_default_token_source installed, for clear_default_token_backoff.
 std::shared_ptr<TokenSource>& default_source() {
-    static std::shared_ptr<TokenSource> source;
-    return source;
+    static detail::NoDestroy<std::shared_ptr<TokenSource>> source;
+    return source.get();
 }
 } // namespace
 

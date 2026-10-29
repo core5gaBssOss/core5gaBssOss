@@ -26,6 +26,7 @@
 #include <thread>
 #include <unistd.h>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -146,7 +147,7 @@ TEST(SmfHandoverN2SmInfoIntegration, HandoverRequiredReturnsRealUpfTunnelNotAPla
         const auto location_it = create_resp->headers.find("location");
         ASSERT_NE(location_it, create_resp->headers.end())
             << "TS 29.502 requires Location on the 201 -- AMF derives its smContextRef from it";
-        const std::string location = location_it->second;
+        const std::string location = nf_test::location_path(location_it->second);
         const std::string sm_context_ref = location.substr(location.rfind('/') + 1);
         ASSERT_FALSE(sm_context_ref.empty());
 

@@ -17,6 +17,7 @@
 #include "aka_crypto/hex.hpp"
 #include "aka_crypto/kdf.hpp"
 #include "aka_crypto/milenage.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -180,7 +181,8 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     const auto kausf = aka_crypto::derive_kausf(out.ck, out.ik, kServingNetworkName, sqn_xor_ak);
     sbi_gen::ConfirmationData confirm{};
     confirm.resStar = aka_crypto::to_hex(res_star);
-    const auto ctx_url = "https://127.0.0.1:7782" + created.headers.find("location")->second;
+    const auto ctx_url =
+        "https://127.0.0.1:7782" + nf_test::location_path(created.headers.find("location")->second);
     const auto confirmed = send(c,
                                 "PUT",
                                 ctx_url + "/5g-aka-confirmation",

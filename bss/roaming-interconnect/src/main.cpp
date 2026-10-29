@@ -71,7 +71,7 @@ template <typename Handler> auto guarded(Handler handler) {
         try {
             return handler(req);
         } catch (const roaming_interconnect::InvalidRequest& e) {
-            return sbi_core::http2::problem_response(400, "Bad Request", e.what());
+            return sbi_core::http2::problem_response(400, "Bad Request", e.what(), std::nullopt);
         }
     };
 }
@@ -159,7 +159,7 @@ int main() {
                          const auto agreement = agreement_store.get(id);
                          if (!agreement.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No InterconnectAgreement " + id);
+                                 404, "Not Found", "No InterconnectAgreement " + id, std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, json(*agreement).dump());
                      }));

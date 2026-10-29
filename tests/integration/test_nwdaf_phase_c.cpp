@@ -32,6 +32,7 @@
 #include <thread>
 #include <vector>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -325,7 +326,7 @@ TEST(NwdafPhaseC, CollectsNrfDataViaTheDccfAndServesItOverDataManagement) {
                             json{{"nfStatusNotificationUri", "https://placeholder.invalid/"}}}}}}));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string dm_location = r->headers.find("location")->second;
+    const std::string dm_location = nf_test::location_path(r->headers.find("location")->second);
     ASSERT_NE(dm_location.find(std::string(kDm) + "/subscriptions/"), std::string::npos);
 
     nf_test::SpawnedProcess nsacf(NSACF_PATH); // registers at the NRF -> NF_REGISTERED
@@ -396,7 +397,8 @@ TEST(NwdafPhaseC, CollectsNrfDataViaTheDccfAndServesItOverDataManagement) {
              {"timePeriod", json{{"startTime", now_plus(-600s)}, {"stopTime", now_plus(600s)}}}}));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string history_location = r->headers.find("location")->second;
+    const std::string history_location =
+        nf_test::location_path(r->headers.find("location")->second);
     ASSERT_TRUE(receiver.wait_until("/dm-history", 20s, [](const Receiver::Note& n) {
         return carries(n.body, "NF_REGISTERED", "NSACF");
     })) << "the historical slice did not carry the NSACF registration";
@@ -413,7 +415,7 @@ TEST(NwdafPhaseC, CollectsNrfDataViaTheDccfAndServesItOverDataManagement) {
                             json{{"nfStatusNotificationUri", "https://placeholder.invalid/"}}}}}}));
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string fetch_location = r->headers.find("location")->second;
+    const std::string fetch_location = nf_test::location_path(r->headers.find("location")->second);
     nf_test::SpawnedProcess hello(HELLO_NF_PATH); // another registration to be notified about
     ASSERT_TRUE(receiver.wait_until("/dm-fetch", 40s, [](const Receiver::Note& n) {
         return n.body.contains("fetchInstruct");

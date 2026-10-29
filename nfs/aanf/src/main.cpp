@@ -248,9 +248,6 @@ int main() {
     // ---- Naanf_AKMA_AnchorKey_Register (TS 29.535 5.2.2.2) -------------------------------------
     server.add_route(
         "POST", std::string(kApiRoot) + "/register-anchorkey", [&](const http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return problem(401, "Unauthorized", auth->error);
-            }
             // SEC-03: only the AUSF registers anchor keys (TS 33.535 6.1). No TS 29.500 / 29.535
             // cause describes a wrong consumer, so none is given.
             if (!peer_is(req, "ausf")) {
@@ -348,10 +345,21 @@ int main() {
                         }
                     }
                     if (const auto loc = r->headers.find("location"); loc != r->headers.end()) {
+                        // REVIEW-5ae0ef1 SEC-07: Location is "{apiRoot}/nudm-ee/v1/..."
+                        // (TS29503_Nudm_EE.yaml), absolute; a bare path is still resolved
+                        // against the UDM. A failed DELETE leaves an EE subscription behind at
+                        // the UDM, so it is logged.
                         http2::ClientRequest del;
                         del.method = "DELETE";
-                        del.url = udm_base + loc->second;
-                        (void)udm_client.send(del);
+                        del.url =
+                            loc->second.starts_with("http") ? loc->second : udm_base + loc->second;
+                        const auto d = udm_client.send(del);
+                        if (!d || d->status != 204) {
+                            spdlog::warn("aanf: EE subscription {} not removed at the UDM ({}) -- "
+                                         "it stays at the UDM",
+                                         del.url,
+                                         d ? std::to_string(d->status) : d.error());
+                        }
                     }
                 }
                 if (roaming.value_or(false)) {
@@ -400,9 +408,6 @@ int main() {
     // ---- Naanf_AKMA_Context_Remove (TS 29.535 5.2.2.4) -----------------------------------------
     server.add_route(
         "POST", std::string(kApiRoot) + "/remove-context", [&](const http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return problem(401, "Unauthorized", auth->error);
-            }
             if (!peer_is(req, "ausf")) { // SEC-03, as for register-anchorkey
                 return problem(403, "Forbidden", "only the AUSF may remove an AKMA context");
             }

@@ -71,11 +71,19 @@ RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,shar
 FROM ubuntu:26.04 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates \
+    openssl ca-certificates libxml2-16 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 COPY --from=builder /build/build/nfs/nef/nef /build/nef
+# This NF hosts an LI IRI-POI linking li_core (ADR-0377), as the AMF does: libli_core.so at its
+# build-tree RPATH, the ETSI X1 schema set at li_core's compile-time LI_ETSI_SCHEMA_DIR, and the
+# 3GPP X1 extension schema it imports (ADR-0440) -- see amf.Dockerfile. Missing until ADR-0503:
+# the container exited "libli_core.so: cannot open shared object file".
+COPY --from=builder /build/build/libs/li-core/libli_core.so /build/build/libs/li-core/
+COPY --from=builder /build/specs/etsi /build/specs/etsi
+COPY --from=builder /build/specs/3gpp/33128-attachments/urn_3GPP_ns_li_3GPPX1Extensions.xsd \
+     /build/specs/3gpp/33128-attachments/
 
 EXPOSE 7790/tcp 9478/tcp
 

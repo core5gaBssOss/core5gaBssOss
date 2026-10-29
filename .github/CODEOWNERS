@@ -1,0 +1,71 @@
+# Who reviews each area. Mirrors the area table in .github/CONTRIBUTING.md (the source of truth,
+# ADR-0467) and .github/labeler.yml. One maintainer today: when the organization exists (Phase 4,
+# ADR-0509), each area's line names its team instead.
+
+*                         @prajithparan
+
+# Core
+/nfs/amf/                 @prajithparan
+/nfs/nrf/                 @prajithparan
+/nfs/smf/                 @prajithparan
+/nfs/pcf/                 @prajithparan
+/nfs/scp/                 @prajithparan
+/nfs/nssf/                @prajithparan
+/nfs/nef/                 @prajithparan
+/nfs/bsf/                 @prajithparan
+/nfs/upf/                 @prajithparan
+/nfs/smsf/                @prajithparan
+/nfs/gmlc/                @prajithparan
+/nfs/lmf/                 @prajithparan
+/nfs/nsacf/               @prajithparan
+
+# Provisioning
+/nfs/udm/                 @prajithparan
+/nfs/udr/                 @prajithparan
+/nfs/ausf/                @prajithparan
+/nfs/udsf/                @prajithparan
+/nfs/eir/                 @prajithparan
+
+# Charging / BSS
+/nfs/chf/                 @prajithparan
+/bss/                     @prajithparan
+/libs/bss-sid/            @prajithparan
+/libs/cap-core/           @prajithparan
+/libs/diameter-core/      @prajithparan
+/libs/ss7-core/           @prajithparan
+/libs/tcap-core/          @prajithparan
+/libs/map-core/           @prajithparan
+/libs/tap3-core/          @prajithparan
+/libs/tbcd-core/          @prajithparan
+
+# Products and Catalog
+/bss/product-catalog/     @prajithparan
+
+# Security / LI
+/nfs/li-*/                @prajithparan
+/libs/li-*/               @prajithparan
+
+# NWDAF / Analytics
+/nfs/nwdaf/               @prajithparan
+/nfs/adrf/                @prajithparan
+/nfs/dccf/                @prajithparan
+/nfs/mfaf/                @prajithparan
+
+# Automation / Deploy
+/deploy/                  @prajithparan
+/scripts/                 @prajithparan
+/.github/                 @prajithparan
+/tools/                   @prajithparan
+
+# GUI
+/gui/                     @prajithparan
+
+# Platform (maintainer-only)
+/libs/sbi-core/           @prajithparan
+/libs/nf-config/          @prajithparan
+/libs/sbi-generated/      @prajithparan
+/libs/ngap-core/          @prajithparan
+/libs/ngap-generated/     @prajithparan
+/libs/pfcp-core/          @prajithparan
+/libs/event-bus/          @prajithparan
+/nfs/hello-nf/            @prajithparan

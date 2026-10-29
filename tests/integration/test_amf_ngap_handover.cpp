@@ -29,6 +29,7 @@
 #include <thread>
 #include <vector>
 
+#include "location_path.hpp"
 #include "ngap_test_gnb.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"

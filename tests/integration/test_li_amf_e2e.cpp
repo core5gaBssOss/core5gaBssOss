@@ -45,6 +45,7 @@
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
 #include "li_poi/poi_runtime.hpp"
+#include "location_path.hpp"
 #include "loopback_lemf.hpp"
 #include "ngap_test_gnb.hpp"
 #include "spawn_guard.hpp"

@@ -1,0 +1,52 @@
+# Dependency updates (ADR-0509). Monthly and grouped, so update PRs stay few: each one runs the full
+# CI on the single self-hosted runner. vcpkg is not supported by Dependabot; C++ dependencies stay
+# pinned by vcpkg.json and its baseline.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    labels: [dependencies, area/automation-deploy]
+
+  # The OSI-only lockfile gate (ADR-0420) still runs on every update.
+  - package-ecosystem: npm
+    directory: /gui/web
+    schedule:
+      interval: monthly
+    groups:
+      gui-web:
+        patterns: ["*"]
+    open-pull-requests-limit: 2
+    labels: [dependencies, area/gui]
+
+  # One entry per directory, so no update PR spans two areas.
+  - package-ecosystem: pip
+    directory: /nfs/chf/training
+    schedule:
+      interval: monthly
+    groups:
+      chf-training:
+        patterns: ["*"]
+    labels: [dependencies, area/charging-bss]
+
+  - package-ecosystem: pip
+    directory: /nfs/nwdaf/training
+    schedule:
+      interval: monthly
+    groups:
+      nwdaf-training:
+        patterns: ["*"]
+    labels: [dependencies, area/nwdaf-analytics]
+
+  - package-ecosystem: pip
+    directory: /tools/sbi-codegen
+    schedule:
+      interval: monthly
+    groups:
+      sbi-codegen:
+        patterns: ["*"]
+    labels: [dependencies, area/automation-deploy]

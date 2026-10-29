@@ -1,0 +1,66 @@
+name: PR labels
+
+# Area and size labels on every pull request, and the one-area-per-PR rule of
+# .github/CONTRIBUTING.md (ADR-0467, ADR-0509).
+#
+# pull_request_target runs this file as it is on main, with a token that can label. It never checks
+# out or runs the pull request's code: the labeler and the script read the changed-file list
+# through the API only. It runs on a GitHub-hosted runner, never the self-hosted one.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-labels-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  labels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Area labels from changed paths (.github/labeler.yml)
+        id: labeler
+        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          sync-labels: true
+
+      - name: Size label, and the one-area rule
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          AREA_LABELS: ${{ steps.labeler.outputs.all-labels }}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const issue = { owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number };
+
+            // Size: lines added plus lines deleted.
+            const { data: full } = await github.rest.pulls.get({ ...context.repo, pull_number: pr.number });
+            const lines = full.additions + full.deletions;
+            const size = lines <= 10 ? 'XS' : lines <= 100 ? 'S' : lines <= 500 ? 'M' : lines <= 1000 ? 'L' : 'XL';
+            const want = `size/${size}`;
+            const current = full.labels.map(l => l.name);
+            for (const name of current.filter(n => n.startsWith('size/') && n !== want)) {
+              await github.rest.issues.removeLabel({ ...issue, name });
+            }
+            if (!current.includes(want)) {
+              await github.rest.issues.addLabels({ ...issue, labels: [want] });
+            }
+            core.info(`${lines} lines changed: ${want}`);
+
+            // One area per PR, unless the maintainer labelled it cross-area. Applies to authors
+            // without write access; the maintainer and bots are exempt.
+            const labels = (process.env.AREA_LABELS || '').split(',').filter(Boolean);
+            const areas = labels.filter(n => n.startsWith('area/'));
+            const exempt = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.author_association)
+              || pr.user.type === 'Bot';
+            if (areas.length > 1 && !labels.includes('cross-area') && !current.includes('cross-area')) {
+              const msg = `This PR touches ${areas.length} areas (${areas.join(', ')}). ` +
+                'Split it into one PR per area, or ask the maintainer for the cross-area label ' +
+                '(.github/CONTRIBUTING.md, "Pick one area").';
+              if (exempt) core.warning(msg); else core.setFailed(msg);
+            }

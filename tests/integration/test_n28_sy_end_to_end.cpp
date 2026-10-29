@@ -25,6 +25,7 @@
 #include <thread>
 #include <unistd.h>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -232,7 +233,9 @@ TEST(N28SyEndToEnd, SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession) {
                 {"servingNfId", "00000000-0000-4000-8000-0000000000aa"},
                 {"servingNetwork", json{{"mcc", "999"}, {"mnc", "70"}}},
                 {"anType", "3GPP_ACCESS"},
-                {"smContextStatusUri", "https://example.com/sm-status"},
+                // ADR-0523: the SMF now notifies this URI when a release completes, so it must not
+                // be a real internet host -- port 9 on loopback refuses at once.
+                {"smContextStatusUri", "https://127.0.0.1:9/sm-status"},
                 {"supi", supi},
                 {"pduSessionId", 7 + attempt},
                 {"dnn", "internet"},
@@ -350,4 +353,71 @@ TEST(N28SyEndToEnd, SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession) {
         << "SMF received PCF's decision but never re-authorised it onto the user plane -- the "
            "subscriber hit their spending limit and is still running at full rate, which is the "
            "exact gap ADR-0286 named and ADR-0328 closes";
+
+    // ADR-0521 (REVIEW-5ae0ef1 SPEC-05): the counters above only move because the PCF now posts to
+    // "{notificationUri}/update" -- the SMF no longer serves the bare URI. The termination request
+    // (TS 29.512 4.2.3.3) is served at "{notificationUri}/terminate", as a PCF would send it.
+    {
+        sbi_core::http2::ClientRequest bare;
+        bare.method = "POST";
+        bare.url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/" + sm_context_ref +
+                   "/pcf-notify";
+        bare.headers.emplace("content-type", "application/json");
+        bare.body = json{{"resourceUri", "x"}}.dump();
+        auto resp = client.send(bare);
+        ASSERT_TRUE(resp.has_value());
+        EXPECT_EQ(resp->status, 404) << "the bare notificationUri is not a TS 29.512 callback";
+
+        sbi_core::http2::ClientRequest term;
+        term.method = "POST";
+        term.url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/" + sm_context_ref +
+                   "/pcf-notify/terminate";
+        term.headers.emplace("content-type", "application/json");
+        term.body =
+            json{{"resourceUri",
+                  "https://127.0.0.1:7783/npcf-smpolicycontrol/v1/sm-policies/" + sm_policy_id},
+                 {"cause", "UNSPECIFIED"}}
+                .dump();
+        resp = client.send(term);
+        ASSERT_TRUE(resp.has_value());
+        EXPECT_EQ(resp->status, 204) << resp->body;
+        EXPECT_EQ(scrape_metric_value("127.0.0.1", 9466, "smf_pcf_termination_requests_total"), 1);
+
+        term.url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/no-such/pcf-notify/"
+                   "terminate";
+        resp = client.send(term);
+        ASSERT_TRUE(resp.has_value());
+        EXPECT_EQ(resp->status, 404);
+        EXPECT_NE(resp->body.find("POLICY_CONTEXT_NOT_FOUND"), std::string::npos) << resp->body;
+    }
+
+    // ADR-0523: the termination request above is a PCF-requested release (TS 23.502 4.3.4.2
+    // trigger 1b). This test has no AMF, so the PDU SESSION RELEASE COMMAND cannot reach a UE and
+    // the SMF releases without it (step 3, first paragraph): step 2 releases the N4 session at the
+    // real UPF (the counter moves only on the UPF's RequestAccepted, ADR-0522), charging is
+    // terminated at the real CHF with trigger FINAL (TS 32.255 5.2.2.2.4), steps 11-12 run and the
+    // SM context is gone -- so the AMF's ReleaseSMContext (trigger 1c) finds nothing.
+    {
+        long completed = -1;
+        for (int i = 0; i < 30 && completed != 1; ++i) {
+            completed =
+                scrape_metric_value("127.0.0.1", 9466, "smf_pdu_session_release_completed_total");
+            if (completed != 1) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        }
+        EXPECT_EQ(completed, 1) << "the PCF-requested release did not complete";
+        EXPECT_EQ(scrape_metric_value("127.0.0.1", 9466, "smf_n4_session_deletion_total"), 1)
+            << "the UPF did not accept an N4 Session Release for the released PDU session";
+        EXPECT_EQ(scrape_metric_value("127.0.0.1", 9466, "smf_chf_charging_data_release_total"), 1);
+
+        sbi_core::http2::ClientRequest release;
+        release.method = "POST";
+        release.url =
+            "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/" + sm_context_ref + "/release";
+        release.headers.emplace("authorization", "Bearer " + smf_token);
+        auto resp = client.send(release);
+        ASSERT_TRUE(resp.has_value());
+        EXPECT_EQ(resp->status, 404) << "the SM context should already be released: " << resp->body;
+    }
 }

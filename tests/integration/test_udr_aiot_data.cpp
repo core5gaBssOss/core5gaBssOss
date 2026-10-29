@@ -7,8 +7,8 @@
 // change cannot quietly turn them into something else:
 //   * UpdateBundledAiotDeviceProfileData returns 501 -- the spec defines no device selector for
 //     it, so no scope can be implemented without inventing one (ADR-0256).
-//   * /data-restoration-events returns 204, not 201 -- the YAML defines no 2xx at all and no
-//     individual-subscription resource, so a 201's Location would point at nothing.
+//   * /data-restoration-events is not served: the YAML marks it a pseudo operation (SPEC-09,
+//     ADR-0531).
 
 #include "sbi_core/http2_client.hpp"
 
@@ -260,7 +260,9 @@ TEST(UdrAiotDataIntegration, AfAuthorizationDataReadAndFilter) {
     EXPECT_EQ(missing->status, 404) << missing->body;
 }
 
-TEST(UdrAiotDataIntegration, DataRestorationSubscriptionReturns204NotCreated) {
+// REVIEW-5ae0ef1 SPEC-09 (ADR-0531): POST /data-restoration-events is a pseudo operation in
+// TS29504_Nudr_DR.yaml ("clients shall NOT invoke this method!"), so the UDR serves no such route.
+TEST(UdrAiotDataIntegration, DataRestorationPseudoOperationIsNotServed) {
     auto d = spawn_nrf_udr();
     auto client = make_client();
     const std::string url = "https://127.0.0.1:7781/nudr-dr/v2/data-restoration-events";
@@ -268,23 +270,10 @@ TEST(UdrAiotDataIntegration, DataRestorationSubscriptionReturns204NotCreated) {
 
     const std::string token = fetch_token(client);
     ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
-
-    // The real request body schema is literally `{}` -- no fields -- so any JSON object is a valid
-    // request and is stored opaquely. Nothing is validated against a shape that does not exist.
     auto post_req = authed("POST", url, token);
     post_req.headers.emplace("content-type", "application/json");
     post_req.body = json{{"dataRestorationCallbackUri", "https://127.0.0.1:9999/restore"}}.dump();
     auto post_resp = client.send(post_req);
     ASSERT_TRUE(post_resp.has_value());
-    EXPECT_EQ(post_resp->status, 204) << post_resp->body;
-    // 204, so deliberately no Location: the spec defines no individual subscription resource for
-    // one to point at. Asserted so a later "helpful" 201 has to be a conscious change.
-    EXPECT_EQ(post_resp->headers.find("location"), post_resp->headers.end());
-
-    auto malformed = authed("POST", url, token);
-    malformed.headers.emplace("content-type", "application/json");
-    malformed.body = "{not json";
-    auto malformed_resp = client.send(malformed);
-    ASSERT_TRUE(malformed_resp.has_value());
-    EXPECT_EQ(malformed_resp->status, 400) << malformed_resp->body;
+    EXPECT_EQ(post_resp->status, 404) << post_resp->body;
 }

@@ -21,6 +21,7 @@
 
 #include "TS26510_CommonData_grp.hpp"
 #include "TS29542_Nsmf_NIDD.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -68,6 +69,27 @@ std::string fetch_token(sbi_core::http2::Client& client, const std::string& scop
         return "";
     }
     return json::parse(resp->body).at("access_token").get<std::string>();
+}
+
+// Until the PCF has registered with the NRF, the NRF refuses any token for npcf-smpolicycontrol
+// ("no registered PCF offers ..."), and the SMF's CreateSMContext fails 500 SYSTEM_FAILURE. Under
+// ASan the PCF starts slowly enough for that race to show (PR #56's CI), so wait for the same
+// condition the SMF depends on.
+bool wait_pcf_registered(int max_attempts) {
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+        sbi_core::http2::ClientRequest req;
+        req.method = "POST";
+        req.url = "https://127.0.0.1:7777/oauth2/token";
+        req.headers.emplace("content-type", "application/x-www-form-urlencoded");
+        req.body = "grant_type=client_credentials&nfInstanceId=" +
+                   std::string(nf_test::kTestAfInstanceId) +
+                   "&scope=npcf-smpolicycontrol&targetNfType=PCF";
+        if (auto resp = nf_test::send_token_request(req); resp.has_value() && resp->status == 200) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
 }
 
 sbi_core::multipart::Encoded encode_create_sm_context_body(const std::string& supi,
@@ -243,6 +265,7 @@ TEST(SmfNiddIntegration, DeliverMissingContextIs404ThenRealContextIs204) {
     ASSERT_TRUE(missing_resp.has_value());
     EXPECT_EQ(missing_resp->status, 404);
 
+    ASSERT_TRUE(wait_pcf_registered(100)) << "the PCF never registered with the NRF";
     const std::string pcf_token = fetch_token(client, "npcf-smpolicycontrol");
     ASSERT_FALSE(pcf_token.empty()) << "failed to obtain OAuth2 token for pcf scope";
     const std::string smf_token = fetch_token(client, "nsmf-pdusession");

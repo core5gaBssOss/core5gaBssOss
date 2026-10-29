@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -60,11 +61,15 @@ decode_establishment_request(const std::vector<std::uint8_t>& p);
 // PCF's real AuthorizedDefaultQos.n5qi (5QI), NOT a fabricated value, though a real network would
 // allocate QFI via separate QoS flow binding rather than reusing the 5QI numerically -- disclosed
 // simplification, no QoS flow binding subsystem exists in this project.
-std::vector<std::uint8_t> encode_establishment_accept(std::uint8_t pdu_session_id,
-                                                      std::uint8_t pti,
-                                                      const std::string& session_ambr_uplink,
-                                                      const std::string& session_ambr_downlink,
-                                                      std::uint8_t qfi);
+std::vector<std::uint8_t>
+encode_establishment_accept(std::uint8_t pdu_session_id,
+                            std::uint8_t pti,
+                            const std::string& session_ambr_uplink,
+                            const std::string& session_ambr_downlink,
+                            std::uint8_t qfi,
+                            // ADR-0525: TS 24.501 9.11.4.10 PDU address
+                            // (IEI 0x29, TLV), PDU session type IPv4.
+                            std::optional<std::array<std::uint8_t, 4>> pdu_address = std::nullopt);
 
 // Encodes a real TS 24.501 §8.3.6 PDU Session Establishment Reject (ADR-0279) -- what a UE is
 // owed when its session cannot be established, in place of the Accept.
@@ -79,5 +84,32 @@ std::vector<std::uint8_t> encode_establishment_accept(std::uint8_t pdu_session_i
 // container is the payload, not a NAS message on the wire by itself.
 std::vector<std::uint8_t>
 encode_establishment_reject(std::uint8_t pdu_session_id, std::uint8_t pti, std::uint8_t sm_cause);
+
+// ADR-0523: the UE- and network-requested PDU session release messages (TS 24.501 6.3.3, 6.4.3).
+// Message types from TS 24.501 table 9.7.2: RELEASE REQUEST 0xD1, RELEASE COMMAND 0xD3, RELEASE
+// COMPLETE 0xD4.
+enum class SmMessage : std::uint8_t {
+    kReleaseRequest = 0xD1,
+    kReleaseCommand = 0xD3,
+    kReleaseComplete = 0xD4,
+};
+
+// The 5GSM header (EPD, PDU session ID, PTI, message type) of a received message, plus the
+// optional 5GSM cause (IEI 0x59, TV) when present. std::nullopt if the bytes are not a 5GSM
+// message. Only the header and the cause are read; Extended PCO is ignored.
+struct SmHeader {
+    std::uint8_t pdu_session_id = 0;
+    std::uint8_t pti = 0;
+    std::uint8_t message_type = 0;
+    std::optional<std::uint8_t> sm_cause;
+};
+std::optional<SmHeader> decode_sm_header(const std::vector<std::uint8_t>& bytes);
+
+// TS 24.501 8.3.14 PDU SESSION RELEASE COMMAND with its one mandatory IE, the 5GSM cause (V).
+// `pti` is the RELEASE REQUEST's PTI when the release answers one, else 0 ("No procedure
+// transaction identity assigned", TS 24.501 6.3.3.2). No optional IE is sent (no back-off timer,
+// no Access type: single-access sessions only).
+std::vector<std::uint8_t>
+encode_release_command(std::uint8_t pdu_session_id, std::uint8_t pti, std::uint8_t sm_cause);
 
 } // namespace smf::nas5gsm

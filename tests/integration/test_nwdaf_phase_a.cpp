@@ -19,6 +19,7 @@
 #include <thread>
 #include <vector>
 
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -139,7 +140,7 @@ TEST(NwdafPhaseA, SubscriptionLifecycleAtTheYamlsApiRoot) {
 
     sbi_core::http2::ClientRequest del;
     del.method = "DELETE";
-    del.url = std::string(kNwdaf) + loc->second;
+    del.url = std::string(kNwdaf) + nf_test::location_path(loc->second);
     r = c.send(del);
     ASSERT_TRUE(r.has_value());
     EXPECT_EQ(r->status, 204);
@@ -188,7 +189,8 @@ TEST(NwdafPhaseA, SubscriptionsAreSharedAcrossReplicas) {
     ASSERT_EQ(r->status, 201) << r->body;
     const auto loc_it = r->headers.find("location");
     ASSERT_NE(loc_it, r->headers.end());
-    const std::string location = loc_it->second; // r is reassigned below; an iterator would dangle
+    const std::string location =
+        nf_test::location_path(loc_it->second); // r is reassigned below; an iterator would dangle
 
     // Update through B: the resource A created must be visible to B.
     sbi_core::http2::ClientRequest put;
@@ -279,7 +281,7 @@ TEST(NwdafPhaseA, ReplicasDeliverEachNotificationOnce) {
     auto r = c.send(create);
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    const std::string location = r->headers.find("location")->second;
+    const std::string location = nf_test::location_path(r->headers.find("location")->second);
 
     std::this_thread::sleep_for(5s);
 

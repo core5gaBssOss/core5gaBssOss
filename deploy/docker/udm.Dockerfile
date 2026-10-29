@@ -88,11 +88,19 @@ FROM ubuntu:26.04 AS runtime
 # libsctp1: `ldd` shows this binary dynamically links the system libsctp.so.1,
 # same as the CHF image's ADR-0062 fix -- found missing here during the 26.04 migration (2026-10-11).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates libsctp1 \
+    openssl ca-certificates libxml2-16 libsctp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 COPY --from=builder /build/build/nfs/udm/udm /build/udm
+# This NF hosts an LI IRI-POI linking li_core (ADR-0377), as the AMF does: libli_core.so at its
+# build-tree RPATH, the ETSI X1 schema set at li_core's compile-time LI_ETSI_SCHEMA_DIR, and the
+# 3GPP X1 extension schema it imports (ADR-0440) -- see amf.Dockerfile. Missing until ADR-0503:
+# the container exited "libli_core.so: cannot open shared object file".
+COPY --from=builder /build/build/libs/li-core/libli_core.so /build/build/libs/li-core/
+COPY --from=builder /build/specs/etsi /build/specs/etsi
+COPY --from=builder /build/specs/3gpp/33128-attachments/urn_3GPP_ns_li_3GPPX1Extensions.xsd \
+     /build/specs/3gpp/33128-attachments/
 
 EXPOSE 7780/tcp 9467/tcp
 

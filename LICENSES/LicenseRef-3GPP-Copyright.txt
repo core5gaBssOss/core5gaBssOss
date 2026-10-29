@@ -1,0 +1,10 @@
+The files this licence reference is applied to (REUSE.toml) are 3GPP specification material:
+OpenAPI specifications, ASN.1 modules and XML schema attachments, vendored as build input.
+
+Each file states its copyright holder, in this form:
+
+    (c) <year>, 3GPP Organizational Partners (ARIB, ATIS, CCSA, ETSI, TSDSI, TTA, TTC).
+
+No further licence is stated in the files. They are not covered by this project's Apache-2.0
+licence. See the 3GPP Organizational Partners' terms at https://www.3gpp.org for the conditions
+that apply to them, and NOTICE and specs/README.md in this repository.

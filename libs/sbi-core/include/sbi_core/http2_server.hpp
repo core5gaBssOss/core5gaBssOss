@@ -130,6 +130,11 @@ public:
     // opted in behaves exactly as it did before.
     void set_tps_limit(double sustained_tps, double burst_capacity);
 
+    // REVIEW-5ae0ef1 SEC-09: the largest request body this server takes; a larger one is answered
+    // 413 (TS 29.500 5.2.7.2) and its data is discarded as it arrives, so memory stays bounded.
+    // Default 16 MiB, or SBI_MAX_BODY_BYTES. Set before start().
+    void set_max_body_bytes(std::size_t max_bytes);
+
     // Keying material to export from every connection's TLS session once its handshake completes,
     // handed to handlers as Request::tls_exports (ADR-0493). Call before start().
     void set_tls_exporters(std::vector<TlsExport> exporters);

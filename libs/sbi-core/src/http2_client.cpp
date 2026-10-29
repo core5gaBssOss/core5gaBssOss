@@ -9,7 +9,35 @@
 #include <mutex>
 #include <strings.h>
 
+#include "no_destroy.hpp"
+
 namespace sbi_core::http2 {
+
+namespace {
+
+// ADR-0529: OpenSSL verify callback that defers to TlsConfig::verify, found through the SSL_CTX's
+// app data (OpenSSL's callback carries no user pointer of its own).
+int extra_verify_callback(int preverified, X509_STORE_CTX* store) {
+    const auto* ssl =
+        static_cast<SSL*>(X509_STORE_CTX_get_ex_data(store, SSL_get_ex_data_X509_STORE_CTX_idx()));
+    const auto* fn = ssl != nullptr
+                         ? static_cast<const std::function<bool(bool, X509_STORE_CTX*)>*>(
+                               SSL_CTX_get_app_data(SSL_get_SSL_CTX(ssl)))
+                         : nullptr;
+    if (fn == nullptr || !*fn) {
+        return preverified;
+    }
+    return (*fn)(preverified != 0, store) ? 1 : 0;
+}
+
+CURLcode install_extra_verify(CURL*, void* ssl_ctx, void* data) {
+    auto* ctx = static_cast<SSL_CTX*>(ssl_ctx);
+    SSL_CTX_set_app_data(ctx, data);
+    SSL_CTX_set_verify(ctx, SSL_CTX_get_verify_mode(ctx), &extra_verify_callback);
+    return CURLE_OK;
+}
+
+} // namespace
 
 namespace {
 
@@ -79,8 +107,29 @@ int prereq_export_callback(void* clientp,
 
 } // namespace
 
-Client::Client(TlsConfig tls) : tls_(std::move(tls)) {
+namespace {
+
+long env_ms(const char* name, long fallback) {
+    const char* v = std::getenv(name);
+    if (v == nullptr || *v == '\0') {
+        return fallback;
+    }
+    char* end = nullptr;
+    const long parsed = std::strtol(v, &end, 10);
+    return (end != nullptr && *end == '\0' && parsed > 0) ? parsed : fallback;
+}
+
+} // namespace
+
+Client::Client(TlsConfig tls)
+    : tls_(std::move(tls)), connect_timeout_ms_(env_ms("SBI_CLIENT_CONNECT_TIMEOUT_MS", 5000)),
+      total_timeout_ms_(env_ms("SBI_CLIENT_TIMEOUT_MS", 30000)) {
     ensure_curl_global_init();
+}
+
+void Client::set_timeouts(std::chrono::milliseconds connect, std::chrono::milliseconds total) {
+    connect_timeout_ms_ = static_cast<long>(connect.count());
+    total_timeout_ms_ = static_cast<long>(total.count());
 }
 
 Client::~Client() {
@@ -127,14 +176,15 @@ void Client::checkin(void* handle) {
 
 namespace {
 
+// Never destroyed (no_destroy.hpp): a detached NF thread may still send() while the process exits.
 std::mutex& default_source_mutex() {
-    static std::mutex m;
-    return m;
+    static detail::NoDestroy<std::mutex> m;
+    return m.get();
 }
 
 std::shared_ptr<const Client::TokenSourceFn>& default_source_slot() {
-    static std::shared_ptr<const Client::TokenSourceFn> slot;
-    return slot;
+    static detail::NoDestroy<std::shared_ptr<const Client::TokenSourceFn>> slot;
+    return slot.get();
 }
 
 std::shared_ptr<const Client::TokenSourceFn> default_token_source() {
@@ -170,6 +220,8 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
     curl_easy_reset(curl);
 
     curl_easy_setopt(curl, CURLOPT_URL, request.url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, connect_timeout_ms_);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, total_timeout_ms_);
     // CURL_HTTP_VERSION_2TLS: negotiate HTTP/2 via ALPN over TLS, as opposed to
     // CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE (cleartext h2c, no longer used -- see ADR-0011).
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
@@ -189,6 +241,12 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
     curl_easy_setopt(curl, CURLOPT_CAINFO, tls_.ca_path.c_str());
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    if (tls_.verify) {
+        // ADR-0529: run TlsConfig::verify from OpenSSL's verify callback. curl hands over the
+        // SSL_CTX before the handshake; the std::function travels as the context's app data.
+        curl_easy_setopt(curl, CURLOPT_SSL_CTX_FUNCTION, &install_extra_verify);
+        curl_easy_setopt(curl, CURLOPT_SSL_CTX_DATA, &tls_.verify);
+    }
 
     if (!request.body.empty() || request.method == "PUT" || request.method == "POST" ||
         request.method == "PATCH") {

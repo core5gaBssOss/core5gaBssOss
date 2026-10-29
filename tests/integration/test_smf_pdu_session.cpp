@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -162,7 +163,7 @@ TEST(SmfIntegration, FullSmContextLifecycleOverRealHttp2) {
     (void)created; // proves real deserialization, not just a 2xx status
     const auto location_it = create_resp->headers.find("location");
     ASSERT_NE(location_it, create_resp->headers.end());
-    const std::string location = location_it->second;
+    const std::string location = nf_test::location_path(location_it->second);
     const auto ref_pos = location.rfind('/');
     ASSERT_NE(ref_pos, std::string::npos);
     const std::string sm_context_ref = location.substr(ref_pos + 1);

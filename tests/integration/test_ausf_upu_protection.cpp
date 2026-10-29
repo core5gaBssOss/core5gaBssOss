@@ -25,6 +25,7 @@
 #include "aka_crypto/hex.hpp"
 #include "aka_crypto/kdf.hpp"
 #include "aka_crypto/milenage.hpp"
+#include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
 
@@ -146,7 +147,8 @@ void authenticate(sbi_core::http2::Client& client,
     ASSERT_EQ(resp->status, 201);
     const auto location_it = resp->headers.find("location");
     ASSERT_NE(location_it, resp->headers.end());
-    const std::string auth_ctx_url = "https://127.0.0.1:7782" + location_it->second;
+    const std::string auth_ctx_url =
+        "https://127.0.0.1:7782" + nf_test::location_path(location_it->second);
 
     const auto ctx = json::parse(resp->body).get<sbi_gen::UEAuthenticationCtx>();
     const auto av = ctx.n5gAuthData.get<sbi_gen::Av5gAka>();

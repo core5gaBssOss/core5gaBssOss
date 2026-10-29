@@ -1,0 +1,15 @@
+{
+  "port": 7824,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9496",
+  "nrf_base_url": "https://nrf:7777",
+  "redis_url": "tcp://valkey:6379",
+  "kaf_lifetime_seconds": 3600,
+  "supi_to_af_without_token": false,
+  "allowed_af_fqdns": [],
+  "udm_base_url": "https://udm:7780",
+  "gpsi_af_fqdns": [],
+  "self_base_url": "https://aanf:7824",
+  "deny_roaming_ues": false,
+  "oauth2_required": true
+}

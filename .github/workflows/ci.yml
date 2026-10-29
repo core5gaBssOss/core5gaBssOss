@@ -417,7 +417,7 @@ jobs:
         # "failed to load TLS material .../certs/balance-management/cert.pem") plus every other
         # service whose main.cpp names a CERTS_DIR subdirectory, so the next spawned-NF test does not
         # rediscover this: grep -rhoE 'CERTS_DIR "/[a-z0-9-]+/' nfs bss is the list.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf li-mdf3 li-admf provisioning udsf sepp aanf tsctsf af af.example.com gpsi-af.example.com
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf li-mdf3 li-admf provisioning udsf sepp sepp-b aanf tsctsf af af.example.com gpsi-af.example.com
 
       - name: Apply UDR PostgreSQL schema (ADR-0068)
         run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
@@ -512,6 +512,9 @@ jobs:
           AUSF_REDIS_URL: tcp://127.0.0.1:16379
           NWDAF_REDIS_URL: tcp://127.0.0.1:16379
           MFAF_REDIS_URL: tcp://127.0.0.1:16379
+          # The AAnF (AKMA tests) read config/aanf.json's 127.0.0.1:6379 without this -- on this
+          # shared runner host that is a developer Valkey, so the tests passed only while it ran.
+          AANF_REDIS_URL: tcp://127.0.0.1:16379
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
@@ -856,7 +859,7 @@ jobs:
         # them). `nef` itself was missing from this list until ADR-0224 -- real root cause of the
         # NEF*Integration test cascade misdiagnosed in ADR-0222/ADR-0223 as an HTTP/2-layer hang;
         # see ADR-0224 for the full disclosure.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf li-mdf3 li-admf provisioning udsf sepp aanf tsctsf af af.example.com gpsi-af.example.com
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf li-mdf3 li-admf provisioning udsf sepp sepp-b aanf tsctsf af af.example.com gpsi-af.example.com
 
       - name: Apply UDR PostgreSQL schema (ADR-0068)
         run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
@@ -945,6 +948,9 @@ jobs:
           AUSF_REDIS_URL: tcp://127.0.0.1:16379
           NWDAF_REDIS_URL: tcp://127.0.0.1:16379
           MFAF_REDIS_URL: tcp://127.0.0.1:16379
+          # The AAnF (AKMA tests) read config/aanf.json's 127.0.0.1:6379 without this -- on this
+          # shared runner host that is a developer Valkey, so the tests passed only while it ran.
+          AANF_REDIS_URL: tcp://127.0.0.1:16379
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
@@ -1052,6 +1058,10 @@ jobs:
 
       - name: architecture diagram in sync with README
         run: python3 tools/diagrams/check_readme_sync.py
+      # ADR-0503: deploy/docker/lab/ is generated from config/ -- a config/ change without
+      # `make lab-config` would leave the compose lab running the old values.
+      - name: compose lab config set in sync with config/
+        run: python3 tools/lab/gen_compose_config.py --check
       - name: clang-format check
         run: |
           find libs nfs tests -name '*.hpp' -o -name '*.cpp' | xargs clang-format-18 --dry-run --Werror
