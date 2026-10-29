@@ -147,6 +147,17 @@ Before any commit touching `nfs/`, `libs/` or `bss/`: walk the "Never repeat the
    message (a squash/rebase merge is built server-side) -- that happened once already, at commit
    `835081c`, and the `attribution-check` job is the only layer that can even see it, after the
    fact.
+10. `README.md` is APPEND/UPDATE ONLY -- NEVER, EVER remove anything from it. User-directed, very
+   strict (2026-10-23), after ADR-0508 cut it from 417 lines to 128 and it had to be restored
+   (ADR-0511, ADR-0512). As the project moves on, add to it and update lines in place (a status that
+   moves on, a corrected row, a new NF, product or section); never delete a section, row, paragraph
+   or detail, never shorten it, never move its content out to another doc. A heading rename counts
+   as a removal. Any change that would remove content needs the user's explicit approval first, asked
+   before the edit. Enforcement: `.githooks/pre-commit` rejects such a commit locally (same
+   `core.hooksPath` step as guardrail 9); the `readme-append-only` job in
+   `.github/workflows/docs-lint.yml` fails loudly on a PR or a push to `main`
+   (`scripts/docs/check_readme_append_only.py`: no heading removed, non-blank lines and words never
+   go down).
 
 ## Context discipline
 
