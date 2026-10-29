@@ -5382,7 +5382,7 @@ TS33128Payloads asn1c codecs (83 shared type names); the containment holds (see 
 
 The third mandated analytic (slice-SLA / service experience) made real end to end, plus the
 vertical-federated-learning hook. Energy-efficiency is flagged as blocked (no R19 Nnwdaf SBI
-surface -- TS 23.288 6.16 is OAM/TS 28.552-sourced), not fabricated.
+surface -- energy is OAM/TS 28.552-sourced, TS 23.501 5.51.2.2.3), not fabricated.
 
 | Procedure | TS clause | Source | Test |
 |---|---|---|---|
@@ -5390,7 +5390,7 @@ surface -- TS 23.288 6.16 is OAM/TS 28.552-sourced), not fabricated.
 | NWDAF subscribes to the SMF QOS_MON at startup (one replica) and collects the reports on an inbound route into the smf_qos_mon timeline | TS 29.508; TS 23.288 6.2/6.4 | `nfs/nwdaf/src/main.cpp` (startup subscription + /qos-mon route), `nfs/nwdaf/src/qos_mon_collect.{hpp,cpp}` | `test_nwdaf_qos_mon_collect.cpp` NwdafQosMonCollect.* (2) |
 | SERVICE_EXPERIENCE analytic: aggregate the collected QOS_MON per-slice latency into a per-S-NSSAI ServiceExperienceInfo (svcExprc MOS, variance, SUPIs, confidence); honours the snssais filter; verbatim S-NSSAI; served over Nnwdaf_AnalyticsInfo and Nnwdaf_EventsSubscription; advertised in NwdafInfo eventIds | TS 23.288 6.4; TS 29.520 (ServiceExperienceInfo, AnalyticsData.svcExps, NwdafEvent SERVICE_EXPERIENCE) | `nfs/nwdaf/src/analytics.cpp` `service_experience`, `nfs/nwdaf/src/main.cpp` compute() dispatch + eventIds | `test_nwdaf_analytics.cpp` NwdafServiceExperience.* (2) |
 | VFL hook: Nnwdaf_VFLTraining / Nnwdaf_VFLInference subscription CRUD (POST/GET/PUT/PATCH-merge/DELETE), bearer-checked; coordination Phase D (disclosed) | TS 29.520 (Nnwdaf_VFLTraining, Nnwdaf_VFLInference) | `nfs/nwdaf/src/vfl_subscription_store.{hpp,cpp}`, `nfs/nwdaf/src/main.cpp` `register_vfl_crud` | `test_nwdaf_vfl.cpp` NwdafVflStore.* |
-| Energy-efficiency analytic | TS 23.288 6.16 (OAM / TS 28.552 sourced) | -- | **not built** / **disclosed** (ADR-0380): no R19 Nnwdaf SBI eventId/DTO exists; would require inventing an API -- flagged, not fabricated |
+| Energy-efficiency analytic | TS 23.501 5.51.2.2.3 (OAM / TS 28.552 sourced) | -- | **not built** / **disclosed** (ADR-0380): no R19 Nnwdaf SBI eventId/DTO exists; would require inventing an API -- flagged, not fabricated |
 
 ## UDSF (ADR-0400..ADR-0402)
 
@@ -5534,3 +5534,4 @@ Disclosed: the UPF `on_packet()` is a seam fed by tests; the datapath does not c
 | ADR-0528 | Guardrail 7; TS 32.290 (online charging grants), ADR-0297 proportional debit | CHF AI quota sizing: reservation follows the grant, price per octet invariant; operator multiplier bounds in the GUI | nfs/chf/src/proportional_debit.cpp (ai_scaled_grant), nfs/chf/src/charging_engine.cpp, nfs/chf/src/main.cpp, config/chf.json, gui/web/src/schemas/nf-config/chf.schema.json | tests/integration/test_proportional_debit.cpp (ProportionalDebit.TheAiGrantMultiplier..., OperatorBounds...) | built pending |
 | ADR-0529 | TS 33.501 13.1.2; TS 33.310 6.1.3c.5.3; TS 23.003 28.2 | SEPP per-PLMN N32 trust anchors: PLMN-ID from the certificate SAN maps to one anchor, chain root must be that anchor's | nfs/sepp/src/trust_anchors.cpp, nfs/sepp/src/main.cpp, libs/sbi-core (TlsConfig::verify), scripts/gen-lab-pki.sh | tests/conformance/test_sepp_trust_anchors.cpp, tests/integration/test_sepp_e2e.cpp | built pending |
 | ADR-0530 | TS 29.573 5.3.3.2, step 6; RFC 9110 5.1 | SEPP hardening: CSPRNG handshake ids, case-insensitive Authorization, bounded telescopic table, linear Via scan, bounded PRINS iePaths | nfs/sepp/src/main.cpp, nfs/sepp/src/n32.cpp, nfs/sepp/src/prins_codec.cpp | tests/conformance/test_sepp_n32.cpp | built pending |
+| ADR-0533 | TS 29.122 5.2.6, 4.4.5.3.1, 4.4.7.2.2.1, 4.4.7.2.2.4, 4.4.7.2.3.4, 4.4.9, 4.4.10; TS 29.522 4.4.24.1, 4.4.24.2, 4.4.28.3, 4.4.29.4.2, 4.4.40.3, 4.4.43.2.3; TS 29.500 Table 5.2.7.2-1 | NEF northbound PUT replaces only on 14 resources whose YAML has no 201: 200 on an existing resource, 404 on a missing id (SUBSCRIPTION_NOT_FOUND on the two subscriptions), nothing created | nfs/nef/src/main.cpp | tests/integration/test_nef_put_replaces_only.cpp | syntax-checked; tests not run locally |
