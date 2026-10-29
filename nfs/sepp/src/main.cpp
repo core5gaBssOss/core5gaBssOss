@@ -44,6 +44,7 @@
 #include "sbi_core/io_context_pool.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
+#include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
 #include "sbi_core/problem_details.hpp"
@@ -278,17 +279,15 @@ void run_nrf_lifecycle(const std::string& instance_id,
         spdlog::warn("sepp: NRF registration attempt failed, retrying in 5s");
         pause(5);
     }
+    // TS 29.510 5.2.2.3.2; registers again if the NRF no longer knows this instance (ADR-0506).
+    const sbi_core::nrf::Registration reg{
+        .nrf_base = nrf_base,
+        .nf_instance_id = instance_id,
+        .profile = profile,
+        .log_name = "sepp",
+        .on_registered = [&nrf_tokens] { nrf_tokens.clear_backoff(); }};
     while (pause(kHeartbeatSeconds / 2)) {
-        http2::ClientRequest patch;
-        patch.method = "PATCH";
-        patch.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
-        patch.headers.emplace("content-type", "application/json-patch+json");
-        patch.body =
-            json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
-                .dump();
-        if (const auto r = http_client.send(patch); !r || r->status != 200) {
-            spdlog::warn("sepp: NRF heartbeat failed");
-        }
+        static_cast<void>(sbi_core::nrf::heartbeat(http_client, reg));
     }
 }
 
