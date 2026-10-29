@@ -14,8 +14,10 @@ per-slice energy *or* volume telemetry on the 5G service-based interface:
 - The Doris `cdr` corpus has volume but no S-NSSAI column (only `rating_group`); QOS_MON carries
   per-slice delays but, until now, no volume.
 
-**Decision.** Compute the **TS 28.554 clause 6.7.1 Energy-Efficiency KPI** -- data volume divided by
-energy consumption, per S-NSSAI -- at the NWDAF, and expose it as an **OAM-style Prometheus metric**
+**Decision.** Compute the **TS 28.554 clause 6.7.2.2 Energy-Efficiency KPI** (the network-slice EE
+of 6.7.2.1 with the data-volume Pns that 6.7.2.2 defines for eMBB slices; applied here to every
+S-NSSAI, a simplification) -- data volume divided by energy consumption, per S-NSSAI -- at the
+NWDAF, and expose it as an **OAM-style Prometheus metric**
 (`nwdaf_slice_energy_efficiency_bit_per_joule`, labelled by verbatim S-NSSAI), NOT as an Nnwdaf
 analytics response (there is no eventId to answer on). Two real, buildable pieces feed it:
 1. The SMF QOS_MON producer now also emits `ulDataRate`/`dlDataRate` -- **real TS 29.508 `BitRate`
@@ -23,21 +25,24 @@ analytics response (there is no eventId to answer on). Two real, buildable piece
    exactly as the delays already are (disclosed lab data; no real UPF throughput meter exists).
 2. `nwdaf::energy_efficiency()` (analytics.cpp) means the collected rates over the window to a
    volume and divides by a **disclosed configurable power model** (`energy_static_watts_per_slice`,
-   `energy_joules_per_gigabyte` in config) standing in for the TS 28.552 PEEC measurement.
+   `energy_joules_per_gigabyte` in config) standing in for the slice energy consumption ECns
+   (TS 28.554 6.7.3.3: 5GC NF energy per 6.7.3.1, gNB energy from TS 28.552 `PEE.Energy`,
+   5.1.1.19.3).
 
 **Why this is faithful, not fabricated.** The KPI formula (TS 28.554), the volume fields (TS 29.508
-`ulDataRate`/`dlDataRate`), and the metric surface (OAM, per TS 23.288 6.16's routing of energy to
-OAM) are all real spec artefacts. Only the *values* of the rate samples and the energy model are
-lab synthesis, and both are disclosed -- the same discipline as SERVICE_EXPERIENCE's latency->MOS
-mapping (ADR-0379) and ADR-0337's synthetic offered load driving the real charging engine. No API
-field, eventId, or TS number is invented. Every S-NSSAI is grouped and echoed verbatim (any
-standardised or operator-specific SST, any SD), per the generic-attribute rule.
+`ulDataRate`/`dlDataRate`), and the metric surface (OAM, per TS 23.501 5.51.2.2.3's collection of
+energy consumption information from OAM) are all real spec artefacts. Only the *values* of the rate
+samples and the energy model are lab synthesis, and both are disclosed -- the same discipline as
+SERVICE_EXPERIENCE's latency->MOS mapping (ADR-0379) and ADR-0337's synthetic offered load driving
+the real charging engine. No API field, eventId, or TS number is invented. Every S-NSSAI is grouped
+and echoed verbatim (any standardised or operator-specific SST, any SD), per the generic-attribute
+rule.
 
 **Disclosed / not conformant.** The energy term is a modelled stand-in, not a measurement: the
 absolute EE figure is only as real as the power model, and a production deployment replaces the
-model with a TS 28.552 PEEC feed from OAM. The volume is a mean-rate * window approximation of the
-window's traffic, not an integrated byte count. The metric is computed on scrape over the QOS_MON
-collection window, so it reflects only what QOS_MON subscribers are currently feeding.
+model with a TS 28.552 `PEE.Energy` feed from OAM. The volume is a mean-rate * window approximation
+of the window's traffic, not an integrated byte count. The metric is computed on scrape over the
+QOS_MON collection window, so it reflects only what QOS_MON subscribers are currently feeding.
 
 **Rejected.** *An Nnwdaf energy analytic* -- no eventId/DTO exists; would be fabrication (#1 rule).
 *Deriving volume from the CDR corpus* -- the `cdr` table has no S-NSSAI, so it cannot be grouped per
@@ -45,3 +50,8 @@ slice. *Building the CHF NSPA `estimatedEnergyConsumption` producer+consumer* --
 full subsystem (producer and consumer for a container nothing emits) beyond this increment; recorded
 as the production-grade enhancement path.
 
+**Citation correction (2026-10-22, issue #15).** Checked against the vendored TS 28.554 V19.7.0,
+TS 28.552 V19.8.0, TS 23.288 V19.7.0 and TS 23.501 V19.8.0: the KPI clause was 6.7.1 (that is
+"NG-RAN data Energy Efficiency (EE)", gNB-level) and is now 6.7.2.2; "PEEC" does not occur in
+TS 28.552 and is now `PEE.Energy` (5.1.1.19.3); "TS 23.288 6.16" is "PFD Determination Analytics"
+and is now TS 23.501 5.51.2.2.3. The decision itself is unchanged.
