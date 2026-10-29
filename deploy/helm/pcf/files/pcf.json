@@ -1,0 +1,28 @@
+{
+  "port": 7783,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9470",
+  "nrf_base_url": "https://nrf:7777",
+  "udr_base_url": "https://udr:7781",
+  "chf_base_url": "https://chf:7784",
+  "self_base_url": "https://pcf:7783",
+  "policy_counter_actions": [
+    {
+      "policyCounterId": "quota-exhausted",
+      "currentStatus": "terminate",
+      "smPolicyDecision": {
+        "sessRules": {
+          "spending-limit-rule": {
+            "sessRuleId": "spending-limit-rule",
+            "authSessAmbr": {
+              "uplink": "1 Kbps",
+              "downlink": "1 Kbps"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "bsf_base_url": "https://bsf:7789",
+  "oauth2_required": true
+}

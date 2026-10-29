@@ -117,20 +117,25 @@ std::vector<sbi_gen::ServiceExperienceInfo_Nnwdaf_EventsSubscription>
 service_experience(const std::vector<nlohmann::json>& qos_mon_reports,
                    const std::optional<nlohmann::json>& snssai_filter);
 
-// Energy-efficiency analytics (R19 addition, TS 23.288 clause 6.16; KPI per TS 28.554 clause
-// 6.7.1). The 5G SBI carries NO Nnwdaf energy eventId -- energy is OAM/TS 28.552-sourced -- so
+// Energy-efficiency analytics (R19 addition; KPI per TS 28.554 clause 6.7.2.2, the network-slice
+// EE of 6.7.2.1, which 6.7.2.2 defines for slices of type eMBB; it is applied here to every S-NSSAI
+// -- a simplification). TS 23.288 V19.7.0 defines no energy analytic. The 5G SBI carries NO
+// Nnwdaf energy eventId -- energy is OAM/TS 28.552-sourced (TS 23.501 5.51.2.2.3) -- so
 // this is deliberately NOT an NwdafEvent answered over Nnwdaf_AnalyticsInfo; it is computed here
 // and exposed as an OAM-style Prometheus metric (main.cpp). The KPI is TS 28.554's Energy
 // Efficiency: data volume divided by energy consumption, per S-NSSAI. Data volume is taken from
 // the collected SMF QOS_MON reports' ulDataRate/dlDataRate (real TS 29.508 BitRate fields) meaned
 // and integrated over the window; energy consumption comes from a DISCLOSED, configurable power
-// model that stands in for the TS 28.552 PEEC measurement this lab has no telemetry for -- the
-// same disclosed-synthesis discipline as SERVICE_EXPERIENCE's latency->MOS mapping and ADR-0337's
-// offered load, and never a fabricated API field. Every S-NSSAI is grouped and echoed verbatim
-// (any standardised or operator-specific SST, any SD); the optional filter matches verbatim.
+// model that stands in for the slice energy consumption ECns (TS 28.554 6.7.3.3: 5GC NF energy per
+// 6.7.3.1, gNB energy from TS 28.552 PEE.Energy, 5.1.1.19.3), which this lab has no telemetry
+// for -- the same disclosed-synthesis discipline as SERVICE_EXPERIENCE's latency->MOS mapping and
+// ADR-0337's offered load, and never a fabricated API field. Every S-NSSAI is grouped and echoed
+// verbatim (any standardised or operator-specific SST, any SD); the optional filter matches
+// verbatim.
 struct EnergyModel {
-    // Disclosed stand-in for the TS 28.552 PNF energy-consumption measurement (PEEC). Both come
-    // from config, never a source literal (no-hardcoded-config rule).
+    // Disclosed stand-in for TS 28.554 6.7.3.3 ECns, i.e. for measured energy such as the TS 28.552
+    // PNF energy-consumption measurement (PEE.Energy, 5.1.1.19.3). Both come from config, never a
+    // source literal (no-hardcoded-config rule).
     double static_watts_per_slice = 0.0; // baseline power drawn per active slice, in watts
     double joules_per_gigabyte = 0.0;    // dynamic energy per GB carried on the slice
 };

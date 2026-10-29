@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-adrf
+  labels:
+    app.kubernetes.io/name: adrf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  # Single replica: running more than one has not been verified for this NF in a cluster.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adrf
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        app.kubernetes.io/name: adrf
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      # No Kubernetes service-link variables: they are named <SERVICE>_PORT etc., the same names
+      # as nf_config's <SERVICE>_<KEY> overrides (ADR-0513).
+      enableServiceLinks: false
+      containers:
+        - name: adrf
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            # The address the NF registers in the NRF: the pod IP, known only at runtime
+            # (files/adrf.json has no advertised_ipv4, so a missing value fails fast).
+            - name: ADRF_ADVERTISED_IPV4
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: sbi
+              containerPort: 7804
+              protocol: TCP
+            - name: metrics
+              containerPort: 9490
+              protocol: TCP
+          volumeMounts:
+            # ADR-0453 in Helm: the image holds only the binary.
+            - name: config
+              mountPath: /build/config/adrf.json
+              subPath: adrf.json
+              readOnly: true
+            - name: certs
+              mountPath: /build/certs
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-adrf-config
+        # The NF's own TLS material only, laid out as CERTS_DIR expects. Create it with
+        # scripts/helm/lab-pki-secrets.sh (lab PKI) or from your own CA with the same keys.
+        - name: certs
+          secret:
+            secretName: {{ .Values.certs.secretName | default "adrf-certs" }}
+            defaultMode: 0440
+            items:
+              - key: ca.crt
+                path: ca/ca.crt
+              - key: cert.pem
+                path: adrf/cert.pem
+              - key: key.pem
+                path: adrf/key.pem
+              - key: nrf-jwt-public.pem
+                path: nrf-jwt/public.pem

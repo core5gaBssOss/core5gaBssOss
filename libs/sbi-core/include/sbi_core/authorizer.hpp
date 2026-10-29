@@ -51,4 +51,10 @@ private:
     std::shared_ptr<jwt::Verifier> verifier_;
 };
 
+// The answer of a route that checks its own access token (RouteAuth::None: served without one, a
+// presented one must verify) when that token fails: the Authorizer's own 401, with
+// `WWW-Authenticate: Bearer realm="<API URI>", error="invalid_token"` (RFC 6750 3, 3.1) and no
+// cause, since TS 29.500 Table 5.2.7.2-1 defines none for an invalid token (REVIEW-5ae0ef1 SBI-03).
+[[nodiscard]] Response invalid_token_response(const Request& req, std::string detail);
+
 } // namespace sbi_core::http2

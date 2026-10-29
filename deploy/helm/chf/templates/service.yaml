@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The NF's name: what every peer's config and the NF's certificate (DNS:chf) use.
+  name: {{ .Values.service.name | default "chf" }}
+  labels:
+    app.kubernetes.io/name: chf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: chf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: sbi
+      port: 7784
+      targetPort: sbi
+      protocol: TCP
+    - name: metrics
+      port: 9472
+      targetPort: metrics
+      protocol: TCP
+    # Diameter Gy, Rf and Sy.
+    - name: diameter
+      port: 3868
+      targetPort: diameter
+      protocol: TCP
+    # CAMEL CAP (gsmSCF).
+    - name: cap
+      port: 2905
+      targetPort: cap
+      protocol: SCTP
+    # LI_X1 from the LI-ADMF (CHF IRI-POI).
+    - name: li-x1
+      port: 7816
+      targetPort: li-x1
+      protocol: TCP

@@ -457,6 +457,8 @@ int main() {
                 existing_details.title = "Forbidden";
                 existing_details.detail =
                     "An existing PCF binding already covers this supi+dnn+snssai combination";
+                // TS 29.521 4.2.2.2, table 5.7.3-1 (REVIEW-5ae0ef1 SBI-03).
+                existing_details.cause = "EXISTING_BINDING_INFO_FOUND";
                 json existing_binding = existing->second;
                 if (existing_binding.contains("pcfSmFqdn")) {
                     existing_details.pcfSmFqdn =
@@ -750,6 +752,8 @@ int main() {
                 existing_details.title = "Forbidden";
                 existing_details.detail =
                     "An existing PCF for an MBS Session binding already covers this mbsSessionId";
+                // TS 29.521 4.2.2.4 step 2, table 5.7.3-1 (REVIEW-5ae0ef1 SBI-03).
+                existing_details.cause = "EXISTING_BINDING_INFO_FOUND";
                 json existing_binding = existing->second;
                 if (existing_binding.contains("pcfFqdn")) {
                     existing_details.pcfFqdn = existing_binding.at("pcfFqdn").get<sbi_gen::Fqdn>();
