@@ -159,4 +159,8 @@ std::optional<Response> Authorizer::check(const Request& req) const {
     return std::nullopt;
 }
 
+Response invalid_token_response(const Request& req, std::string detail) {
+    return challenge(401, req, "invalid_token", "", std::move(detail));
+}
+
 } // namespace sbi_core::http2

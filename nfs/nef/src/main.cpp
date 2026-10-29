@@ -7317,6 +7317,16 @@ int main() {
                     // ADR-0498 (review fix): nothing was installed -- the AF is told so, and the
                     // subscription is not kept.
                     af_qos_subs.remove(af_id, sub_id);
+                    if (tresp && (tresp->status == 503 || tresp->status == 429)) {
+                        // TS 29.500 6.4.2.1: a producer that cannot serve a request because its
+                        // peer answered 503/429 answers 502 INBOUND_SERVER_ERROR, it does not
+                        // relay the overload status (REVIEW-5ae0ef1 SBI-03).
+                        return sbi_core::http2::problem_response(502,
+                                                                 "Bad Gateway",
+                                                                 "the TSCTSF answered " +
+                                                                     std::to_string(tresp->status),
+                                                                 "INBOUND_SERVER_ERROR");
+                    }
                     if (tresp) {
                         sbi_core::http2::Response relayed;
                         relayed.status = static_cast<int>(tresp->status);
