@@ -51,6 +51,13 @@ NRF rejects a hostname there (400 "ipv4Addresses contains an invalid IPv4 addres
   an `advertised_ipv4` it has no rule for, so whichever of this branch and that stack reaches
   `main` second must add the 17 NFs to its `ADVERTISED_AUTO` set (they use the address only for
   the NFProfile, so `"auto"`, the pod IP, fits) and regenerate both config sets.
+  **Done (2026-10-29)**, when this branch merged `main` after #42: `ADVERTISED_AUTO` in
+  `tools/lab/gen_helm_config.py` lists the 17 NFs (AAnF, AUSF, BSF, CHF, EIR, GMLC, LMF, NEF,
+  NSSF, PCF, SCP, SEPP, SMF, SMSF, TSCTSF, UDM, UDR) beside the UPF, so their chart configs carry
+  `"advertised_ipv4": "auto"`; `gen_helm_config.py --check` and `gen_compose_config.py --check`
+  pass. Not run on a Kubernetes cluster: that `"auto"` yields the pod IP there rests on the
+  resolver's UDP-connect rule, verified only on a host, against an NRF on loopback
+  (`NfProfileAddress.*`); the compose lab sets literal container IPs, not `"auto"`.
 - `nfs/hello-nf` still registers 127.0.0.1: it is a test client that registers and deregisters at
   once, not a deployed NF.
 - No NF's discovery consumer was changed: SBI calls in this project still use configured base
