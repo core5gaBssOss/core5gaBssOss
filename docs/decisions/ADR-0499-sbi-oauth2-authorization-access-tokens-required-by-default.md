@@ -88,6 +88,11 @@ With 18 NFs enforcing, the integration suite (minus the suites that need Doris, 
   consumer's registered NF type (TS 29.510 5.4.2.2.1 allows checking attributes "e.g. NF type"
   against the certificate). A holder of one NF type's certificate can still claim another instance
   of the same type.
+- **(2026-10-22) `5G_`-prefixed NF types.** The lab certificate names the NF as the NF is named
+  (`CN=eir`/`DNS:eir`), not by its TS 29.510 NFType `5G_EIR`, so the EIR was refused every access
+  token (found bringing the compose lab up, PR #21). The check also accepts the lower-cased type
+  without its `5G_` prefix (TS 29.510 NFType has two such values, `5G_EIR` and `5G_DDNMF`);
+  `NrfTokenAuthz.A5GPrefixedNfTypeMatchesTheCertificateNamedWithoutThePrefix`.
 - **(Resolved in phase 5.) Test clients requested tokens as an unregistered `test-client` with the `hello-nf` certificate**
   (66 places). Phase 5 replaces them with registered identities.
 - **Discovery reads only the deprecated `nfServices`.** `profile_discoverable_by`

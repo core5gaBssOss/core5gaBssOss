@@ -93,6 +93,21 @@ TEST_F(NrfTokenAuthz, ACertificateNotNamingTheConsumersNfTypeIsInvalidClient) {
     EXPECT_EQ(ask({}, {.cert_cn = "", .cert_dns_names = {"localhost", "SMF"}}).error, "");
 }
 
+TEST_F(NrfTokenAuthz, A5GPrefixedNfTypeMatchesTheCertificateNamedWithoutThePrefix) {
+    // TS 29.510 NFType "5G_EIR": the lab certificate is CN=eir / DNS:eir (scripts/gen-lab-pki.sh),
+    // and every token request the EIR made was refused (ADR-0505).
+    registered["eir-1"] = json{{"nfInstanceId", "eir-1"}, {"nfType", "5G_EIR"}};
+    const std::map<std::string, std::string> eir{{"nfInstanceId", "eir-1"},
+                                                 {"nfType", "5G_EIR"},
+                                                 {"targetNfType", "NRF"},
+                                                 {"scope", "nnrf-nfm"}};
+    EXPECT_EQ(ask(eir, {.cert_cn = "eir", .cert_dns_names = {"eir", "localhost"}}).error, "");
+    EXPECT_EQ(ask(eir, {.cert_cn = "", .cert_dns_names = {"5g_eir"}}).error, "");
+    // The EIR's certificate still names only the EIR.
+    EXPECT_EQ(ask({}, {.cert_cn = "eir", .cert_dns_names = {"eir"}}).error, "invalid_client");
+    EXPECT_EQ(ask(eir, {.cert_cn = "smf", .cert_dns_names = {"smf"}}).error, "invalid_client");
+}
+
 TEST_F(NrfTokenAuthz, AServiceNoProducerOffersToTheConsumerIsInvalidScope) {
     // Not offered by any registered PCF.
     EXPECT_EQ(ask({{"scope", "npcf-policyauthorization"}}).error, "invalid_scope");
