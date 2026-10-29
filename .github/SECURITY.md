@@ -16,8 +16,9 @@ production/carrier network.** It is intended for local lab use, development, and
 
 ## Supported versions
 
-There are no tagged releases yet — only the `main` branch is supported. Security fixes land on
-`main`; there is no backport policy at this stage.
+Only the latest release and the `main` branch are supported. Security fixes land on `main` and
+ship in the next release; there is no backport policy at this stage. Releases are listed in
+[`CHANGELOG.md`](../CHANGELOG.md).
 
 ## Reporting a vulnerability
 
@@ -25,7 +26,10 @@ If you find a security issue (e.g. a memory-safety bug, an authentication/author
 cryptographic flaw in the SUCI/AKA/EAP-AKA' code paths, a TLS/mTLS misconfiguration), please report
 it privately rather than opening a public issue:
 
-- **Email**: mails@prajith.com — include steps to reproduce, affected NF(s)/file(s), and impact.
+- **GitHub private vulnerability reporting** (preferred):
+  [report a vulnerability](https://github.com/core5gaBssOss/core5gaBssOss/security/advisories/new).
+  The report stays private between you and the maintainer until an advisory is published.
+- **Email**: <mails@prajith.com> — include steps to reproduce, affected NF(s)/file(s), and impact.
 
 This is a solo/small-team project, not a funded security team — response times are best-effort,
 but reports will be acknowledged and investigated as promptly as possible. Please allow time for a

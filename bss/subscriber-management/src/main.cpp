@@ -78,9 +78,9 @@ template <typename Handler> auto guarded(Handler handler) {
         try {
             return handler(req);
         } catch (const subscriber_management::InvalidRequest& e) {
-            return sbi_core::http2::problem_response(400, "Bad Request", e.what());
+            return sbi_core::http2::problem_response(400, "Bad Request", e.what(), std::nullopt);
         } catch (const subscriber_management::Conflict& e) {
-            return sbi_core::http2::problem_response(409, "Conflict", e.what());
+            return sbi_core::http2::problem_response(409, "Conflict", e.what(), std::nullopt);
         }
     };
 }
@@ -179,7 +179,7 @@ int main() {
                          const auto individual = individual_store.get(id);
                          if (!individual.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Individual " + id);
+                                 404, "Not Found", "No Individual " + id, std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, json(*individual).dump());
                      }));
@@ -222,7 +222,7 @@ int main() {
                          const auto organization = organization_store.get(id);
                          if (!organization.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Organization " + id);
+                                 404, "Not Found", "No Organization " + id, std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, json(*organization).dump());
                      }));
@@ -264,7 +264,7 @@ int main() {
                          const auto account = account_store.get(id);
                          if (!account.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Account " + id);
+                                 404, "Not Found", "No Account " + id, std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, json(*account).dump());
                      }));
@@ -308,7 +308,7 @@ int main() {
                          const auto subscriber = subscriber_store.get(id);
                          if (!subscriber.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Subscriber " + id);
+                                 404, "Not Found", "No Subscriber " + id, std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, json(*subscriber).dump());
                      }));
@@ -325,7 +325,7 @@ int main() {
                          const auto subscriber = subscriber_store.get_by_supi(supi);
                          if (!subscriber.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Subscriber with supi " + supi);
+                                 404, "Not Found", "No Subscriber with supi " + supi, std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, json(*subscriber).dump());
                      }));

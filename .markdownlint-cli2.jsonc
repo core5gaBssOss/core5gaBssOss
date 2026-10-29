@@ -1,0 +1,24 @@
+// markdownlint for the project's front-page documents (ADR-0509), run by
+// .github/workflows/docs-lint.yml, which repeats the globs below: keep the two lists in sync. The
+// rest of docs/ is not linted yet: most of it predates these rules, and a file joins this list
+// once it passes.
+{
+  "globs": [
+    "README.md",
+    "CHANGELOG.md",
+    ".github/*.md",
+    "docs/RELEASING.md",
+    "specs/README.md"
+  ],
+  "config": {
+    "default": true,
+    // Line length: prose is wrapped by hand, tables and URLs cannot be.
+    "MD013": false,
+    // Inline HTML: the README centres its badges and images, which Markdown cannot do.
+    "MD033": false,
+    // First line a heading: the README opens with its badge row.
+    "MD041": false,
+    // Table pipe spacing: the repo writes separator rows as |---|---|.
+    "MD060": false
+  }
+}

@@ -45,7 +45,8 @@ tl::expected<nlohmann::json, Response> apply_json_patch_body(const Request& req,
     if (media_type(req) != kJsonPatch) {
         auto r = problem_response(415,
                                   "Unsupported Media Type",
-                                  std::string("this resource is patched with ") + kJsonPatch);
+                                  std::string("this resource is patched with ") + kJsonPatch,
+                                  std::nullopt); // Table 5.2.7.2-1 defines no 415 cause
         r.headers.emplace("accept-patch", kJsonPatch);
         return tl::unexpected(std::move(r));
     }
@@ -75,14 +76,23 @@ tl::expected<nlohmann::json, Response> apply_json_patch_body(const Request& req,
     }
 }
 
-Response problem_response(int status, const std::string& title, const std::string& detail) {
-    auto pd = sbi_core::make_problem_details(status, title, detail);
+Response problem_response(int status,
+                          const std::string& title,
+                          const std::string& detail,
+                          std::optional<std::string> cause) {
+    auto pd = sbi_core::make_problem_details(status, title, detail, std::move(cause));
     nlohmann::json j = pd;
     Response r;
     r.status = status;
     r.headers.emplace("content-type", "application/problem+json");
     r.body = j.dump();
     return r;
+}
+
+const char* dto_error_cause(const nlohmann::json::exception& e) {
+    return dynamic_cast<const nlohmann::json::out_of_range*>(&e) != nullptr
+               ? "MANDATORY_IE_MISSING"
+               : "MANDATORY_IE_INCORRECT";
 }
 
 namespace {

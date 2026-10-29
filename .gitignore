@@ -60,6 +60,15 @@ nfs/chf/training/mlruns/
 specs/etsi/*.pdf
 specs/etsi/*.txt
 
+# ADR-0507: 3GPP/ETSI specification documents are not redistributed (removed from history
+# 2026-10-22); fetched copies stay local. See specs/README.md.
+specs/**/*.pdf
+specs/**/*.PDF
+specs/**/*.docx
+specs/**/*.doc
+specs/**/*.zip
+specs/3gpp/TS_*.txt
+
 # ADR-0369: nfs/nwdaf/training/train_nf_load.py's own venv and MLflow tracking DB.
 nfs/nwdaf/training/.venv/
 nfs/nwdaf/training/mlflow.db

@@ -59,3 +59,11 @@ Deriving the realm from the SUPI digits: a 2- vs 3-digit MNC cannot be told from
 NRF, UDR, UDM, AUSF, AAnF: akmaAllowed provisioned over Nudr; 5G-AKA; the AAnF's KAF equals the
 UE-side derivation; SUPI with the supi-access scope; anonymous without SUPI; unknown A-KID 403
 K_AKMA_NOT_PRESENT; removal 204 then 404 AKMA_CONTEXT_NOT_FOUND).
+
+Note (2026-10-26, REVIEW-5ae0ef1 DOC-03 part 2): that test's "UE side" calls the same `aka_crypto`
+functions as the AAnF, so it proves the plumbing, not the KDF inputs. The independent check is
+`tests/conformance/test_akma_kdf_vectors.cpp` (`AkmaKdfVectors.*`): hand-computed KAKMA, A-TID
+and KAF vectors (TS 33.535 j00 Annex A, KDF of TS 33.220 j10 Annex B.2.0), each input string S
+spelled out in hex and each key computed outside this project's code (Python `hmac`/`hashlib`,
+cross-checked with the `openssl dgst -mac HMAC` CLI). 3GPP publishes no AKMA test vectors, so these
+are hand-computed known answers, not official ones.

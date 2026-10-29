@@ -1,0 +1,8 @@
+{
+  "port": 7785,
+  "sbi_bind_address": "0.0.0.0",
+  "db_pool_size": 16,
+  "advertised_ipv4": "172.30.0.46",
+  "metrics_bind_address": "0.0.0.0:9473",
+  "database_url": "postgresql://postgres@postgres-chf:5432/charging"
+}

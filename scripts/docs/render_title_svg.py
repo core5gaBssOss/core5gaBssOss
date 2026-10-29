@@ -18,14 +18,13 @@ from fontTools.ttLib import TTFont
 FONT = sys.argv[1] if len(sys.argv) > 1 else "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"
 OUT = pathlib.Path(__file__).resolve().parents[2] / "docs" / "assets"
 WIDTH, HEIGHT = 1600, 200
-TITLE = "AI-Native 5G-Advanced Core, Charging & BSS — R19. Built Forward to 6G"
+TITLE = "AI-Boosted 5G-Advanced Core, BSS and OSS — 3GPP Release 19"
 
 # (text, light colour, dark colour) per segment; line 2 is one gradient run.
-LINE1 = [("AI-Native ", "#DB2777", "#F472B6"), ("5G-Advanced ", "#EA580C", "#FB923C"),
-         ("Core, ", "#0284C7", "#38BDF8"), ("Charging ", "#16A34A", "#4ADE80"),
-         ("& ", "#64748B", "#94A3B8"), ("BSS ", "#7C3AED", "#A78BFA"),
-         ("— ", "#64748B", "#94A3B8"), ("R19", "#DC2626", "#F87171")]
-LINE2 = "Built Forward to 6G"
+LINE1 = [("AI-Boosted ", "#DB2777", "#F472B6"), ("5G-Advanced ", "#EA580C", "#FB923C"),
+         ("Core, ", "#0284C7", "#38BDF8"), ("BSS ", "#7C3AED", "#A78BFA"),
+         ("and ", "#64748B", "#94A3B8"), ("OSS", "#16A34A", "#4ADE80")]
+LINE2 = "3GPP Release 19"
 GRADIENT = {"light": ("#DB2777", "#EA580C", "#7C3AED"), "dark": ("#F472B6", "#FB923C", "#A78BFA")}
 
 

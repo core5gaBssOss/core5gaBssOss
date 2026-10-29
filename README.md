@@ -1,14 +1,16 @@
 <p align="center">
-  <a href="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml"><img src="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-2ea44f.svg" alt="License: Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/3GPP-R19-FF6B00.svg" alt="3GPP R19">
-  <img src="https://img.shields.io/badge/C%2B%2B-20%2F23-00ADD8.svg" alt="C++20/23">
+  <a href="https://github.com/core5gaBssOss/core5gaBssOss/actions/workflows/ci.yml"><img src="https://github.com/core5gaBssOss/core5gaBssOss/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/core5gaBssOss/core5gaBssOss"><img src="https://api.scorecard.dev/projects/github.com/core5gaBssOss/core5gaBssOss/badge" alt="OpenSSF Scorecard"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-2ea44f.svg" alt="License: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/3GPP-Release%2019-FF6B00.svg" alt="3GPP Release 19">
+  <img src="https://img.shields.io/badge/C%2B%2B-20%2F23-00599C.svg" alt="C++20/23">
+  <img src="https://img.shields.io/badge/CMake-3.28%2B-064F8C.svg" alt="CMake 3.28+">
 </p>
 
 <h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/title-dark.svg">
-    <img src="docs/assets/title.svg" alt="AI-Native 5G-Advanced Core, Charging &amp; BSS — R19. Built Forward to 6G"
+    <img src="docs/assets/title.svg" alt="AI-Boosted 5G-Advanced Core, BSS and OSS — 3GPP Release 19"
          width="920">
   </picture>
 </h1>
@@ -40,12 +42,31 @@ re-authorization, Sy spending limits, and CAMEL/CAP for the legacy voice estate.
 deliberately not used as the title — TS 32.296 defines that as its own network function, this does
 not implement it, and a title should not need a footnote to be true.
 
+**At a glance:**
+
+- **5G Core:** NRF, AMF, SMF, UPF, PCF, UDM, UDR, AUSF, NSSF, NEF, SCP, BSF and Release 19 NFs
+  including NWDAF, 5G-EIR, SMSF, NSACF and Lawful Interception. HTTP/2 SBI with mTLS and OAuth2.
+- **Charging:** the CHF of TS 32.290/32.291, with Diameter Gy/Rf, Sy and CAMEL/CAP for legacy
+  networks.
+- **BSS:** TM Forum SID-aligned services (TMF620, TMF632, TMF651, TMF654); products and tariffs are
+  catalog data, not code.
+- **OSS:** an operator console (React + JSON Forms) for NF configuration and approvals, TS 28.552
+  performance counters and Prometheus business alarms.
+- **AI:** NWDAF analytics, and AI-assisted quota sizing in the CHF (off by default), run in-process
+  with ONNX Runtime. The model advises; a deterministic engine decides.
+
+This is an open, Apache-2.0 reference implementation that aims at production grade. It is **not
+deployable in production yet**: [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md) lists what
+still blocks it, including Lawful Interception gaps.
+
 **Why this matters:**
+
 - Much of the world still has no affordable 5G, and commercial cores are priced for the largest operators. This one is **Apache 2.0**: read it, run it, fork it, own it.
 - Built in modern C++ with CMake+vcpkg, with full spec traceability from 3GPP R19 YAML specs.
 - Real telco-grade features: NRF/AMF/SMF/UDM/UDR/AUSF/PCF, N4/PFCP, UPF with an eBPF/XDP uplink GTP-U decapsulation path (a lab veth/netns fixture, not a gNB-facing N3), CHF converged charging (TS 32.290) with Gy/Sy/CAP, TMF620/632/651/654 BSS, NWDAF AnLF/MTLF with ONNX Runtime.
 
 **Sovereign AI-Boosted**:
+
 - NWDAF AnLF: NF_LOAD, ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE per S-NSSAI.
 - CHF: AI-driven rating & spending-limit policies, anomaly detection for fraud/overuse.
 - **Sovereign by design:** the AI layer is built to run on a locally hosted open-weight LLM (any model whose licence you have vetted) for LLM-as-judge and policy reasoning, so a rural or air-gapped deployment needs no cloud dependency. The ML pipelines that ship today (NWDAF, CHF anomaly detection) are classical models, trained in a Python sidecar and run in-process; the LLM agents are on the roadmap, not in this tree yet.
@@ -54,13 +75,12 @@ not implement it, and a title should not need a footnote to be true.
 This targets a **production-grade, spec-traceable reference implementation** (raised from an
 original lab-grade scope — see `docs/DECISIONS.md` ADR-0009 for why and what that changed).
 
-Repo slug (`5gc-r19`) and technical identifiers (CMake project name, vcpkg package name) stay as
-short slugs; this is the display name. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for every
+"AI-Boosted 5G-Advanced Core, BSS and OSS" is the display name (ADR-0508). The repository is
+[`core5gaBssOss/core5gaBssOss`](https://github.com/core5gaBssOss/core5gaBssOss) (ADR-0510); technical
+identifiers (CMake project name, vcpkg package name) stay as short slugs. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for every
 architectural choice made (and rejected) along the way.
 
-
 <h2 align="center">Architecture</h2>
-
 
 <p align="center">
   <a href="docs/diagrams/architecture.svg">
@@ -81,6 +101,21 @@ can generate, and nothing invents a TS number, reference point, or field name th
 spec text. Full conventions are in [`CLAUDE.md`](CLAUDE.md).
 
 <h2 align="center">Status</h2>
+
+Summary:
+
+| Area | Status |
+|---|---|
+| SBI framework and code generation from the R19 YAML | Done |
+| Control plane: UE registration and PDU session establishment, end to end over real NGAP/NAS | Done |
+| User plane: PFCP and an eBPF/XDP uplink GTP-U path (lab fixture, not a gNB-facing N3) | Done for what is stated |
+| Charging and TM Forum BSS | Verified end to end in the lab |
+| NWDAF and AI/ML pipelines | In progress |
+| Release 19 NFs (Tier 2/3) | In progress: 10 of 16 Tier 2 NFs built; Tier 3 not started |
+| Operator console | Started |
+| Lab packaging (Compose, Helm) | Partial |
+
+By phase:
 
 | Phase | What | Status |
 |---|---|---|
@@ -284,16 +319,16 @@ overstating a single clamped regressor behind a default-off switch.
 Assessed against the specifications fetched from the official 3GPP archive
 (`tools/specs/fetch_3gpp_specs.py`; versions in `specs/3gpp/MANIFEST.tsv`). Full findings with
 clause citations and code evidence: [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md).
-**Stated honestly: this is a partial-compliance picture with hard gaps, not a certification: Lawful Interception coverage (per-NF POIs and real packet capture) and the mandatory SNOW 3G NAS algorithms are the blocking ones.** Last cross-checked against `docs/SECURITY_COMPLIANCE.md` and the code on 2026-10-08.
+**Stated honestly: this is a partial-compliance picture with hard gaps, not a certification: Lawful Interception coverage (per-NF POIs and real packet capture) and the mandatory SNOW 3G NAS algorithms are the blocking ones.** Last cross-checked against `docs/SECURITY_COMPLIANCE.md` and the code on 2026-10-08; the 33.501, 33.210, 33.117 and 33.535 rows were updated on 2026-10-23 from ADR-0476–0478 and ADR-0491–0497.
 
 | TS | Subject | Applies here | Status |
 |---|---|---|---|
-| 33.501 | 5G security architecture | **Core** | **Partial** — mTLS, signed OAuth2, 5G-AKA, EAP-AKA′, SUCI/SIDF, NAS security, SoR, UPU implemented; **SNOW 3G (mandatory 128-NEA1/NIA1) missing** (and NEA0), NRF discovery authorization missing, no SEPP/N32; SNI never exercised in the lab (IP-literal base URLs) and the SBA certificate profile (TS 33.310 §6.1.3c) not assessed, per F6/F7 |
-| 33.210 | NDS/IP, TLS profile | **Core** | **Partial** — TLS 1.3 only; profile requires TLS 1.2 support too |
-| 33.117 | SCAS general catalogue | **Core** | **Partial** — overload, fuzzing, safe JSON parsing ✓; **duplicate JSON keys silently accepted** (§4.3.6.3); management-plane baseline not yet assessed |
+| 33.501 | 5G security architecture | **Core** | **Partial** — mTLS, signed OAuth2, 5G-AKA, EAP-AKA′, SUCI/SIDF, NAS security, SoR, UPU implemented; **SNOW 3G (mandatory 128-NEA1/NIA1) missing** (and NEA0), NRF discovery authorization now enforced for `allowedNfTypes`/`allowedPlmns`/`allowedNssais` (ADR-0477; `allowedNfDomains` not evaluated); SEPP built in part (N32-c/N32-f with TLS or PRINS, telescopic FQDN, ADR-0491–0494; no roaming intermediaries); SNI never exercised in the lab (IP-literal base URLs) and the SBA certificate profile (TS 33.310 §6.1.3c) not assessed, per F6/F7 |
+| 33.210 | NDS/IP, TLS profile | **Core** | **Partial** — TLS 1.3 by default; an opt-in TLS 1.2 floor (`tls_min_version`, ADR-0478) is unit-tested against a TLS 1.2-only peer but not run in any NF, and the full TLS 1.2 profile is not verified |
+| 33.117 | SCAS general catalogue | **Core** | **Partial** — overload, fuzzing, safe JSON parsing ✓; duplicate JSON keys rejected with 400 in the SBI server (§4.3.6.3, ADR-0476; the detector is unit-tested, the server hook compile-checked only); management-plane baseline not yet assessed |
 | 33.126 / 33.127 / 33.128 | Lawful Interception | **Core** | **Partial — still a deployment blocker.** Built and tested: the **ADMF** (`nfs/li-admf`, ADR-0462: the LI_HI1 receiver for the LEA per ETSI TS 103 120 with the six LI lifecycle workflows of Annex H.5, warrants in its own PostgreSQL, an append-only audit trail, and the LIPF that provisions the POIs and MDF2 over LI_X1 incl. keepalives and NE reports), the MDF2 mediation & delivery path (`nfs/li-mdf`: LI_X1 provisioning, LI_X2 xIRI intake, LI_HI2 delivery to the LEMF; ADR-0373–0377) and the **AMF IRI-POI** (`nfs/amf` `li_poi`: Registration, Deregistration, LocationUpdate, IdentifierAssociation/Deassociation and StartOfInterception-with-registered-UE xIRIs, each proven through the real AMF process, ADR-0378/0393/0440/0457/0460/0461), the **SMF IRI-POI** (`nfs/smf` `li_poi`: PDU-session establishment, modification, release, start-of-interception and unsuccessful xIRIs, ADR-0463), the **UDM IRI-POI** (`nfs/udm` `li_poi`: serving-system, start-of-interception, cancel-location and UE-authentication-response xIRIs, ADR-0475), the **SMSF IRI-POI** (`nfs/smsf` `li_poi`: SMSMessage and SMSReport for SMS-MO from and SMS-MT to a target, with TruncateTPUserData redaction; MO and MT SMS over NAS run end to end through the real AMF and SMSF, MT over the SBI path Nsmsf_SMService_MtForwardSm with the test as SMS-GMSC, ADR-0486 -- MAP MT-FORWARD-SHORT-MESSAGE is not built), the **NEF IRI-POI** (`nfs/nef` `li_poi`: NEFAFSessionWithQoSProvision for an AF's AsSessionWithQoS create/update/revoke naming a target GPSI, ADR-0487 -- the other NEF LI cases wait on NEF functionality), the **CHF IRI-POI** (`nfs/chf` `li_poi`: ChargingDataEvent for Nchf ChargingDataRequests and Rf ACRs, ADR-0488 -- TS 33.128 j70's ASN.1 makes roamerInOut mandatory while its table makes it optional; by decision the ASN.1 is followed, so a request without roamerInOut, i.e. every home-network one today, is withheld; Rf carries no roamerInOut and is reported), the **NWDAF IRI-POI** (`nfs/nwdaf` `li_poi`: NWDAFEventsSubscription, NWDAFEventsNotification and NWDAFAnalyticsInfoQuery for a single target SUPI, ADR-0489 -- the mandatory consumer NF type comes from the request's User-Agent, which every NF here sends since ADR-0490; a subscription without one, or from a type outside the record's enumeration, is withheld; roaming analytics records need Nnwdaf_RoamingAnalytics, not served) and the **content-of-communication chain** (ADR-0464: the SMF's CC-TF triggers a CC-POI in the UPF over LI_X1, packets leave as LI_X3 PDUs, `nfs/li-mdf3` delivers HI3 CC to the LEMF), proven by `LiCcChain.*` with test-fed packets. **Not real interception yet:** nothing in the UPF datapath calls the CC-POI (the eBPF program is uplink decapsulation only and cannot attach in CI), so `cc_capable` stays false for the UPF in any real deployment. Still missing: the AMF's PathSwitchRequest LocationUpdate end-to-end test and Unsuccessful-procedure event, an SMS-GMSC/IWMSC (the SMSF's MT path is driven only by tests and MO SMS is answered RP-ERROR), the rest of the NEF POI (AF-session-with-QoS notification, NIDD, device triggering, MSISDN-less MO SMS, parameter and 5G LAN provisioning), the CHF POI's Translated records, the UPF datapath hook and a privileged-host packet-capture verification (ADR-0463 stage 4), the LI_MDF packet-header-report approach (TS 33.127 6.2.3.9.1 approach 2), the NRF SIRF and HI1 JSON/signing — so no real user-plane content is intercepted, and an ADMF task that needs CC is refused for any element that is not `cc_capable` rather than downgraded. A licensed operator still cannot deploy without these. |
 | 33.528 | SCAS for PCF | Core | Unapproved shell — the document itself says "shall not be implemented"; defers to 33.117 |
-| 33.535 | AKMA | In scope (AAnF, Tier 2) | Not built yet |
+| 33.535 | AKMA | In scope (AAnF, Tier 2) | **Partial** — AAnF built in part: anchor and application keys, context removal, GPSI for AFs and the NEF path, roaming check (ADR-0495–0497); no change notifications |
 | 33.122 | CAPIF security | In scope (Tier 3) | Not built yet |
 | 33.203 | IMS access security | In scope (IMS AS, Tier 3) | Not built yet |
 | 33.220 / 33.224 | GBA / GBA Push | Out of scope (`nfs/bsf` is the 5G BSF of TS 29.521, not GBA's) | — |
@@ -314,7 +349,7 @@ Full section (moved verbatim, links adjusted for the new location): [`docs/CAPAB
 
 <h2 align="center">Repository layout</h2>
 
-```
+```text
 libs/sbi-core/     Shared SBI infrastructure: HTTP/2 server+client, OAuth2 client-credentials,
                    ProblemDetails, 3gpp-Sbi-* headers, structured logging, OpenTelemetry tracing.
                    Every NF links this; no NF includes another NF's private headers.
@@ -349,12 +384,11 @@ simulators/        ransim (UERANSIM-based RAN/UE test tool, external, ADR-0016) 
 config/ deploy/    Per-service JSON config; Docker Compose, Helm charts and database schemas.
 tools/             Build-time tooling (the OpenAPI-to-C++ codegen spine) plus sbi-loadgen, the
                    load-generation harness used for real performance measurement (ADR-0244/0246).
-specs/             Vendored 3GPP/ETSI source material: R19 OpenAPI YAML (SBI API shapes), NGAP
-                   ASN.1 (specs/NGAP), and spec PDFs for protocols with no YAML (PFCP, TS 33.501,
-                   and several legacy TCAP/MAP/CAP TS documents). GSMA-member-confidential material
-                   (the TAP3 spec libs/tap3-core cites) is deliberately NOT vendored here, even
-                   though it's freely-published-equivalent material otherwise would be -- only real
-                   cited facts in code comments, never the source document itself.
+specs/             Vendored 3GPP/ETSI build inputs: R19 OpenAPI YAML (SBI API shapes), NGAP ASN.1
+                   (specs/NGAP), TS 33.128 ASN.1/XSD and ETSI forge schemas. Specification
+                   documents are not redistributed; specs/README.md says how to fetch the exact
+                   versions the code cites (ADR-0507). GSMA-member-confidential material (the TAP3
+                   spec libs/tap3-core cites) is not vendored either.
 tests/             Integration and conformance tests.
 docs/              DECISIONS.md (ADR log) and TRACEABILITY.md (procedure -> TS clause -> file -> test).
 ```
@@ -382,6 +416,31 @@ exclusive). CI runs both, plus `clang-format`/`clang-tidy`, on every push that c
 pull request whose whole diff against `main` is docs, or a docs-only push to `main`, runs lint only, ADR-0469) — see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
+Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`.
+
+<h2 align="center">Documentation</h2>
+
+| Document | What it covers |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Architecture |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Every architectural decision (ADRs), including rejected alternatives |
+| [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) | Procedure → TS clause → code → test |
+| [`docs/CHARGING_MAPPING.md`](docs/CHARGING_MAPPING.md) | 3GPP charging fields → TM Forum SID → TMF API |
+| [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md) | 3GPP 33-series assessment |
+| [`specs/README.md`](specs/README.md) | Vendored spec inputs, and how to fetch the documents the code cites |
+| [`CHANGELOG.md`](CHANGELOG.md) | Releases and notable changes |
+
+<h2 align="center">3GPP specification gaps</h2>
+
+Places where the specifications leave a choice open or do not say what an implementation must do.
+Each entry records what this project does instead and the ADR with the reasoning.
+
+| Gap | Specs read | What this project does | ADR |
+|---|---|---|---|
+| No mapping from a PCF SM Policy Association release cause (TS 29.512 `SmPolicyAssociationReleaseCause`) to the 5GSM cause of the PDU SESSION RELEASE COMMAND the SMF sends (TS 24.501 6.3.3.2) | TS 23.502 4.3.4.2, 4.16.6; TS 29.512 4.2.3.3, 5.6.3.23; TS 24.501 6.3.3.2 | `INSUFFICIENT_RES` -> #26 "insufficient resources"; every other value -> #36 "regular deactivation" | [ADR-0523](docs/decisions/ADR-0523-ue-and-pcf-requested-pdu-session-release-ts-23-502-4-3-4-2.md) |
+| The 5G loss-of-connectivity reasons (6-9) in `MonitoringEventReport.lossOfConnectReason` are conditioned on the "Loss_of_connectivity_notification" feature; values 0-5 are EPC-only | TS 29.522 4.4.2; TS 29.122 5.3.4 | The NEF always reports 6-9 (the only values that apply to 5GC), with or without the feature | [ADR-0527](docs/decisions/ADR-0527-nef-monitoring-notifications-as-ts-29-122.md) |
+| The Subject DN / SAN contents of an inter-PLMN SEPP certificate (where its PLMN-ID is) are delegated to GSMA FS.34, not a 3GPP specification | TS 33.501 13.1.2; TS 33.310 6.1.3c.5.3.1; TS 23.003 28.2 | PLMN-IDs are read from dNSName SANs under `5gc.mnc<MNC>.mcc<MCC>.3gppnetwork.org`, the TS 23.003 SEPP FQDN form (as TS 33.310's inter-SNPN profile does) | [ADR-0529](docs/decisions/ADR-0529-sepp-per-plmn-trust-anchors-on-n32-ts-33-501-13-1-2-sec-01.md) |
+
 <h2 align="center">Contributing / working style</h2>
 
 This project is built in small, reviewable increments — one NF or subsystem at a time, with the
@@ -393,18 +452,20 @@ discover. See [`CLAUDE.md`](CLAUDE.md) for the full engineering rules and mandat
 [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md) (ADR-0467): one area per PR (Core,
 Provisioning, Charging/BSS, Products and Catalog, Security/LI, NWDAF/Analytics, Automation/Deploy,
 GUI; platform libraries are maintainer-only), the maintainer keeps the final merge and releases, and
-contributions will need a signed CLA. The CLA text and bot, `CODEOWNERS`, the area-label CI check,
-`bootstrap.sh`, branch protection and the GitHub organization move are **not done yet**;
-fork-PR approval is already required for every outside contributor. CI (ADR-0468, ADR-0469) lints
+contributions will need a signed CLA. `CODEOWNERS`, area and size labels with a one-area-per-PR
+check, and the "Protect main" ruleset (no deletion, no force-push, linear history) are in place
+(ADR-0509), and the repository moved to the `core5gaBssOss` organization (ADR-0510). The CLA text
+and bot and `bootstrap.sh` are **not done yet**; fork-PR approval is already required for every
+outside contributor. Releases follow SemVer, recorded in [`CHANGELOG.md`](CHANGELOG.md). CI (ADR-0468, ADR-0469) lints
 only the `.cpp` files a push changed (a PR: everything it changes against `main`), skips the build and sanitizer jobs when the whole diff against `main` is docs, and runs
 `lint`, then `build`, then the sanitizers.
 
 <h2 align="center">Work with this project</h2>
 
 - **Questions, ideas, deployment experiences:**
-  [GitHub Discussions](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/discussions).
+  [GitHub Discussions](https://github.com/core5gaBssOss/core5gaBssOss/discussions).
 - **Bugs and spec deviations:**
-  [open an issue](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/issues) --
+  [open an issue](https://github.com/core5gaBssOss/core5gaBssOss/issues) --
   cite the 3GPP TS clause or YAML file it departs from, if you can.
 - **Collaboration, pilots, research or commercial use:** reach the maintainer through
   [GitHub (@prajithparan)](https://github.com/prajithparan), or start a Discussion and say which.
@@ -415,3 +476,9 @@ Personal open-source project; not affiliated with or endorsed by my employer.
 <h2 align="center">License</h2>
 
 Apache License 2.0 — see [`LICENSE`](LICENSE).
+
+Third-party material keeps its own terms: the vendored 3GPP OpenAPI, ASN.1 and XSD files are
+© 3GPP Organizational Partners, and the ETSI forge schemas are BSD-3-Clause. Implementing 3GPP
+specifications may require licences, including patent licences, beyond this project's licence.
+See [`NOTICE`](NOTICE). 3GPP and ETSI specification documents are not included; see
+[`specs/README.md`](specs/README.md) to fetch them.

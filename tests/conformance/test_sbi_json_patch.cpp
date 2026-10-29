@@ -6,6 +6,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "TS29521_Nbsf_Management.hpp"
+
 #include <gtest/gtest.h>
 
 namespace {
@@ -72,4 +74,30 @@ TEST(SbiJsonPatch, APatchThatCannotBeAppliedIs400) {
     ASSERT_FALSE(out.has_value());
     EXPECT_EQ(out.error().status, 400);
     EXPECT_EQ(cause_of(out.error()), "INVALID_MSG_FORMAT");
+}
+
+// REVIEW-5ae0ef1 SBI-03: the parse helpers' 400s carry the TS 29.500 Table 5.2.7.2-1 cause.
+// PcfBinding's mandatory members are dnn and snssai (TS29521_Nbsf_Management.yaml).
+TEST(SbiJsonBody, ParseFailuresCarryTheirTable5272Cause) {
+    using sbi_core::http2::parse_json_body;
+    const auto cause_for = [](const std::string& body) {
+        sbi_core::http2::Response err;
+        EXPECT_FALSE(
+            parse_json_body<sbi_gen::PcfBinding>(patch_request("application/json", body), err)
+                .has_value());
+        EXPECT_EQ(err.status, 400);
+        return cause_of(err);
+    };
+    EXPECT_EQ(cause_for(R"({"dnn":)"), "INVALID_MSG_FORMAT");
+    EXPECT_EQ(cause_for(R"({"snssai":{"sst":1}})"), "MANDATORY_IE_MISSING");
+    EXPECT_EQ(cause_for(R"({"dnn":7,"snssai":{"sst":1}})"), "MANDATORY_IE_INCORRECT");
+}
+
+TEST(SbiJsonBody, ProblemResponseWritesTheCauseOrNone) {
+    const auto with =
+        sbi_core::http2::problem_response(404, "Not Found", "x", "SUBSCRIPTION_NOT_FOUND");
+    EXPECT_EQ(cause_of(with), "SUBSCRIPTION_NOT_FOUND");
+    EXPECT_EQ(with.headers.find("content-type")->second, "application/problem+json");
+    const auto without = sbi_core::http2::problem_response(404, "Not Found", "x", std::nullopt);
+    EXPECT_FALSE(json::parse(without.body).contains("cause"));
 }

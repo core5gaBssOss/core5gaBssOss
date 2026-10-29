@@ -248,9 +248,6 @@ int main() {
     // ---- Naanf_AKMA_AnchorKey_Register (TS 29.535 5.2.2.2) -------------------------------------
     server.add_route(
         "POST", std::string(kApiRoot) + "/register-anchorkey", [&](const http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return problem(401, "Unauthorized", auth->error);
-            }
             // SEC-03: only the AUSF registers anchor keys (TS 33.535 6.1). No TS 29.500 / 29.535
             // cause describes a wrong consumer, so none is given.
             if (!peer_is(req, "ausf")) {
@@ -411,9 +408,6 @@ int main() {
     // ---- Naanf_AKMA_Context_Remove (TS 29.535 5.2.2.4) -----------------------------------------
     server.add_route(
         "POST", std::string(kApiRoot) + "/remove-context", [&](const http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return problem(401, "Unauthorized", auth->error);
-            }
             if (!peer_is(req, "ausf")) { // SEC-03, as for register-anchorkey
                 return problem(403, "Forbidden", "only the AUSF may remove an AKMA context");
             }
