@@ -23,7 +23,17 @@
 
 namespace sbi_core::http2 {
 
-Response problem_response(int status, const std::string& title, const std::string& detail);
+// `cause` is required (REVIEW-5ae0ef1 SBI-03): a TS 29.500 Table 5.2.7.2-1 or API-specific
+// application error, or std::nullopt where neither defines one for this error.
+Response problem_response(int status,
+                          const std::string& title,
+                          const std::string& detail,
+                          std::optional<std::string> cause);
+
+// The TS 29.500 Table 5.2.7.2-1 cause for a failed read of a JSON body into a DTO: a member that
+// is absent (nlohmann out_of_range) is MANDATORY_IE_MISSING, one of the wrong type or value
+// MANDATORY_IE_INCORRECT.
+const char* dto_error_cause(const nlohmann::json::exception& e);
 
 // A PATCH body as every R19 YAML this repo serves declares it for "application/json-patch+json":
 // a JSON Patch (RFC 6902) document, an array of PatchItem with minItems 1 -- applied to `target`.
@@ -48,9 +58,10 @@ template <typename T> std::optional<T> parse_json_body(const Request& req, Respo
     try {
         return nlohmann::json::parse(req.body).get<T>();
     } catch (const nlohmann::json::parse_error& e) {
-        err_out = problem_response(400, "Malformed JSON", e.what());
+        err_out = problem_response(400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
     } catch (const nlohmann::json::exception& e) {
-        err_out = problem_response(400, "Missing or invalid mandatory IE", e.what());
+        err_out =
+            problem_response(400, "Missing or invalid mandatory IE", e.what(), dto_error_cause(e));
     }
     return std::nullopt;
 }
@@ -65,26 +76,33 @@ std::optional<T> parse_multipart_json_body(const Request& req, Response& err_out
     const auto content_type_it = req.headers.find("content-type");
     if (content_type_it == req.headers.end() ||
         !sbi_core::multipart::is_multipart_related(content_type_it->second)) {
-        err_out = problem_response(
-            400, "Unsupported Media Type", "This operation requires a multipart/related body");
+        err_out = problem_response(400,
+                                   "Unsupported Media Type",
+                                   "This operation requires a multipart/related body",
+                                   "INVALID_MSG_FORMAT");
         return std::nullopt;
     }
     auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
     if (!parts.has_value()) {
-        err_out = problem_response(400, "Malformed multipart body", parts.error());
+        err_out =
+            problem_response(400, "Malformed multipart body", parts.error(), "INVALID_MSG_FORMAT");
         return std::nullopt;
     }
     if (parts->empty() || (*parts)[0].content_type.find("application/json") == std::string::npos) {
-        err_out = problem_response(
-            400, "Malformed multipart body", "first part (jsonData) must be application/json");
+        err_out = problem_response(400,
+                                   "Malformed multipart body",
+                                   "first part (jsonData) must be application/json",
+                                   "INVALID_MSG_FORMAT");
         return std::nullopt;
     }
     try {
         return nlohmann::json::parse((*parts)[0].body).get<T>();
     } catch (const nlohmann::json::parse_error& e) {
-        err_out = problem_response(400, "Malformed JSON in jsonData part", e.what());
+        err_out = problem_response(
+            400, "Malformed JSON in jsonData part", e.what(), "INVALID_MSG_FORMAT");
     } catch (const nlohmann::json::exception& e) {
-        err_out = problem_response(400, "Missing or invalid mandatory IE", e.what());
+        err_out =
+            problem_response(400, "Missing or invalid mandatory IE", e.what(), dto_error_cause(e));
     }
     return std::nullopt;
 }

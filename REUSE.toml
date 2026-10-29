@@ -1,0 +1,25 @@
+version = 1
+SPDX-PackageName = "core5gaBssOss"
+SPDX-PackageDownloadLocation = "https://github.com/core5gaBssOss/core5gaBssOss"
+
+# The project's own files (ADR-0507). Per-file headers are not required; this declares them.
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Prajith and contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# 3GPP material vendored as build input (NOTICE, specs/README.md). 3GPP states copyright and no
+# licence in these files; LicenseRef-3GPP-Copyright records exactly that statement.
+[[annotations]]
+path = ["specs/5G_APIs-REL-19/**", "specs/NGAP/**", "specs/3gpp/33128-attachments/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "3GPP Organizational Partners (ARIB, ATIS, CCSA, ETSI, TSDSI, TTA, TTC)"
+SPDX-License-Identifier = "LicenseRef-3GPP-Copyright"
+
+# ETSI forge schemas and ASN.1 (specs/etsi/LICENSE, specs/etsi/SOURCES.md).
+[[annotations]]
+path = "specs/etsi/**"
+precedence = "override"
+SPDX-FileCopyrightText = "ETSI"
+SPDX-License-Identifier = "BSD-3-Clause"

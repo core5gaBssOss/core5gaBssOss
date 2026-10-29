@@ -93,4 +93,9 @@ open(const sbi_gen::FlatJweJson& jwe,
      bool expect_response,
      const std::function<Selection(const HttpMessage&)>& selection_for);
 
+// SUS-03 (ADR-0530): every array index in the JSON pointer `ptr` addresses an element of `body`
+// that exists or the next free one, so a reconstructed body cannot be made to allocate a huge
+// array.
+bool ie_path_within_bounds(const nlohmann::json& body, const std::string& ptr);
+
 } // namespace sepp

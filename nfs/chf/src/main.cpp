@@ -317,26 +317,6 @@ chf::DorisOptions chf_doris_options(const nlohmann::json& config) {
     return options;
 }
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as every other
 // NF's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
 void run_nrf_lifecycle(const std::string& chf_instance_id, const std::string& nrf_base) {
@@ -644,6 +624,18 @@ int main() {
         config, "ai_quota_latency_budget_us", "CHF_AI_QUOTA_LATENCY_BUDGET_US")};
     chf::AiQuotaSizer ai_quota_sizer(
         quota_model_path, ai_quota_sizing_enabled, ai_quota_latency_budget);
+    // ADR-0528: how far the model may move a grant from its price-configured base. Operator
+    // configuration (the GUI's CHF form, schema derived from config/chf.json); 0 < min <= 1 <= max.
+    {
+        const auto min_m = nf_config::require<double>(
+            config, "ai_quota_multiplier_min", "CHF_AI_QUOTA_MULTIPLIER_MIN");
+        const auto max_m = nf_config::require<double>(
+            config, "ai_quota_multiplier_max", "CHF_AI_QUOTA_MULTIPLIER_MAX");
+        if (!(min_m > 0.0 && min_m <= 1.0 && max_m >= 1.0)) {
+            nf_config::fatal("chf: ai_quota_multiplier_min/_max must satisfy 0 < min <= 1 <= max");
+        }
+        ai_quota_sizer.set_multiplier_bounds(min_m, max_m);
+    }
     chf::QuotaFeatureStore quota_feature_store(redis);
 
     // CHF's own client to bss/product-catalog (ADR-0048) -- mTLS only, no OAuth2 (product-catalog
@@ -1002,13 +994,16 @@ int main() {
             try {
                 body = json::parse(req.body);
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             for (const char* required :
                  {"billingAccountId", "billNo", "periodStart", "periodEnd"}) {
                 if (!body.contains(required) || !body[required].is_string()) {
-                    return sbi_core::http2::problem_response(
-                        400, "Invalid request", std::string(required) + " is required");
+                    return sbi_core::http2::problem_response(400,
+                                                             "Invalid request",
+                                                             std::string(required) + " is required",
+                                                             "MANDATORY_IE_MISSING");
                 }
             }
 
@@ -1121,7 +1116,7 @@ int main() {
     // NOT a real Nchf operation: TS 32.291 has no reauthorization-trigger operation, and RAR/RAA
     // themselves are RFC 6733 base-protocol Diameter, not an Nchf HTTP operation at all --
     // inventing an Nchf path for triggering one would fabricate a 3GPP API on top of fabricating
-    // the operation. Placed under `/chf-admin/v1/...` and check_bearer-gated like the
+    // the operation. Placed under `/chf-admin/v1/...` and token-gated (ADR-0499) like the
     // policy-counter route above, NOT left open like /internal-billing/v1/runs: forcing a live Gy
     // session's real re-authorization is a disruptive action on a session a real PCEF/SGSN is
     // actively using, closer in risk to an operator action than to a read/aggregate reporting
@@ -1129,10 +1124,7 @@ int main() {
     server.add_route(
         "POST",
         "/chf-admin/v1/sessions/{SessionId}/reauthorize",
-        [&verifier, &diameter_server](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&diameter_server](const sbi_core::http2::Request& req) {
             const auto& session_id = req.path_params.at("SessionId");
             const auto result = diameter_server.send_reauth_request(session_id);
             if (!result.has_value()) {
@@ -1144,7 +1136,8 @@ int main() {
                     "Reauthorization request could not be completed",
                     "No RAA received for session " + session_id +
                         " -- the session may be unknown, its peer connection gone, or it did not "
-                        "answer within the timeout");
+                        "answer within the timeout",
+                    std::nullopt);
             }
             json out;
             out["sessionId"] = session_id;
@@ -1156,7 +1149,6 @@ int main() {
         "POST",
         std::string(kApiRoot) + "/chargingdata",
         [&li_poi,
-         &verifier,
          &charging_data_store,
          &idempotency_store,
          &create_counter,
@@ -1170,9 +1162,6 @@ int main() {
          &ai_quota_sizer,
          &quota_feature_store,
          &chf_instance_id](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
             // interface for a target" (ADR-0488).
             if (li_poi) {
@@ -1305,7 +1294,6 @@ int main() {
         "POST",
         std::string(kApiRoot) + "/chargingdata/{ChargingDataRef}/update",
         [&li_poi,
-         &verifier,
          &charging_data_store,
          &idempotency_store,
          &update_counter,
@@ -1319,9 +1307,6 @@ int main() {
          &ai_quota_sizer,
          &quota_feature_store,
          &chf_instance_id](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
             // interface for a target" (ADR-0488).
             if (li_poi) {
@@ -1358,7 +1343,7 @@ int main() {
             const auto ref = req.path_params.at("ChargingDataRef");
             if (!charging_data_store.is_active(ref)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No active charging data resource " + ref);
+                    404, "Not Found", "No active charging data resource " + ref, std::nullopt);
             }
             const auto supi = charging_data_store.get_supi(ref).value_or("");
 
@@ -1487,7 +1472,6 @@ int main() {
         "POST",
         std::string(kApiRoot) + "/chargingdata/{ChargingDataRef}/release",
         [&li_poi,
-         &verifier,
          &charging_data_store,
          &idempotency_store,
          &release_counter,
@@ -1495,9 +1479,6 @@ int main() {
          &cdr_writer,
          &cdr_sequence_gap_counter,
          &chf_instance_id](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
             // interface for a target" (ADR-0488).
             if (li_poi) {
@@ -1547,7 +1528,7 @@ int main() {
             const auto granted_time = charging_data_store.get_granted_time(ref); // ADR-0304
             if (!charging_data_store.release(ref)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No active charging data resource " + ref);
+                    404, "Not Found", "No active charging data resource " + ref, std::nullopt);
             }
             // ADR-0297: what the consumer actually reported used, summed across every
             // usedUnitContainer of every rating group in this Release -- the real TS 32.291 figure
@@ -1712,117 +1693,114 @@ int main() {
     // quota. So this handler set does NOT call the rating engine (build_rating_grant) at all,
     // unlike Create/Update above -- a real, spec-driven difference, not an oversight.
 
-    server.add_route(
-        "POST",
-        std::string(kOfflineApiRoot) + "/offlinechargingdata",
-        [&li_poi, &verifier, &offline_charging_data_store, &offline_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
-            // interface for a target" (ADR-0488).
-            if (li_poi) {
-                li_poi->report_charging_data_request(req.body, /*offline=*/true);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<
-                sbi_gen::ChargingDataRequest_Nchf_OfflineOnlyCharging>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
+    server.add_route("POST",
+                     std::string(kOfflineApiRoot) + "/offlinechargingdata",
+                     [&li_poi, &offline_charging_data_store, &offline_create_counter](
+                         const sbi_core::http2::Request& req) {
+                         // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over
+                         // the Nchf interface for a target" (ADR-0488).
+                         if (li_poi) {
+                             li_poi->report_charging_data_request(req.body, /*offline=*/true);
+                         }
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<
+                             sbi_gen::ChargingDataRequest_Nchf_OfflineOnlyCharging>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
 
-            const auto ref = offline_charging_data_store.create();
+                         const auto ref = offline_charging_data_store.create();
 
-            sbi_gen::ChargingDataResponse_Nchf_OfflineOnlyCharging response{};
-            response.invocationTimeStamp =
-                sbi_core::format_rfc3339(std::chrono::system_clock::now());
-            response.invocationSequenceNumber = body->invocationSequenceNumber;
+                         sbi_gen::ChargingDataResponse_Nchf_OfflineOnlyCharging response{};
+                         response.invocationTimeStamp =
+                             sbi_core::format_rfc3339(std::chrono::system_clock::now());
+                         response.invocationSequenceNumber = body->invocationSequenceNumber;
 
-            offline_create_counter->Add(1);
+                         offline_create_counter->Add(1);
 
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kOfflineApiRoot) + "/offlinechargingdata/" + ref);
-            json j = response;
-            resp.body = j.dump();
-            return resp;
-        });
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kOfflineApiRoot) +
+                                                  "/offlinechargingdata/" + ref);
+                         json j = response;
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kOfflineApiRoot) + "/offlinechargingdata/{OfflineChargingDataRef}/update",
-        [&li_poi, &verifier, &offline_charging_data_store, &offline_update_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
-            // interface for a target" (ADR-0488).
-            if (li_poi) {
-                li_poi->report_charging_data_request(req.body, /*offline=*/true);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<
-                sbi_gen::ChargingDataRequest_Nchf_OfflineOnlyCharging>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
+    server.add_route("POST",
+                     std::string(kOfflineApiRoot) +
+                         "/offlinechargingdata/{OfflineChargingDataRef}/update",
+                     [&li_poi, &offline_charging_data_store, &offline_update_counter](
+                         const sbi_core::http2::Request& req) {
+                         // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over
+                         // the Nchf interface for a target" (ADR-0488).
+                         if (li_poi) {
+                             li_poi->report_charging_data_request(req.body, /*offline=*/true);
+                         }
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<
+                             sbi_gen::ChargingDataRequest_Nchf_OfflineOnlyCharging>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
 
-            const auto ref = req.path_params.at("OfflineChargingDataRef");
-            if (!offline_charging_data_store.is_active(ref)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No active offline charging data resource " + ref);
-            }
+                         const auto ref = req.path_params.at("OfflineChargingDataRef");
+                         if (!offline_charging_data_store.is_active(ref)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No active offline charging data resource " + ref,
+                                 std::nullopt);
+                         }
 
-            sbi_gen::ChargingDataResponse_Nchf_OfflineOnlyCharging response{};
-            response.invocationTimeStamp =
-                sbi_core::format_rfc3339(std::chrono::system_clock::now());
-            response.invocationSequenceNumber = body->invocationSequenceNumber;
+                         sbi_gen::ChargingDataResponse_Nchf_OfflineOnlyCharging response{};
+                         response.invocationTimeStamp =
+                             sbi_core::format_rfc3339(std::chrono::system_clock::now());
+                         response.invocationSequenceNumber = body->invocationSequenceNumber;
 
-            offline_update_counter->Add(1);
+                         offline_update_counter->Add(1);
 
-            sbi_core::http2::Response resp;
-            resp.status = 200;
-            resp.headers.emplace("content-type", "application/json");
-            json j = response;
-            resp.body = j.dump();
-            return resp;
-        });
+                         sbi_core::http2::Response resp;
+                         resp.status = 200;
+                         resp.headers.emplace("content-type", "application/json");
+                         json j = response;
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kOfflineApiRoot) + "/offlinechargingdata/{OfflineChargingDataRef}/release",
-        [&li_poi, &verifier, &offline_charging_data_store, &offline_release_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over the Nchf
-            // interface for a target" (ADR-0488).
-            if (li_poi) {
-                li_poi->report_charging_data_request(req.body, /*offline=*/true);
-            }
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<
-                sbi_gen::ChargingDataRequest_Nchf_OfflineOnlyCharging>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
+    server.add_route("POST",
+                     std::string(kOfflineApiRoot) +
+                         "/offlinechargingdata/{OfflineChargingDataRef}/release",
+                     [&li_poi, &offline_charging_data_store, &offline_release_counter](
+                         const sbi_core::http2::Request& req) {
+                         // TS 33.128 clause 7.19.3.1: the CHF "receives a ChargingDataRequest over
+                         // the Nchf interface for a target" (ADR-0488).
+                         if (li_poi) {
+                             li_poi->report_charging_data_request(req.body, /*offline=*/true);
+                         }
+                         sbi_core::http2::Response err;
+                         auto body = sbi_core::http2::parse_json_body<
+                             sbi_gen::ChargingDataRequest_Nchf_OfflineOnlyCharging>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
 
-            const auto ref = req.path_params.at("OfflineChargingDataRef");
-            if (!offline_charging_data_store.release(ref)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No active offline charging data resource " + ref);
-            }
-            offline_release_counter->Add(1);
+                         const auto ref = req.path_params.at("OfflineChargingDataRef");
+                         if (!offline_charging_data_store.release(ref)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No active offline charging data resource " + ref,
+                                 std::nullopt);
+                         }
+                         offline_release_counter->Add(1);
 
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nchf_SpendingLimitControl (TS 29.594, P4.2/ADR-0055) ---
     //
@@ -1845,13 +1823,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kSpendingLimitApiRoot) + "/subscriptions",
-        [&verifier,
-         &spending_limit_store,
-         &policy_counter_config_store,
-         &spending_limit_subscribe_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&spending_limit_store, &policy_counter_config_store, &spending_limit_subscribe_counter](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SpendingLimitContext>(req, err);
             if (!body.has_value()) {
@@ -1876,13 +1849,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kSpendingLimitApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier,
-         &spending_limit_store,
-         &policy_counter_config_store,
-         &spending_limit_update_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&spending_limit_store, &policy_counter_config_store, &spending_limit_update_counter](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::SpendingLimitContext>(req, err);
             if (!body.has_value()) {
@@ -1891,8 +1859,11 @@ int main() {
 
             const auto id = req.path_params.at("subscriptionId");
             if (!spending_limit_store.update(id, *body)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No active spending limit subscription " + id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No active spending limit subscription " +
+                                                             id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             spending_limit_update_counter->Add(1);
 
@@ -1906,25 +1877,24 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kSpendingLimitApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &spending_limit_store, &spending_limit_unsubscribe_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto id = req.path_params.at("subscriptionId");
-            if (!spending_limit_store.remove(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No active spending limit subscription " + id);
-            }
-            spending_limit_unsubscribe_counter->Add(1);
+    server.add_route("DELETE",
+                     std::string(kSpendingLimitApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&spending_limit_store,
+                      &spending_limit_unsubscribe_counter](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!spending_limit_store.remove(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No active spending limit subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         spending_limit_unsubscribe_counter->Add(1);
 
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // ADR-0072 (gap-closure: real N28 end-to-end). Real, THIS-PROJECT-OWNED operator/GUI config
     // endpoint -- NOT a 3GPP-defined resource (no such path exists in TS29594; PolicyCounterInfo.
@@ -1940,20 +1910,21 @@ int main() {
     server.add_route(
         "PUT",
         "/chf-admin/v1/policy-counters/{policyCounterId}",
-        [&verifier, &policy_counter_config_store, &spending_limit_store, &notify_client](
+        [&policy_counter_config_store, &spending_limit_store, &notify_client](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             json body;
             try {
                 body = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!body.contains("currentStatus") || !body["currentStatus"].is_string()) {
                 return sbi_core::http2::problem_response(
-                    400, "Bad Request", "body must be {\"currentStatus\": \"<string>\"}");
+                    400,
+                    "Bad Request",
+                    "body must be {\"currentStatus\": \"<string>\"}",
+                    "MANDATORY_IE_INCORRECT");
             }
             const auto policy_counter_id = req.path_params.at("policyCounterId");
             const std::string new_status = body["currentStatus"].get<std::string>();

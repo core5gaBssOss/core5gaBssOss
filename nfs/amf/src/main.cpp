@@ -81,6 +81,7 @@
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
+#include "sbi_core/json_body.hpp"
 #include "sbi_core/jwt.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
@@ -149,87 +150,11 @@ constexpr const char* kMtApiRoot = "/namf-mt/v1";
 // ADR-0077 (no hardcoded DB URL/config params -- see below) doesn't apply to it.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-sbi_core::http2::Response
-problem_response(int status, const std::string& title, const std::string& detail) {
-    auto pd = sbi_core::make_problem_details(status, title, detail);
-    json j = pd;
-    sbi_core::http2::Response r;
-    r.status = status;
-    r.headers.emplace("content-type", "application/problem+json");
-    r.body = j.dump();
-    return r;
-}
-
-// Same pattern as nfs/nrf/src/main.cpp's check_bearer -- see that file's comment for why a missing
-// Authorization header is not itself a 401 (RegisterNFInstance-equivalent bootstrap security
-// alternative: `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
-// Parses req.body as JSON into T (a generated sbi_gen DTO). On success returns the value; on
-// failure writes a 400 ProblemDetails into err_out and returns nullopt. Shared across all 13
-// routes below rather than repeating the same try/catch 13 times.
-template <typename T>
-std::optional<T> parse_json_body(const sbi_core::http2::Request& req,
-                                 sbi_core::http2::Response& err_out) {
-    try {
-        return json::parse(req.body).get<T>();
-    } catch (const json::parse_error& e) {
-        err_out = problem_response(400, "Malformed JSON", e.what());
-    } catch (const json::exception& e) {
-        err_out = problem_response(400, "Missing or invalid mandatory IE", e.what());
-    }
-    return std::nullopt;
-}
-
-// Same contract as parse_json_body<T>, but for the three operations that are multipart/related-
-// ONLY per spec (CreateUEContext, RelocateUEContext, CancelRelocateUEContext -- see
-// docs/DECISIONS.md ADR-0020). Extracts and parses the root (jsonData) part; binary parts
-// (N2/GTP-C content) are validated as present in the wire format but not otherwise interpreted --
-// there is nothing in this build that consumes real NGAP/GTP-C bytes yet.
-template <typename T>
-std::optional<T> parse_multipart_json_body(const sbi_core::http2::Request& req,
-                                           sbi_core::http2::Response& err_out) {
-    const auto content_type_it = req.headers.find("content-type");
-    if (content_type_it == req.headers.end() ||
-        !sbi_core::multipart::is_multipart_related(content_type_it->second)) {
-        err_out = problem_response(
-            400, "Unsupported Media Type", "This operation requires a multipart/related body");
-        return std::nullopt;
-    }
-    auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
-    if (!parts.has_value()) {
-        err_out = problem_response(400, "Malformed multipart body", parts.error());
-        return std::nullopt;
-    }
-    if (parts->empty() || (*parts)[0].content_type.find("application/json") == std::string::npos) {
-        err_out = problem_response(
-            400, "Malformed multipart body", "first part (jsonData) must be application/json");
-        return std::nullopt;
-    }
-    try {
-        return json::parse((*parts)[0].body).get<T>();
-    } catch (const json::parse_error& e) {
-        err_out = problem_response(400, "Malformed JSON in jsonData part", e.what());
-    } catch (const json::exception& e) {
-        err_out = problem_response(400, "Missing or invalid mandatory IE", e.what());
-    }
-    return std::nullopt;
-}
+// The sbi-core helpers (json_body.hpp): a local copy predated them and lagged behind (no cause,
+// ADR-0502).
+using sbi_core::http2::parse_json_body;
+using sbi_core::http2::parse_multipart_json_body;
+using sbi_core::http2::problem_response;
 
 // Runs on a dedicated thread, never on the server's io_context -- libs/sbi-core's http2::Client is
 // synchronous (docs/DECISIONS.md ADR-0006, disclosed debt), so driving NRF registration/heartbeat
@@ -538,124 +463,118 @@ int main() {
                      tps_limit.burst > 0.0 ? tps_limit.burst : tps_limit.sustained_tps);
     }
 
-    server.add_route(
-        "PUT",
-        std::string(kApiRoot) + "/ue-contexts/{ueContextId}",
-        [&verifier, &ue_contexts, &create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = parse_multipart_json_body<sbi_gen::UeContextCreateData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto ue_context_id = req.path_params.at("ueContextId");
-            // Disclosed simplification: stores only that a context now exists, not the source
-            // AMF's full UeContextCreateData -- this lab has one AMF and no real inter-AMF
-            // mobility/handover logic, so nothing downstream needs that detail (see file header).
-            ue_contexts.put(ue_context_id, json{{"ueContextId", ue_context_id}});
-            create_counter->Add(1);
+    server.add_route("PUT",
+                     std::string(kApiRoot) + "/ue-contexts/{ueContextId}",
+                     [&ue_contexts, &create_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             parse_multipart_json_body<sbi_gen::UeContextCreateData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto ue_context_id = req.path_params.at("ueContextId");
+                         // Disclosed simplification: stores only that a context now exists, not the
+                         // source AMF's full UeContextCreateData -- this lab has one AMF and no
+                         // real inter-AMF mobility/handover logic, so nothing downstream needs that
+                         // detail (see file header).
+                         ue_contexts.put(ue_context_id, json{{"ueContextId", ue_context_id}});
+                         create_counter->Add(1);
 
-            // Disclosed simplification: targetToSourceData.ngapData.contentId is a placeholder,
-            // not a reference to any real attached binary part -- no NGAP stack exists in this
-            // build to produce real N2 content for it to point at.
-            sbi_gen::UeContextCreatedData resp_data;
-            resp_data.ueContext = sbi_gen::UeContext{};
-            resp_data.targetToSourceData.ngapData.contentId = "stub-n2-content";
-            resp_data.pduSessionList = {};
-            json j = resp_data;
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kApiRoot) + "/ue-contexts/" + ue_context_id);
-            resp.body = j.dump();
-            return resp;
-        });
+                         // Disclosed simplification: targetToSourceData.ngapData.contentId is a
+                         // placeholder, not a reference to any real attached binary part -- no NGAP
+                         // stack exists in this build to produce real N2 content for it to point
+                         // at.
+                         sbi_gen::UeContextCreatedData resp_data;
+                         resp_data.ueContext = sbi_gen::UeContext{};
+                         resp_data.targetToSourceData.ngapData.contentId = "stub-n2-content";
+                         resp_data.pduSessionList = {};
+                         json j = resp_data;
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace(
+                             "location", std::string(kApiRoot) + "/ue-contexts/" + ue_context_id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kApiRoot) + "/ue-contexts/{ueContextId}/release",
-        [&verifier, &ue_contexts, &release_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = parse_json_body<sbi_gen::UEContextRelease>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto ue_context_id = req.path_params.at("ueContextId");
-            if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
-            }
-            ue_contexts.remove(ue_context_id);
-            release_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/ue-contexts/{ueContextId}/release",
+                     [&ue_contexts, &release_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = parse_json_body<sbi_gen::UEContextRelease>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto ue_context_id = req.path_params.at("ueContextId");
+                         if (!ue_contexts.get(ue_context_id).has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No UE context with id " + ue_context_id,
+                                                     std::nullopt);
+                         }
+                         ue_contexts.remove(ue_context_id);
+                         release_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kApiRoot) + "/ue-contexts/{ueContextId}/assign-ebi",
-        [&verifier, &ue_contexts, &ebi_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = parse_json_body<sbi_gen::AssignEbiData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto ue_context_id = req.path_params.at("ueContextId");
-            if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
-            }
-            ebi_counter->Add(1);
-            // Disclosed simplification: no real EPS Bearer Id pool -- always reports zero newly
-            // assigned bearers rather than fabricating EBI values with no real bearer behind them.
-            sbi_gen::AssignedEbiData resp_data;
-            resp_data.pduSessionId = body->pduSessionId;
-            resp_data.assignedEbiList = {};
-            json j = resp_data;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/ue-contexts/{ueContextId}/assign-ebi",
+                     [&ue_contexts, &ebi_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = parse_json_body<sbi_gen::AssignEbiData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto ue_context_id = req.path_params.at("ueContextId");
+                         if (!ue_contexts.get(ue_context_id).has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No UE context with id " + ue_context_id,
+                                                     std::nullopt);
+                         }
+                         ebi_counter->Add(1);
+                         // Disclosed simplification: no real EPS Bearer Id pool -- always reports
+                         // zero newly assigned bearers rather than fabricating EBI values with no
+                         // real bearer behind them.
+                         sbi_gen::AssignedEbiData resp_data;
+                         resp_data.pduSessionId = body->pduSessionId;
+                         resp_data.assignedEbiList = {};
+                         json j = resp_data;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kApiRoot) + "/ue-contexts/{ueContextId}/transfer",
-        [&verifier, &ue_contexts, &transfer_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = parse_json_body<sbi_gen::UeContextTransferReqData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto ue_context_id = req.path_params.at("ueContextId");
-            if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
-            }
-            transfer_counter->Add(1);
-            // Unreachable today (see file header): if it ever runs, only the mandatory
-            // ueContext field is populated (all-optional-empty is schema-valid) -- there is no
-            // real stored UE context content yet to transfer.
-            sbi_gen::UeContextTransferRspData resp_data;
-            resp_data.ueContext = sbi_gen::UeContext{};
-            json j = resp_data;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/ue-contexts/{ueContextId}/transfer",
+                     [&ue_contexts, &transfer_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = parse_json_body<sbi_gen::UeContextTransferReqData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto ue_context_id = req.path_params.at("ueContextId");
+                         if (!ue_contexts.get(ue_context_id).has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No UE context with id " + ue_context_id,
+                                                     std::nullopt);
+                         }
+                         transfer_counter->Add(1);
+                         // Unreachable today (see file header): if it ever runs, only the mandatory
+                         // ueContext field is populated (all-optional-empty is schema-valid) --
+                         // there is no real stored UE context content yet to transfer.
+                         sbi_gen::UeContextTransferRspData resp_data;
+                         resp_data.ueContext = sbi_gen::UeContext{};
+                         json j = resp_data;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{ueContextId}/relocate",
-        [&verifier, &ue_contexts, &relocate_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_contexts, &relocate_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_multipart_json_body<sbi_gen::UeContextRelocateData>(req, err);
             if (!body.has_value()) {
@@ -663,7 +582,8 @@ int main() {
             }
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
+                return problem_response(
+                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
             }
             relocate_counter->Add(1);
             sbi_gen::UeContextRelocatedData resp_data;
@@ -681,10 +601,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{ueContextId}/cancel-relocate",
-        [&verifier, &ue_contexts, &cancel_relocate_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_contexts, &cancel_relocate_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_multipart_json_body<sbi_gen::UeContextCancelRelocateData>(req, err);
             if (!body.has_value()) {
@@ -692,7 +609,8 @@ int main() {
             }
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
+                return problem_response(
+                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
             }
             cancel_relocate_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -700,40 +618,71 @@ int main() {
             return resp;
         });
 
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/ue-contexts/{ueContextId}/transfer-update",
+                     [&ue_contexts, &reg_status_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = parse_json_body<sbi_gen::UeRegStatusUpdateReqData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto ue_context_id = req.path_params.at("ueContextId");
+                         if (!ue_contexts.get(ue_context_id).has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No UE context with id " + ue_context_id,
+                                                     std::nullopt);
+                         }
+                         reg_status_counter->Add(1);
+                         sbi_gen::UeRegStatusUpdateRspData resp_data;
+                         resp_data.regStatusTransferComplete = true;
+                         json j = resp_data;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
+
+    // ADR-0523, TS 23.502 4.3.4.2 step 11: Nsmf_PDUSession_SMContextStatusNotify at the
+    // smContextStatusUri this AMF gave the SMF (one per PDU session). RELEASED drops the AMF's
+    // association between the PDU session ID and its SM context. Notification: no OAuth2 (TS
+    // 33.501 13.4.1.0).
     server.add_route(
         "POST",
-        std::string(kApiRoot) + "/ue-contexts/{ueContextId}/transfer-update",
-        [&verifier, &ue_contexts, &reg_status_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        "/namf-callback/v1/sm-context-status/{supi}/{pduSessionId}",
+        [&ue_contexts](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
-            auto body = parse_json_body<sbi_gen::UeRegStatusUpdateReqData>(req, err);
+            auto body = sbi_core::http2::parse_json_body<
+                sbi_gen::SmContextStatusNotification_Nsmf_PDUSession>(req, err);
             if (!body.has_value()) {
                 return err;
             }
-            const auto ue_context_id = req.path_params.at("ueContextId");
-            if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
+            const auto supi = req.path_params.at("supi");
+            const auto psi = req.path_params.at("pduSessionId");
+            auto ctx = ue_contexts.get(supi);
+            if (!ctx.has_value() || !ctx->contains("smContextRefs") ||
+                !ctx->at("smContextRefs").contains(psi)) {
+                return problem_response(404,
+                                        "Not Found",
+                                        "No PDU session " + psi + " for " + supi,
+                                        "CONTEXT_NOT_FOUND");
             }
-            reg_status_counter->Add(1);
-            sbi_gen::UeRegStatusUpdateRspData resp_data;
-            resp_data.regStatusTransferComplete = true;
-            json j = resp_data;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+            if (body->statusInfo.resourceStatus.value == sbi_gen::ResourceStatus::RELEASED) {
+                (*ctx)["smContextRefs"].erase(psi);
+                ue_contexts.put(supi, *ctx);
+                spdlog::info("amf: SMF released PDU session {} of {}", psi, supi);
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        },
+        sbi_core::http2::RouteAuth::None);
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{ueContextId}/n1-n2-messages",
-        [&verifier, &ue_contexts, &ue_ngap_registry, &n1n2_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_contexts, &ue_ngap_registry, &n1n2_counter](const sbi_core::http2::Request& req) {
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
+                return problem_response(
+                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
             }
 
             // Real delivery (ADR-0038) requires a binary N1 message, i.e. multipart/related --
@@ -768,7 +717,8 @@ int main() {
                 return problem_response(400,
                                         "Missing binary part",
                                         "n1MessageContainer referenced but its binary part was "
-                                        "not found in the multipart body");
+                                        "not found in the multipart body",
+                                        "INVALID_MSG_FORMAT");
             }
             // ADR-0486: TS 23.502 4.13.3.3 steps 2c-2d / 6a-6b -- the SMSF's CP-ACK and RP reply
             // (n1MessageClass SMS) go to the UE as DL NAS TRANSPORT with payload container type
@@ -780,7 +730,8 @@ int main() {
                     return problem_response(404,
                                             "Not Found",
                                             "No live NGAP association registered for UE context " +
-                                                ue_context_id);
+                                                ue_context_id,
+                                            std::nullopt);
                 }
                 n1n2_counter->Add(1);
                 sbi_gen::N1N2MessageTransferRspData sms_resp;
@@ -791,16 +742,26 @@ int main() {
                 return problem_response(
                     400,
                     "Missing mandatory IE",
-                    "This build requires pduSessionId to route the N1 message to a PDU session");
+                    "This build requires pduSessionId to route the N1 message to a PDU session",
+                    "MANDATORY_IE_MISSING");
             }
 
             const auto delivered = ue_ngap_registry.send_dl_nas_transport(
                 ue_context_id, static_cast<std::uint8_t>(*body->pduSessionId), *n1_bytes);
+            // ADR-0523, TS 29.518 5.2.2.3.1.2 Case A a): a UE with no NGAP association is the
+            // CM-IDLE case; with skipInd the AMF answers 200 N1_MSG_NOT_TRANSFERRED. (No paging:
+            // without skipInd the 404 below stands, a disclosed gap.)
+            if (!delivered && body->skipInd.value_or(false)) {
+                sbi_gen::N1N2MessageTransferRspData skipped;
+                skipped.cause.value = sbi_gen::N1N2MessageTransferCause::N1_MSG_NOT_TRANSFERRED;
+                return sbi_core::http2::Response::json(200, json(skipped).dump());
+            }
             if (!delivered) {
                 return problem_response(404,
                                         "Not Found",
                                         "No live NGAP association registered for UE context " +
-                                            ue_context_id);
+                                            ue_context_id,
+                                        std::nullopt);
             }
 
             n1n2_counter->Add(1);
@@ -813,10 +774,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{ueContextId}/n1-n2-messages/subscriptions",
-        [&verifier, &ue_n1n2_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_n1n2_subs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_json_body<sbi_gen::UeN1N2InfoSubscriptionCreateData>(req, err);
             if (!body.has_value()) {
@@ -844,16 +802,15 @@ int main() {
     server.add_route("DELETE",
                      std::string(kApiRoot) +
                          "/ue-contexts/{ueContextId}/n1-n2-messages/subscriptions/{subscriptionId}",
-                     [&verifier, &ue_n1n2_subs](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier);
-                             auth.has_value() && !auth->valid) {
-                             return problem_response(401, "Unauthorized", auth->error);
-                         }
+                     [&ue_n1n2_subs](const sbi_core::http2::Request& req) {
                          const auto ue_context_id = req.path_params.at("ueContextId");
                          const auto sub_id = req.path_params.at("subscriptionId");
                          auto existing = ue_n1n2_subs.get(sub_id);
                          if (!existing.has_value() || existing->ue_context_id != ue_context_id) {
-                             return problem_response(404, "Not Found", "No such N1N2 subscription");
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No such N1N2 subscription",
+                                                     "SUBSCRIPTION_NOT_FOUND");
                          }
                          ue_n1n2_subs.remove(sub_id);
                          sbi_core::http2::Response resp;
@@ -861,35 +818,29 @@ int main() {
                          return resp;
                      });
 
-    server.add_route(
-        "POST",
-        std::string(kApiRoot) + "/non-ue-n2-messages/transfer",
-        [&verifier, &non_ue_n2_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = parse_json_body<sbi_gen::N2InformationTransferReqData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            non_ue_n2_counter->Add(1);
-            // Same "no real N2 delivery pipeline yet" disclosed simplification as
-            // N1N2MessageTransfer above.
-            sbi_gen::N2InformationTransferRspData resp_data;
-            resp_data.result.value =
-                sbi_gen::N2InformationTransferResult::N2_INFO_TRANSFER_INITIATED;
-            json j = resp_data;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/non-ue-n2-messages/transfer",
+                     [&non_ue_n2_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             parse_json_body<sbi_gen::N2InformationTransferReqData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         non_ue_n2_counter->Add(1);
+                         // Same "no real N2 delivery pipeline yet" disclosed simplification as
+                         // N1N2MessageTransfer above.
+                         sbi_gen::N2InformationTransferRspData resp_data;
+                         resp_data.result.value =
+                             sbi_gen::N2InformationTransferResult::N2_INFO_TRANSFER_INITIATED;
+                         json j = resp_data;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/non-ue-n2-messages/subscriptions",
-        [&verifier, &non_ue_n2_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&non_ue_n2_subs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_json_body<sbi_gen::NonUeN2InfoSubscriptionCreateData>(req, err);
             if (!body.has_value()) {
@@ -912,13 +863,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kApiRoot) + "/non-ue-n2-messages/subscriptions/{n2NotifySubscriptionId}",
-        [&verifier, &non_ue_n2_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&non_ue_n2_subs](const sbi_core::http2::Request& req) {
             const auto sub_id = req.path_params.at("n2NotifySubscriptionId");
             if (!non_ue_n2_subs.get(sub_id).has_value()) {
-                return problem_response(404, "Not Found", "No such non-UE N2 subscription");
+                return problem_response(
+                    404, "Not Found", "No such non-UE N2 subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             non_ue_n2_subs.remove(sub_id);
             sbi_core::http2::Response resp;
@@ -929,10 +878,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/subscriptions",
-        [&verifier, &amf_status_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&amf_status_subs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_json_body<sbi_gen::SubscriptionData_Namf_Communication>(req, err);
             if (!body.has_value()) {
@@ -949,30 +895,26 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &amf_status_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sub_id = req.path_params.at("subscriptionId");
-            if (!amf_status_subs.get(sub_id).has_value()) {
-                return problem_response(404, "Not Found", "No such AMF status subscription");
-            }
-            amf_status_subs.remove(sub_id);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&amf_status_subs](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subscriptionId");
+                         if (!amf_status_subs.get(sub_id).has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No such AMF status subscription",
+                                                     "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         amf_status_subs.remove(sub_id);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "PUT",
         std::string(kApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &amf_status_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&amf_status_subs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_json_body<sbi_gen::SubscriptionData_Namf_Communication>(req, err);
             if (!body.has_value()) {
@@ -980,7 +922,8 @@ int main() {
             }
             const auto sub_id = req.path_params.at("subscriptionId");
             if (!amf_status_subs.update(sub_id, *body)) {
-                return problem_response(404, "Not Found", "No such AMF status subscription");
+                return problem_response(
+                    404, "Not Found", "No such AMF status subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             json j = *body;
             return sbi_core::http2::Response::json(200, j.dump());
@@ -990,11 +933,7 @@ int main() {
 
     server.add_route("POST",
                      std::string(kLocationApiRoot) + "/{ueContextId}/provide-pos-info",
-                     [&verifier, &provide_pos_info_counter](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier);
-                             auth.has_value() && !auth->valid) {
-                             return problem_response(401, "Unauthorized", auth->error);
-                         }
+                     [&provide_pos_info_counter](const sbi_core::http2::Request& req) {
                          sbi_core::http2::Response err;
                          auto body = parse_json_body<sbi_gen::RequestPosInfo>(req, err);
                          if (!body.has_value()) {
@@ -1007,16 +946,14 @@ int main() {
                          return problem_response(
                              501,
                              "Not Implemented",
-                             "No positioning capability (LPP/GNSS/PRU) implemented in this build");
+                             "No positioning capability (LPP/GNSS/PRU) implemented in this build",
+                             std::nullopt);
                      });
 
     server.add_route(
         "POST",
         std::string(kLocationApiRoot) + "/{ueContextId}/provide-loc-info",
-        [&verifier, &ue_contexts, &provide_loc_info_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_contexts, &provide_loc_info_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_json_body<sbi_gen::RequestLocInfo>(req, err);
             if (!body.has_value()) {
@@ -1024,7 +961,8 @@ int main() {
             }
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
+                return problem_response(
+                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
             }
             provide_loc_info_counter->Add(1);
             // Disclosed simplification: an honestly-empty ProvideLocInfo -- UeContextStore only
@@ -1035,36 +973,31 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "POST",
-        std::string(kLocationApiRoot) + "/{ueContextId}/cancel-pos-info",
-        [&verifier, &cancel_location_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = parse_json_body<sbi_gen::CancelPosInfo>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            cancel_location_counter->Add(1);
-            // Disclosed: ProvidePositioningInfo above always 501s, so no real ldrReference is ever
-            // issued -- no cancellation request can ever match one. Same precedent as LMF/GMLC's
-            // own cancel-path gaps.
-            return problem_response(
-                404, "Not Found", "No positioning request with ldrReference " + body->ldrReference);
-        });
+    server.add_route("POST",
+                     std::string(kLocationApiRoot) + "/{ueContextId}/cancel-pos-info",
+                     [&cancel_location_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = parse_json_body<sbi_gen::CancelPosInfo>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         cancel_location_counter->Add(1);
+                         // Disclosed: ProvidePositioningInfo above always 501s, so no real
+                         // ldrReference is ever issued -- no cancellation request can ever match
+                         // one. Same precedent as LMF/GMLC's own cancel-path gaps.
+                         return problem_response(404,
+                                                 "Not Found",
+                                                 "No positioning request with ldrReference " +
+                                                     body->ldrReference,
+                                                 std::nullopt);
+                     });
 
     // ---- TS29518_Namf_EventExposure.yaml (ADR-0199) ----
 
     server.add_route(
         "POST",
         std::string(kEventExposureApiRoot) + "/subscriptions",
-        [&verifier, &amf_event_subs, &event_subscribe_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&amf_event_subs, &event_subscribe_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_json_body<sbi_gen::AmfCreateEventSubscription>(req, err);
             if (!body.has_value()) {
@@ -1088,37 +1021,41 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &amf_event_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&amf_event_subs](const sbi_core::http2::Request& req) {
             const auto sub_id = req.path_params.at("subscriptionId");
             auto existing = amf_event_subs.get(sub_id);
             if (!existing.has_value()) {
-                return problem_response(404, "Not Found", "No such event subscription");
+                return problem_response(
+                    404, "Not Found", "No such event subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response err;
             json patch_doc;
             try {
                 patch_doc = json::parse(req.body);
             } catch (const std::exception& e) {
-                return problem_response(
-                    400, "Bad Request", std::string("Invalid JSON: ") + e.what());
+                return problem_response(400,
+                                        "Bad Request",
+                                        std::string("Invalid JSON: ") + e.what(),
+                                        "INVALID_MSG_FORMAT");
             }
             json current = *existing;
             json patched;
             try {
                 patched = current.patch(patch_doc);
             } catch (const std::exception& e) {
-                return problem_response(
-                    400, "Bad Request", std::string("Invalid JSON Patch: ") + e.what());
+                return problem_response(400,
+                                        "Bad Request",
+                                        std::string("Invalid JSON Patch: ") + e.what(),
+                                        "INVALID_MSG_FORMAT");
             }
             sbi_gen::AmfEventSubscription updated;
             try {
                 updated = patched.get<sbi_gen::AmfEventSubscription>();
             } catch (const std::exception& e) {
-                return problem_response(
-                    400, "Bad Request", std::string("Patched document invalid: ") + e.what());
+                return problem_response(400,
+                                        "Bad Request",
+                                        std::string("Patched document invalid: ") + e.what(),
+                                        "UNSPECIFIED_MSG_FAILURE");
             }
             amf_event_subs.update(sub_id, updated);
             sbi_gen::AmfUpdatedEventSubscription resp_data;
@@ -1127,31 +1064,26 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&verifier, &amf_event_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sub_id = req.path_params.at("subscriptionId");
-            if (!amf_event_subs.get(sub_id).has_value()) {
-                return problem_response(404, "Not Found", "No such event subscription");
-            }
-            amf_event_subs.remove(sub_id);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&amf_event_subs](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subscriptionId");
+                         if (!amf_event_subs.get(sub_id).has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No such event subscription",
+                                                     "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         amf_event_subs.remove(sub_id);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "POST",
         std::string(kEventExposureApiRoot) + "/set-subscriptions",
-        [&verifier, &amf_set_event_subs, &set_event_subscribe_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&amf_set_event_subs, &set_event_subscribe_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_json_body<sbi_gen::AmfCreateEventSubscription>(req, err);
             if (!body.has_value()) {
@@ -1172,60 +1104,63 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "PATCH",
-        std::string(kEventExposureApiRoot) + "/set-subscriptions/{subscriptionId}",
-        [&verifier, &amf_set_event_subs](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sub_id = req.path_params.at("subscriptionId");
-            auto existing = amf_set_event_subs.get(sub_id);
-            if (!existing.has_value()) {
-                return problem_response(
-                    404, "Not Found", "No such AMF-Set-level event subscription");
-            }
-            sbi_core::http2::Response err;
-            json patch_doc;
-            try {
-                patch_doc = json::parse(req.body);
-            } catch (const std::exception& e) {
-                return problem_response(
-                    400, "Bad Request", std::string("Invalid JSON: ") + e.what());
-            }
-            json current = *existing;
-            json patched;
-            try {
-                patched = current.patch(patch_doc);
-            } catch (const std::exception& e) {
-                return problem_response(
-                    400, "Bad Request", std::string("Invalid JSON Patch: ") + e.what());
-            }
-            sbi_gen::AmfEventSubscription updated;
-            try {
-                updated = patched.get<sbi_gen::AmfEventSubscription>();
-            } catch (const std::exception& e) {
-                return problem_response(
-                    400, "Bad Request", std::string("Patched document invalid: ") + e.what());
-            }
-            amf_set_event_subs.update(sub_id, updated);
-            sbi_gen::AmfUpdatedEventSubscription resp_data;
-            resp_data.subscription = updated;
-            json j = resp_data;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("PATCH",
+                     std::string(kEventExposureApiRoot) + "/set-subscriptions/{subscriptionId}",
+                     [&amf_set_event_subs](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subscriptionId");
+                         auto existing = amf_set_event_subs.get(sub_id);
+                         if (!existing.has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No such AMF-Set-level event subscription",
+                                                     "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response err;
+                         json patch_doc;
+                         try {
+                             patch_doc = json::parse(req.body);
+                         } catch (const std::exception& e) {
+                             return problem_response(400,
+                                                     "Bad Request",
+                                                     std::string("Invalid JSON: ") + e.what(),
+                                                     "INVALID_MSG_FORMAT");
+                         }
+                         json current = *existing;
+                         json patched;
+                         try {
+                             patched = current.patch(patch_doc);
+                         } catch (const std::exception& e) {
+                             return problem_response(400,
+                                                     "Bad Request",
+                                                     std::string("Invalid JSON Patch: ") + e.what(),
+                                                     "INVALID_MSG_FORMAT");
+                         }
+                         sbi_gen::AmfEventSubscription updated;
+                         try {
+                             updated = patched.get<sbi_gen::AmfEventSubscription>();
+                         } catch (const std::exception& e) {
+                             return problem_response(400,
+                                                     "Bad Request",
+                                                     std::string("Patched document invalid: ") +
+                                                         e.what(),
+                                                     "UNSPECIFIED_MSG_FAILURE");
+                         }
+                         amf_set_event_subs.update(sub_id, updated);
+                         sbi_gen::AmfUpdatedEventSubscription resp_data;
+                         resp_data.subscription = updated;
+                         json j = resp_data;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     server.add_route("DELETE",
                      std::string(kEventExposureApiRoot) + "/set-subscriptions/{subscriptionId}",
-                     [&verifier, &amf_set_event_subs](const sbi_core::http2::Request& req) {
-                         if (auto auth = check_bearer(req, verifier);
-                             auth.has_value() && !auth->valid) {
-                             return problem_response(401, "Unauthorized", auth->error);
-                         }
+                     [&amf_set_event_subs](const sbi_core::http2::Request& req) {
                          const auto sub_id = req.path_params.at("subscriptionId");
                          if (!amf_set_event_subs.get(sub_id).has_value()) {
-                             return problem_response(
-                                 404, "Not Found", "No such AMF-Set-level event subscription");
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No such AMF-Set-level event subscription",
+                                                     "SUBSCRIPTION_NOT_FOUND");
                          }
                          amf_set_event_subs.remove(sub_id);
                          sbi_core::http2::Response resp;
@@ -1235,43 +1170,37 @@ int main() {
 
     // ---- TS29518_Namf_AIoT.yaml (ADR-0200) ----
 
-    server.add_route(
-        "POST",
-        std::string(kAiotApiRoot) + "/transfer",
-        [&verifier, &aiot_message_delivery_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            std::optional<sbi_gen::AiotMessageReq> body;
-            const auto ct_it = req.headers.find("content-type");
-            if (ct_it != req.headers.end() &&
-                sbi_core::multipart::is_multipart_related(ct_it->second)) {
-                body = parse_multipart_json_body<sbi_gen::AiotMessageReq>(req, err);
-            } else {
-                body = parse_json_body<sbi_gen::AiotMessageReq>(req, err);
-            }
-            if (!body.has_value()) {
-                return err;
-            }
-            aiot_message_delivery_counter->Add(1);
-            // Disclosed gap: this lab has no real Ambient IoT device/NG-RAN stack (TS 23.369 is a
-            // Tier 3 R19 feature per CLAUDE.md) -- the message is structurally validated and
-            // accepted, but nothing is actually forwarded to a device.
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kAiotApiRoot) + "/transfer",
+                     [&aiot_message_delivery_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         std::optional<sbi_gen::AiotMessageReq> body;
+                         const auto ct_it = req.headers.find("content-type");
+                         if (ct_it != req.headers.end() &&
+                             sbi_core::multipart::is_multipart_related(ct_it->second)) {
+                             body = parse_multipart_json_body<sbi_gen::AiotMessageReq>(req, err);
+                         } else {
+                             body = parse_json_body<sbi_gen::AiotMessageReq>(req, err);
+                         }
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         aiot_message_delivery_counter->Add(1);
+                         // Disclosed gap: this lab has no real Ambient IoT device/NG-RAN stack
+                         // (TS 23.369 is a Tier 3 R19 feature per CLAUDE.md) -- the message is
+                         // structurally validated and accepted, but nothing is actually forwarded
+                         // to a device.
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // ---- TS29518_Namf_MBSCommunication.yaml (ADR-0200) ----
 
     server.add_route(
         "POST",
         std::string(kMbsCommApiRoot) + "/n2-messages/transfer",
-        [&verifier, &mbs_n2_message_transfer_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&mbs_n2_message_transfer_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = parse_multipart_json_body<sbi_gen::MbsN2MessageTransferReqData>(req, err);
             if (!body.has_value()) {
@@ -1289,91 +1218,81 @@ int main() {
 
     // ---- TS29518_Namf_MBSBroadcast.yaml (ADR-0200) ----
 
-    server.add_route(
-        "POST",
-        std::string(kMbsBroadcastApiRoot) + "/mbs-contexts",
-        [&verifier, &mbs_broadcast_contexts, &mbs_context_create_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = parse_multipart_json_body<sbi_gen::ContextCreateReqData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto id = mbs_broadcast_contexts.create(*body);
-            mbs_context_create_counter->Add(1);
-            sbi_gen::ContextCreateRspData resp_data;
-            resp_data.mbsSessionId = body->mbsSessionId;
-            json j = resp_data;
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location",
-                                 std::string(kMbsBroadcastApiRoot) + "/mbs-contexts/" + id);
-            resp.body = j.dump();
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kMbsBroadcastApiRoot) + "/mbs-contexts",
+                     [&mbs_broadcast_contexts,
+                      &mbs_context_create_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             parse_multipart_json_body<sbi_gen::ContextCreateReqData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto id = mbs_broadcast_contexts.create(*body);
+                         mbs_context_create_counter->Add(1);
+                         sbi_gen::ContextCreateRspData resp_data;
+                         resp_data.mbsSessionId = body->mbsSessionId;
+                         json j = resp_data;
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace(
+                             "location", std::string(kMbsBroadcastApiRoot) + "/mbs-contexts/" + id);
+                         resp.body = j.dump();
+                         return resp;
+                     });
 
-    server.add_route(
-        "DELETE",
-        std::string(kMbsBroadcastApiRoot) + "/mbs-contexts/{mbsContextRef}",
-        [&verifier, &mbs_broadcast_contexts, &mbs_context_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ctx_ref = req.path_params.at("mbsContextRef");
-            if (!mbs_broadcast_contexts.get(ctx_ref).has_value()) {
-                return problem_response(404, "Not Found", "No such MBS broadcast context");
-            }
-            mbs_broadcast_contexts.remove(ctx_ref);
-            mbs_context_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kMbsBroadcastApiRoot) + "/mbs-contexts/{mbsContextRef}",
+                     [&mbs_broadcast_contexts,
+                      &mbs_context_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto ctx_ref = req.path_params.at("mbsContextRef");
+                         if (!mbs_broadcast_contexts.get(ctx_ref).has_value()) {
+                             return problem_response(
+                                 404, "Not Found", "No such MBS broadcast context", std::nullopt);
+                         }
+                         mbs_broadcast_contexts.remove(ctx_ref);
+                         mbs_context_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    server.add_route(
-        "POST",
-        std::string(kMbsBroadcastApiRoot) + "/mbs-contexts/{mbsContextRef}/update",
-        [&verifier, &mbs_broadcast_contexts, &mbs_context_update_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto ctx_ref = req.path_params.at("mbsContextRef");
-            if (!mbs_broadcast_contexts.get(ctx_ref).has_value()) {
-                return problem_response(404, "Not Found", "No such MBS broadcast context");
-            }
-            sbi_core::http2::Response err;
-            auto body = parse_multipart_json_body<sbi_gen::ContextUpdateReqData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            mbs_context_update_counter->Add(1);
-            // Disclosed simplification: the update body's fields are validated but not merged
-            // into stored state -- same as ContextCreate, there is no real N2 consumer downstream
-            // that would ever read the merged result in this lab build.
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kMbsBroadcastApiRoot) + "/mbs-contexts/{mbsContextRef}/update",
+                     [&mbs_broadcast_contexts,
+                      &mbs_context_update_counter](const sbi_core::http2::Request& req) {
+                         const auto ctx_ref = req.path_params.at("mbsContextRef");
+                         if (!mbs_broadcast_contexts.get(ctx_ref).has_value()) {
+                             return problem_response(
+                                 404, "Not Found", "No such MBS broadcast context", std::nullopt);
+                         }
+                         sbi_core::http2::Response err;
+                         auto body =
+                             parse_multipart_json_body<sbi_gen::ContextUpdateReqData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         mbs_context_update_counter->Add(1);
+                         // Disclosed simplification: the update body's fields are validated but not
+                         // merged into stored state -- same as ContextCreate, there is no real N2
+                         // consumer downstream that would ever read the merged result in this lab
+                         // build.
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // ---- TS29518_Namf_MT.yaml (ADR-0200) ----
 
     server.add_route(
         "GET",
         std::string(kMtApiRoot) + "/ue-contexts/{ueContextId}",
-        [&verifier, &ue_contexts, &mt_domain_selection_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
+        [&ue_contexts, &mt_domain_selection_counter](const sbi_core::http2::Request& req) {
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
+                return problem_response(
+                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
             }
             mt_domain_selection_counter->Add(1);
             // Disclosed simplification: honestly-empty UeContextInfo -- same "UeContextStore only
@@ -1386,11 +1305,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kMtApiRoot) + "/ue-contexts/{ueContextId}/ue-reachind",
-        [&verifier, &ue_contexts, &ue_ngap_registry, &mt_enable_reachability_counter](
+        [&ue_contexts, &ue_ngap_registry, &mt_enable_reachability_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = parse_json_body<sbi_gen::EnableUeReachabilityReqData>(req, err);
             if (!body.has_value()) {
@@ -1398,7 +1314,8 @@ int main() {
             }
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(404, "Not Found", "No UE context with id " + ue_context_id);
+                return problem_response(
+                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
             }
             mt_enable_reachability_counter->Add(1);
             // ADR-0486 increment 4: a UE with a live NGAP association is CM-CONNECTED and so
@@ -1413,25 +1330,22 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "POST",
-        std::string(kMtApiRoot) + "/ue-contexts/enable-group-reachability",
-        [&verifier, &mt_enable_group_reachability_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response err;
-            auto body = parse_json_body<sbi_gen::EnableGroupReachabilityReqData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            mt_enable_group_reachability_counter->Add(1);
-            // Disclosed simplification: honestly-empty ueConnectedList -- no real per-UE
-            // reachability tracking exists to populate it from.
-            sbi_gen::EnableGroupReachabilityRspData resp_data;
-            json j = resp_data;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("POST",
+                     std::string(kMtApiRoot) + "/ue-contexts/enable-group-reachability",
+                     [&mt_enable_group_reachability_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             parse_json_body<sbi_gen::EnableGroupReachabilityReqData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         mt_enable_group_reachability_counter->Add(1);
+                         // Disclosed simplification: honestly-empty ueConnectedList -- no real
+                         // per-UE reachability tracking exists to populate it from.
+                         sbi_gen::EnableGroupReachabilityRspData resp_data;
+                         json j = resp_data;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     std::thread(run_nrf_lifecycle, amf_instance_id, nrf_base, advertised_ipv4).detach();
 

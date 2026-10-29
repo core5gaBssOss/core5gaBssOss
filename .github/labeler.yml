@@ -1,0 +1,92 @@
+# Area labels by path, applied by .github/workflows/pr-labels.yml. Mirrors the area table in
+# .github/CONTRIBUTING.md, the source of truth (ADR-0467). Paths the table leaves unassigned get no
+# area label.
+
+area/core:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nfs/amf/**
+          - nfs/nrf/**
+          - nfs/smf/**
+          - nfs/pcf/**
+          - nfs/scp/**
+          - nfs/nssf/**
+          - nfs/nef/**
+          - nfs/bsf/**
+          - nfs/upf/**
+          - nfs/smsf/**
+          - nfs/gmlc/**
+          - nfs/lmf/**
+          - nfs/nsacf/**
+
+area/provisioning:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nfs/udm/**
+          - nfs/udr/**
+          - nfs/ausf/**
+          - nfs/udsf/**
+          - nfs/eir/**
+
+# bss/product-catalog belongs to Products and Catalog, so the other bss/ services are listed
+# one by one.
+area/charging-bss:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nfs/chf/**
+          - bss/balance-management/**
+          - bss/provisioning/**
+          - bss/roaming-interconnect/**
+          - bss/subscriber-management/**
+          - libs/bss-sid/**
+          - libs/cap-core/**
+          - libs/diameter-core/**
+          - libs/ss7-core/**
+          - libs/tcap-core/**
+          - libs/map-core/**
+          - libs/tap3-core/**
+          - libs/tbcd-core/**
+
+area/products-catalog:
+  - changed-files:
+      - any-glob-to-any-file:
+          - bss/product-catalog/**
+
+area/security-li:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nfs/li-*/**
+          - libs/li-*/**
+
+area/nwdaf-analytics:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nfs/nwdaf/**
+          - nfs/adrf/**
+          - nfs/dccf/**
+          - nfs/mfaf/**
+
+area/automation-deploy:
+  - changed-files:
+      - any-glob-to-any-file:
+          - deploy/**
+          - scripts/**
+          - .github/**
+          - tools/**
+
+area/gui:
+  - changed-files:
+      - any-glob-to-any-file:
+          - gui/**
+
+area/platform:
+  - changed-files:
+      - any-glob-to-any-file:
+          - libs/sbi-core/**
+          - libs/nf-config/**
+          - libs/sbi-generated/**
+          - libs/ngap-core/**
+          - libs/ngap-generated/**
+          - libs/pfcp-core/**
+          - libs/event-bus/**
+          - nfs/hello-nf/**

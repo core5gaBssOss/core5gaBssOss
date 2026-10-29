@@ -1,0 +1,11 @@
+# Shell scripts run inside Linux containers: keep LF line endings on every checkout.
+*.sh text eol=lf
+
+# Vendored third-party material: kept byte-for-byte as published (some files use CRLF), and left
+# out of GitHub's language statistics.
+specs/** -text linguist-vendored
+simulators/reference/** linguist-vendored
+
+# Generated: scripts/docs/render_title_svg.py and tools/diagrams/render_architecture.py.
+docs/assets/title*.svg linguist-generated
+docs/diagrams/architecture*.svg linguist-generated
