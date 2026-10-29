@@ -488,6 +488,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0529](decisions/ADR-0529-sepp-per-plmn-trust-anchors-on-n32-ts-33-501-13-1-2-sec-01.md) SEPP per-PLMN trust anchors on N32 (TS 33.501 13.1.2, SEC-01)
 - [0530](decisions/ADR-0530-sepp-hardening-csprng-handshake-ids-case-insensitive.md) SEPP hardening: CSPRNG handshake ids, case-insensitive headers, bounded telescopic table, linear Via scan, bounded PRINS iePaths
 - [0531](decisions/ADR-0531-udr-serves-only-the-yaml-s-methods-no-item-get-on-three.md) UDR serves only the YAML's methods: no item GET on three application-data resources, no pseudo-operation (SPEC-08/09)
+- [0532](decisions/ADR-0532-lab-listeners-bind-0-0-0-0-so-a-gnb-can-attach-first-ue.md) Lab: listeners bind 0.0.0.0, so a gNB can attach; first UE through the compose lab
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

@@ -36,6 +36,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | SPEC-08, SPEC-09, SPEC-10 | Fixed (2026-10-24): item GETs and the data-restoration pseudo-operation removed (ADR-0531); SPEC-10 already removed by `d9ef9dc` | ADR-0531 |
 > | SUS-04 | Fixed (2026-10-25): AUSF compares RES* with CRYPTO_memcmp | `nfs/ausf/src/main.cpp` |
 > | RULE-01 | Fixed (2026-10-26): no raw `new`/`delete` left under `nfs/`, `libs/`, `bss/` (re-grepped). UPF: a non-heap `Fd` RAII class replaces `unique_ptr<int>` + `delete`; NAS-alg loader: `make_unique` through a pass-key constructor (only `load()` can build a `Provider`); LI X2/X3 server: `make_unique<std::atomic<bool>>` | `nfs/upf/src/advertised_address.cpp`, `libs/nas-alg-provider`, `libs/li-core/src/x2x3_server.cpp` |
+> | DOC-03 (part 2) | Fixed (2026-10-26): independent KAKMA / A-TID / KAF known-answer vectors, S spelled out and HMAC-SHA-256 computed outside the project (Python stdlib, openssl CLI); `aka_crypto` matches all three. Part 1 (SEPP correlation test) not covered by this row | `tests/conformance/test_akma_kdf_vectors.cpp`, ADR-0495 |
 > | Everything else | Open | |
 >
 > **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI
