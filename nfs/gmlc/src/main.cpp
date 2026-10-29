@@ -85,26 +85,6 @@ constexpr const char* kApiRoot = "/ngmlc-loc/v1";
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // Real, illustrative seed data for PrivacyCheckIdMapping -- see this file's own top comment for
 // why no live write path exists to populate this instead.
 void seed_id_mappings(gmlc::GpsiAppLayerIdMappingStore& store) {
@@ -253,10 +233,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/provide-location",
-        [&verifier, &request_location_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&request_location_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::InputData_Ngmlc_Location>(req, err);
@@ -271,16 +248,14 @@ int main() {
                 501,
                 "Not Implemented",
                 "GMLC RequestLocation requires a real Nlmf_Location backend (LMF), not yet "
-                "built in this project -- see docs/DECISIONS.md ADR-0189");
+                "built in this project -- see docs/DECISIONS.md ADR-0189",
+                std::nullopt);
         });
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/cancel-location",
-        [&verifier, &cancel_location_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&cancel_location_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::CancelLocData_Ngmlc_Location>(req, err);
@@ -294,17 +269,14 @@ int main() {
             return sbi_core::http2::problem_response(
                 404,
                 "Not Found",
-                "No active location request for ldrReference " + body->ldrReference);
+                "No active location request for ldrReference " + body->ldrReference,
+                std::nullopt);
         });
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/location-update",
-        [&verifier, &location_contexts, &update_location_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&location_contexts, &update_location_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::LocUpdateData_Ngmlc_Location>(req, err);
@@ -324,7 +296,8 @@ int main() {
                 return sbi_core::http2::problem_response(
                     400,
                     "Invalid Service Request",
-                    "At least one of supi or gpsi is required to identify the UE");
+                    "At least one of supi or gpsi is required to identify the UE",
+                    "MANDATORY_IE_MISSING");
             }
             update_location_counter->Add(1);
             location_contexts.put(key, json(*body));
@@ -336,11 +309,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/loc-update-subs",
-        [&verifier, &loc_update_subs, &loc_update_subscribe_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&loc_update_subs, &loc_update_subscribe_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::LocUpdateSubs>(req, err);
             if (!body.has_value()) {
@@ -356,10 +325,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/perform-privacy-check-id-mapping",
-        [&verifier, &id_mappings, &privacy_check_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&id_mappings, &privacy_check_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::PrivacyCheckIdMappingReqData>(req, err);

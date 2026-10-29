@@ -118,38 +118,39 @@ int main() {
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
-    server.add_route("POST",
-                     "/provisioning/v1/customerOrder",
-                     [&store, &order_counter](const sbi_core::http2::Request& req) {
-                         json body;
-                         try {
-                             body = json::parse(req.body);
-                         } catch (const std::exception&) {
-                             // parse_error's text can quote the input, and the body carries SIM
-                             // keys.
-                             return sbi_core::http2::problem_response(
-                                 400, "Malformed JSON", "request body is not valid JSON");
-                         }
-                         const auto result = store.create_customer_order(body);
-                         order_counter->Add(1);
-                         if (result.status == "rejected") {
-                             return sbi_core::http2::problem_response(
-                                 400, "Bad Request", result.error.value_or(""));
-                         }
-                         json out{{"orderId", result.order_id},
-                                  {"accountId", result.customer_account_id},
-                                  {"subscriberId", result.subscriber_id},
-                                  {"supi", result.supi},
-                                  {"msisdn", result.msisdn},
-                                  {"status", result.status},
-                                  {"provisioningTasks", result.tasks}};
-                         if (result.error)
-                             out["error"] = *result.error;
-                         // 502: a downstream node task failed; the body lists which, and a resend
-                         // resumes it.
-                         return sbi_core::http2::Response::json(
-                             result.status == "completed" ? 201 : 502, out.dump());
-                     });
+    server.add_route(
+        "POST",
+        "/provisioning/v1/customerOrder",
+        [&store, &order_counter](const sbi_core::http2::Request& req) {
+            json body;
+            try {
+                body = json::parse(req.body);
+            } catch (const std::exception&) {
+                // parse_error's text can quote the input, and the body carries SIM
+                // keys.
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", "request body is not valid JSON", std::nullopt);
+            }
+            const auto result = store.create_customer_order(body);
+            order_counter->Add(1);
+            if (result.status == "rejected") {
+                return sbi_core::http2::problem_response(
+                    400, "Bad Request", result.error.value_or(""), std::nullopt);
+            }
+            json out{{"orderId", result.order_id},
+                     {"accountId", result.customer_account_id},
+                     {"subscriberId", result.subscriber_id},
+                     {"supi", result.supi},
+                     {"msisdn", result.msisdn},
+                     {"status", result.status},
+                     {"provisioningTasks", result.tasks}};
+            if (result.error)
+                out["error"] = *result.error;
+            // 502: a downstream node task failed; the body lists which, and a resend
+            // resumes it.
+            return sbi_core::http2::Response::json(result.status == "completed" ? 201 : 502,
+                                                   out.dump());
+        });
 
     server.add_route("GET",
                      "/provisioning/v1/customerOrder/{id}",

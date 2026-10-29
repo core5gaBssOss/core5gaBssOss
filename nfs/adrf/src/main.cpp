@@ -754,7 +754,8 @@ int main() {
                     502,
                     "Bad Gateway",
                     "the DCCF did not accept the storage subscription (" +
-                        (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")");
+                        (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")",
+                    std::nullopt);
                 return std::nullopt;
             }
             col.resource_uri = r.location;
@@ -771,7 +772,8 @@ int main() {
                     502,
                     "Bad Gateway",
                     "the NWDAF did not accept the analytics subscription (" +
-                        (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")");
+                        (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")",
+                    std::nullopt);
                 return std::nullopt;
             }
             col.resource_uri = r.location;
@@ -792,7 +794,8 @@ int main() {
                     r.status == 400 ? 400 : 502,
                     r.status == 400 ? "Bad Request" : "Bad Gateway",
                     "the NWDAF did not accept the data subscription (" +
-                        (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")");
+                        (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")",
+                    std::nullopt);
                 return std::nullopt;
             }
             col.resource_uri = r.location;
@@ -836,8 +839,11 @@ int main() {
         const auto id = request.at("targetNfId").get<std::string>();
         const auto r = call(&oauth_nrf, "GET", nrf_base + kNrfNfmRoot + "/nf-instances/" + id, {});
         if (r.status != 200) {
-            err = sbi_core::http2::problem_response(
-                404, "Not Found", "targetNfId " + id + " is not registered at the NRF");
+            err = sbi_core::http2::problem_response(404,
+                                                    "Not Found",
+                                                    "targetNfId " + id +
+                                                        " is not registered at the NRF",
+                                                    std::nullopt);
             return "";
         }
         std::string nf_type;
@@ -850,7 +856,8 @@ int main() {
                                                     "Bad Request",
                                                     "targetNfId " + id + " is a " + nf_type +
                                                         "; TS 29.575 4.2.2.3.2 names a DCCF or "
-                                                        "NWDAF");
+                                                        "NWDAF",
+                                                    "UNSPECIFIED_MSG_FAILURE");
             return "";
         }
         return nf_type;
@@ -881,9 +888,6 @@ int main() {
         "POST",
         std::string(kDataManagementRoot) + "/data-store-records",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto = sbi_core::http2::parse_json_body<sbi_gen::NadrfDataStoreRecord>(req, err);
             if (!dto) {
@@ -908,7 +912,8 @@ int main() {
                                          row.store_trans_id);
                 return resp;
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
         });
 
@@ -917,9 +922,6 @@ int main() {
         "GET",
         std::string(kDataManagementRoot) + "/data-store-records",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto q = [&](const char* name) -> std::optional<std::string> {
                 const auto it = req.query_params.find(name);
                 if (it == req.query_params.end()) {
@@ -968,38 +970,33 @@ int main() {
                 merged["suppFeat"] = negotiate(json::object(), kEnhDataMgmt);
                 return json_response(200, merged);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
         });
 
     // ---- Delete by storeTransId (4.2.2.9.2) -----------------------------------------------------
-    server.add_route(
-        "DELETE",
-        std::string(kDataManagementRoot) + "/data-store-records/{storeTransId}",
-        [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            try {
-                if (!records.remove(req.path_params.at("storeTransId"))) {
-                    return sbi_core::http2::problem_response(
-                        404, "Not Found", "no such data store record");
-                }
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
-            }
-            deleted_counter->Add(1);
-            return no_content();
-        });
+    server.add_route("DELETE",
+                     std::string(kDataManagementRoot) + "/data-store-records/{storeTransId}",
+                     [&](const sbi_core::http2::Request& req) {
+                         try {
+                             if (!records.remove(req.path_params.at("storeTransId"))) {
+                                 return sbi_core::http2::problem_response(
+                                     404, "Not Found", "no such data store record", std::nullopt);
+                             }
+                         } catch (const std::exception& e) {
+                             return sbi_core::http2::problem_response(
+                                 500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+                         }
+                         deleted_counter->Add(1);
+                         return no_content();
+                     });
 
     // ---- Delete by specification (4.2.2.9.3) ----------------------------------------------------
     server.add_route(
         "POST",
         std::string(kDataManagementRoot) + "/remove-stored-data-analytics",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto = sbi_core::http2::parse_json_body<sbi_gen::NadrfStoredDataSpec>(req, err);
             if (!dto) {
@@ -1035,7 +1032,8 @@ int main() {
                 deleted_counter->Add(static_cast<std::uint64_t>(n));
                 spdlog::info("adrf: remove-stored-data-analytics deleted {} record(s)", n);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
             return no_content();
         });
@@ -1045,9 +1043,6 @@ int main() {
         "POST",
         std::string(kDataManagementRoot) + "/request-storage-sub",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto =
                 sbi_core::http2::parse_json_body<sbi_gen::NadrfDataStoreSubscription>(req, err);
@@ -1157,9 +1152,6 @@ int main() {
         "POST",
         std::string(kDataManagementRoot) + "/request-storage-sub-removal",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto =
                 sbi_core::http2::parse_json_body<sbi_gen::NadrfDataStoreSubscriptionRef>(req, err);
@@ -1185,7 +1177,10 @@ int main() {
             }
             if (removed == 0) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "no storage subscription for that transRefId / dataSetId");
+                    404,
+                    "Not Found",
+                    "no storage subscription for that transRefId / dataSetId",
+                    std::nullopt);
             }
             return no_content();
         });
@@ -1205,7 +1200,8 @@ int main() {
             try {
                 body = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             const auto handling = apply_handling(col->store_handl);
             std::vector<std::pair<std::string, json>> to_store; // kind, record
@@ -1277,7 +1273,8 @@ int main() {
                     }
                 }
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
             return no_content();
         },
@@ -1289,9 +1286,6 @@ int main() {
         "POST",
         std::string(kDataManagementRoot) + "/data-retrieval-subscriptions",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto =
                 sbi_core::http2::parse_json_body<sbi_gen::NadrfDataRetrievalSubscription>(req, err);
@@ -1351,12 +1345,11 @@ int main() {
         "DELETE",
         std::string(kDataManagementRoot) + "/data-retrieval-subscriptions/{subscriptionId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             if (!state.remove_retrieval_subscription(req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "no such data retrieval subscription");
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no such data retrieval subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return no_content();
         });
@@ -1522,9 +1515,6 @@ int main() {
         "POST",
         std::string(kMLModelManagementRoot) + "/mlmodel-store-records",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto = sbi_core::http2::parse_json_body<sbi_gen::NadrfMLModelStoreRecord>(req, err);
             if (!dto) {
@@ -1552,7 +1542,8 @@ int main() {
                              outcome.failed);
                 return resp;
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
         });
 
@@ -1561,9 +1552,6 @@ int main() {
         "PUT",
         std::string(kMLModelManagementRoot) + "/mlmodel-store-records/{storeTransId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto dto = sbi_core::http2::parse_json_body<sbi_gen::NadrfMLModelStoreRecord>(req, err);
             if (!dto) {
@@ -1586,7 +1574,8 @@ int main() {
                 }
                 return json_response(200, outcome.body);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
         });
 
@@ -1625,9 +1614,6 @@ int main() {
         "GET",
         std::string(kMLModelManagementRoot) + "/mlmodel-store-records",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto by_record = req.query_params.find("store-trans-id");
             const auto by_ids = req.query_params.find("model-unique-ids");
             if ((by_record != req.query_params.end()) == (by_ids != req.query_params.end())) {
@@ -1700,7 +1686,8 @@ int main() {
                 body["suppFeat"] = negotiate(json::object(), kEnModelMgmt);
                 return json_response(200, body);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
         });
 
@@ -1710,13 +1697,15 @@ int main() {
         std::string(kModelFilesPrefix) + "/{modelUniqueId}",
         [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+                return sbi_core::http2::problem_response(
+                    401, "Unauthorized", auth->error, std::nullopt);
             }
             std::int64_t id = 0;
             try {
                 id = std::stoll(req.path_params.at("modelUniqueId"));
             } catch (const std::exception&) {
-                return sbi_core::http2::problem_response(404, "Not Found", "no such ML model");
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no such ML model", std::nullopt);
             }
             try {
                 const auto m = models.get_bytes(id);
@@ -1736,7 +1725,8 @@ int main() {
                 resp.body = m->bytes;
                 return resp;
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
         },
         // ADR-0499: the mLModelUrl file: its handler requires a valid token whose subject is an
@@ -1748,9 +1738,6 @@ int main() {
         "DELETE",
         std::string(kMLModelManagementRoot) + "/mlmodel-store-records/{storeTransId}",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto id = req.path_params.at("storeTransId");
             try {
                 const auto in_record = models.models_in_record(id);
@@ -1767,7 +1754,8 @@ int main() {
                     "adrf: ML model store record {} deleted ({} model(s))", id, in_record.size());
                 return json_response(200, results);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
         });
 
@@ -1776,9 +1764,6 @@ int main() {
         "POST",
         std::string(kMLModelManagementRoot) + "/remove-stored-mlmodel",
         [&](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto ids = sbi_core::http2::parse_json_body<std::vector<std::int64_t>>(req, err);
             if (!ids) {
@@ -1811,7 +1796,8 @@ int main() {
                 }
                 return json_response(200, results);
             } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+                return sbi_core::http2::problem_response(
+                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
         });
 

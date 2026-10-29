@@ -128,25 +128,6 @@ constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 constexpr const char* kEeApiRoot = "/nupf-ee/v1";
 constexpr const char* kGueipApiRoot = "/nupf-gueip/v1";
 
-// Same real pattern every other NF's own local check_bearer uses (e.g. nfs/smf/src/main.cpp) --
-// UPF never needed one before this ADR, since it had no inbound SBI server of its own.
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // This project's only configured S-NSSAI/DNN combination throughout (simulators/ransim/config/
 // gnb.yaml's sst=1/sd=1, SMF's own dnn="internet" default) -- reused here so UPF's advertised
 // upfInfo genuinely matches what Stage 3's real N4 Session Establishment will ask for, not an
@@ -452,10 +433,7 @@ void run_sbi_server(unsigned short port,
     server.add_route(
         "POST",
         std::string(kEeApiRoot) + "/ee-subscriptions",
-        [&verifier, &event_subs, &ee_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&event_subs, &ee_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::CreateEventSubscription>(req, err);
@@ -479,34 +457,39 @@ void run_sbi_server(unsigned short port,
     server.add_route(
         "PATCH",
         std::string(kEeApiRoot) + "/ee-subscriptions/{subscriptionId}",
-        [&verifier, &event_subs, &ee_modify_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&event_subs, &ee_modify_counter](const sbi_core::http2::Request& req) {
             const auto sub_id = req.path_params.at("subscriptionId");
             auto existing = event_subs.get(sub_id);
             if (!existing.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such subscription");
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             json patch_doc;
             try {
                 patch_doc = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             json patched;
             try {
                 patched = existing->patch(patch_doc);
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", std::string("Invalid JSON Patch: ") + e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         std::string("Invalid JSON Patch: ") +
+                                                             e.what(),
+                                                         "INVALID_MSG_FORMAT");
             }
             sbi_gen::UpfEventSubscription updated;
             try {
                 updated = patched.get<sbi_gen::UpfEventSubscription>();
             } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", std::string("Patched document invalid: ") + e.what());
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         std::string("Patched document invalid: ") +
+                                                             e.what(),
+                                                         sbi_core::http2::dto_error_cause(e));
             }
             event_subs.update(sub_id, patched);
             ee_modify_counter->Add(1);
@@ -514,42 +497,38 @@ void run_sbi_server(unsigned short port,
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kEeApiRoot) + "/ee-subscriptions/{subscriptionId}",
-        [&verifier, &event_subs, &ee_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto sub_id = req.path_params.at("subscriptionId");
-            if (!event_subs.get(sub_id).has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No such subscription");
-            }
-            event_subs.remove(sub_id);
-            ee_delete_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kEeApiRoot) + "/ee-subscriptions/{subscriptionId}",
+                     [&event_subs, &ee_delete_counter](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subscriptionId");
+                         if (!event_subs.get(sub_id).has_value()) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such subscription",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         event_subs.remove(sub_id);
+                         ee_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // ---- TS29564_Nupf_GetUEPrivateIPaddrAndIdentifiers.yaml ----
 
-    server.add_route(
-        "GET",
-        std::string(kGueipApiRoot) + "/ue-ip-info",
-        [&verifier, &gueip_search_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            gueip_search_counter->Add(1);
-            // Disclosed simplification: honestly-empty UeIpInfo -- this UPF's own real per-
-            // session state (TeidSessionStore/SeidToTeidStore) tracks F-TEID/CP-SEID for Sx
-            // reporting, not any real private/public UE IP address or NAT mapping (no real
-            // NAT44/CGN capability exists anywhere in this build).
-            sbi_gen::UeIpInfo resp_data;
-            json j = resp_data;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("GET",
+                     std::string(kGueipApiRoot) + "/ue-ip-info",
+                     [&gueip_search_counter](const sbi_core::http2::Request& req) {
+                         gueip_search_counter->Add(1);
+                         // Disclosed simplification: honestly-empty UeIpInfo -- this UPF's own real
+                         // per- session state (TeidSessionStore/SeidToTeidStore) tracks
+                         // F-TEID/CP-SEID for Sx reporting, not any real private/public UE IP
+                         // address or NAT mapping (no real NAT44/CGN capability exists anywhere in
+                         // this build).
+                         sbi_gen::UeIpInfo resp_data;
+                         json j = resp_data;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     server.start();
     spdlog::info(

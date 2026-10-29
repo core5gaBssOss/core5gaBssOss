@@ -62,6 +62,15 @@
       "x-env-override": "SMF_QOS_MON_INTERVAL_SECONDS",
       "x-cpp-type": "int"
     },
+    "ue_ipv4_pools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "internet": {
+          "type": "string"
+        }
+      }
+    },
     "li_poi": {
       "type": "object",
       "additionalProperties": false,
@@ -150,6 +159,7 @@
   ],
   "x-apply": "restart",
   "x-review": [
+    "ue_ipv4_pools: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "li_poi.cc_tf: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]

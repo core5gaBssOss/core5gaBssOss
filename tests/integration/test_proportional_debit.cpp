@@ -99,3 +99,31 @@ TEST(ProportionalDebit, ExistingCallersWithNoTimeGrantAreUnaffected) {
     // before the time dimension existed.
     EXPECT_DOUBLE_EQ(chf::proportional_debit(kReserved, 5'000.0, 1'000.0, 0.0, 0.0), 2.0);
 }
+
+// ADR-0528 (REVIEW-5ae0ef1 CHG-01, done-when): with the AI on and the model pushing the grant to
+// its upper bound (multiplier 2.0), the same usage is debited exactly what it is with the AI off --
+// the reservation follows the grant, so the price per octet is the catalog's.
+TEST(ProportionalDebit, TheAiGrantMultiplierNeverChangesThePricePerOctet) {
+    constexpr std::uint64_t kBase = 1'000'000; // the price's own grant, octets
+    constexpr double kPrice = 10.0;            // what the ProductOfferingPrice charges for it
+    constexpr double kUsed = 600'000.0;
+
+    const double ai_off = chf::proportional_debit(kPrice, kBase, kUsed, 0.0, 0.0);
+
+    const auto up = chf::ai_scaled_grant(kBase, kPrice, /*predicted=*/5'000'000.0, 0.5, 2.0);
+    EXPECT_EQ(up.volume, 2'000'000U) << "clamped to the 2.0 upper bound";
+    EXPECT_DOUBLE_EQ(up.cost, 20.0) << "the reservation doubles with the grant";
+    EXPECT_DOUBLE_EQ(chf::proportional_debit(up.cost, up.volume, kUsed, 0.0, 0.0), ai_off);
+
+    const auto down = chf::ai_scaled_grant(kBase, kPrice, /*predicted=*/100.0, 0.5, 2.0);
+    EXPECT_EQ(down.volume, 500'000U) << "clamped to the 0.5 lower bound";
+    EXPECT_DOUBLE_EQ(down.cost, 5.0);
+    EXPECT_DOUBLE_EQ(chf::proportional_debit(down.cost, down.volume, 400'000.0, 0.0, 0.0),
+                     chf::proportional_debit(kPrice, kBase, 400'000.0, 0.0, 0.0));
+}
+
+TEST(ProportionalDebit, OperatorBoundsLimitTheMultiplier) {
+    const auto g = chf::ai_scaled_grant(1'000, 1.0, /*predicted=*/10'000.0, 0.8, 1.25);
+    EXPECT_EQ(g.volume, 1'250U);
+    EXPECT_DOUBLE_EQ(g.cost, 1.25);
+}

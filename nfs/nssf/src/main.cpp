@@ -107,26 +107,6 @@ std::vector<sbi_gen::Snssai> seed_catalog() {
     return {embb, urllc};
 }
 
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in both YAML files).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
-
 // A query parameter declared `content: application/json` in the YAML (rather than a plain
 // `schema:`) carries a JSON-encoded value in the query string -- `req.query_params` is already
 // percent-decoded (libs/sbi-core/src/http2_server.cpp's parse_query_string), so this just needs
@@ -419,14 +399,13 @@ int main() {
     server.add_route(
         "GET",
         std::string(kNsSelectionApiRoot) + "/network-slice-information",
-        [&verifier, &nssai_catalog, &ns_selection_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&nssai_catalog, &ns_selection_counter](const sbi_core::http2::Request& req) {
             if (req.query_params.find("nf-type") == req.query_params.end() ||
                 req.query_params.find("nf-id") == req.query_params.end()) {
-                return sbi_core::http2::problem_response(
-                    400, "Missing mandatory query parameter", "nf-type and nf-id are required");
+                return sbi_core::http2::problem_response(400,
+                                                         "Missing mandatory query parameter",
+                                                         "nf-type and nf-id are required",
+                                                         "MANDATORY_QUERY_PARAM_MISSING");
             }
             ns_selection_counter->Add(1);
 
@@ -483,10 +462,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kNssaiAvailApiRoot) + "/nssai-availability/subscriptions",
-        [&verifier, &subscription_store, &sub_create_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&subscription_store, &sub_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NssfEventSubscriptionCreateData>(
                 req, err);
@@ -514,13 +490,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kNssaiAvailApiRoot) + "/nssai-availability/subscriptions/{subscriptionId}",
-        [&verifier, &subscription_store, &sub_delete_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&subscription_store, &sub_delete_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             if (!subscription_store.remove(id)) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             sub_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -531,20 +505,19 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kNssaiAvailApiRoot) + "/nssai-availability/subscriptions/{subscriptionId}",
-        [&verifier, &subscription_store, &sub_patch_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&subscription_store, &sub_patch_counter](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             json patch_ops;
             try {
                 patch_ops = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             auto patched = subscription_store.patch(id, patch_ops);
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(404, "Not Found", "No subscription " + id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No subscription " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             sub_patch_counter->Add(1);
 
@@ -566,11 +539,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kNssaiAvailApiRoot) + "/nssai-availability/{nfId}",
-        [&verifier, &availability_store, &subscription_store, &notify_client, &avail_put_counter](
+        [&availability_store, &subscription_store, &notify_client, &avail_put_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto nf_id = req.path_params.at("nfId");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NssaiAvailabilityInfo>(req, err);
@@ -589,22 +559,20 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kNssaiAvailApiRoot) + "/nssai-availability/{nfId}",
-        [&verifier, &availability_store, &subscription_store, &notify_client, &avail_patch_counter](
+        [&availability_store, &subscription_store, &notify_client, &avail_patch_counter](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             const auto nf_id = req.path_params.at("nfId");
             json patch_ops;
             try {
                 patch_ops = json::parse(req.body);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             auto patched = availability_store.patch(nf_id, patch_ops);
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NSSAI availability data for nfId " + nf_id);
+                    404, "Not Found", "No NSSAI availability data for nfId " + nf_id, std::nullopt);
             }
             avail_patch_counter->Add(1);
 
@@ -613,7 +581,10 @@ int main() {
                 info = patched->get<sbi_gen::NssaiAvailabilityInfo>();
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
-                    400, "Patch produced an invalid NssaiAvailabilityInfo", e.what());
+                    400,
+                    "Patch produced an invalid NssaiAvailabilityInfo",
+                    e.what(),
+                    sbi_core::http2::dto_error_cause(e));
             }
             auto authorized = authorize_availability(info);
             deliver_nssai_availability_notification(notify_client, subscription_store, authorized);
@@ -623,15 +594,11 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kNssaiAvailApiRoot) + "/nssai-availability/{nfId}",
-        [&verifier, &availability_store, &avail_delete_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&availability_store, &avail_delete_counter](const sbi_core::http2::Request& req) {
             const auto nf_id = req.path_params.at("nfId");
             if (!availability_store.remove(nf_id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NSSAI availability data for nfId " + nf_id);
+                    404, "Not Found", "No NSSAI availability data for nfId " + nf_id, std::nullopt);
             }
             avail_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -641,18 +608,14 @@ int main() {
 
     // --- Nnssf_NSSAIAvailability: bare nssai-availability (capability discovery only) ---
 
-    server.add_route(
-        "OPTIONS",
-        std::string(kNssaiAvailApiRoot) + "/nssai-availability",
-        [&verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 200;
-            resp.headers.emplace("accept-encoding", "identity");
-            return resp;
-        });
+    server.add_route("OPTIONS",
+                     std::string(kNssaiAvailApiRoot) + "/nssai-availability",
+                     [](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response resp;
+                         resp.status = 200;
+                         resp.headers.emplace("accept-encoding", "identity");
+                         return resp;
+                     });
 
     std::thread(run_nrf_lifecycle, nssf_instance_id, nrf_base).detach();
 

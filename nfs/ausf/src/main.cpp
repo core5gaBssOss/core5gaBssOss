@@ -55,6 +55,7 @@
 
 #include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
+#include <openssl/crypto.h>
 
 #include <algorithm>
 #include <array>
@@ -99,26 +100,6 @@ constexpr const char* kUpuProtectionApiRoot = "/nausf-upuprotection/v1";
 
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
-
-// Same pattern as every other NF's check_bearer -- see nfs/nrf/src/main.cpp's comment for why a
-// missing Authorization header is not itself a 401 (bootstrap security alternative:
-// `security: [{}, oAuth2ClientCredentials:[...]]` in the YAML).
-std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
-                                                        sbi_core::jwt::Verifier& verifier) {
-    auto it = req.headers.find("authorization");
-    if (it == req.headers.end()) {
-        return std::nullopt;
-    }
-    const std::string& value = it->second;
-    constexpr std::string_view kPrefix = "Bearer ";
-    if (value.size() <= kPrefix.size() || value.compare(0, kPrefix.size(), kPrefix) != 0) {
-        sbi_core::jwt::VerifyResult r;
-        r.valid = false;
-        r.error = "Authorization header present but not a Bearer token";
-        return r;
-    }
-    return verifier.verify(value.substr(kPrefix.size()));
-}
 
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/udm/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
@@ -350,16 +331,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-authentications",
-        [&verifier,
-         &udm_client,
-         &udm_oauth,
-         &udm_base,
-         &auth_contexts,
-         &ausf_instance_id,
-         &ue_auth_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&udm_client, &udm_oauth, &udm_base, &auth_contexts, &ausf_instance_id, &ue_auth_counter](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::AuthenticationInfo>(req, err);
             if (!body.has_value()) {
@@ -371,7 +344,8 @@ int main() {
                 return sbi_core::http2::problem_response(500,
                                                          "Internal Server Error",
                                                          "AUSF could not obtain a token for UDM: " +
-                                                             token.error());
+                                                             token.error(),
+                                                         "SYSTEM_FAILURE");
             }
 
             sbi_gen::AuthenticationInfoRequest udm_req{};
@@ -393,19 +367,23 @@ int main() {
 
             auto udm_resp = udm_client.send(udm_http_req);
             if (!udm_resp.has_value()) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", "AUSF could not reach UDM: " + udm_resp.error());
+                return sbi_core::http2::problem_response(500,
+                                                         "Internal Server Error",
+                                                         "AUSF could not reach UDM: " +
+                                                             udm_resp.error(),
+                                                         "SYSTEM_FAILURE");
             }
             if (udm_resp->status == 404) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "User does not exist in the HPLMN");
+                    404, "Not Found", "User does not exist in the HPLMN", std::nullopt);
             }
             if (udm_resp->status != 200) {
                 return sbi_core::http2::problem_response(
                     500,
                     "Internal Server Error",
                     "UDM GenerateAuthData returned unexpected status " +
-                        std::to_string(udm_resp->status));
+                        std::to_string(udm_resp->status),
+                    "SYSTEM_FAILURE");
             }
 
             sbi_gen::AuthenticationInfoResult udm_result;
@@ -415,11 +393,14 @@ int main() {
                 return sbi_core::http2::problem_response(
                     500,
                     "Internal Server Error",
-                    "UDM returned a malformed AuthenticationInfoResult: " + std::string(e.what()));
+                    "UDM returned a malformed AuthenticationInfoResult: " + std::string(e.what()),
+                    "SYSTEM_FAILURE");
             }
             if (!udm_result.authenticationVector.has_value()) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", "UDM returned no authenticationVector");
+                return sbi_core::http2::problem_response(500,
+                                                         "Internal Server Error",
+                                                         "UDM returned no authenticationVector",
+                                                         "SYSTEM_FAILURE");
             }
             const std::string supi = udm_result.supi.value_or(body->supiOrSuci);
 
@@ -432,7 +413,10 @@ int main() {
                     av = udm_result.authenticationVector->get<sbi_gen::AvEapAkaPrime>();
                 } catch (const json::exception& e) {
                     return sbi_core::http2::problem_response(
-                        500, "Internal Server Error", "UDM returned a malformed AvEapAkaPrime");
+                        500,
+                        "Internal Server Error",
+                        "UDM returned a malformed AvEapAkaPrime",
+                        "SYSTEM_FAILURE");
                 }
                 const auto rand = aka_crypto::from_hex<16>(av.rand);
                 const auto autn = aka_crypto::from_hex<16>(av.autn);
@@ -443,7 +427,8 @@ int main() {
                     return sbi_core::http2::problem_response(
                         500,
                         "Internal Server Error",
-                        "UDM returned malformed hex in AvEapAkaPrime");
+                        "UDM returned malformed hex in AvEapAkaPrime",
+                        "SYSTEM_FAILURE");
                 }
 
                 const auto keys = aka_crypto::eap::derive_keys(*ck_prime, *ik_prime, supi);
@@ -488,8 +473,10 @@ int main() {
                 try {
                     av = udm_result.authenticationVector->get<sbi_gen::Av5GHeAka>();
                 } catch (const json::exception& e) {
-                    return sbi_core::http2::problem_response(
-                        500, "Internal Server Error", "UDM returned a malformed Av5GHeAka");
+                    return sbi_core::http2::problem_response(500,
+                                                             "Internal Server Error",
+                                                             "UDM returned a malformed Av5GHeAka",
+                                                             "SYSTEM_FAILURE");
                 }
                 const auto rand = aka_crypto::from_hex<16>(av.rand);
                 const auto autn = aka_crypto::from_hex<16>(av.autn);
@@ -497,7 +484,10 @@ int main() {
                 const auto kausf = aka_crypto::from_hex<32>(av.kausf);
                 if (!rand || !autn || !xres_star || !kausf) {
                     return sbi_core::http2::problem_response(
-                        500, "Internal Server Error", "UDM returned malformed hex in Av5GHeAka");
+                        500,
+                        "Internal Server Error",
+                        "UDM returned malformed hex in Av5GHeAka",
+                        "SYSTEM_FAILURE");
                 }
                 const auto hxres_star = aka_crypto::derive_hxres_star(*rand, *xres_star);
 
@@ -539,11 +529,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kApiRoot) + "/ue-authentications/{authCtxId}/5g-aka-confirmation",
-        [&verifier, &auth_contexts, &confirm_5g_aka_counter, &kausf_store, &register_akma](
+        [&auth_contexts, &confirm_5g_aka_counter, &kausf_store, &register_akma](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ConfirmationData>(req, err);
             if (!body.has_value()) {
@@ -552,18 +539,26 @@ int main() {
             const auto auth_ctx_id = req.path_params.at("authCtxId");
             auto ctx = auth_contexts.get(auth_ctx_id);
             if (!ctx.has_value() || ctx->auth_type != "5G_AKA") {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No 5G-AKA authentication context " + auth_ctx_id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No 5G-AKA authentication context " +
+                                                             auth_ctx_id,
+                                                         std::nullopt);
             }
             const auto res_star = aka_crypto::from_hex<16>(body->resStar);
             if (!res_star) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "resStar is not valid 32-hex-char data");
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         "resStar is not valid 32-hex-char data",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
 
             confirm_5g_aka_counter->Add(1);
             sbi_gen::ConfirmationDataResponse resp_data{};
-            if (*res_star == ctx->xres_star) {
+            // REVIEW-5ae0ef1 SUS-04: constant-time comparison of RES* with the stored XRES*.
+            // Both are fixed 16-octet arrays (aka_crypto::ResStar).
+            if (CRYPTO_memcmp(res_star->data(), ctx->xres_star.data(), ctx->xres_star.size()) ==
+                0) {
                 resp_data.authResult.value =
                     sbi_gen::AuthResult_Nausf_UEAuthentication::AUTHENTICATION_SUCCESS;
                 resp_data.supi = ctx->supi;
@@ -584,33 +579,29 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kApiRoot) + "/ue-authentications/{authCtxId}/5g-aka-confirmation",
-        [&verifier, &auth_contexts](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto auth_ctx_id = req.path_params.at("authCtxId");
-            auto ctx = auth_contexts.get(auth_ctx_id);
-            if (!ctx.has_value() || ctx->auth_type != "5G_AKA" ||
-                !auth_contexts.remove(auth_ctx_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No 5G-AKA authentication context " + auth_ctx_id);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kApiRoot) + "/ue-authentications/{authCtxId}/5g-aka-confirmation",
+                     [&auth_contexts](const sbi_core::http2::Request& req) {
+                         const auto auth_ctx_id = req.path_params.at("authCtxId");
+                         auto ctx = auth_contexts.get(auth_ctx_id);
+                         if (!ctx.has_value() || ctx->auth_type != "5G_AKA" ||
+                             !auth_contexts.remove(auth_ctx_id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No 5G-AKA authentication context " + auth_ctx_id,
+                                 std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-authentications/{authCtxId}/eap-session",
-        [&verifier, &auth_contexts, &eap_session_counter, &kausf_store, &register_akma](
+        [&auth_contexts, &eap_session_counter, &kausf_store, &register_akma](
             const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::EapSession>(req, err);
             if (!body.has_value()) {
@@ -619,13 +610,18 @@ int main() {
             const auto auth_ctx_id = req.path_params.at("authCtxId");
             auto ctx = auth_contexts.get(auth_ctx_id);
             if (!ctx.has_value() || ctx->auth_type != "EAP_AKA_PRIME") {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No EAP-AKA' authentication context " + auth_ctx_id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No EAP-AKA' authentication context " +
+                                                             auth_ctx_id,
+                                                         std::nullopt);
             }
             auto packet = aka_crypto::eap::base64_decode(body->eapPayload);
             if (!packet.has_value() || packet->size() < 2) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "eapPayload is not valid base64 EAP data");
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         "eapPayload is not valid base64 EAP data",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
             const uint8_t identifier = (*packet)[1];
 
@@ -665,40 +661,39 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kApiRoot) + "/ue-authentications/{authCtxId}/eap-session",
-        [&verifier, &auth_contexts](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto auth_ctx_id = req.path_params.at("authCtxId");
-            auto ctx = auth_contexts.get(auth_ctx_id);
-            if (!ctx.has_value() || ctx->auth_type != "EAP_AKA_PRIME" ||
-                !auth_contexts.remove(auth_ctx_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No EAP-AKA' authentication context " + auth_ctx_id);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kApiRoot) + "/ue-authentications/{authCtxId}/eap-session",
+                     [&auth_contexts](const sbi_core::http2::Request& req) {
+                         const auto auth_ctx_id = req.path_params.at("authCtxId");
+                         auto ctx = auth_contexts.get(auth_ctx_id);
+                         if (!ctx.has_value() || ctx->auth_type != "EAP_AKA_PRIME" ||
+                             !auth_contexts.remove(auth_ctx_id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No EAP-AKA' authentication context " + auth_ctx_id,
+                                 std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-authentications/deregister",
-        [&verifier, &auth_contexts, &deregister_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&auth_contexts, &deregister_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::DeregistrationInfo>(req, err);
             if (!body.has_value()) {
                 return err;
             }
             if (!auth_contexts.remove_by_supi(body->supi)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No authentication context for supi " + body->supi);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No authentication context for supi " +
+                                                             body->supi,
+                                                         std::nullopt);
             }
             deregister_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -723,15 +718,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/prose-authentications",
-        [&verifier,
-         &udm_client,
-         &udm_oauth,
-         &udm_base,
-         &prose_auth_contexts,
-         &prose_authenticate_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&udm_client, &udm_oauth, &udm_base, &prose_auth_contexts, &prose_authenticate_counter](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::ProSeAuthenticationInfo>(req, err);
@@ -746,12 +734,13 @@ int main() {
                     "Not Implemented",
                     "5gPrukId-based ProSe re-authentication is not implemented (needs a live "
                     "PAnF/Npanf_ProseKey_get this project doesn't have) -- supply supiOrSuci for "
-                    "a real first-time authentication instead");
+                    "a real first-time authentication instead",
+                    std::nullopt);
             }
             const auto nonce1_bytes = aka_crypto::eap::base64_decode(body->nonce1);
             if (!nonce1_bytes.has_value()) {
                 return sbi_core::http2::problem_response(
-                    400, "Bad Request", "nonce1 is not valid base64");
+                    400, "Bad Request", "nonce1 is not valid base64", "UNSPECIFIED_MSG_FAILURE");
             }
 
             auto token = udm_oauth.get_bearer_token();
@@ -759,7 +748,8 @@ int main() {
                 return sbi_core::http2::problem_response(500,
                                                          "Internal Server Error",
                                                          "AUSF could not obtain a token for UDM: " +
-                                                             token.error());
+                                                             token.error(),
+                                                         "SYSTEM_FAILURE");
             }
 
             sbi_gen::ProSeAuthenticationInfoRequest udm_req{};
@@ -776,19 +766,23 @@ int main() {
 
             auto udm_resp = udm_client.send(udm_http_req);
             if (!udm_resp.has_value()) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", "AUSF could not reach UDM: " + udm_resp.error());
+                return sbi_core::http2::problem_response(500,
+                                                         "Internal Server Error",
+                                                         "AUSF could not reach UDM: " +
+                                                             udm_resp.error(),
+                                                         "SYSTEM_FAILURE");
             }
             if (udm_resp->status == 404) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "User does not exist in the HPLMN");
+                    404, "Not Found", "User does not exist in the HPLMN", std::nullopt);
             }
             if (udm_resp->status != 200) {
                 return sbi_core::http2::problem_response(
                     500,
                     "Internal Server Error",
                     "UDM GenerateProseAV returned unexpected status " +
-                        std::to_string(udm_resp->status));
+                        std::to_string(udm_resp->status),
+                    "SYSTEM_FAILURE");
             }
 
             sbi_gen::ProSeAuthenticationInfoResult udm_result;
@@ -800,12 +794,16 @@ int main() {
                     500,
                     "Internal Server Error",
                     "UDM returned a malformed ProSeAuthenticationInfoResult: " +
-                        std::string(e.what()));
+                        std::string(e.what()),
+                    "SYSTEM_FAILURE");
             }
             if (!udm_result.proseAuthenticationVectors.has_value() ||
                 udm_result.proseAuthenticationVectors->empty()) {
                 return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", "UDM returned no proseAuthenticationVectors");
+                    500,
+                    "Internal Server Error",
+                    "UDM returned no proseAuthenticationVectors",
+                    "SYSTEM_FAILURE");
             }
             const std::string supi = udm_result.supi.value_or(*body->supiOrSuci);
             const auto& av = (*udm_result.proseAuthenticationVectors)[0];
@@ -817,7 +815,10 @@ int main() {
             const auto ik_prime = aka_crypto::from_hex<16>(av.ikPrime);
             if (!rand || !autn || !xres || !ck_prime || !ik_prime) {
                 return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", "UDM returned malformed hex in AvEapAkaPrime");
+                    500,
+                    "Internal Server Error",
+                    "UDM returned malformed hex in AvEapAkaPrime",
+                    "SYSTEM_FAILURE");
             }
 
             const auto keys = aka_crypto::eap::derive_keys(*ck_prime, *ik_prime, supi);
@@ -867,11 +868,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/prose-authentications/{authCtxId}/prose-auth",
-        [&verifier, &prose_auth_contexts, &prose_auth_counter](
-            const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&prose_auth_contexts, &prose_auth_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ProSeEapSession>(req, err);
             if (!body.has_value()) {
@@ -880,13 +877,18 @@ int main() {
             const auto auth_ctx_id = req.path_params.at("authCtxId");
             auto ctx = prose_auth_contexts.get(auth_ctx_id);
             if (!ctx.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No ProSe authentication context " + auth_ctx_id);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No ProSe authentication context " +
+                                                             auth_ctx_id,
+                                                         std::nullopt);
             }
             auto packet = aka_crypto::eap::base64_decode(body->eapPayload);
             if (!packet.has_value() || packet->size() < 2) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "eapPayload is not valid base64 EAP data");
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         "eapPayload is not valid base64 EAP data",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
             const uint8_t identifier = (*packet)[1];
 
@@ -929,32 +931,28 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "DELETE",
-        std::string(kApiRoot) + "/prose-authentications/{authCtxId}/prose-auth",
-        [&verifier, &prose_auth_contexts](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            const auto auth_ctx_id = req.path_params.at("authCtxId");
-            if (!prose_auth_contexts.remove(auth_ctx_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No ProSe authentication context " + auth_ctx_id);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kApiRoot) + "/prose-authentications/{authCtxId}/prose-auth",
+                     [&prose_auth_contexts](const sbi_core::http2::Request& req) {
+                         const auto auth_ctx_id = req.path_params.at("authCtxId");
+                         if (!prose_auth_contexts.remove(auth_ctx_id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No ProSe authentication context " + auth_ctx_id,
+                                 std::nullopt);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nausf_SoRProtection (ADR-0081, gap-closure task #104) ---
 
     server.add_route(
         "POST",
         std::string(kSorProtectionApiRoot) + "/{supi}/ue-sor",
-        [&verifier, &kausf_store, &sor_protection_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&kausf_store, &sor_protection_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::SorInfo_Nausf_SoRProtection>(req, err);
@@ -969,7 +967,8 @@ int main() {
                                                          "Not Found",
                                                          "No KAUSF on record for SUPI " + supi +
                                                              " (never authenticated, or this "
-                                                             "AUSF instance restarted since)");
+                                                             "AUSF instance restarted since)",
+                                                         std::nullopt);
             }
 
             // Real, disclosed scope narrowing (see this file's own header): TS 33.501 clause
@@ -983,12 +982,15 @@ int main() {
                     400,
                     "Missing mandatory IE",
                     "This build requires the requester to supply sorHeader -- AUSF-side "
-                    "construction of the SOR header (TS 24.501 9.11.3.51) is not implemented");
+                    "construction of the SOR header (TS 24.501 9.11.3.51) is not implemented",
+                    "MANDATORY_IE_MISSING");
             }
             const auto sor_header_bytes = aka_crypto::eap::base64_decode(*body->sorHeader);
             if (!sor_header_bytes.has_value()) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "sorHeader is not valid base64 data");
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         "sorHeader is not valid base64 data",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
 
             // P2 (Steering Info List, TS 33.501 Annex A.17): real only for the SecuredPacket
@@ -1006,7 +1008,8 @@ int main() {
                         return sbi_core::http2::problem_response(
                             400,
                             "Bad Request",
-                            "steeringContainer (SecuredPacket form) is not valid base64 data");
+                            "steeringContainer (SecuredPacket form) is not valid base64 data",
+                            "UNSPECIFIED_MSG_FAILURE");
                     }
                 } else {
                     spdlog::warn(
@@ -1024,7 +1027,8 @@ int main() {
                     503,
                     "Service Unavailable",
                     "SoR protection service is suspended for SUPI " + supi +
-                        " (CounterSoR wrap-around, TS 33.501 6.14.2.3 -- requires a fresh KAUSF)");
+                        " (CounterSoR wrap-around, TS 33.501 6.14.2.3 -- requires a fresh KAUSF)",
+                    std::nullopt);
             }
 
             const auto mac_iausf = aka_crypto::derive_sor_mac_iausf(
@@ -1061,10 +1065,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUpuProtectionApiRoot) + "/{supi}/ue-upu",
-        [&verifier, &kausf_store, &upu_protection_counter](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
+        [&kausf_store, &upu_protection_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             // Real codegen disambiguation: Nudm_SDM.yaml declares its own, distinct UpuInfo
             // schema, so this operation's own type is suffixed UpuInfo_Nausf_UPUProtection.
@@ -1077,8 +1078,10 @@ int main() {
             // (a plain std::vector) doesn't enforce this JSON-Schema constraint, same class of gap
             // as LMF's own `ecgi`/`ncgi` mutual-exclusivity check (ADR-0191).
             if (body->upuDataList.empty()) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "upuDataList must have at least one entry");
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         "upuDataList must have at least one entry",
+                                                         "UNSPECIFIED_MSG_FAILURE");
             }
             const auto supi = req.path_params.at("supi");
 
@@ -1088,7 +1091,8 @@ int main() {
                                                          "Not Found",
                                                          "No KAUSF on record for SUPI " + supi +
                                                              " (never authenticated, or this "
-                                                             "AUSF instance restarted since)");
+                                                             "AUSF instance restarted since)",
+                                                         std::nullopt);
             }
 
             // Real, disclosed scope limit, same class as Nausf_SoRProtection's own (this file's
@@ -1111,7 +1115,8 @@ int main() {
                 501,
                 "Not Implemented",
                 "UPU-MAC-IAUSF computation requires TS 24.501 §9.11.3.53A NAS-layer encoding of "
-                "UE Parameters Update Data, not implemented in this build");
+                "UE Parameters Update Data, not implemented in this build",
+                std::nullopt);
         });
 
     std::thread(run_nrf_lifecycle, ausf_instance_id, nrf_base).detach();

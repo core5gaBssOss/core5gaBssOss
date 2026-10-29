@@ -852,6 +852,12 @@ boost::asio::ssl::context make_server_ssl_context(const TlsConfig& tls) {
     // unauthenticated clients accepted -- see docs/DECISIONS.md ADR-0011.
     ctx.set_verify_mode(boost::asio::ssl::verify_peer |
                         boost::asio::ssl::verify_fail_if_no_peer_cert);
+    if (tls.verify) {
+        ctx.set_verify_callback(
+            [verify = tls.verify](bool preverified, boost::asio::ssl::verify_context& vc) {
+                return verify(preverified, vc.native_handle());
+            });
+    }
 
     // Real, pre-existing OpenSSL requirement this project never hit until real server concurrency
     // (ADR-0239) made it possible for two connections' handshakes/session-cache writes to race:
