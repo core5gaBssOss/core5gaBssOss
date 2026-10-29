@@ -1,7 +1,9 @@
+{{- $cfg := include "upf.config" . | fromJson }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-upf
+  # The NF's name: what every peer's config and the NF's certificate (DNS:upf) use.
+  name: {{ .Values.service.name | default "upf" }}
   labels:
     app.kubernetes.io/name: upf
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -12,11 +14,11 @@ spec:
     app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: sbi
-      port: {{ .Values.config.port }}
+      port: {{ $cfg.port }}
       targetPort: sbi
       protocol: TCP
     - name: pfcp
-      port: {{ .Values.config.pfcp_bind_port }}
+      port: {{ $cfg.pfcp_bind_port }}
       targetPort: pfcp
       protocol: UDP
     - name: metrics

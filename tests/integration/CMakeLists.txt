@@ -46,6 +46,7 @@ add_executable(integration_tests
     test_lmf_authorization.cpp
     test_nssf_authorization.cpp
     test_bsf_authorization.cpp
+    test_bsf_existing_binding.cpp
     test_nsacf_smsf_tsctsf_authorization.cpp
     test_dccf_mfaf_authorization.cpp
     test_upf_ausf_authorization.cpp
@@ -456,6 +457,13 @@ add_executable(nrf_discovery_authz_tests test_nrf_discovery_authz.cpp test_nrf_t
 target_include_directories(nrf_discovery_authz_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/nrf/src)
 target_link_libraries(nrf_discovery_authz_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
 gtest_discover_tests(nrf_discovery_authz_tests PROPERTIES TIMEOUT 60)
+
+# ADR-0506: the NF's NRF heart-beat re-registers after an NRF restart. In-process NRF stand-in on
+# an ephemeral port; no NF processes.
+add_executable(sbi_nrf_heartbeat_tests test_nrf_heartbeat.cpp)
+target_link_libraries(sbi_nrf_heartbeat_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+target_compile_definitions(sbi_nrf_heartbeat_tests PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(sbi_nrf_heartbeat_tests PROPERTIES TIMEOUT 60)
 
 # ADR-0478: the opt-in TLS 1.2 floor. In-process server on an ephemeral port; no NF processes.
 add_executable(sbi_tls_min_version_tests test_sbi_tls_min_version.cpp)

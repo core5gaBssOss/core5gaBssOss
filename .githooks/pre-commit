@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Rejects a commit that removes anything from README.md (CLAUDE.md guardrail 10, ADR-0512). The README
+# is append/update only, by strict user direction: on 2026-10-22 a commit cut it from 417 lines to 128
+# (ADR-0508) and it had to be restored (ADR-0511). Updating a line in place passes; dropping a section
+# heading, or reducing its non-blank lines or words, does not.
+#
+# Installed via: git config core.hooksPath .githooks (the same one-time step as commit-msg).
+
+set -euo pipefail
+
+git diff --cached --quiet -- README.md && exit 0
+git cat-file -e HEAD:README.md 2>/dev/null || exit 0
+
+exec python3 scripts/docs/check_readme_append_only.py HEAD:README.md :README.md

@@ -155,6 +155,11 @@ submit:
   A CI job (`attribution-check` in [`ci.yml`](workflows/ci.yml)) also scans every pushed/PR commit
   and the PR body as a second, server-side detection layer -- it does not block a merge (this repo
   has no required-status-check branch protection), but it will not be quiet about a leak.
+- `README.md` is append/update only: add to it and update lines in place as the project moves on,
+  but never remove anything from it -- no section, row, paragraph or detail, and no heading renames
+  (CLAUDE.md guardrail 10, ADR-0512). The same `core.hooksPath` setting activates
+  `.githooks/pre-commit`, which rejects a commit that removes README content, and the
+  `readme-append-only` job in [`docs-lint.yml`](workflows/docs-lint.yml) flags one on every PR.
 
 ## Licensing and the CLA
 
