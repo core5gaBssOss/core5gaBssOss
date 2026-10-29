@@ -64,8 +64,12 @@ certificate FQDN shall be used when one context exists. A per-PLMN certificate p
 two certificates for one lab host, where the spec explicitly covers the common-certificate case.
 
 **Verified.** `SeppN32.*` (7: domains incl. TS 23.003's own MCC 345 / MNC 12 example; 5.2.2
-selection, refusals, collision, NONE; 5.3.3.2 correlation) and `structural_conformance` (the
-SecNegotiateReqData / SecNegotiateRspData this SEPP builds, against TS29573_N32_Handshake.yaml);
+selection, refusals, collision, NONE; 5.3.3.2 correlation -- as first written,
+`SeppN32.CorrelationFollowsClause5332` correlated two different peers by handshake id with no
+certificate name, the SEC-02 misreading, so it did not verify 5.3.3.2.1; corrected in the review fix
+SEC-02 below, with the one-peer several-contexts rule in
+`SeppN32.CorrelationAmongOnePeersContextsUsesHandshakeIdThenPurpose`) and `structural_conformance`
+(the SecNegotiateReqData / SecNegotiateRspData this SEPP builds, against TS29573_N32_Handshake.yaml);
 `SeppEndToEnd` (2): two real SEPPs negotiate, a consumer in PLMN A gets PLMN B's real NRF
 Bootstrapping response through both (Via names both SEPPs); an unknown PLMN gets 504 from SEPP A;
 an N32-f request without a context gets 403 CONTEXT_NOT_FOUND; an unconfigured SEPP's
