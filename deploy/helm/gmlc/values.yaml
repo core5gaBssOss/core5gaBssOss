@@ -1,0 +1,23 @@
+image:
+  repository: 5gc-gmlc
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Overrides merged over the generated files/gmlc.json (tools/lab/gen_helm_config.py), e.g.
+#   configOverrides: {nrf_base_url: "https://nrf.5gc.svc.cluster.local:7777"}
+configOverrides: {}
+
+certs:
+  # Secret holding ca.crt, cert.pem, key.pem and nrf-jwt-public.pem; default "gmlc-certs".
+  secretName: ""

@@ -491,6 +491,8 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0532](decisions/ADR-0532-lab-listeners-bind-0-0-0-0-so-a-gnb-can-attach-first-ue.md) Lab: listeners bind 0.0.0.0, so a gNB can attach; first UE through the compose lab
 - [0533](decisions/ADR-0533-nef-northbound-put-only-replaces-404-on-a-missing-resource.md) NEF northbound PUT only replaces: 404 on a missing resource, no create-on-PUT (SPEC-07)
 - [0534](decisions/ADR-0534-www-authenticate-on-routes-that-check-their-own-token-spec.md) WWW-Authenticate on routes that check their own token; spec causes on non-404 errors (SBI-03 increment 1)
+- [0513](decisions/ADR-0513-nf-helm-charts-start-their-nf-generated-config-configmap.md) NF Helm charts start their NF: generated config ConfigMap, per-NF certs Secret, Service named after the NF (REVIEW-5ae0ef1 DEP-01)
+- [0515](decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md) Helm charts for the 17 NFs without one (DEP-03, NF half); the chart config takes compose's environment settings
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
