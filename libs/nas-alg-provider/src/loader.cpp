@@ -90,7 +90,7 @@ tl::expected<std::unique_ptr<Provider>, std::string> load(const ProviderConfig& 
     if (h == nullptr) {
         return Err("dlopen failed");
     }
-    std::unique_ptr<Provider> p(new Provider());
+    auto p = std::make_unique<Provider>(Provider::Key{});
     p->handle_ = h; // closed by the destructor on any later failure
     auto describe = reinterpret_cast<decltype(&nasalg_describe)>(::dlsym(h, "nasalg_describe"));
     p->eea1_ = reinterpret_cast<decltype(&nasalg_eea1)>(::dlsym(h, "nasalg_eea1"));

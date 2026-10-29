@@ -2225,32 +2225,24 @@ int main() {
                          }
                          return sbi_core::http2::Response::json(200, doc->dump());
                      });
-    server.add_route("PUT",
-                     std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-                     [&af_cp_prov](const sbi_core::http2::Request& req) {
-                         sbi_core::http2::Response err;
-                         auto body = sbi_core::http2::parse_json_body<sbi_gen::CpInfo>(req, err);
-                         if (!body.has_value()) {
-                             return err;
-                         }
-                         json j = *body;
-                         if (!af_cp_prov.put(req.path_params.at("scsAsId"),
-                                             req.path_params.at("subscriptionId"),
-                                             j)) {
-                             // PUT on this API creates the resource when it does not yet exist; the
-                             // store's put() only replaces, so fall through to create under the
-                             // addressed id.
-                             af_cp_prov.create_with_id(req.path_params.at("scsAsId"),
-                                                       req.path_params.at("subscriptionId"),
-                                                       j);
-                             sbi_core::http2::Response created;
-                             created.status = 201;
-                             created.headers.emplace("content-type", "application/json");
-                             created.body = j.dump();
-                             return created;
-                         }
-                         return sbi_core::http2::Response::json(200, j.dump());
-                     });
+    server.add_route(
+        "PUT",
+        std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&af_cp_prov](const sbi_core::http2::Request& req) {
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::CpInfo>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_cp_prov.put(
+                    req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j)) {
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such CP provisioning", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
     server.add_route("DELETE",
                      std::string(kAfCpProvApiRoot) +
                          "/{scsAsId}/subscriptions/{subscriptionId}/cpSets/{setId}",
@@ -2292,17 +2284,9 @@ int main() {
                                     req.path_params.at("subscriptionId"),
                                 req.path_params.at("setId"),
                                 j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_cp_prov.create_with_id(req.path_params.at("scsAsId") + "/" +
-                                              req.path_params.at("subscriptionId"),
-                                          req.path_params.at("setId"),
-                                          j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such CP provisioning", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -2413,15 +2397,9 @@ int main() {
             }
             json j = *body;
             if (!af_gmd_mb2.put(req.path_params.at("scsAsId"), req.path_params.at("tmgi"), j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_gmd_mb2.create_with_id(
-                    req.path_params.at("scsAsId"), req.path_params.at("tmgi"), j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such MB2 group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -2520,17 +2498,9 @@ int main() {
             if (!af_gmd_mb2.put(req.path_params.at("scsAsId") + "/" + req.path_params.at("tmgi"),
                                 req.path_params.at("transactionId"),
                                 j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_gmd_mb2.create_with_id(req.path_params.at("scsAsId") + "/" +
-                                              req.path_params.at("tmgi"),
-                                          req.path_params.at("transactionId"),
-                                          j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such MB2 group message delivery", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -2672,36 +2642,27 @@ int main() {
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route("PUT",
-                     std::string(kAfGmdXmbApiRoot) +
-                         "/{scsAsId}/services/{serviceId}/delivery-via-mbms/{transactionId}",
-                     [&af_gmd_xmb](const sbi_core::http2::Request& req) {
-                         sbi_core::http2::Response err;
-                         auto body =
-                             sbi_core::http2::parse_json_body<sbi_gen::GMDViaMBMSByxMB>(req, err);
-                         if (!body.has_value()) {
-                             return err;
-                         }
-                         json j = *body;
-                         if (!af_gmd_xmb.put(req.path_params.at("scsAsId") + "/" +
-                                                 req.path_params.at("serviceId"),
-                                             req.path_params.at("transactionId"),
-                                             j)) {
-                             // PUT on this API creates the resource when it does not yet exist; the
-                             // store's put() only replaces, so fall through to create under the
-                             // addressed id.
-                             af_gmd_xmb.create_with_id(req.path_params.at("scsAsId") + "/" +
-                                                           req.path_params.at("serviceId"),
-                                                       req.path_params.at("transactionId"),
-                                                       j);
-                             sbi_core::http2::Response created;
-                             created.status = 201;
-                             created.headers.emplace("content-type", "application/json");
-                             created.body = j.dump();
-                             return created;
-                         }
-                         return sbi_core::http2::Response::json(200, j.dump());
-                     });
+    server.add_route(
+        "PUT",
+        std::string(kAfGmdXmbApiRoot) +
+            "/{scsAsId}/services/{serviceId}/delivery-via-mbms/{transactionId}",
+        [&af_gmd_xmb](const sbi_core::http2::Request& req) {
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::GMDViaMBMSByxMB>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_gmd_xmb.put(req.path_params.at("scsAsId") + "/" +
+                                    req.path_params.at("serviceId"),
+                                req.path_params.at("transactionId"),
+                                j)) {
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such xMB group message delivery", std::nullopt);
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
     // --- TS29122_NIDD : /3gpp-nidd/v1 (ADR-0327) ---
     server.add_route("GET",
                      std::string(kAfNiddApiRoot) + "/{scsAsId}/configurations",
@@ -2875,17 +2836,9 @@ int main() {
                                  req.path_params.at("configurationId"),
                              req.path_params.at("downlinkDataDeliveryId"),
                              j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_nidd.create_with_id(req.path_params.at("scsAsId") + "/" +
-                                           req.path_params.at("configurationId"),
-                                       req.path_params.at("downlinkDataDeliveryId"),
-                                       j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such NIDD resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -3041,15 +2994,9 @@ int main() {
             json j = *body;
             if (!af_pfd.put(
                     req.path_params.at("scsAsId"), req.path_params.at("transactionId"), j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_pfd.create_with_id(
-                    req.path_params.at("scsAsId"), req.path_params.at("transactionId"), j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such PFD management resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -3113,17 +3060,9 @@ int main() {
                                 req.path_params.at("transactionId"),
                             req.path_params.at("appId"),
                             j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_pfd.create_with_id(req.path_params.at("scsAsId") + "/" +
-                                          req.path_params.at("transactionId"),
-                                      req.path_params.at("appId"),
-                                      j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such PFD management resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -3423,15 +3362,9 @@ int main() {
             json j = *body;
             if (!af_eas_deploy.put(
                     req.path_params.at("afId"), req.path_params.at("easDeployInfoId"), j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_eas_deploy.create_with_id(
-                    req.path_params.at("afId"), req.path_params.at("easDeployInfoId"), j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such EAS deployment info", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -3523,31 +3456,24 @@ int main() {
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
-    server.add_route("PUT",
-                     std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations/{configId}",
-                     [&af_ecs_address](const sbi_core::http2::Request& req) {
-                         sbi_core::http2::Response err;
-                         auto body =
-                             sbi_core::http2::parse_json_body<sbi_gen::EcsAddrInfo>(req, err);
-                         if (!body.has_value()) {
-                             return err;
-                         }
-                         json j = *body;
-                         if (!af_ecs_address.put(
-                                 req.path_params.at("afId"), req.path_params.at("configId"), j)) {
-                             // PUT on this API creates the resource when it does not yet exist; the
-                             // store's put() only replaces, so fall through to create under the
-                             // addressed id.
-                             af_ecs_address.create_with_id(
-                                 req.path_params.at("afId"), req.path_params.at("configId"), j);
-                             sbi_core::http2::Response created;
-                             created.status = 201;
-                             created.headers.emplace("content-type", "application/json");
-                             created.body = j.dump();
-                             return created;
-                         }
-                         return sbi_core::http2::Response::json(200, j.dump());
-                     });
+    server.add_route(
+        "PUT",
+        std::string(kAfEcsAddressApiRoot) + "/{afId}/configurations/{configId}",
+        [&af_ecs_address](const sbi_core::http2::Request& req) {
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::EcsAddrInfo>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_ecs_address.put(
+                    req.path_params.at("afId"), req.path_params.at("configId"), j)) {
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such ECS address configuration", std::nullopt);
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
     // --- TS29522_MBSSession : /3gpp-mbs-session/v1 (ADR-0327) ---
     server.add_route("GET",
                      std::string(kAfMbsSessionApiRoot) + "/mbs-pp",
@@ -3625,15 +3551,10 @@ int main() {
                          }
                          json j = *body;
                          if (!af_mbs_session.put("", req.path_params.at("mbsPpId"), j)) {
-                             // PUT on this API creates the resource when it does not yet exist; the
-                             // store's put() only replaces, so fall through to create under the
-                             // addressed id.
-                             af_mbs_session.create_with_id("", req.path_params.at("mbsPpId"), j);
-                             sbi_core::http2::Response created;
-                             created.status = 201;
-                             created.headers.emplace("content-type", "application/json");
-                             created.body = j.dump();
-                             return created;
+                             // PUT only replaces: the YAML answers 200/204, never 201
+                             // (REVIEW-5ae0ef1 SPEC-07).
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "No such MBS session resource", std::nullopt);
                          }
                          return sbi_core::http2::Response::json(200, j.dump());
                      });
@@ -3870,15 +3791,9 @@ int main() {
             json j = *body;
             if (!af_time_sync.put(
                     req.path_params.at("afId"), req.path_params.at("subscriptionId"), j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_time_sync.create_with_id(
-                    req.path_params.at("afId"), req.path_params.at("subscriptionId"), j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such time sync resource", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -3959,17 +3874,9 @@ int main() {
                                       req.path_params.at("subscriptionId"),
                                   req.path_params.at("instanceReference"),
                                   j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_time_sync.create_with_id(req.path_params.at("afId") + "/" +
-                                                req.path_params.at("subscriptionId"),
-                                            req.path_params.at("instanceReference"),
-                                            j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such time sync resource", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -4059,15 +3966,9 @@ int main() {
             json j = *body;
             if (!af_uav_fa.put(
                     req.path_params.at("afId"), req.path_params.at("configurationId"), j)) {
-                // PUT on this API creates the resource when it does not yet exist; the store's
-                // put() only replaces, so fall through to create under the addressed id.
-                af_uav_fa.create_with_id(
-                    req.path_params.at("afId"), req.path_params.at("configurationId"), j);
-                sbi_core::http2::Response created;
-                created.status = 201;
-                created.headers.emplace("content-type", "application/json");
-                created.body = j.dump();
-                return created;
+                // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such UAV flight assistance configuration", std::nullopt);
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -7409,6 +7310,16 @@ int main() {
                     // ADR-0498 (review fix): nothing was installed -- the AF is told so, and the
                     // subscription is not kept.
                     af_qos_subs.remove(af_id, sub_id);
+                    if (tresp && (tresp->status == 503 || tresp->status == 429)) {
+                        // TS 29.500 6.4.2.1: a producer that cannot serve a request because its
+                        // peer answered 503/429 answers 502 INBOUND_SERVER_ERROR, it does not
+                        // relay the overload status (REVIEW-5ae0ef1 SBI-03).
+                        return sbi_core::http2::problem_response(502,
+                                                                 "Bad Gateway",
+                                                                 "the TSCTSF answered " +
+                                                                     std::to_string(tresp->status),
+                                                                 "INBOUND_SERVER_ERROR");
+                    }
                     if (tresp) {
                         sbi_core::http2::Response relayed;
                         relayed.status = static_cast<int>(tresp->status);

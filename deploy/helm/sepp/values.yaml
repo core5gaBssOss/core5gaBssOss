@@ -13,3 +13,11 @@ resources:
   limits:
     cpu: 500m
     memory: 256Mi
+
+# Overrides merged over the generated files/sepp.json (tools/lab/gen_helm_config.py), e.g.
+#   configOverrides: {nrf_base_url: "https://nrf.5gc.svc.cluster.local:7777"}
+configOverrides: {}
+
+certs:
+  # Secret holding ca.crt, cert.pem, key.pem and nrf-jwt-public.pem; default "sepp-certs".
+  secretName: ""

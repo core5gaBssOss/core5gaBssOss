@@ -487,6 +487,10 @@
   "ADR-0530-sepp-hardening-csprng-handshake-ids-case-insensitive.md",
   "ADR-0531-udr-serves-only-the-yaml-s-methods-no-item-get-on-three.md",
   "ADR-0532-lab-listeners-bind-0-0-0-0-so-a-gnb-can-attach-first-ue.md",
+  "ADR-0533-nef-northbound-put-only-replaces-404-on-a-missing-resource.md",
+  "ADR-0534-www-authenticate-on-routes-that-check-their-own-token-spec.md",
+  "ADR-0513-nf-helm-charts-start-their-nf-generated-config-configmap.md",
+  "ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md",
   "ADR-0506-nfs-register-again-when-the-nrf-no-longer-knows-them-one.md"
  ],
  "split_commit": "0530e4f"

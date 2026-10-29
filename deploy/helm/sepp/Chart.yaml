@@ -2,8 +2,8 @@ apiVersion: v2
 name: sepp
 description: >
   SEPP (Security Edge Protection Proxy) -- TS 29.573 N32-c / N32-f with TLS security, increment 1
-  (ADR-0491). Lab-grade Helm chart, same caveats as deploy/helm/ausf/Chart.yaml: no PKI
-  provisioning, separate releases per NF. Two ports: the SBI port facing this PLMN's NFs and the
+  (ADR-0491). Lab-grade Helm chart; config and certificates as deploy/helm/ausf/Chart.yaml
+  (ADR-0513); the peer SEPP is outside the cluster. Two ports: the SBI port facing this PLMN's NFs and the
   N32 port facing partner SEPPs.
 type: application
 version: 0.1.0

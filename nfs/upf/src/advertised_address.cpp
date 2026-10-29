@@ -11,15 +11,23 @@ namespace upf {
 
 namespace {
 
-struct FdCloser {
-    void operator()(const int* fd) const {
-        if (fd != nullptr && *fd >= 0) {
-            ::close(*fd);
+// Owns one socket descriptor, closed on scope exit; no heap allocation (CLAUDE.md: RAII, no
+// raw new/delete).
+class Fd {
+public:
+    explicit Fd(int fd) : fd_(fd) {}
+    ~Fd() {
+        if (fd_ >= 0) {
+            ::close(fd_);
         }
-        delete fd;
     }
+    Fd(const Fd&) = delete;
+    Fd& operator=(const Fd&) = delete;
+    int operator*() const { return fd_; }
+
+private:
+    int fd_;
 };
-using Fd = std::unique_ptr<int, FdCloser>;
 
 struct AddrInfoFree {
     void operator()(addrinfo* p) const { ::freeaddrinfo(p); }
@@ -84,7 +92,7 @@ tl::expected<Ipv4, std::string> resolve_advertised_ipv4(const std::string& setti
     }
     const std::unique_ptr<addrinfo, AddrInfoFree> info(raw);
 
-    Fd fd(new int(::socket(AF_INET, SOCK_DGRAM, 0)));
+    const Fd fd(::socket(AF_INET, SOCK_DGRAM, 0));
     if (*fd < 0) {
         return tl::unexpected(std::string("socket(): ") + std::strerror(errno));
     }

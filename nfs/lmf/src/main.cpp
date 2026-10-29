@@ -484,8 +484,7 @@ int main() {
         std::string(kBroadcastApiRoot) + "/cipher-key-data",
         [&verifier, &ciphering_key_data_counter](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
-                return sbi_core::http2::problem_response(
-                    401, "Unauthorized", auth->error, std::nullopt);
+                return sbi_core::http2::invalid_token_response(req, auth->error);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::CipherRequestData>(req, err);

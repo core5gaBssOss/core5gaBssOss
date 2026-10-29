@@ -552,6 +552,14 @@ int main() {
         }
         return out;
     };
+    // TS 29.500 6.4.2.1 and table 5.2.7.2-1: a 5xx or 429 from the peer this ADRF needed is
+    // INBOUND_SERVER_ERROR; a 4xx or no answer has no defined cause (REVIEW-5ae0ef1 SBI-03).
+    const auto inbound_cause = [](const PeerResult& r) -> std::optional<std::string> {
+        if (r.status >= 500 || r.status == 429) {
+            return "INBOUND_SERVER_ERROR";
+        }
+        return std::nullopt;
+    };
 
     // ---- storage handling policy (4.2.2.2.2 / 4.2.2.3.2: operator policy bounds the lifetime) --
     struct AppliedHandling {
@@ -755,7 +763,7 @@ int main() {
                     "Bad Gateway",
                     "the DCCF did not accept the storage subscription (" +
                         (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")",
-                    std::nullopt);
+                    inbound_cause(r));
                 return std::nullopt;
             }
             col.resource_uri = r.location;
@@ -773,7 +781,7 @@ int main() {
                     "Bad Gateway",
                     "the NWDAF did not accept the analytics subscription (" +
                         (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")",
-                    std::nullopt);
+                    inbound_cause(r));
                 return std::nullopt;
             }
             col.resource_uri = r.location;
@@ -1697,8 +1705,7 @@ int main() {
         std::string(kModelFilesPrefix) + "/{modelUniqueId}",
         [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(
-                    401, "Unauthorized", auth->error, std::nullopt);
+                return sbi_core::http2::invalid_token_response(req, auth->error);
             }
             std::int64_t id = 0;
             try {
