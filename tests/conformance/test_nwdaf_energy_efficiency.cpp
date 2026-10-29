@@ -1,8 +1,8 @@
-// NWDAF energy-efficiency analytics (R19 addition; KPI per TS 28.554 6.7.1, over the collected SMF
-// QOS_MON ulDataRate/dlDataRate). Verifies the TS 28.554 EE = data-volume / energy-consumption math
-// against a hand-computed case, the generic S-NSSAI handling the user required (a standardised SST
-// and an operator-specific one both grouped and echoed verbatim), the verbatim per-slice filter,
-// and that a report carrying no data rate contributes nothing (no fabricated volume).
+// NWDAF energy-efficiency analytics (R19 addition; KPI per TS 28.554 6.7.2.2, over the collected
+// SMF QOS_MON ulDataRate/dlDataRate). Verifies the TS 28.554 EE = data-volume / energy-consumption
+// math against a hand-computed case, the generic S-NSSAI handling the user required (a standardised
+// SST and an operator-specific one both grouped and echoed verbatim), the verbatim per-slice
+// filter, and that a report carrying no data rate contributes nothing (no fabricated volume).
 
 #include <nlohmann/json.hpp>
 

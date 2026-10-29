@@ -36,6 +36,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | SPEC-08, SPEC-09, SPEC-10 | Fixed (2026-10-24): item GETs and the data-restoration pseudo-operation removed (ADR-0531); SPEC-10 already removed by `d9ef9dc` | ADR-0531 |
 > | SUS-04 | Fixed (2026-10-25): AUSF compares RES* with CRYPTO_memcmp | `nfs/ausf/src/main.cpp` |
 > | DOC-03 (part 2) | Fixed (2026-10-26): independent KAKMA / A-TID / KAF known-answer vectors, S spelled out and HMAC-SHA-256 computed outside the project (Python stdlib, openssl CLI); `aka_crypto` matches all three. Part 1 (SEPP correlation test) not covered by this row | `tests/conformance/test_akma_kdf_vectors.cpp`, ADR-0495 |
+> | SPEC-07 | Fixed (2026-10-26): the 14 NEF PUT handlers whose YAML has no 201 replace only; PUT on a missing id is 404 (SUBSCRIPTION_NOT_FOUND on the CP provisioning and time sync subscriptions, no cause elsewhere: none defined) and creates nothing. Open, "Related": NIDD rds-ports PUT 200 (YAML 201/202), AM PolicyAuthorization events-subscription 201 without `Location`. Tests added, not run locally | ADR-0533; `NefPutReplacesOnly.*` |
 > | Everything else | Open | |
 >
 > **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI
