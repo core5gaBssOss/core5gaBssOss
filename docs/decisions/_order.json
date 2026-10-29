@@ -493,7 +493,8 @@
   "ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md",
   "ADR-0506-nfs-register-again-when-the-nrf-no-longer-knows-them-one.md",
   "ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md",
-  "ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md"
+  "ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md",
+  "ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md"
  ],
  "split_commit": "0530e4f"
 }
