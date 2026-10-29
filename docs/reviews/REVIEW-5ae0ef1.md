@@ -13,7 +13,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > |---|---|---|
 > | SEC-05, SEC-10, SEC-13 | Fixed | `3049778` (ADR-0494, ADR-0491) |
 > | SEC-01 | Fixed (2026-10-24): `sender` bound to the certificate (ADR-0491) and per-PLMN trust anchors on N32 (TS 33.501 13.1.2); one SEPP certificate per PLMN in the lab. Open: N32-f/N32-c PLMN subset check (SEC-02) | `3049778`, ADR-0491, ADR-0529 |
-> | SEC-02 | Fixed (unit tests pass and fail on the old code; SEPP e2e 4/4 pass) | `0d8683c` (local), ADR-0491 review fix |
+> | SEC-02 | Fixed (unit tests pass and fail on the old code; SEPP e2e 4/4 pass) | `b0f04fd` (ADR-0491 review fix SEC-02) |
 > | SBI-01, SBI-02, SEC-03 | Fixed (2026-10-17): tokens required by default on 25 NFs (SEPP: no OAuth2-protected API); NRF issues tokens only to registered, certificate-bound consumers (`config/nrf.json` check on); SEC-03: AAnF register/remove only from the AUSF, `afId` bound to the calling AF | ADR-0499 (phase table) |
 > | The PCF ModAppSession wrapper bug (§0, "already known") | Fixed | `4255e69` (ADR-0498) |
 > | Not in the review: the NRF issues any token to anyone (no registration, certificate or NF-type check) | Fixed: on in `config/nrf.json` (ADR-0499 phases 2, 5) | `nfs/nrf` |
@@ -42,6 +42,7 @@ was changed. This file is written to be handed to a Claude Code session that wil
 > | Not in the review: 24 NFs register `ipv4Addresses: ["127.0.0.1"]` in their NFProfile (hard-coded; only AMF, UPF and NWDAF use a configured address), so a consumer that discovers them through the NRF gets an unreachable address | Open: fix after PR #27, which edits the same `main.cpp` files | ADR-0513 (disclosed) |
 > | DEP-03 | Partly fixed (2026-10-23): charts for the 17 NFs that had none, in the ADR-0513 shape (generated config, per-NF certs Secret, every listening port incl. X1, Diameter, CAP/SCTP); chart configs now carry compose's env-only settings. `helm lint`/`helm template` only, not run in a cluster. Open: `bss/*` charts and a `bss/provisioning` image, the NWDAF MTLF, datastores | ADR-0515 |
 > | SUS-02 | Partly fixed (2026-10-26), confirmed for the UDM: its 13 stores are bounded per store and per access-token `sub` (operator configuration; 500 `INSUFFICIENT_RESOURCES` beyond the bound), and SDM, shared-data and EE subscriptions get a confirmed expiry (TS 29.503 6.1.6.2.3, 6.4.6.2.6) and are swept once it passes. Open: the NEF (18 stores) and the UDR | ADR-0535; `UdmStoreBounds.*`, `SbiStoreQuota.*` |
+> | DOC-03 (part 1) | Fixed (2026-10-29, docs): ADR-0491 Verified says `SeppN32.CorrelationFollowsClause5332` as first written correlated two different peers by handshake id, so it did not verify 5.3.3.2.1, and names the corrected tests; ADR-0496 Verified points to ADR-0495's note (same `aka_crypto` functions on both sides). Part 2 is the row above | ADR-0491, ADR-0496 |
 > | Everything else | Open | |
 >
 > **Fix order (one subsystem per turn):** SEC-02 → SBI-01 phases 1-5 + SEC-03 (ADR-0499) → TSan CI
