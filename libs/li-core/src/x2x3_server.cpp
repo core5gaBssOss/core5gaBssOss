@@ -281,7 +281,7 @@ struct X2X3Server::Impl {
                     ++it;
                 }
             }
-            auto finished = std::unique_ptr<std::atomic<bool>>(new std::atomic<bool>(false));
+            auto finished = std::make_unique<std::atomic<bool>>(false);
             auto* finished_flag = finished.get();
             conn_threads.push_back(Connection{std::thread([this, fd, finished_flag] {
                                                   serve(fd);
