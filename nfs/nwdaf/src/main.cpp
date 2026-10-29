@@ -78,6 +78,7 @@
 #include "sbi_core/jwt.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
+#include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
 #include "sbi_core/problem_details.hpp"
@@ -643,25 +644,14 @@ void run_nrf_lifecycle(const std::string& instance_id,
         spdlog::warn("nwdaf: NRF registration attempt failed, retrying in 5s");
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
-    while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(heartbeat_seconds / 2));
-        sbi_core::http2::ClientRequest patch_req;
-        patch_req.method = "PATCH";
-        patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
-        patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.body =
-            json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
-                .dump();
-        // A dropped heartbeat lets the NRF deregister this NWDAF, so a failure is worth a line
-        // rather than the silent fire-and-forget that tripped -Wunused-result on send()'s
-        // [[nodiscard]] result.
-        auto hb_resp = http_client.send(patch_req);
-        if (!hb_resp) {
-            spdlog::warn("nwdaf: NRF heartbeat failed: {}", hb_resp.error());
-        } else if (hb_resp->status < 200 || hb_resp->status >= 300) {
-            spdlog::warn("nwdaf: NRF heartbeat rejected (HTTP {})", hb_resp->status);
-        }
-    }
+    // TS 29.510 5.2.2.3.2; registers again if the NRF no longer knows this instance (ADR-0506).
+    sbi_core::nrf::run_heartbeats(http_client,
+                                  {.nrf_base = nrf_base,
+                                   .nf_instance_id = instance_id,
+                                   .profile = profile,
+                                   .log_name = "nwdaf",
+                                   .on_registered = sbi_core::clear_default_token_backoff},
+                                  std::chrono::seconds(heartbeat_seconds / 2));
 }
 
 } // namespace
