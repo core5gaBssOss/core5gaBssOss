@@ -78,3 +78,37 @@ groups:
           description: >
             More than 1000 requests shed in 30 minutes. This is no longer a spike being absorbed;
             capacity, the configured ceiling, or an upstream retry storm needs attention.
+
+  - name: lawful-interception-alarms
+    interval: 30s
+    rules:
+      # Issue #10 (ADR-0488). A legal-obligation alarm, not a revenue one; it sits here because this
+      # is the project's only rules file. The CHF IRI-POI follows the TS 33.128 j70 ASN.1, where
+      # roamerInOut is mandatory, so a ChargingDataRequest for an intercepted target that lacks it
+      # (every home-network request nfs/smf sends today) is withheld, not reported. Until this
+      # counter existed that was a log line only. The counter moves only when a request matched an
+      # active task that asked for ChargingDataEvents, so "for an active task" is part of the metric.
+      # The series are exported at 0 from start-up, so increase() also catches the first one.
+      #
+      # Route on `domain` to people authorised for LI only: this alert firing shows that an
+      # interception is active on that CHF, which TS 33.126 R6.6-30 requires to stay undetectable by
+      # non-authorised personnel and processes. ADR-0488 records this as an open point.
+      - alert: ChfLiPoiRecordsWithheld
+        expr: increase(chf_li_poi_records_withheld_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          domain: lawful-interception
+        annotations:
+          summary: "CHF LI POI withheld ChargingDataEvent records -- interception product is missing"
+          description: >
+            {{ $value }} ChargingDataEvent xIRI(s) owed to an active interception task were withheld
+            by the CHF in the last 15 minutes (reason={{ $labels.reason }}, field={{ $labels.field }}).
+            A withheld record is not delivered at all, so at the LEMF it looks exactly like a target
+            that generated no chargeable events. In lawful interception a missing record is a
+            compliance failure that otherwise surfaces only when the authority asks for evidence
+            that was never delivered, not on any dashboard. missing_mandatory_field/roamerInOut: the
+            charging request carried no UserInformation.roamerInOut, which the TS 33.128 ASN.1 makes
+            mandatory; the CHF deliberately does not derive it (ADR-0488). translated_not_built: the
+            task asks for TranslatedChargingDataInformation, which this CHF does not build. The
+            chf-li-poi log lines name the affected task.

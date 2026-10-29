@@ -4,6 +4,8 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -192,7 +194,15 @@ struct ChfLiPoi::Impl {
         }
     }
 
+    // Issue #10: a record owed to a task and not sent. Bumped on the SBI and Diameter handler
+    // threads, read by the metrics scrape; relaxed, the tallies are independent counts.
+    void count_withheld(WithheldReason reason) {
+        withheld.at(static_cast<std::size_t>(reason)).fetch_add(1, std::memory_order_relaxed);
+    }
+
     li_poi::PoiRuntime runtime;
+    // Indexed by WithheldReason (two enumerators).
+    std::array<std::atomic<std::uint64_t>, 2> withheld{};
 };
 
 ChfLiPoi::ChfLiPoi(li_poi::Config config) : impl_(std::make_unique<Impl>(std::move(config))) {}
@@ -203,6 +213,10 @@ void ChfLiPoi::start() {
 }
 void ChfLiPoi::stop() {
     impl_->runtime.stop();
+}
+
+std::uint64_t ChfLiPoi::records_withheld(WithheldReason reason) const {
+    return impl_->withheld.at(static_cast<std::size_t>(reason)).load(std::memory_order_relaxed);
 }
 
 void ChfLiPoi::report_charging_data_request(const std::string& body, bool offline) {
@@ -234,7 +248,8 @@ void ChfLiPoi::report_charging_data_request(const std::string& body, bool offlin
     }
 
     // ADR-0488 (decision B): roamerInOut is mandatory in the ASN.1 and only the request can say
-    // which way a subscriber roams -- never defaulted.
+    // which way a subscriber roams -- never defaulted, and never derived from the serving PLMN vs
+    // the SUPI's home PLMN (an inference the record has no way to mark as one; ADR-0488).
     const auto roamer = string_at(user_info, "roamerInOut");
     std::optional<xiri::RoamerInOut> roamer_in_out;
     if (roamer == "IN_BOUND") {
@@ -263,6 +278,7 @@ void ChfLiPoi::report_charging_data_request(const std::string& body, bool offlin
             spdlog::error("chf-li-poi: task {} asks for TranslatedChargingDataInformation, which "
                           "this POI does not build -- ChargingDataEvent not sent (ADR-0488)",
                           m.xid);
+            impl_->count_withheld(WithheldReason::TranslatedNotBuilt);
             continue;
         }
         if (!roamer_in_out) {
@@ -270,6 +286,7 @@ void ChfLiPoi::report_charging_data_request(const std::string& body, bool offlin
                          "UserInformation.roamerInOut, mandatory in the TS 33.128 j70 ASN.1 -- "
                          "ChargingDataEvent withheld (ADR-0488, strict ASN.1)",
                          m.xid);
+            impl_->count_withheld(WithheldReason::MissingRoamerInOut);
             continue;
         }
         nchf.roamer_in_out = *roamer_in_out;
@@ -344,6 +361,7 @@ void ChfLiPoi::report_rf_acr(const std::vector<std::uint8_t>& message,
             spdlog::error("chf-li-poi: task {} asks for TranslatedChargingDataInformation, which "
                           "this POI does not build -- ChargingDataEvent not sent (ADR-0488)",
                           m.xid);
+            impl_->count_withheld(WithheldReason::TranslatedNotBuilt);
             continue;
         }
         if (!payload) {

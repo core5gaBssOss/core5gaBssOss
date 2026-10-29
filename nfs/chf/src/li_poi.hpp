@@ -25,6 +25,9 @@
 // 7.19.3.4-1 makes it 0..1. The ASN.1 is followed strictly: a record is generated only when the
 // service-specific UserInformation carries roamerInOut; otherwise it is withheld and logged. A
 // home-network subscriber therefore produces no ChargingDataEvent today (nfs/smf sends none).
+// Each withheld record is also counted (records_withheld(), exported by main.cpp as
+// chf_li_poi_records_withheld_total; issue #10, ADR-0488), so that a withheld record can be told
+// apart from a target that generated no chargeable events.
 //
 // Targets (clause 7.19.1): SUPIIMSI, SUPINAI, IMSI, GPSIMSISDN, GPSINAI, E164Number (MSISDN),
 // PEIIMEI, PEIIMEISV, IMEI -- from subscriberIdentifier and UserInformation.servedGPSI/servedPEI.
@@ -55,6 +58,20 @@ public:
     // -> ChargingDataEvent with the rfChargingDataRequest choice.
     void report_rf_acr(const std::vector<std::uint8_t>& message,
                        const std::vector<diameter_core::Avp>& avps);
+
+    // Why a ChargingDataEvent owed to a task was withheld instead of sent (issue #10, ADR-0488).
+    // Counted once per task the record was withheld from, the same unit as one emit().
+    enum class WithheldReason : std::uint8_t {
+        // NchfChargingDataRequest.roamerInOut, mandatory in the TS 33.128 j70 ASN.1: the request's
+        // UserInformation has none, or a value with no ASN.1 RoamerInOut counterpart (the TS 32.291
+        // RoamerInOut enum is extensible). The only mandatory field this POI withholds for.
+        MissingRoamerInOut,
+        // The task asks for TranslatedChargingDataInformation, which this POI does not build.
+        TranslatedNotBuilt,
+    };
+    // Records withheld for `reason` since start-up (monotonic). main.cpp exports these as
+    // chf_li_poi_records_withheld_total{reason,field}.
+    [[nodiscard]] std::uint64_t records_withheld(WithheldReason reason) const;
 
 private:
     struct Impl;
