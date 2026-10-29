@@ -19,3 +19,6 @@ Moved verbatim from CLAUDE.md (section "Definition of done (per NF)", full text)
 9. Architecture diagram and product/license table in `README.md` updated:
    the NF's box goes from dashed to solid, new datastores/products get a
    row with their real license (conventions in `docs/ARCHITECTURE.md`).
+   The README's status, capability and security rows for the NF are
+   appended/updated in place as well. Nothing is ever removed from the
+   README (CLAUDE.md guardrail 10, ADR-0512).
