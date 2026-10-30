@@ -63,5 +63,11 @@ spec:
                 path: aanf/cert.pem
               - key: key.pem
                 path: aanf/key.pem
+              # ADR-0514: this NF's own Valkey ACL password (redis_password_file).
+              - key: valkey.password
+                path: aanf/valkey.password
+              # ADR-0514: the KEK that seals KAKMA at rest (kakma_kek_file default).
+              - key: kakma.kek
+                path: aanf/kakma.kek
               - key: nrf-jwt-public.pem
                 path: nrf-jwt/public.pem

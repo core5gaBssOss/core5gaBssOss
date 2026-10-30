@@ -65,3 +65,6 @@ spec:
                 path: li-mdf3/cert.pem
               - key: key.pem
                 path: li-mdf3/key.pem
+              # ADR-0514: this NF's own Valkey ACL password (redis_password_file).
+              - key: valkey.password
+                path: li-mdf3/valkey.password
