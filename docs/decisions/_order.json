@@ -494,7 +494,8 @@
   "ADR-0506-nfs-register-again-when-the-nrf-no-longer-knows-them-one.md",
   "ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md",
   "ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md",
-  "ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md"
+  "ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md",
+  "ADR-0537-aanf-roaming-check-fails-closed-when-the-udm-cannot-answer.md"
  ],
  "split_commit": "0530e4f"
 }

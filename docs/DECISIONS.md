@@ -497,6 +497,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0512](decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md) README.md is append/update only: nothing is ever removed from it (user-directed, strict); pre-commit hook and CI check
 - [0535](decisions/ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md) UDM store bounds per store and per token sub, confirmed subscription expiry (SUS-02)
 - [0504](decisions/ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md) NWDAF MTLF-based ML model accuracy monitoring from ADRF-stored inference data (TS 23.288 6.2E.2)
+- [0537](decisions/ADR-0537-aanf-roaming-check-fails-closed-when-the-udm-cannot-answer.md) AAnF roaming check fails closed when the UDM cannot answer (SEC-06)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
