@@ -97,6 +97,16 @@
       "type": "boolean",
       "x-env-override": "NEF_OAUTH2_REQUIRED",
       "x-cpp-type": "bool"
+    },
+    "store_max_entries": {
+      "type": "integer",
+      "x-env-override": "NEF_STORE_MAX_ENTRIES",
+      "x-cpp-type": "std::size_t"
+    },
+    "store_max_entries_per_consumer": {
+      "type": "integer",
+      "x-env-override": "NEF_STORE_MAX_ENTRIES_PER_CONSUMER",
+      "x-cpp-type": "std::size_t"
     }
   },
   "required": [
@@ -106,6 +116,8 @@
     "port",
     "sbi_bind_address",
     "self_base_url",
+    "store_max_entries",
+    "store_max_entries_per_consumer",
     "udm_base_url",
     "udr_base_url"
   ],
