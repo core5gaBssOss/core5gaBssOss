@@ -5,7 +5,6 @@
 #include <cstdio>
 #include <ctime>
 #include <mysql.h>
-#include <stdexcept>
 
 namespace adrf {
 
@@ -149,9 +148,9 @@ std::string RecordStore::quote_locked(const std::string& s) {
     return "'" + out + "'";
 }
 
-void RecordStore::exec_locked(const std::string& sql) {
+StoreResult<void> RecordStore::exec_locked(const std::string& sql) {
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     if (mysql_real_query(conn_, sql.c_str(), static_cast<unsigned long>(sql.size())) != 0) {
         const std::string err = mysql_error(conn_);
@@ -161,12 +160,13 @@ void RecordStore::exec_locked(const std::string& sql) {
             mysql_close(conn_);
             conn_ = nullptr;
         }
-        throw std::runtime_error("data store statement failed: " + err);
+        return std::unexpected("data store statement failed: " + err);
     }
     // Statements without a result set still need the (empty) result consumed.
     if (MYSQL_RES* res = mysql_store_result(conn_); res != nullptr) {
         mysql_free_result(res);
     }
+    return {};
 }
 
 namespace {
@@ -178,9 +178,9 @@ std::optional<std::string> opt(const char* v) {
 }
 } // namespace
 
-std::vector<StoredRecord> RecordStore::select_locked(const std::string& where_clause) {
+StoreResult<std::vector<StoredRecord>> RecordStore::select_locked(const std::string& where_clause) {
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     std::string sql =
         "SELECT store_trans_id, kind, origin, spec_fp, data_set_id, collected_at, stored_at, "
@@ -197,11 +197,11 @@ std::vector<StoredRecord> RecordStore::select_locked(const std::string& where_cl
             mysql_close(conn_);
             conn_ = nullptr;
         }
-        throw std::runtime_error("data store query failed: " + err);
+        return std::unexpected("data store query failed: " + err);
     }
     MYSQL_RES* res = mysql_store_result(conn_);
     if (res == nullptr) {
-        throw std::runtime_error(std::string("data store result failed: ") + mysql_error(conn_));
+        return std::unexpected(std::string("data store result failed: ") + mysql_error(conn_));
     }
     std::vector<StoredRecord> out;
     while (MYSQL_ROW row = mysql_fetch_row(res)) {
@@ -228,10 +228,10 @@ std::vector<StoredRecord> RecordStore::select_locked(const std::string& where_cl
     return out;
 }
 
-void RecordStore::insert(const StoredRecord& r) {
+StoreResult<void> RecordStore::insert(const StoredRecord& r) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     const auto nullable = [&](const std::optional<std::string>& v) {
         return v ? quote_locked(*v) : std::string("NULL");
@@ -248,28 +248,31 @@ void RecordStore::insert(const StoredRecord& r) {
         quote_locked(doris_datetime(r.expires_at)) + ", " + nullable(r.del_notif_uri) + ", " +
         nullable(r.del_notif_corr_id) + ", " + (r.alert_sent ? "true" : "false") + ", " +
         quote_locked(r.record.dump()) + ")";
-    exec_locked(sql);
+    return exec_locked(sql);
 }
 
-std::optional<StoredRecord> RecordStore::get(const std::string& id) {
+StoreResult<std::optional<StoredRecord>> RecordStore::get(const std::string& id) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     auto rows = select_locked("store_trans_id = " + quote_locked(id));
-    if (rows.empty()) {
-        return std::nullopt;
+    if (!rows) {
+        return std::unexpected(rows.error());
     }
-    return rows.front();
+    if (rows->empty()) {
+        return std::optional<StoredRecord>();
+    }
+    return std::optional<StoredRecord>(std::move(rows->front()));
 }
 
-std::vector<StoredRecord> RecordStore::get_many(const std::vector<std::string>& ids) {
+StoreResult<std::vector<StoredRecord>> RecordStore::get_many(const std::vector<std::string>& ids) {
     if (ids.empty()) {
-        return {};
+        return std::vector<StoredRecord>();
     }
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     std::string in;
     for (const auto& id : ids) {
@@ -288,96 +291,114 @@ std::string window_clause(const std::optional<TimeWindow>& w) {
 }
 } // namespace
 
-std::vector<StoredRecord> RecordStore::by_data_set(const std::string& data_set_id,
-                                                   const std::optional<TimeWindow>& window) {
+StoreResult<std::vector<StoredRecord>>
+RecordStore::by_data_set(const std::string& data_set_id, const std::optional<TimeWindow>& window) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     return select_locked("data_set_id = " + quote_locked(data_set_id) + window_clause(window));
 }
 
-std::vector<StoredRecord> RecordStore::by_fingerprint(const std::string& spec_fp,
-                                                      const std::optional<TimeWindow>& window) {
+StoreResult<std::vector<StoredRecord>>
+RecordStore::by_fingerprint(const std::string& spec_fp, const std::optional<TimeWindow>& window) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     return select_locked("spec_fp = " + quote_locked(spec_fp) + window_clause(window));
 }
 
-bool RecordStore::remove(const std::string& id) {
+StoreResult<bool> RecordStore::remove(const std::string& id) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     const auto existing = select_locked("store_trans_id = " + quote_locked(id));
-    if (existing.empty()) {
+    if (!existing) {
+        return std::unexpected(existing.error());
+    }
+    if (existing->empty()) {
         return false;
     }
-    exec_locked("DELETE FROM data_store_records WHERE store_trans_id = " + quote_locked(id));
+    if (auto done = exec_locked("DELETE FROM data_store_records WHERE store_trans_id = " +
+                                quote_locked(id));
+        !done) {
+        return std::unexpected(done.error());
+    }
     return true;
 }
 
-std::int64_t RecordStore::remove_matching(const std::optional<std::string>& spec_fp,
-                                          const std::optional<std::string>& data_set_id,
-                                          const TimeWindow& window) {
+StoreResult<std::int64_t>
+RecordStore::remove_matching(const std::optional<std::string>& spec_fp,
+                             const std::optional<std::string>& data_set_id,
+                             const TimeWindow& window) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     const std::string where = (spec_fp ? "spec_fp = " + quote_locked(*spec_fp)
                                        : "data_set_id = " + quote_locked(*data_set_id)) +
                               window_clause(window);
     const auto matching = select_locked(where);
-    if (matching.empty()) {
+    if (!matching) {
+        return std::unexpected(matching.error());
+    }
+    if (matching->empty()) {
         return 0;
     }
-    exec_locked("DELETE FROM data_store_records WHERE " + where);
-    return static_cast<std::int64_t>(matching.size());
+    if (auto done = exec_locked("DELETE FROM data_store_records WHERE " + where); !done) {
+        return std::unexpected(done.error());
+    }
+    return static_cast<std::int64_t>(matching->size());
 }
 
-std::vector<StoredRecord>
+StoreResult<std::vector<StoredRecord>>
 RecordStore::awaiting_alert(std::chrono::system_clock::time_point before) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     return select_locked("alert_sent = false AND del_notif_uri IS NOT NULL AND expires_at <= '" +
                          doris_datetime(before) + "'");
 }
 
-void RecordStore::mark_alert_sent(const std::string& id) {
+StoreResult<void> RecordStore::mark_alert_sent(const std::string& id) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
-    exec_locked("UPDATE data_store_records SET alert_sent = true WHERE store_trans_id = " +
-                quote_locked(id));
+    return exec_locked("UPDATE data_store_records SET alert_sent = true WHERE store_trans_id = " +
+                       quote_locked(id));
 }
 
-void RecordStore::defer_expiry(const std::string& id,
-                               std::chrono::system_clock::time_point new_expiry) {
+StoreResult<void> RecordStore::defer_expiry(const std::string& id,
+                                            std::chrono::system_clock::time_point new_expiry) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
-    exec_locked("UPDATE data_store_records SET expires_at = '" + doris_datetime(new_expiry) +
-                "' WHERE store_trans_id = " + quote_locked(id));
+    return exec_locked("UPDATE data_store_records SET expires_at = '" + doris_datetime(new_expiry) +
+                       "' WHERE store_trans_id = " + quote_locked(id));
 }
 
-std::int64_t RecordStore::remove_expired(std::chrono::system_clock::time_point now) {
+StoreResult<std::int64_t> RecordStore::remove_expired(std::chrono::system_clock::time_point now) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("data store unreachable");
+        return std::unexpected(std::string("data store unreachable"));
     }
     const std::string where = "expires_at <= '" + doris_datetime(now) + "'";
     const auto expired = select_locked(where);
-    if (expired.empty()) {
+    if (!expired) {
+        return std::unexpected(expired.error());
+    }
+    if (expired->empty()) {
         return 0;
     }
-    exec_locked("DELETE FROM data_store_records WHERE " + where);
-    return static_cast<std::int64_t>(expired.size());
+    if (auto done = exec_locked("DELETE FROM data_store_records WHERE " + where); !done) {
+        return std::unexpected(done.error());
+    }
+    return static_cast<std::int64_t>(expired->size());
 }
 
 } // namespace adrf

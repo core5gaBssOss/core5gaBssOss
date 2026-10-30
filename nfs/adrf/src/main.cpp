@@ -162,6 +162,11 @@ problem(int status, const std::string& title, const std::string& detail, const c
     return r;
 }
 
+// A data store or ML model store call that failed (adrf::StoreResult's error).
+sbi_core::http2::Response store_failure(const std::string& why) {
+    return problem(500, "Internal Server Error", why, "SYSTEM_FAILURE");
+}
+
 sbi_core::http2::Response json_response(int status, const json& body) {
     sbi_core::http2::Response r;
     r.status = status;
@@ -659,7 +664,7 @@ int main() {
                                   json record,
                                   const AppliedHandling& handling,
                                   const std::optional<json>& data_set_tag,
-                                  const char* origin) {
+                                  const char* origin) -> adrf::StoreResult<adrf::StoredRecord> {
         adrf::StoredRecord row;
         row.store_trans_id = state.next_id("adrf-rec-");
         row.kind = kind;
@@ -686,7 +691,9 @@ int main() {
         record["storeHandl"] = handling.as_json;
         record["suppFeat"] = negotiate(record, kEnhDataMgmt);
         row.record = record;
-        records.insert(row);
+        if (auto stored = records.insert(row); !stored) {
+            return std::unexpected(stored.error());
+        }
         stored_counter->Add(1);
         spdlog::info("adrf: stored {} record {} (spec {}, data set {}, expires {})",
                      kind,
@@ -911,18 +918,16 @@ int main() {
             if (record.contains("storeHandl")) {
                 requested = record.at("storeHandl");
             }
-            try {
-                const auto row =
-                    store_record(*kind, record, apply_handling(requested), std::nullopt, "request");
-                auto resp = json_response(201, row.record);
-                resp.headers.emplace("location",
-                                     std::string(kDataManagementRoot) + "/data-store-records/" +
-                                         row.store_trans_id);
-                return resp;
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+            const auto row =
+                store_record(*kind, record, apply_handling(requested), std::nullopt, "request");
+            if (!row) {
+                return store_failure(row.error());
             }
+            auto resp = json_response(201, row->record);
+            resp.headers.emplace("location",
+                                 std::string(kDataManagementRoot) + "/data-store-records/" +
+                                     row->store_trans_id);
+            return resp;
         });
 
     // ---- RetrievalRequest (4.2.2.5) -------------------------------------------------------------
@@ -947,54 +952,53 @@ int main() {
                                "selects the records (TS 29.575 4.2.2.5.2)",
                                "MANDATORY_IE_MISSING");
             }
-            try {
-                std::vector<adrf::StoredRecord> found;
-                if (by_id) {
-                    if (auto r = records.get(*by_id)) {
-                        found.push_back(std::move(*r));
+            adrf::StoreResult<std::vector<adrf::StoredRecord>> read;
+            if (by_id) {
+                read = records.get(*by_id).transform([](std::optional<adrf::StoredRecord> r) {
+                    return r ? std::vector<adrf::StoredRecord>{std::move(*r)}
+                             : std::vector<adrf::StoredRecord>{};
+                });
+            } else if (by_fetch) {
+                std::vector<std::string> ids;
+                for (const auto& fetch_id : sbi_core::http2::split_form_array(*by_fetch)) {
+                    if (auto rec = state.take_fetch(fetch_id)) {
+                        ids.push_back(*rec);
                     }
-                } else if (by_fetch) {
-                    std::vector<std::string> ids;
-                    for (const auto& fetch_id : sbi_core::http2::split_form_array(*by_fetch)) {
-                        if (auto rec = state.take_fetch(fetch_id)) {
-                            ids.push_back(*rec);
-                        }
-                    }
-                    found = records.get_many(ids);
-                } else {
-                    found = records.by_data_set(*by_set, std::nullopt);
                 }
-                if (found.empty()) {
-                    return no_content();
-                }
-                std::string dropped;
-                json merged = merge_records(found, dropped);
-                if (!dropped.empty()) {
-                    spdlog::warn("adrf: data set {} mixes analytics and data records; answering "
-                                 "with the {} ones only (single-record response, ADR-0367)",
-                                 by_set.value_or("-"),
-                                 found.front().kind);
-                }
-                merged["suppFeat"] = negotiate(json::object(), kEnhDataMgmt);
-                return json_response(200, merged);
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+                read = records.get_many(ids);
+            } else {
+                read = records.by_data_set(*by_set, std::nullopt);
             }
+            if (!read) {
+                return store_failure(read.error());
+            }
+            const auto& found = *read;
+            if (found.empty()) {
+                return no_content();
+            }
+            std::string dropped;
+            json merged = merge_records(found, dropped);
+            if (!dropped.empty()) {
+                spdlog::warn("adrf: data set {} mixes analytics and data records; answering "
+                             "with the {} ones only (single-record response, ADR-0367)",
+                             by_set.value_or("-"),
+                             found.front().kind);
+            }
+            merged["suppFeat"] = negotiate(json::object(), kEnhDataMgmt);
+            return json_response(200, merged);
         });
 
     // ---- Delete by storeTransId (4.2.2.9.2) -----------------------------------------------------
     server.add_route("DELETE",
                      std::string(kDataManagementRoot) + "/data-store-records/{storeTransId}",
                      [&](const sbi_core::http2::Request& req) {
-                         try {
-                             if (!records.remove(req.path_params.at("storeTransId"))) {
-                                 return sbi_core::http2::problem_response(
-                                     404, "Not Found", "no such data store record", std::nullopt);
-                             }
-                         } catch (const std::exception& e) {
+                         const auto removed = records.remove(req.path_params.at("storeTransId"));
+                         if (!removed) {
+                             return store_failure(removed.error());
+                         }
+                         if (!*removed) {
                              return sbi_core::http2::problem_response(
-                                 500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+                                 404, "Not Found", "no such data store record", std::nullopt);
                          }
                          deleted_counter->Add(1);
                          return no_content();
@@ -1035,14 +1039,12 @@ int main() {
             } else {
                 data_set_id = spec.at("dataSetId").get<std::string>();
             }
-            try {
-                const auto n = records.remove_matching(fp, data_set_id, *window);
-                deleted_counter->Add(static_cast<std::uint64_t>(n));
-                spdlog::info("adrf: remove-stored-data-analytics deleted {} record(s)", n);
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+            const auto n = records.remove_matching(fp, data_set_id, *window);
+            if (!n) {
+                return store_failure(n.error());
             }
+            deleted_counter->Add(static_cast<std::uint64_t>(*n));
+            spdlog::info("adrf: remove-stored-data-analytics deleted {} record(s)", *n);
             return no_content();
         });
 
@@ -1274,15 +1276,13 @@ int main() {
             if (tags.empty()) {
                 tags.push_back(col->data_set_tag);
             }
-            try {
-                for (auto& [kind, record] : to_store) {
-                    for (const auto& tag : tags) {
-                        store_record(kind, record, handling, tag, "subscription");
+            for (auto& [kind, record] : to_store) {
+                for (const auto& tag : tags) {
+                    if (auto row = store_record(kind, record, handling, tag, "subscription");
+                        !row) {
+                        return store_failure(row.error());
                     }
                 }
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
             }
             return no_content();
         },
@@ -1330,12 +1330,17 @@ int main() {
             // What is already stored inside the window goes out now, after the 201 -- the
             // consumer's endpoint may be the thread waiting for this response.
             std::thread([&, id, sub, window]() {
+                const auto matched = sub.fingerprint
+                                         ? records.by_fingerprint(*sub.fingerprint, window)
+                                         : records.by_data_set(*sub.data_set_id, window);
+                if (!matched) {
+                    spdlog::warn("adrf: initial retrieval for {} failed: {}", id, matched.error());
+                    return;
+                }
+                // A detached thread is a boundary: nothing may escape it (std::terminate).
                 try {
-                    const auto matched = sub.fingerprint
-                                             ? records.by_fingerprint(*sub.fingerprint, window)
-                                             : records.by_data_set(*sub.data_set_id, window);
-                    if (!matched.empty()) {
-                        notify_retrieval(id, sub, matched);
+                    if (!matched->empty()) {
+                        notify_retrieval(id, sub, *matched);
                     }
                 } catch (const std::exception& e) {
                     spdlog::warn("adrf: initial retrieval for {} failed: {}", id, e.what());
@@ -1373,7 +1378,8 @@ int main() {
         int failed = 0;
         std::string common_failure; // set when failed > 0 and every failure had this cause
     };
-    const auto store_models = [&](const std::string& store_trans_id, const json& request) {
+    const auto store_models = [&](const std::string& store_trans_id,
+                                  const json& request) -> adrf::StoreResult<StoreOutcome> {
         StoreOutcome out;
         out.body = json::object();
         if (request.contains("nfInstanceId")) {
@@ -1400,13 +1406,15 @@ int main() {
         const auto keep = [&](std::int64_t id,
                               const std::string& bytes,
                               const std::optional<json>& source,
-                              const std::optional<json>& allow) {
+                              const std::optional<json>& allow) -> adrf::StoreResult<void> {
             adrf::StoredModel m;
             m.model_unique_id = id;
             m.store_trans_id = store_trans_id;
             m.source_addr = source;
             m.allow_consumers = allow;
-            models.upsert_model(m, bytes);
+            if (auto upserted = models.upsert_model(m, bytes); !upserted) {
+                return upserted;
+            }
             models_stored_counter->Add(1);
             json info{
                 {"modelUniqueId", id},
@@ -1418,6 +1426,7 @@ int main() {
             }
             infos.push_back(std::move(info));
             record_result(id, "ML_MODEL_FILE_STORED_IN_ADRF");
+            return {};
         };
         for (const auto& info : request.value("mlModelInfo", json::array())) {
             const auto id = info.at("modelUniqueId").get<std::int64_t>();
@@ -1448,7 +1457,9 @@ int main() {
                 record_result(id, "ML_MODEL_FILE_DOWNLOAD_FAILED");
                 continue;
             }
-            keep(id, r.body, std::optional<json>(addr), allow);
+            if (auto kept = keep(id, r.body, std::optional<json>(addr), allow); !kept) {
+                return std::unexpected(kept.error());
+            }
         }
         for (const auto& m : request.value("mlModels", json::array())) {
             const auto id = m.at("modelUniqueId").get<std::int64_t>();
@@ -1462,7 +1473,9 @@ int main() {
                 record_result(id, "ML_MODEL_FILE_DOWNLOAD_FAILED");
                 continue;
             }
-            keep(id, *bytes, std::nullopt, allow);
+            if (auto kept = keep(id, *bytes, std::nullopt, allow); !kept) {
+                return std::unexpected(kept.error());
+            }
         }
         if (!infos.empty()) {
             out.body["mlModelInfo"] = infos;
@@ -1533,26 +1546,27 @@ int main() {
                 return *bad;
             }
             const auto id = state.next_id("adrf-ml-");
-            try {
-                models.create_record(id, dto->nfInstanceId, dto->nfSetId);
-                const auto outcome = store_models(id, request);
-                if (outcome.stored == 0) {
-                    models.remove_record(id);
-                    return all_failed_response(outcome);
-                }
-                auto resp = json_response(201, outcome.body);
-                resp.headers.emplace("location",
-                                     std::string(kMLModelManagementRoot) +
-                                         "/mlmodel-store-records/" + id);
-                spdlog::info("adrf: ML model store record {} created ({} stored, {} failed)",
-                             id,
-                             outcome.stored,
-                             outcome.failed);
-                return resp;
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+            if (auto created = models.create_record(id, dto->nfInstanceId, dto->nfSetId);
+                !created) {
+                return store_failure(created.error());
             }
+            const auto outcome = store_models(id, request);
+            if (!outcome || outcome->stored == 0) {
+                // Nothing of the record is kept: no 201, so no Location to delete it by.
+                if (auto removed = models.remove_record(id); !removed) {
+                    spdlog::warn(
+                        "adrf: ML model store record {} left behind: {}", id, removed.error());
+                }
+                return outcome ? all_failed_response(*outcome) : store_failure(outcome.error());
+            }
+            auto resp = json_response(201, outcome->body);
+            resp.headers.emplace(
+                "location", std::string(kMLModelManagementRoot) + "/mlmodel-store-records/" + id);
+            spdlog::info("adrf: ML model store record {} created ({} stored, {} failed)",
+                         id,
+                         outcome->stored,
+                         outcome->failed);
+            return resp;
         });
 
     // ---- MLModelManagement_StorageRequest: update (4.3.2.2.3) -----------------------------------
@@ -1570,21 +1584,26 @@ int main() {
                 return *bad;
             }
             const auto id = req.path_params.at("storeTransId");
-            try {
-                if (!models.record_exists(id)) {
-                    return problem(
-                        404, "Not Found", "no such ML model store record", "ML_MODEL_NOT_FOUND");
-                }
-                models.create_record(id, dto->nfInstanceId, dto->nfSetId);
-                const auto outcome = store_models(id, request);
-                if (outcome.stored == 0) {
-                    return all_failed_response(outcome);
-                }
-                return json_response(200, outcome.body);
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+            const auto exists = models.record_exists(id);
+            if (!exists) {
+                return store_failure(exists.error());
             }
+            if (!*exists) {
+                return problem(
+                    404, "Not Found", "no such ML model store record", "ML_MODEL_NOT_FOUND");
+            }
+            if (auto updated = models.create_record(id, dto->nfInstanceId, dto->nfSetId);
+                !updated) {
+                return store_failure(updated.error());
+            }
+            const auto outcome = store_models(id, request);
+            if (!outcome) {
+                return store_failure(outcome.error());
+            }
+            if (outcome->stored == 0) {
+                return all_failed_response(*outcome);
+            }
+            return json_response(200, outcome->body);
         });
 
     // May `consumer` (the token subject, empty when the request carried no token) retrieve `m`?
@@ -1631,72 +1650,71 @@ int main() {
                                "4.3.2.3.2)",
                                "MANDATORY_IE_MISSING");
             }
-            try {
-                std::vector<adrf::StoredModel> found;
-                if (by_record != req.query_params.end()) {
-                    found = models.models_in_record(by_record->second);
-                } else {
-                    std::vector<std::int64_t> ids;
-                    for (const auto& s : sbi_core::http2::split_form_array(by_ids->second)) {
-                        try {
-                            ids.push_back(std::stoll(s));
-                        } catch (const std::exception&) {
-                            return problem(400,
-                                           "Bad Request",
-                                           "model-unique-ids must be integers",
-                                           "INVALID_QUERY_PARAM");
-                        }
+            adrf::StoreResult<std::vector<adrf::StoredModel>> read;
+            if (by_record != req.query_params.end()) {
+                read = models.models_in_record(by_record->second);
+            } else {
+                std::vector<std::int64_t> ids;
+                for (const auto& s : sbi_core::http2::split_form_array(by_ids->second)) {
+                    try {
+                        ids.push_back(std::stoll(s));
+                    } catch (const std::exception&) {
+                        return problem(400,
+                                       "Bad Request",
+                                       "model-unique-ids must be integers",
+                                       "INVALID_QUERY_PARAM");
                     }
-                    found = models.models_by_ids(ids);
                 }
-                if (found.empty()) {
-                    return no_content();
-                }
-                const auto consumer = consumer_of(req);
-                json body = json::object();
-                json infos = json::array();
-                json results = json::array();
-                for (const auto& m : found) {
-                    if (!body.contains("nfInstanceId") && m.owner_nf_instance_id) {
-                        body["nfInstanceId"] = *m.owner_nf_instance_id;
-                    }
-                    if (!body.contains("nfSetId") && m.owner_nf_set_id) {
-                        body["nfSetId"] = *m.owner_nf_set_id;
-                    }
-                    if (!may_retrieve(consumer, m)) {
-                        results.push_back(json{{"modelUniqueId", m.model_unique_id},
-                                               {"storeResult", "RETRIEVAL_ML_MODEL_NOT_ALLOWED"}});
-                        continue;
-                    }
-                    json info{{"modelUniqueId", m.model_unique_id},
-                              {"mlFileAddr",
-                               json{{"mLModelUrl",
-                                     self_base + kModelFilesPrefix + "/" +
-                                         std::to_string(m.model_unique_id)}}},
-                              {"mlStorageSize", m.storage_size}};
-                    if (m.allow_consumers) {
-                        info["allowConsumerList"] = *m.allow_consumers;
-                    }
-                    infos.push_back(std::move(info));
-                }
-                if (infos.empty()) {
-                    return problem(403,
-                                   "Forbidden",
-                                   "consumer '" + consumer +
-                                       "' is neither the storing MTLF nor in the allowed consumer "
-                                       "list of the requested model(s)",
-                                   "RETRIEVAL_ML_MODEL_NOT_ALLOWED");
-                }
-                body["mlModelInfo"] = infos;
-                if (!results.empty()) {
-                    body["modelStoreResults"] = results;
-                }
-                body["suppFeat"] = negotiate(json::object(), kEnModelMgmt);
-                return json_response(200, body);
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+                read = models.models_by_ids(ids);
             }
+            if (!read) {
+                return store_failure(read.error());
+            }
+            const auto& found = *read;
+            if (found.empty()) {
+                return no_content();
+            }
+            const auto consumer = consumer_of(req);
+            json body = json::object();
+            json infos = json::array();
+            json results = json::array();
+            for (const auto& m : found) {
+                if (!body.contains("nfInstanceId") && m.owner_nf_instance_id) {
+                    body["nfInstanceId"] = *m.owner_nf_instance_id;
+                }
+                if (!body.contains("nfSetId") && m.owner_nf_set_id) {
+                    body["nfSetId"] = *m.owner_nf_set_id;
+                }
+                if (!may_retrieve(consumer, m)) {
+                    results.push_back(json{{"modelUniqueId", m.model_unique_id},
+                                           {"storeResult", "RETRIEVAL_ML_MODEL_NOT_ALLOWED"}});
+                    continue;
+                }
+                json info{{"modelUniqueId", m.model_unique_id},
+                          {"mlFileAddr",
+                           json{{"mLModelUrl",
+                                 self_base + kModelFilesPrefix + "/" +
+                                     std::to_string(m.model_unique_id)}}},
+                          {"mlStorageSize", m.storage_size}};
+                if (m.allow_consumers) {
+                    info["allowConsumerList"] = *m.allow_consumers;
+                }
+                infos.push_back(std::move(info));
+            }
+            if (infos.empty()) {
+                return problem(403,
+                               "Forbidden",
+                               "consumer '" + consumer +
+                                   "' is neither the storing MTLF nor in the allowed consumer "
+                                   "list of the requested model(s)",
+                               "RETRIEVAL_ML_MODEL_NOT_ALLOWED");
+            }
+            body["mlModelInfo"] = infos;
+            if (!results.empty()) {
+                body["modelStoreResults"] = results;
+            }
+            body["suppFeat"] = negotiate(json::object(), kEnModelMgmt);
+            return json_response(200, body);
         });
 
     // ---- the model file itself (the mLModelUrl this ADRF hands out) -----------------------------
@@ -1714,27 +1732,26 @@ int main() {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "no such ML model", std::nullopt);
             }
-            try {
-                const auto m = models.get_bytes(id);
-                if (!m) {
-                    return problem(404, "Not Found", "no such ML model", "ML_MODEL_NOT_FOUND");
-                }
-                if (!may_retrieve(consumer_of(req), *m)) {
-                    return problem(403,
-                                   "Forbidden",
-                                   "not an allowed consumer of this ML model",
-                                   "RETRIEVAL_ML_MODEL_NOT_ALLOWED");
-                }
-                models_served_counter->Add(1);
-                sbi_core::http2::Response resp;
-                resp.status = 200;
-                resp.headers.emplace("content-type", "application/octet-stream");
-                resp.body = m->bytes;
-                return resp;
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+            const auto read = models.get_bytes(id);
+            if (!read) {
+                return store_failure(read.error());
             }
+            const auto& m = *read;
+            if (!m) {
+                return problem(404, "Not Found", "no such ML model", "ML_MODEL_NOT_FOUND");
+            }
+            if (!may_retrieve(consumer_of(req), *m)) {
+                return problem(403,
+                               "Forbidden",
+                               "not an allowed consumer of this ML model",
+                               "RETRIEVAL_ML_MODEL_NOT_ALLOWED");
+            }
+            models_served_counter->Add(1);
+            sbi_core::http2::Response resp;
+            resp.status = 200;
+            resp.headers.emplace("content-type", "application/octet-stream");
+            resp.body = m->bytes;
+            return resp;
         },
         // ADR-0499: the mLModelUrl file: its handler requires a valid token whose subject is an
         // allowed consumer of the model; no YAML scope covers this URL.
@@ -1746,24 +1763,27 @@ int main() {
         std::string(kMLModelManagementRoot) + "/mlmodel-store-records/{storeTransId}",
         [&](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("storeTransId");
-            try {
-                const auto in_record = models.models_in_record(id);
-                if (!models.remove_record(id)) {
-                    return problem(
-                        404, "Not Found", "no ML model stored under " + id, "ML_MODEL_NOT_FOUND");
-                }
-                json results = json::array();
-                for (const auto& m : in_record) {
-                    results.push_back(json{{"modelUniqueId", m.model_unique_id},
-                                           {"deleteResult", "ML_MODEL_DELETED"}});
-                }
-                spdlog::info(
-                    "adrf: ML model store record {} deleted ({} model(s))", id, in_record.size());
-                return json_response(200, results);
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+            const auto read = models.models_in_record(id);
+            if (!read) {
+                return store_failure(read.error());
             }
+            const auto removed = models.remove_record(id);
+            if (!removed) {
+                return store_failure(removed.error());
+            }
+            const auto& in_record = *read;
+            if (!*removed) {
+                return problem(
+                    404, "Not Found", "no ML model stored under " + id, "ML_MODEL_NOT_FOUND");
+            }
+            json results = json::array();
+            for (const auto& m : in_record) {
+                results.push_back(json{{"modelUniqueId", m.model_unique_id},
+                                       {"deleteResult", "ML_MODEL_DELETED"}});
+            }
+            spdlog::info(
+                "adrf: ML model store record {} deleted ({} model(s))", id, in_record.size());
+            return json_response(200, results);
         });
 
     // ---- MLModelManagement_Delete: by unique id (4.3.2.4.3) -------------------------------------
@@ -1782,30 +1802,27 @@ int main() {
                                "the list of ML model identifiers shall not be empty",
                                "MANDATORY_IE_MISSING");
             }
-            try {
-                json results = json::array();
-                int deleted = 0;
-                for (const auto id : *ids) {
-                    const bool ok = models.remove_model(id);
-                    deleted += ok ? 1 : 0;
-                    results.push_back(
-                        json{{"modelUniqueId", id},
-                             {"deleteResult", ok ? "ML_MODEL_DELETED" : "ML_MODEL_NOT_FOUND"}});
+            json results = json::array();
+            int deleted = 0;
+            for (const auto id : *ids) {
+                const auto removed = models.remove_model(id);
+                if (!removed) {
+                    return store_failure(removed.error());
                 }
-                if (deleted == 0) {
-                    return problem(404,
-                                   "Not Found",
-                                   "none of the ML models is stored here",
-                                   "ML_MODEL_NOT_FOUND");
-                }
-                if (deleted == static_cast<int>(ids->size())) {
-                    return no_content();
-                }
-                return json_response(200, results);
-            } catch (const std::exception& e) {
-                return sbi_core::http2::problem_response(
-                    500, "Internal Server Error", e.what(), "SYSTEM_FAILURE");
+                const bool ok = *removed;
+                deleted += ok ? 1 : 0;
+                results.push_back(
+                    json{{"modelUniqueId", id},
+                         {"deleteResult", ok ? "ML_MODEL_DELETED" : "ML_MODEL_NOT_FOUND"}});
             }
+            if (deleted == 0) {
+                return problem(
+                    404, "Not Found", "none of the ML models is stored here", "ML_MODEL_NOT_FOUND");
+            }
+            if (deleted == static_cast<int>(ids->size())) {
+                return no_content();
+            }
+            return json_response(200, results);
         });
 
     // ============ background: lifetime reaper and retrieval-window sweeper =====================
@@ -1818,49 +1835,70 @@ int main() {
         }
         return running.load();
     };
+    // One lifetime-reaper sweep. A store error ends it there: a record whose alert or deferral
+    // could not be recorded is not deleted in the same sweep.
+    const auto reap = [&]() -> adrf::StoreResult<void> {
+        const auto now = std::chrono::system_clock::now();
+        // 4.2.2.8.3: alert delNotifUri before the deletion; a consumer answering 200
+        // {retrievalInd: true} gets a grace period to fetch.
+        const auto due = records.awaiting_alert(now + std::chrono::seconds(alert_lead));
+        if (!due) {
+            return std::unexpected(due.error());
+        }
+        for (const auto& r : *due) {
+            json alert{{"alertStorTransId", r.store_trans_id},
+                       {"delNotifCorrId", r.del_notif_corr_id.value_or("")}};
+            // The callback name follows the operation that asked for the alert:
+            // storageAlertNotification for a StorageRequest record,
+            // storageSubAlertNotification for one a storage subscription produced.
+            const auto resp =
+                call(nullptr,
+                     "POST",
+                     *r.del_notif_uri,
+                     std::optional<json>(alert),
+                     r.origin == "subscription" ? kStorageSubAlertCallback : kStorageAlertCallback);
+            alert_counter->Add(1);
+            if (auto marked = records.mark_alert_sent(r.store_trans_id); !marked) {
+                return marked;
+            }
+            bool wants_it = false;
+            if (resp.status == 200) {
+                try {
+                    wants_it = json::parse(resp.body).value("retrievalInd", false);
+                } catch (const json::exception&) {
+                }
+            }
+            if (wants_it) {
+                if (auto deferred = records.defer_expiry(r.store_trans_id,
+                                                         now + std::chrono::seconds(alert_grace));
+                    !deferred) {
+                    return deferred;
+                }
+                spdlog::info("adrf: {} will be retrieved before deletion -- expiry "
+                             "deferred {}s",
+                             r.store_trans_id,
+                             alert_grace);
+            }
+        }
+        const auto n = records.remove_expired(now);
+        if (!n) {
+            return std::unexpected(n.error());
+        }
+        if (*n > 0) {
+            deleted_counter->Add(static_cast<std::uint64_t>(*n));
+            spdlog::info("adrf: lifetime reaper deleted {} expired record(s)", *n);
+        }
+        return {};
+    };
     std::thread reaper([&]() {
         while (pause(reaper_interval)) {
             if (!state.acquire_lease("reaper", std::chrono::milliseconds(reaper_interval * 900))) {
                 continue;
             }
+            // The thread's boundary: nothing may escape it (std::terminate).
             try {
-                const auto now = std::chrono::system_clock::now();
-                // 4.2.2.8.3: alert delNotifUri before the deletion; a consumer answering 200
-                // {retrievalInd: true} gets a grace period to fetch.
-                for (const auto& r :
-                     records.awaiting_alert(now + std::chrono::seconds(alert_lead))) {
-                    json alert{{"alertStorTransId", r.store_trans_id},
-                               {"delNotifCorrId", r.del_notif_corr_id.value_or("")}};
-                    // The callback name follows the operation that asked for the alert:
-                    // storageAlertNotification for a StorageRequest record,
-                    // storageSubAlertNotification for one a storage subscription produced.
-                    const auto resp = call(nullptr,
-                                           "POST",
-                                           *r.del_notif_uri,
-                                           std::optional<json>(alert),
-                                           r.origin == "subscription" ? kStorageSubAlertCallback
-                                                                      : kStorageAlertCallback);
-                    alert_counter->Add(1);
-                    records.mark_alert_sent(r.store_trans_id);
-                    bool wants_it = false;
-                    if (resp.status == 200) {
-                        try {
-                            wants_it = json::parse(resp.body).value("retrievalInd", false);
-                        } catch (const json::exception&) {
-                        }
-                    }
-                    if (wants_it) {
-                        records.defer_expiry(r.store_trans_id,
-                                             now + std::chrono::seconds(alert_grace));
-                        spdlog::info("adrf: {} will be retrieved before deletion -- expiry "
-                                     "deferred {}s",
-                                     r.store_trans_id,
-                                     alert_grace);
-                    }
-                }
-                if (const auto n = records.remove_expired(now); n > 0) {
-                    deleted_counter->Add(static_cast<std::uint64_t>(n));
-                    spdlog::info("adrf: lifetime reaper deleted {} expired record(s)", n);
+                if (auto swept = reap(); !swept) {
+                    spdlog::warn("adrf: reaper sweep failed: {}", swept.error());
                 }
             } catch (const std::exception& e) {
                 spdlog::warn("adrf: reaper sweep failed: {}", e.what());

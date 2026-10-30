@@ -903,3 +903,51 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
     ASSERT_TRUE(r.has_value()) << r.error();
     EXPECT_EQ(r->status, 200) << r->body; // the (now empty) record itself
 }
+
+// REVIEW-5ae0ef1 RULE-02: with neither database reachable, every store call comes back as an
+// error the handler answers -- 500 SYSTEM_FAILURE with the reason -- and the ADRF stays up to
+// answer the next request. Runs with or without the lab's Doris and PostgreSQL: both addresses
+// below are closed ports.
+TEST(Adrf, StoreErrorsAreAnsweredNotThrown) {
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    setenv("ADRF_DATA_STORE_HOST", "127.0.0.1", 1);
+    setenv("ADRF_DATA_STORE_PORT", "1", 1);
+    setenv("ADRF_ML_MODEL_STORE_DATABASE_URL",
+           "postgresql://adrf@127.0.0.1:1/adrf?connect_timeout=1",
+           1);
+    nf_test::SpawnedProcess adrf(ADRF_PATH);
+    unsetenv("ADRF_DATA_STORE_HOST");
+    unsetenv("ADRF_DATA_STORE_PORT");
+    unsetenv("ADRF_ML_MODEL_STORE_DATABASE_URL");
+    auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
+    ASSERT_TRUE(wait_up(c, std::string(kAdrf) + kDm + "/data-store-records", 30s))
+        << "ADRF never came up";
+
+    const auto expect_store_failure = [](const auto& r, const std::string& why) {
+        ASSERT_TRUE(r.has_value()) << r.error();
+        EXPECT_EQ(r->status, 500) << r->body;
+        const auto pd = json::parse(r->body);
+        EXPECT_EQ(pd.value("cause", ""), "SYSTEM_FAILURE") << r->body;
+        EXPECT_NE(pd.value("detail", "").find(why), std::string::npos) << r->body;
+    };
+    expect_store_failure(c.send(request("POST",
+                                        std::string(kAdrf) + kDm + "/data-store-records",
+                                        nrf_data_record("rule02"))),
+                         "data store unreachable");
+    expect_store_failure(
+        c.send(
+            request("GET", std::string(kAdrf) + kDm + "/data-store-records?store-trans-id=rule02")),
+        "data store unreachable");
+    expect_store_failure(
+        c.send(request("DELETE", std::string(kAdrf) + kDm + "/data-store-records/rule02")),
+        "data store unreachable");
+    expect_store_failure(
+        c.send(request("GET",
+                       std::string(kAdrf) + kMl + "/mlmodel-store-records?store-trans-id=rule02")),
+        "ML model store unreachable");
+    expect_store_failure(
+        c.send(
+            request("POST", std::string(kAdrf) + kMl + "/remove-stored-mlmodel", json::array({1}))),
+        "ML model store unreachable");
+}
