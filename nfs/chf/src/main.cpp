@@ -823,6 +823,35 @@ int main() {
     auto cap_apply_charging_counter = meter->CreateUInt64Counter(
         "chf_cap_apply_charging_total", "Total real CAP ApplyCharging responses sent");
 
+    // Issue #10 (ADR-0488): ChargingDataEvents the LI IRI-POI owed a task and withheld -- before
+    // this, only a log line, so a withheld record looked like a target with no chargeable events.
+    // Observable over ChfLiPoi's own tallies so both series exist at 0 from start-up: a series
+    // created on its first increment starts at 1, and increase() in the ChfLiPoiRecordsWithheld
+    // alert (deploy/prometheus/business_alerts.yml) would miss that first withheld record.
+    // Registered whether or not li_poi is enabled, so the metric's presence does not reveal which
+    // CHFs carry a POI (TS 33.126 R6.6-80); its increments do -- see ADR-0488 for that open point.
+    // No task, target or XID label: those stay on the LI side.
+    auto li_poi_withheld_counter = meter->CreateInt64ObservableCounter(
+        "chf_li_poi_records_withheld_total",
+        "LI ChargingDataEvents withheld instead of sent to the MDF2, by reason (ADR-0488)");
+    li_poi_withheld_counter->AddCallback(
+        [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
+            const auto* poi = static_cast<const chf::ChfLiPoi*>(state);
+            const auto withheld = [poi](chf::ChfLiPoi::WithheldReason reason) {
+                return poi == nullptr ? std::int64_t{0}
+                                      : static_cast<std::int64_t>(poi->records_withheld(reason));
+            };
+            if (auto* obs = opentelemetry::nostd::get_if<opentelemetry::nostd::shared_ptr<
+                    opentelemetry::metrics::ObserverResultT<std::int64_t>>>(&observer_result)) {
+                // `field` is the TS 33.128 ASN.1 member name (NchfChargingDataRequest.roamerInOut).
+                (*obs)->Observe(withheld(chf::ChfLiPoi::WithheldReason::MissingRoamerInOut),
+                                {{"reason", "missing_mandatory_field"}, {"field", "roamerInOut"}});
+                (*obs)->Observe(withheld(chf::ChfLiPoi::WithheldReason::TranslatedNotBuilt),
+                                {{"reason", "translated_not_built"}});
+            }
+        },
+        li_poi.get());
+
     // P4.5/ADR-0060 Stage 3 + ADR-0059 Stage 4: real Diameter server -- CER/CEA capability exchange
     // (Stage 2) plus real CCR-I/U/T (Stage 3, Gy) dispatched through the exact same
     // charging_engine.hpp functions Nchf_ConvergedCharging's HTTP Create/Update/Release handlers

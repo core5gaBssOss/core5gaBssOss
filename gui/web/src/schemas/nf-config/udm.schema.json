@@ -116,6 +116,26 @@
       "type": "boolean",
       "x-env-override": "UDM_OAUTH2_REQUIRED",
       "x-cpp-type": "bool"
+    },
+    "store_max_entries": {
+      "type": "integer",
+      "x-env-override": "UDM_STORE_MAX_ENTRIES",
+      "x-cpp-type": "std::size_t"
+    },
+    "store_max_entries_per_consumer": {
+      "type": "integer",
+      "x-env-override": "UDM_STORE_MAX_ENTRIES_PER_CONSUMER",
+      "x-cpp-type": "std::size_t"
+    },
+    "subscription_max_lifetime_seconds": {
+      "type": "integer",
+      "x-env-override": "UDM_SUBSCRIPTION_MAX_LIFETIME_SECONDS",
+      "x-cpp-type": "std::int64_t"
+    },
+    "store_sweep_interval_seconds": {
+      "type": "integer",
+      "x-env-override": "UDM_STORE_SWEEP_INTERVAL_SECONDS",
+      "x-cpp-type": "std::int64_t"
     }
   },
   "required": [
@@ -126,6 +146,10 @@
     "nrf_base_url",
     "port",
     "sbi_bind_address",
+    "store_max_entries",
+    "store_max_entries_per_consumer",
+    "store_sweep_interval_seconds",
+    "subscription_max_lifetime_seconds",
     "udr_base_url",
     "vlr_peer_address",
     "vlr_peer_port"

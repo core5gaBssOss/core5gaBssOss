@@ -28,6 +28,7 @@ add_executable(integration_tests
     test_udm_sdm_gap_closure_228.cpp
     test_udm_sdm_gap_closure_230.cpp
     test_udm_sdm_gap_closure_232.cpp
+    test_udm_store_bounds.cpp
     test_udm_sdm_gap_closure_233.cpp
     test_udm_sdm_gap_closure_234.cpp
     test_udm_sdm_gap_closure_235.cpp
@@ -297,6 +298,18 @@ target_link_libraries(li_amf_poi_integration_tests PRIVATE
 target_compile_definitions(li_amf_poi_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_amf_poi_integration_tests)
+
+# Issue #10 (ADR-0488): the CHF IRI-POI's withheld-record tallies (chf_li_poi_records_withheld_total),
+# compiling nfs/chf/src/li_poi.cpp directly as li_amf_poi_integration_tests does for the AMF's POI:
+# real LI_X1 provisioning in, a loopback MDF2 out, no NF process. Fixed LI_X1 port 19866.
+add_executable(li_chf_poi_integration_tests
+    test_li_chf_poi.cpp ${CMAKE_SOURCE_DIR}/nfs/chf/src/li_poi.cpp)
+target_include_directories(li_chf_poi_integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf/src)
+target_link_libraries(li_chf_poi_integration_tests PRIVATE
+    li_core li_poi diameter_core sbi_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+target_compile_definitions(li_chf_poi_integration_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_chf_poi_integration_tests)
 
 # The AMF IRI-POI end to end through the real `amf` process with li_poi enabled -- the harness
 # ADR-0393/ADR-0440 named as their own increment. Its own binary: it needs li_core (the loopback

@@ -590,9 +590,11 @@ private:
             try {
                 // ADR-0499: authorization runs here, on the worker pool, not on the connection's
                 // strand -- a signature check is the costliest step before the handler.
-                if (auto rejected = authorizer ? authorizer->check(*req) : std::nullopt) {
-                    resp = std::move(*rejected);
+                auto verdict = authorizer ? authorizer->authorize(*req) : Authorization{};
+                if (verdict.rejection) {
+                    resp = std::move(*verdict.rejection);
                 } else {
+                    req->token_sub = std::move(verdict.sub); // ADR-0535
                     resp = handler(*req);
                 }
             } catch (const nf_config::PoolExhaustedError& e) {
