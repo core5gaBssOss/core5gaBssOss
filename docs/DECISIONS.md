@@ -493,6 +493,10 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0534](decisions/ADR-0534-www-authenticate-on-routes-that-check-their-own-token-spec.md) WWW-Authenticate on routes that check their own token; spec causes on non-404 errors (SBI-03 increment 1)
 - [0513](decisions/ADR-0513-nf-helm-charts-start-their-nf-generated-config-configmap.md) NF Helm charts start their NF: generated config ConfigMap, per-NF certs Secret, Service named after the NF (REVIEW-5ae0ef1 DEP-01)
 - [0515](decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md) Helm charts for the 17 NFs without one (DEP-03, NF half); the chart config takes compose's environment settings
+- [0506](decisions/ADR-0506-nfs-register-again-when-the-nrf-no-longer-knows-them-one.md) NFs register again when the NRF no longer knows them: one shared NRF heart-beat in sbi-core
+- [0512](decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md) README.md is append/update only: nothing is ever removed from it (user-directed, strict); pre-commit hook and CI check
+- [0535](decisions/ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md) UDM store bounds per store and per token sub, confirmed subscription expiry (SUS-02)
+- [0504](decisions/ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md) NWDAF MTLF-based ML model accuracy monitoring from ADRF-stored inference data (TS 23.288 6.2E.2)
 - [0516](decisions/ADR-0516-helm-charts-for-the-bss-and-a-bss-provisioning-image-dep-03.md) Helm charts for the BSS and a bss/provisioning image (DEP-03, BSS half)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):

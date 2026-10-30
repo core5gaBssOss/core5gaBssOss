@@ -1,13 +1,14 @@
 name: Docs lint
 
-# markdownlint on the front-page documents listed in .markdownlint-cli2.jsonc (ADR-0509). Runs on a
-# GitHub-hosted runner, never the self-hosted one.
+# markdownlint on the front-page documents listed in .markdownlint-cli2.jsonc (ADR-0509), and the
+# README append-only check (CLAUDE.md guardrail 10, ADR-0512). Runs on a GitHub-hosted runner, never
+# the self-hosted one.
 on:
   pull_request:
-    paths: ["**.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml"]
+    paths: ["**.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml", "scripts/docs/check_readme_append_only.py"]
   push:
     branches: [main]
-    paths: ["**.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml"]
+    paths: ["**.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml", "scripts/docs/check_readme_append_only.py"]
 
 permissions:
   contents: read
@@ -30,3 +31,23 @@ jobs:
             .github/*.md
             docs/RELEASING.md
             specs/README.md
+
+  # README.md is append/update only: nothing is ever removed from it (user-directed, strict). Fails
+  # loudly when a PR or a push to main drops a section heading or reduces the README's non-blank lines
+  # or words. A detection layer, not a gate: main has no required status checks, by design.
+  readme-append-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: README.md is append/update only
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "no base commit to compare against"; exit 0
+          fi
+          python3 scripts/docs/check_readme_append_only.py "$BASE_SHA:README.md"

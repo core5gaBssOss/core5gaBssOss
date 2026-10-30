@@ -145,7 +145,8 @@ submit:
 - Do not add AI tools as commit co-authors (no `Co-Authored-By: Claude...`/`Claude-Session:`/
   "Generated with Claude Code" trailer). A real, repeated incident, not a hypothetical: 76 commits
   across this repo's history carried one before this rule and the enforcement below existed
-  (CLAUDE.md guardrail 9 has the full account). Run this once after cloning to activate the local
+  (CLAUDE.md guardrail 9; the full account is in `docs/project-context/guardrail-history.md`). Run
+  this once after cloning to activate the local
   enforcement hook (`.githooks/commit-msg`, which rejects a matching commit message outright):
 
   ```sh
@@ -155,6 +156,11 @@ submit:
   A CI job (`attribution-check` in [`ci.yml`](workflows/ci.yml)) also scans every pushed/PR commit
   and the PR body as a second, server-side detection layer -- it does not block a merge (this repo
   has no required-status-check branch protection), but it will not be quiet about a leak.
+- `README.md` is append/update only: add to it and update lines in place as the project moves on,
+  but never remove anything from it -- no section, row, paragraph or detail, and no heading renames
+  (CLAUDE.md guardrail 10, ADR-0512). The same `core.hooksPath` setting activates
+  `.githooks/pre-commit`, which rejects a commit that removes README content, and the
+  `readme-append-only` job in [`docs-lint.yml`](workflows/docs-lint.yml) flags one on every PR.
 
 ## Licensing and the CLA
 
