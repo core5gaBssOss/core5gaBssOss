@@ -9,6 +9,7 @@
 // literals (user mandate).
 
 #include <cstdint>
+#include <expected>
 #include <string>
 #include <vector>
 
@@ -36,13 +37,14 @@ public:
 
     bool connected() const { return conn_ != nullptr; }
 
-    // Every subscriber-day row for `date` (YYYY-MM-DD), bounded by max_rows. Throws on a query
-    // error; returns empty for a day with no rows, which is a real state.
-    std::vector<FeatureRow> read_day(const std::string& date);
+    // Every subscriber-day row for `date` (YYYY-MM-DD), bounded by max_rows; empty for a day with
+    // no rows, which is a real state. A query error is returned, not thrown (REVIEW-5ae0ef1
+    // RULE-02): the database's reason.
+    std::expected<std::vector<FeatureRow>, std::string> read_day(const std::string& date);
 
-    // The most recent feature_date present, so an analytics request with no window still has a
-    // real day to compute over.
-    std::string latest_date();
+    // The most recent feature_date present ("" when none), so an analytics request with no window
+    // still has a real day to compute over. A query error as for read_day.
+    std::expected<std::string, std::string> latest_date();
 
 private:
     MYSQL* conn_ = nullptr;

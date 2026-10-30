@@ -9,7 +9,9 @@
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 
+#include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
@@ -114,6 +116,37 @@ TEST(NwdafPhaseA, AnUnsupportedAnalyticsIdIsA404NotAnEmpty200) {
     r = c.send(req);
     ASSERT_TRUE(r.has_value());
     EXPECT_EQ(r->status, 400);
+}
+
+// REVIEW-5ae0ef1 RULE-02: a feature store query that fails is answered as an unreachable store is
+// -- the YAML's 404 naming the reason -- not thrown into the server's catch-all 500. The NWDAF is
+// pointed at Doris' information_schema: the connection succeeds, the subscriber_features query
+// does not. Skipped, not passed, without a Doris on the config's 127.0.0.1:9030.
+TEST(NwdafPhaseA, AFailingFeatureStoreQueryIsThe404NotA500) {
+    {
+        boost::asio::io_context ioc;
+        boost::asio::ip::tcp::socket sock(ioc);
+        boost::system::error_code ec;
+        sock.connect({boost::asio::ip::make_address("127.0.0.1"), 9030}, ec);
+        if (ec) {
+            GTEST_SKIP() << "no Apache Doris on 127.0.0.1:9030 -- skipped, not passed";
+        }
+    }
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    setenv("NWDAF_FEATURE_STORE_DATABASE", "information_schema", 1);
+    nf_test::SpawnedProcess nwdaf(NWDAF_PATH);
+    unsetenv("NWDAF_FEATURE_STORE_DATABASE");
+    auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
+    ASSERT_TRUE(wait_up(c, std::string(kNwdaf) + kAnalyticsRoot + "/context", 30s));
+    sbi_core::http2::ClientRequest req;
+    req.method = "GET";
+    req.url = std::string(kNwdaf) + kAnalyticsRoot + "/analytics?event-id=ABNORMAL_BEHAVIOUR";
+    const auto r = c.send(req);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 404) << r->body;
+    EXPECT_NE(json::parse(r->body).value("detail", "").find("feature store"), std::string::npos)
+        << r->body;
 }
 
 TEST(NwdafPhaseA, SubscriptionLifecycleAtTheYamlsApiRoot) {
