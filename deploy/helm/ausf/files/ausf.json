@@ -1,0 +1,16 @@
+{
+  "port": 7782,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9469",
+  "nrf_base_url": "https://nrf:7777",
+  "udm_base_url": "https://udm:7780",
+  "redis_url": "tcp://valkey:6379",
+  "akma": {
+    "aanf_base_url": "https://aanf:7824",
+    "home_mcc": "999",
+    "home_mnc": "70"
+  },
+  "oauth2_required": true,
+  "redis_user": "ausf",
+  "redis_password_file": "/build/certs/ausf/valkey.password"
+}

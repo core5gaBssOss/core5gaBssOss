@@ -27,6 +27,14 @@ struct LoadPolicy {
 
 class Provider {
 public:
+    // Pass-key: only load() can construct a Key, so only load() can build a Provider, yet
+    // std::make_unique can reach this public constructor (no raw new).
+    class Key {
+        friend tl::expected<std::unique_ptr<Provider>, std::string> load(const ProviderConfig&,
+                                                                         const LoadPolicy&);
+        explicit Key() = default;
+    };
+    explicit Provider(Key /*only load() can make one*/) {}
     ~Provider();
     Provider(const Provider&) = delete;
     Provider& operator=(const Provider&) = delete;
@@ -54,7 +62,6 @@ public:
 private:
     friend tl::expected<std::unique_ptr<Provider>, std::string> load(const ProviderConfig&,
                                                                      const LoadPolicy&);
-    Provider() = default;
     void* handle_ = nullptr;
     nasalg_info info_{};
     std::string provider_id_, package_id_;

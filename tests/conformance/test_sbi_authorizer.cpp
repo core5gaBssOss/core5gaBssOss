@@ -104,6 +104,22 @@ TEST_F(SbiAuthorizer, AValidTokenForThisNfAndApiIsAuthorized) {
     EXPECT_FALSE(authorizer_->check(request(kAmPath, "bearer " + sign(claims()))).has_value());
 }
 
+// ADR-0535 (REVIEW-5ae0ef1 SUS-02): the verified token's sub is what per-consumer store quotas
+// count by; a request accepted without a token has none.
+TEST_F(SbiAuthorizer, AnAcceptedTokensSubIsHandedOn) {
+    const auto with_token = authorizer_->authorize(request(kAmPath, "Bearer " + sign(claims())));
+    EXPECT_FALSE(with_token.rejection.has_value());
+    EXPECT_EQ(with_token.sub, "1d2c3b4a-0000-4000-8000-000000000001");
+
+    const auto without = optional_->authorize(request(kAmPath, std::nullopt));
+    EXPECT_FALSE(without.rejection.has_value());
+    EXPECT_TRUE(without.sub.empty());
+
+    const auto rejected = authorizer_->authorize(request(kAmPath, "Bearer not-a-jwt"));
+    EXPECT_TRUE(rejected.rejection.has_value());
+    EXPECT_TRUE(rejected.sub.empty());
+}
+
 TEST_F(SbiAuthorizer, NoTokenIs401WithBearerRealmAndNoErrorAttribute) {
     const auto r = authorizer_->check(request(kAmPath, std::nullopt));
     ASSERT_TRUE(r.has_value());
@@ -192,6 +208,24 @@ TEST_F(SbiAuthorizer, TheRealmCannotBreakOutOfItsQuotedString) {
     // The injected quotes are dropped: the header stays one quoted realm, no error attribute.
     const auto h = www_authenticate(*r);
     EXPECT_EQ(std::ranges::count(h, '"'), 2) << h;
+}
+
+// REVIEW-5ae0ef1 SBI-03: a route that checks its own token (RouteAuth::None) answers a failed one
+// with the Authorizer's 401 challenge, not a bare ProblemDetails.
+TEST_F(SbiAuthorizer, ARouteCheckingItsOwnTokenAnswersTheSameInvalidTokenChallenge) {
+    const auto r = sbi_core::http2::invalid_token_response(
+        request("/nnrf-nfm/v1/nf-instances/x", "Bearer not-a-jwt"), "token signature invalid");
+    EXPECT_EQ(r.status, 401);
+    EXPECT_EQ(www_authenticate(r),
+              R"(Bearer realm="https://pcf.example:8443/nnrf-nfm/v1", error="invalid_token")");
+    const auto content_type = r.headers.find("content-type");
+    ASSERT_NE(content_type, r.headers.end());
+    EXPECT_EQ(content_type->second, "application/problem+json");
+    const auto body = nlohmann::json::parse(r.body);
+    EXPECT_EQ(body.at("status"), 401);
+    EXPECT_EQ(body.at("detail"), "token signature invalid");
+    // TS 29.500 table 5.2.7.2-1 defines no cause for an invalid token.
+    EXPECT_FALSE(body.contains("cause"));
 }
 
 TEST(SbiApiCatalog, NamesAndProducersComeFromTheYamls) {

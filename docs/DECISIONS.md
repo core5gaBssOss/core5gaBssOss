@@ -489,6 +489,14 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0530](decisions/ADR-0530-sepp-hardening-csprng-handshake-ids-case-insensitive.md) SEPP hardening: CSPRNG handshake ids, case-insensitive headers, bounded telescopic table, linear Via scan, bounded PRINS iePaths
 - [0531](decisions/ADR-0531-udr-serves-only-the-yaml-s-methods-no-item-get-on-three.md) UDR serves only the YAML's methods: no item GET on three application-data resources, no pseudo-operation (SPEC-08/09)
 - [0532](decisions/ADR-0532-lab-listeners-bind-0-0-0-0-so-a-gnb-can-attach-first-ue.md) Lab: listeners bind 0.0.0.0, so a gNB can attach; first UE through the compose lab
+- [0533](decisions/ADR-0533-nef-northbound-put-only-replaces-404-on-a-missing-resource.md) NEF northbound PUT only replaces: 404 on a missing resource, no create-on-PUT (SPEC-07)
+- [0534](decisions/ADR-0534-www-authenticate-on-routes-that-check-their-own-token-spec.md) WWW-Authenticate on routes that check their own token; spec causes on non-404 errors (SBI-03 increment 1)
+- [0513](decisions/ADR-0513-nf-helm-charts-start-their-nf-generated-config-configmap.md) NF Helm charts start their NF: generated config ConfigMap, per-NF certs Secret, Service named after the NF (REVIEW-5ae0ef1 DEP-01)
+- [0515](decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md) Helm charts for the 17 NFs without one (DEP-03, NF half); the chart config takes compose's environment settings
+- [0506](decisions/ADR-0506-nfs-register-again-when-the-nrf-no-longer-knows-them-one.md) NFs register again when the NRF no longer knows them: one shared NRF heart-beat in sbi-core
+- [0512](decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md) README.md is append/update only: nothing is ever removed from it (user-directed, strict); pre-commit hook and CI check
+- [0535](decisions/ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md) UDM store bounds per store and per token sub, confirmed subscription expiry (SUS-02)
+- [0504](decisions/ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md) NWDAF MTLF-based ML model accuracy monitoring from ADRF-stored inference data (TS 23.288 6.2E.2)
 - [0514](decisions/ADR-0514-akma-anchor-keys-sealed-at-rest-aes-256-gcm-aanf-key.md) AKMA anchor keys sealed at rest (AES-256-GCM, AAnF key-encryption key); per-NF Valkey ACL users, Valkey not published on the host
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):

@@ -13,6 +13,20 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - The README is the full project page again, updated for the organization move, licensing and
   process changes, with four stale security-compliance rows corrected
   ([ADR-0511](docs/decisions/ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md)).
+- `README.md` is append/update only: nothing is ever removed from it. Enforced by a pre-commit hook
+  and a `readme-append-only` CI job
+  ([ADR-0512](docs/decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md)).
+
+### Added
+
+- Helm charts for the 17 NFs that had none (CHF, NEF, NSSF, SCP, BSF, ADRF, DCCF, EIR, GMLC,
+  LI-MDF, LI-MDF3, LMF, MFAF, NSACF, NWDAF, SMSF, UDSF), in the ADR-0513 shape
+  ([ADR-0515](docs/decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md)).
+
+### Fixed
+
+- The LI-ADMF Helm chart's database URL pointed at 127.0.0.1; chart configs now take the settings
+  compose passes through the environment (ADR-0515).
 
 ### Security
 

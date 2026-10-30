@@ -1,7 +1,8 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-ausf
+  # The NF's name: what every peer's config and the NF's certificate (DNS:ausf) use.
+  name: {{ .Values.service.name | default "ausf" }}
   labels:
     app.kubernetes.io/name: ausf
     app.kubernetes.io/instance: {{ .Release.Name }}

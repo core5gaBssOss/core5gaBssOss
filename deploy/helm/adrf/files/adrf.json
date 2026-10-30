@@ -1,0 +1,36 @@
+{
+  "port": 7804,
+  "self_base_url": "https://adrf:7804",
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9490",
+  "nrf_base_url": "https://nrf:7777",
+  "redis_url": "tcp://valkey:6379",
+  "nrf_heartbeat_seconds": 30,
+  "dccf_base_url": "https://dccf:7803",
+  "nwdaf_base_url": "https://nwdaf:7798",
+  "data_store": {
+    "host": "doris",
+    "port": 9030,
+    "user": "root",
+    "password": "",
+    "database": "adrf_data",
+    "max_rows": 1000
+  },
+  "ml_model_store_database_url": "postgresql://adrf:adrf@postgres-adrf:5432/adrf",
+  "storage_policy": {
+    "default_lifetime_seconds": 86400,
+    "max_lifetime_seconds": 2592000,
+    "alert_lead_seconds": 60,
+    "alert_grace_seconds": 300,
+    "reaper_interval_seconds": 10
+  },
+  "retrieval": {
+    "fetch_buffer_ttl_seconds": 300,
+    "sweep_interval_seconds": 10
+  },
+  "ml_model_access_policy": "enforced",
+  "ml_model_download_max_bytes": 268435456,
+  "oauth2_required": true,
+  "redis_user": "adrf",
+  "redis_password_file": "/build/certs/adrf/valkey.password"
+}

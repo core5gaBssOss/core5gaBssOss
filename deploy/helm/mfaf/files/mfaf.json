@@ -1,0 +1,17 @@
+{
+  "port": 7800,
+  "sbi_bind_address": "0.0.0.0",
+  "metrics_bind_address": "0.0.0.0:9487",
+  "nrf_base_url": "https://nrf:7777",
+  "redis_url": "tcp://valkey:6379",
+  "nrf_heartbeat_seconds": 30,
+  "event_bus_brokers": "kafka-1:29092,kafka-2:29092,kafka-3:29092",
+  "event_bus_topic": "mfaf.notifications",
+  "event_bus_group_id": "mfaf-delivery",
+  "event_bus_flush_timeout_ms": 10000,
+  "event_bus_poll_timeout_ms": 500,
+  "fetch_buffer_ttl_seconds": 300,
+  "oauth2_required": true,
+  "redis_user": "mfaf",
+  "redis_password_file": "/build/certs/mfaf/valkey.password"
+}
