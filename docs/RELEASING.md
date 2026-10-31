@@ -26,12 +26,16 @@ Releases are cut by the maintainer (ADR-0467, ADR-0509).
    git push origin vX.Y.Z
    ```
 
-3. Publish the release, with that version's `CHANGELOG.md` section as its notes:
+3. Publish the release, with that version's `CHANGELOG.md` section as its notes. The section ends
+   at the next `## [` heading or at the link references; a wrapped line that starts with a link
+   does not end it. Release pages do not resolve relative links, so they are pointed at the tag:
 
    ```sh
-   awk '/^## \[X.Y.Z\]/{f=1;next} /^(## )?\[/{f=0} f' CHANGELOG.md > /tmp/notes.md
+   awk '/^## \[X.Y.Z\]/{f=1;next} /^## \[/{f=0} /^\[[^]]+\]: /{f=0} f' CHANGELOG.md |
+     sed -E 's#\]\((\.?[A-Za-z][^):]*)\)#](https://github.com/core5gaBssOss/core5gaBssOss/blob/vX.Y.Z/\1)#g' \
+     > /tmp/notes.md
    gh release create vX.Y.Z --title "vX.Y.Z" --notes-file /tmp/notes.md --verify-tag
    ```
 
-Version 0.1.0 is already set in `CMakeLists.txt` and `vcpkg.json`, so the first release needs only
-the date in `CHANGELOG.md`, then steps 2 and 3.
+v0.1.0, the first release, was published this way on 2026-10-31 (version 0.1.0 was already set in
+`CMakeLists.txt` and `vcpkg.json`, so it needed only the date in `CHANGELOG.md`, then steps 2 and 3).
