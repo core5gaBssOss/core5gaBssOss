@@ -495,7 +495,8 @@
   "ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md",
   "ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md",
   "ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md",
-  "ADR-0516-helm-charts-for-the-bss-and-a-bss-provisioning-image-dep-03.md"
+  "ADR-0516-helm-charts-for-the-bss-and-a-bss-provisioning-image-dep-03.md",
+  "ADR-0518-nfs-register-their-advertised-address-in-the-nfprofile-not.md"
  ],
  "split_commit": "0530e4f"
 }

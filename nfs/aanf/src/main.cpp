@@ -28,6 +28,7 @@
 //   * kAkma / kaf are hexadecimal strings: TS 29.535 / 29.522 type them "string" without an
 //     encoding; hex follows the key fields of TS 29.509 (kseaf, kausf).
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -145,7 +146,9 @@ std::string af_fqdn(const std::string& af_id) {
     return af_id.substr(0, af_id.rfind('.'));
 }
 
-void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_base) {
+void run_nrf_lifecycle(const std::string& instance_id,
+                       const std::string& nrf_base,
+                       const std::string& profile_ipv4) {
     http2::Client http_client(aanf_tls());
     // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
     // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
@@ -155,7 +158,7 @@ void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_ba
     const json profile{{"nfInstanceId", instance_id},
                        {"nfType", "AANF"},
                        {"nfStatus", "REGISTERED"},
-                       {"ipv4Addresses", json::array({"127.0.0.1"})},
+                       {"ipv4Addresses", json::array({profile_ipv4})},
                        {"heartBeatTimer", kHeartbeatSeconds}};
     while (true) {
         http2::ClientRequest put;
@@ -198,6 +201,12 @@ int main() {
         config, "metrics_bind_address", "AANF_METRICS_BIND_ADDRESS");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "AANF_NRF_BASE_URL");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses) -- a literal, or "auto" for the local
+    // address toward the NRF -- instead of a hardcoded 127.0.0.1 no other host can reach.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die(
+        "aanf",
+        nf_config::require<std::string>(config, "advertised_ipv4", "AANF_ADVERTISED_IPV4"),
+        nrf_base);
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "AANF_REDIS_URL");
     const auto kaf_lifetime = std::chrono::seconds(
         nf_config::require<int>(config, "kaf_lifetime_seconds", "AANF_KAF_LIFETIME_SECONDS"));
@@ -441,7 +450,7 @@ int main() {
         // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
         http2::RouteAuth::None);
 
-    std::thread(run_nrf_lifecycle, instance_id, nrf_base).detach();
+    std::thread(run_nrf_lifecycle, instance_id, nrf_base, profile_ipv4).detach();
     server.start();
     spdlog::info("aanf: listening on https://{}:{} (TLS 1.3 + mTLS)", bind, port);
     sbi_core::run_multi_threaded(ioc);

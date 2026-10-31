@@ -32,7 +32,10 @@ COMPOSE = ROOT / 'deploy/docker/docker-compose.yml'
 NOT_NF = {'keycloak', 'oam-gui-bff'}
 # NFs whose compose config is hand-written rather than generated (ADR-0503).
 SOURCE = {'li-admf': ROOT / 'deploy/docker/li-admf.compose.json'}
-ADVERTISED_AUTO = {'upf'}
+# "auto" resolves to the local address toward the NRF, the pod IP here. ADR-0466 for the UPF; ADR-0518
+# for the 17 NFs that use the address only for their NFProfile.
+ADVERTISED_AUTO = {'upf', 'aanf', 'ausf', 'bsf', 'chf', 'eir', 'gmlc', 'lmf', 'nef', 'nssf', 'pcf',
+                   'scp', 'sepp', 'smf', 'smsf', 'tsctsf', 'udm', 'udr'}
 # Each reads <NF>_ADVERTISED_IPV4 before the file; its chart sets it from the pod IP (ADR-0515 for
 # all but the AMF; ADR-0516 for the product catalog, which builds its resource hrefs from it).
 ADVERTISED_FROM_ENV = {nf: nf.upper().replace('-', '_') + '_ADVERTISED_IPV4'

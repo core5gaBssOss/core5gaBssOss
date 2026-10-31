@@ -62,6 +62,7 @@
 //   private/public UE IP address or NAT mapping (no real NAT44/CGN capability exists anywhere in
 //   this build), so there is no real data to search.
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -104,7 +105,6 @@
 #include "pfcp_core/session_ies.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
-#include "advertised_address.hpp"
 #include "nf_config/nf_config.hpp"
 
 #ifndef CERTS_DIR
@@ -1478,7 +1478,7 @@ void run_pfcp_lifecycle(std::time_t start_time,
                         upf::UpfLiPoi* li_poi,
                         std::uint16_t pfcp_bind_port,
                         const std::string& pfcp_bind_address,
-                        const upf::Ipv4& node_ipv4) {
+                        const sbi_core::Ipv4& node_ipv4) {
     boost::asio::io_context ioc;
     // pfcp_bind_address (config/upf.json `pfcp_bind_address`, env UPF_PFCP_BIND_ADDRESS): the local
     // IPv4 PFCP listens on; 0.0.0.0 means every interface. An unparsable value is fatal at start.
@@ -1701,12 +1701,12 @@ int main() {
     // (the old hardcoded 127.0.0.1) is silent: the UPF would start and the SMF would never get an
     // N4 association.
     const auto advertised_ipv4 =
-        upf::resolve_advertised_ipv4(advertised_ipv4_setting, nrf_base_url);
+        sbi_core::resolve_advertised_ipv4(advertised_ipv4_setting, nrf_base_url);
     if (!advertised_ipv4) {
         spdlog::critical("upf: FATAL: {} -- exiting", advertised_ipv4.error());
         return 1;
     }
-    const std::string advertised_ipv4_str = upf::to_string(*advertised_ipv4);
+    const std::string advertised_ipv4_str = sbi_core::ipv4_to_string(*advertised_ipv4);
     spdlog::info("upf: advertising {} (advertised_ipv4=\"{}\")",
                  advertised_ipv4_str,
                  advertised_ipv4_setting);
