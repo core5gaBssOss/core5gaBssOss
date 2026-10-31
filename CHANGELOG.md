@@ -8,31 +8,12 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ## [Unreleased]
 
-### Changed
+## [0.1.0] - 2026-10-31
 
-- The README is the full project page again, updated for the organization move, licensing and
-  process changes, with four stale security-compliance rows corrected
-  ([ADR-0511](docs/decisions/ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md)).
-- `README.md` is append/update only: nothing is ever removed from it. Enforced by a pre-commit hook
-  and a `readme-append-only` CI job
-  ([ADR-0512](docs/decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md)).
-
-### Added
-
-- Helm charts for the 17 NFs that had none (CHF, NEF, NSSF, SCP, BSF, ADRF, DCCF, EIR, GMLC,
-  LI-MDF, LI-MDF3, LMF, MFAF, NSACF, NWDAF, SMSF, UDSF), in the ADR-0513 shape
-  ([ADR-0515](docs/decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md)).
-
-### Fixed
-
-- The LI-ADMF Helm chart's database URL pointed at 127.0.0.1; chart configs now take the settings
-  compose passes through the environment (ADR-0515).
-
-## [0.1.0] - not yet tagged
-
-The first tagged release. It records the state of the project after its first eleven weeks of
-development (from 2026-08-04): a reference implementation that aims at production grade and is
-**not deployable in production yet** (see [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md)).
+The first tagged release. It records the state of the project after its first three months of
+development (2026-08-04 to 2026-10-31): a reference implementation that aims at production grade
+and is **not deployable in production yet** (see
+[`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md)).
 
 ### Added
 
@@ -57,12 +38,29 @@ development (from 2026-08-04): a reference implementation that aims at productio
   - Display name "AI-Boosted 5G-Advanced Core, BSS and OSS" and a shorter README (ADR-0508).
   - `CODEOWNERS`, area and size labels, Dependabot, OpenSSF Scorecard, Markdown lint and this
     changelog (ADR-0509).
+- Helm charts for the 17 NFs that had none (CHF, NEF, NSSF, SCP, BSF, ADRF, DCCF, EIR, GMLC,
+  LI-MDF, LI-MDF3, LMF, MFAF, NSACF, NWDAF, SMSF, UDSF), in the ADR-0513 shape
+  ([ADR-0515](docs/decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md)).
+
+### Changed
+
+- The README is the full project page again, updated for the organization move, licensing and
+  process changes, with four stale security-compliance rows corrected
+  ([ADR-0511](docs/decisions/ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md)).
+- `README.md` is append/update only: nothing is ever removed from it. Enforced by a pre-commit hook
+  and a `readme-append-only` CI job
+  ([ADR-0512](docs/decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md)).
 
 ### Removed
 
 - 3GPP and ETSI specification documents, from the tree and from the whole git history
   (ADR-0507). `tools/specs/fetch_3gpp_specs.py --from-manifest` fetches the versions the code
   cites.
+
+### Fixed
+
+- The LI-ADMF Helm chart's database URL pointed at 127.0.0.1; chart configs now take the settings
+  compose passes through the environment (ADR-0515).
 
 ### Security
 
