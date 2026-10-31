@@ -1,0 +1,8 @@
+{
+  "port": 7786,
+  "sbi_bind_address": "0.0.0.0",
+  "db_pool_size": 16,
+  "metrics_bind_address": "0.0.0.0:9474",
+  "self_base_url": "https://balance-management:7786",
+  "database_url": "postgresql://postgres@postgres-chf:5432/charging"
+}

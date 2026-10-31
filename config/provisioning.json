@@ -1,7 +1,7 @@
 {
   "port": 7802,
   "sbi_bind_address": "0.0.0.0",
-  "metrics_bind_address": "0.0.0.0:9492",
+  "metrics_bind_address": "0.0.0.0:9498",
   "advertised_ipv4": "127.0.0.1",
   "orchestration_database_url": "postgresql://postgres@127.0.0.1:5434/orchestration",
   "charging_database_url": "postgresql://postgres@127.0.0.1:5434/charging",

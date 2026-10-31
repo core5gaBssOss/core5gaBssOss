@@ -246,16 +246,24 @@ services:
         ipv4_address: 172.30.0.46
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
-  redisinsight:
+  provisioning:
+    environment:
+      PROVISIONING_CONFIG_FILE: /build/deploy/docker/lab/config/provisioning.json
     networks:
       lab:
         ipv4_address: 172.30.0.47
+    volumes:
+    - ./lab/config:/build/deploy/docker/lab/config:ro
+  redisinsight:
+    networks:
+      lab:
+        ipv4_address: 172.30.0.48
   roaming-interconnect:
     environment:
       ROAMING-INTERCONNECT_CONFIG_FILE: /build/deploy/docker/lab/config/roaming-interconnect.json
     networks:
       lab:
-        ipv4_address: 172.30.0.48
+        ipv4_address: 172.30.0.49
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   scp:
@@ -263,7 +271,7 @@ services:
       SCP_CONFIG_FILE: /build/deploy/docker/lab/config/scp.json
     networks:
       lab:
-        ipv4_address: 172.30.0.49
+        ipv4_address: 172.30.0.50
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   sepp:
@@ -271,7 +279,7 @@ services:
       SEPP_CONFIG_FILE: /build/deploy/docker/lab/config/sepp.json
     networks:
       lab:
-        ipv4_address: 172.30.0.50
+        ipv4_address: 172.30.0.51
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   smf:
@@ -279,7 +287,7 @@ services:
       SMF_CONFIG_FILE: /build/deploy/docker/lab/config/smf.json
     networks:
       lab:
-        ipv4_address: 172.30.0.51
+        ipv4_address: 172.30.0.52
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   smsf:
@@ -287,7 +295,7 @@ services:
       SMSF_CONFIG_FILE: /build/deploy/docker/lab/config/smsf.json
     networks:
       lab:
-        ipv4_address: 172.30.0.52
+        ipv4_address: 172.30.0.53
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   subscriber-management:
@@ -295,7 +303,7 @@ services:
       SUBSCRIBER-MANAGEMENT_CONFIG_FILE: /build/deploy/docker/lab/config/subscriber-management.json
     networks:
       lab:
-        ipv4_address: 172.30.0.53
+        ipv4_address: 172.30.0.54
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   tsctsf:
@@ -303,7 +311,7 @@ services:
       TSCTSF_CONFIG_FILE: /build/deploy/docker/lab/config/tsctsf.json
     networks:
       lab:
-        ipv4_address: 172.30.0.54
+        ipv4_address: 172.30.0.55
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   udm:
@@ -311,7 +319,7 @@ services:
       UDM_CONFIG_FILE: /build/deploy/docker/lab/config/udm.json
     networks:
       lab:
-        ipv4_address: 172.30.0.55
+        ipv4_address: 172.30.0.56
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   udr:
@@ -319,7 +327,7 @@ services:
       UDR_CONFIG_FILE: /build/deploy/docker/lab/config/udr.json
     networks:
       lab:
-        ipv4_address: 172.30.0.56
+        ipv4_address: 172.30.0.57
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   udsf:
@@ -327,7 +335,7 @@ services:
       UDSF_CONFIG_FILE: /build/deploy/docker/lab/config/udsf.json
     networks:
       lab:
-        ipv4_address: 172.30.0.57
+        ipv4_address: 172.30.0.58
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   upf:
@@ -335,38 +343,38 @@ services:
       UPF_CONFIG_FILE: /build/deploy/docker/lab/config/upf.json
     networks:
       lab:
-        ipv4_address: 172.30.0.58
+        ipv4_address: 172.30.0.59
     volumes:
     - ./lab/config:/build/deploy/docker/lab/config:ro
   valkey:
     networks:
       lab:
-        ipv4_address: 172.30.0.59
+        ipv4_address: 172.30.0.60
   valkey-cluster-1:
     networks:
       lab:
-        ipv4_address: 172.30.0.60
+        ipv4_address: 172.30.0.61
   valkey-cluster-2:
     networks:
       lab:
-        ipv4_address: 172.30.0.61
+        ipv4_address: 172.30.0.62
   valkey-cluster-3:
     networks:
       lab:
-        ipv4_address: 172.30.0.62
+        ipv4_address: 172.30.0.63
   valkey-cluster-4:
     networks:
       lab:
-        ipv4_address: 172.30.0.63
+        ipv4_address: 172.30.0.64
   valkey-cluster-5:
     networks:
       lab:
-        ipv4_address: 172.30.0.64
+        ipv4_address: 172.30.0.65
   valkey-cluster-6:
     networks:
       lab:
-        ipv4_address: 172.30.0.65
+        ipv4_address: 172.30.0.66
   valkey-cluster-init:
     networks:
       lab:
-        ipv4_address: 172.30.0.66
+        ipv4_address: 172.30.0.67

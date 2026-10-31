@@ -1,0 +1,23 @@
+image:
+  repository: 5gc-subscriber-management
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Overrides merged over the generated files/subscriber-management.json (tools/lab/gen_helm_config.py), e.g.
+#   configOverrides: {database_url: "postgresql://postgres@charging-db.5gc.svc.cluster.local:5432/charging"}
+configOverrides: {}
+
+certs:
+  # Secret holding ca.crt, cert.pem and key.pem; default "subscriber-management-certs".
+  secretName: ""

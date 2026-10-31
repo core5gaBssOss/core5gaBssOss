@@ -1,6 +1,6 @@
 {
   "port": 7830,
-  "advertised_ipv4": "172.30.0.57",
+  "advertised_ipv4": "172.30.0.58",
   "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9530",
   "nrf_base_url": "https://nrf:7777",
