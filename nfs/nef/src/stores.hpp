@@ -6,11 +6,14 @@
 
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "expiry.hpp"
 
 // Private to nfs/nef -- not shared with any other NF, per CLAUDE.md's "no NF includes another
 // NF's private headers" rule. In-memory only, no persistence across restarts -- same disclosed
@@ -157,6 +160,9 @@ public:
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool put(const std::string& sub_id, nlohmann::json subscription);
     bool remove(const std::string& sub_id);
+    // ADR-0538: `decide` on every subscription under the lock; a removed one releases its quota.
+    // The number removed.
+    std::size_t sweep(const std::function<SweepAction(nlohmann::json&)>& decide);
 
 private:
     std::mutex mutex_;
@@ -268,6 +274,10 @@ public:
                              const std::string& ee_sub_id);
     std::optional<std::pair<std::string, std::string>> ee_subscription(const std::string& af_id,
                                                                        const std::string& sub_id);
+    // ADR-0538: `decide` on every subscription under the lock. The UDM ee-subscriptions of the
+    // removed ones, for the caller to delete at the UDM outside the lock.
+    std::vector<std::pair<std::string, std::string>>
+    sweep(const std::function<SweepAction(nlohmann::json&)>& decide);
 
 private:
     static std::string key(const std::string& af_id, const std::string& sub_id) {
@@ -365,6 +375,13 @@ public:
                                                           nlohmann::json document,
                                                           const std::string& consumer);
     bool remove(const std::string& af_id, const std::string& id);
+    // ADR-0538: `decide` on every document under the lock; a removed one releases its quota.
+    // The number removed and rewritten.
+    struct SweepCount {
+        std::size_t removed = 0;
+        std::size_t rewritten = 0;
+    };
+    SweepCount sweep(const std::function<SweepAction(nlohmann::json&)>& decide);
 
 private:
     static std::string key(const std::string& af_id, const std::string& id) {
