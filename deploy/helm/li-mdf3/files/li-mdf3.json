@@ -29,5 +29,7 @@
     "buffer_capacity_bytes": 8388608,
     "sni": "localhost"
   },
-  "cc_pdu_form": "extended"
+  "cc_pdu_form": "extended",
+  "redis_user": "li-mdf3",
+  "redis_password_file": "/build/certs/li-mdf3/valkey.password"
 }

@@ -30,5 +30,7 @@
   },
   "ml_model_access_policy": "enforced",
   "ml_model_download_max_bytes": 268435456,
-  "oauth2_required": true
+  "oauth2_required": true,
+  "redis_user": "adrf",
+  "redis_password_file": "/build/certs/adrf/valkey.password"
 }

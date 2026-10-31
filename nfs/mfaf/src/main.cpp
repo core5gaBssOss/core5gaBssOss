@@ -351,7 +351,8 @@ int main() {
     sbi_core::http2::Client client(std::move(client_tls)); // 3CA Notify delivery
     std::mutex client_mutex;
 
-    mfaf::ConfigStore store(nf_config::connect_redis_or_die(redis_url, "mfaf"));
+    mfaf::ConfigStore store(
+        nf_config::connect_redis_or_die(redis_url, "mfaf", nf_config::redis_auth(config, "MFAF")));
     event_bus::Producer producer({.brokers = brokers,
                                   .client_id = "mfaf-" + instance_id,
                                   .flush_timeout_ms = flush_timeout_ms});

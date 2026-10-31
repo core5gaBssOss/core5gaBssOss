@@ -484,7 +484,8 @@ int main() {
     sbi_core::OAuth2Client oauth_nrf(
         client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
 
-    adrf::StateStore state(nf_config::connect_redis_or_die(redis_url, "adrf"));
+    adrf::StateStore state(
+        nf_config::connect_redis_or_die(redis_url, "adrf", nf_config::redis_auth(config, "ADRF")));
     adrf::RecordStore records(ds);
     adrf::ModelStore models(model_store_url);
     // Architecture-bonded fail-fast: ADRF's whole purpose is persisting analytics records and ML

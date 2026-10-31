@@ -1140,12 +1140,26 @@ services:
   # ADR-0044 mandated Valkey; the lab was still on redis:7-alpine, which resolves to Redis 7.4 --
   # the first version under RSALv2/SSPL, not OSI-approved (P1). Caught by the architecture
   # diagram's license table (ADR-0356). Valkey is BSD-3-Clause and RESP-compatible: no client change.
+  #
+  # ADR-0514 (REVIEW-5ae0ef1 SEC-04): not published on the host, and every client authenticates as
+  # its NF's own ACL user (certs/valkey/users.acl from scripts/gen-lab-pki.sh; the default user is
+  # off). Only the ACL file is mounted, not the rest of the certs volume. The healthcheck accepts
+  # NOAUTH: it proves the server answers, without holding a credential.
   valkey:
     image: valkey/valkey:8-alpine
-    ports:
-      - "6379:6379"
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    command: ["valkey-server", "--aclfile", "/etc/valkey/users.acl"]
+    volumes:
+      - type: volume
+        source: certs_data
+        target: /etc/valkey
+        read_only: true
+        volume:
+          subpath: valkey
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD-SHELL", "valkey-cli ping 2>&1 | grep -qE 'PONG|NOAUTH'"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -1450,7 +1464,9 @@ services:
       - "8080:8080"
     restart: unless-stopped
 
-  # Valkey/Redis console. http://localhost:5540 -- add a DB with host=valkey port=6379 (no password).
+  # Valkey/Redis console. http://localhost:5540 -- add a DB with host=valkey port=6379, username an
+  # NF's ACL user and its password (ADR-0514), e.g. `docker compose exec amf cat
+  # /build/certs/amf/valkey.password`; that user sees only what the NF itself may.
   redisinsight:
     image: redis/redisinsight:latest
     depends_on:

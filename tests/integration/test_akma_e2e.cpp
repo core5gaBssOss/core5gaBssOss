@@ -9,7 +9,9 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
+#include <sw/redis++/redis++.h>
 #include <thread>
 
 #include "TS29509_Nausf_UEAuthentication.hpp"
@@ -245,6 +247,21 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     EXPECT_EQ(data.at("kaf"), aka_crypto::to_hex(kaf)) << "AAnF and UE disagree on KAF";
     EXPECT_EQ(data.at("supi"), kSupi);
     EXPECT_TRUE(data.contains("expiry"));
+
+    // ADR-0514 (REVIEW-5ae0ef1 SEC-04): the stored context holds KAKMA sealed, never in the clear.
+    {
+        std::ifstream in(AANF_CONFIG_TEMPLATE);
+        const auto redis_url = std::getenv("AANF_REDIS_URL") != nullptr
+                                   ? std::string(std::getenv("AANF_REDIS_URL"))
+                                   : json::parse(in).at("redis_url").get<std::string>();
+        sw::redis::Redis redis(redis_url);
+        const auto stored = redis.get("aanf:akid:" + a_kid);
+        ASSERT_TRUE(stored);
+        EXPECT_EQ(stored->find(aka_crypto::to_hex(kakma)), std::string::npos) << *stored;
+        const auto record = json::parse(*stored);
+        EXPECT_FALSE(record.contains("kakma"));
+        EXPECT_EQ(record.at("kakmaSealed").get<std::string>().size(), 2U * (12 + 32 + 16));
+    }
 
     // Anonymous user (6.2.2): KAF, no SUPI.
     json anon = request;

@@ -34,5 +34,7 @@
   "nas_security": {
     "alg_providers": []
   },
-  "oauth2_required": true
+  "oauth2_required": true,
+  "redis_user": "amf",
+  "redis_password_file": "/build/certs/amf/valkey.password"
 }

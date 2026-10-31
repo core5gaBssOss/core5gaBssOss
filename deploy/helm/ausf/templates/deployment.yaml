@@ -66,5 +66,8 @@ spec:
                 path: ausf/cert.pem
               - key: key.pem
                 path: ausf/key.pem
+              # ADR-0514: this NF's own Valkey ACL password (redis_password_file).
+              - key: valkey.password
+                path: ausf/valkey.password
               - key: nrf-jwt-public.pem
                 path: nrf-jwt/public.pem

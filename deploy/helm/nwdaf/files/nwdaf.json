@@ -132,5 +132,7 @@
     "x1_keepalive_p3_seconds": 300,
     "x1_allow_deactivate_all": true
   },
-  "oauth2_required": true
+  "oauth2_required": true,
+  "redis_user": "nwdaf",
+  "redis_password_file": "/build/certs/nwdaf/valkey.password"
 }
