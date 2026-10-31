@@ -262,6 +262,22 @@ bool NefEventExposureSubStore::remove(const std::string& sub_id) {
     return subscriptions_.erase(sub_id) > 0;
 }
 
+std::size_t
+NefEventExposureSubStore::sweep(const std::function<SweepAction(nlohmann::json&)>& decide) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::size_t removed = 0;
+    for (auto it = subscriptions_.begin(); it != subscriptions_.end();) {
+        if (decide(it->second) == SweepAction::remove) {
+            quota_.release(it->first);
+            it = subscriptions_.erase(it);
+            ++removed;
+        } else {
+            ++it;
+        }
+    }
+    return removed;
+}
+
 std::expected<std::string, sbi_core::Refusal>
 TrafficInfluDataSubStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -693,6 +709,25 @@ bool AfMonitoringSubStore::remove(const std::string& af_id, const std::string& s
     return subscriptions_.erase(key(af_id, sub_id)) > 0;
 }
 
+std::vector<std::pair<std::string, std::string>>
+AfMonitoringSubStore::sweep(const std::function<SweepAction(nlohmann::json&)>& decide) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::pair<std::string, std::string>> ee_removed;
+    for (auto it = subscriptions_.begin(); it != subscriptions_.end();) {
+        if (decide(it->second) != SweepAction::remove) {
+            ++it;
+            continue;
+        }
+        if (const auto ee = ee_subs_.find(it->first); ee != ee_subs_.end()) {
+            ee_removed.push_back(ee->second);
+            ee_subs_.erase(ee);
+        }
+        quota_.release(it->first);
+        it = subscriptions_.erase(it);
+    }
+    return ee_removed;
+}
+
 void AfMonitoringSubStore::set_ee_subscription(const std::string& af_id,
                                                const std::string& sub_id,
                                                const std::string& ue_identity,
@@ -936,6 +971,26 @@ bool AfDocumentStore::remove(const std::string& af_id, const std::string& id) {
     std::lock_guard<std::mutex> lock(mutex_);
     quota_.release(key(af_id, id));
     return documents_.erase(key(af_id, id)) > 0;
+}
+
+AfDocumentStore::SweepCount
+AfDocumentStore::sweep(const std::function<SweepAction(nlohmann::json&)>& decide) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    SweepCount count;
+    for (auto it = documents_.begin(); it != documents_.end();) {
+        const auto action = decide(it->second);
+        if (action == SweepAction::remove) {
+            quota_.release(it->first);
+            it = documents_.erase(it);
+            ++count.removed;
+            continue;
+        }
+        if (action == SweepAction::rewrite) {
+            ++count.rewritten;
+        }
+        ++it;
+    }
+    return count;
 }
 
 } // namespace nef
