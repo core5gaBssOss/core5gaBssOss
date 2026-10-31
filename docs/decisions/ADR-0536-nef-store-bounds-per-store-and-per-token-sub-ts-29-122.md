@@ -80,10 +80,8 @@ is defined, else 500 `INSUFFICIENT_RESOURCES`.
   path is written by the client and is not used.
 - **The SCS/AS "rate of submitting requests" (429)** in the same clauses is not built here. The
   NF-wide TPS ceiling (ADR-0280) is the only rate control.
-- **No expiry.** NEF entries are bounded but never expire. This ADR does not touch the expiry
-  attributes the northbound APIs carry, such as TS 29.122 MonitoringEventSubscription
-  `monitorExpireTime`. They are a separate
-  increment, still open under SUS-02 together with the UDR.
+- **No expiry here.** This ADR bounds the stores; the expiries the APIs make mandatory are
+  ADR-0538. The UDR is still open under SUS-02.
 - **`--next_id_` on refusal.** A refused create gives back the id it drew, so ids stay dense. This
   has no protocol meaning.
 

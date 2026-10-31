@@ -27,5 +27,7 @@
   "tsctsf_base_url": "https://tsctsf:7825",
   "oauth2_required": true,
   "store_max_entries": 100000,
-  "store_max_entries_per_consumer": 10000
+  "store_max_entries_per_consumer": 10000,
+  "subscription_max_lifetime_seconds": 86400,
+  "store_sweep_interval_seconds": 60
 }
