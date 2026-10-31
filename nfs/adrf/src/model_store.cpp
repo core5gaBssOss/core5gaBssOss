@@ -3,7 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <pqxx/pqxx>
-#include <stdexcept>
+#include <type_traits>
 
 namespace adrf {
 
@@ -36,17 +36,29 @@ bool ModelStore::ensure_connected_locked() {
 
 namespace {
 
-template <typename F> auto with_txn(std::unique_ptr<pqxx::connection>& conn, F&& f) {
+// Runs `f` in one transaction. libpqxx reports through exceptions; they end here, as the error of
+// the StoreResult (a reply row that does not parse is one too).
+template <typename F>
+auto with_txn(std::unique_ptr<pqxx::connection>& conn,
+              F&& f) -> StoreResult<std::invoke_result_t<F&, pqxx::work&>> {
     try {
         pqxx::work txn(*conn);
-        auto out = f(txn);
-        txn.commit();
-        return out;
+        if constexpr (std::is_void_v<std::invoke_result_t<F&, pqxx::work&>>) {
+            f(txn);
+            txn.commit();
+            return {};
+        } else {
+            auto out = f(txn);
+            txn.commit();
+            return out;
+        }
     } catch (const pqxx::broken_connection& e) {
         conn.reset();
-        throw std::runtime_error(std::string("ML model store connection lost: ") + e.what());
+        return std::unexpected(std::string("ML model store connection lost: ") + e.what());
     } catch (const pqxx::sql_error& e) {
-        throw std::runtime_error(std::string("ML model store statement failed: ") + e.what());
+        return std::unexpected(std::string("ML model store statement failed: ") + e.what());
+    } catch (const std::exception& e) {
+        return std::unexpected(std::string("ML model store failed: ") + e.what());
     }
 }
 
@@ -78,26 +90,25 @@ constexpr const char* kModelColumns =
 
 } // namespace
 
-void ModelStore::create_record(const std::string& id,
-                               const std::optional<std::string>& owner_nf_instance_id,
-                               const std::optional<std::string>& owner_nf_set_id) {
+StoreResult<void> ModelStore::create_record(const std::string& id,
+                                            const std::optional<std::string>& owner_nf_instance_id,
+                                            const std::optional<std::string>& owner_nf_set_id) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("ML model store unreachable");
+        return std::unexpected(std::string("ML model store unreachable"));
     }
-    with_txn(conn_, [&](pqxx::work& txn) {
+    return with_txn(conn_, [&](pqxx::work& txn) {
         txn.exec("INSERT INTO ml_store_records (store_trans_id, owner_nf_instance_id, "
                  "owner_nf_set_id) VALUES ($1, $2, $3) ON CONFLICT (store_trans_id) DO UPDATE SET "
                  "updated_at = now()",
                  pqxx::params{id, owner_nf_instance_id, owner_nf_set_id});
-        return 0;
     });
 }
 
-bool ModelStore::record_exists(const std::string& id) {
+StoreResult<bool> ModelStore::record_exists(const std::string& id) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("ML model store unreachable");
+        return std::unexpected(std::string("ML model store unreachable"));
     }
     return with_txn(conn_, [&](pqxx::work& txn) {
         return !txn.exec("SELECT 1 FROM ml_store_records WHERE store_trans_id = $1",
@@ -106,12 +117,12 @@ bool ModelStore::record_exists(const std::string& id) {
     });
 }
 
-void ModelStore::upsert_model(const StoredModel& m, const std::string& bytes) {
+StoreResult<void> ModelStore::upsert_model(const StoredModel& m, const std::string& bytes) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("ML model store unreachable");
+        return std::unexpected(std::string("ML model store unreachable"));
     }
-    with_txn(conn_, [&](pqxx::work& txn) {
+    return with_txn(conn_, [&](pqxx::work& txn) {
         const std::optional<std::string> source_addr =
             m.source_addr ? std::optional<std::string>(m.source_addr->dump()) : std::nullopt;
         const std::optional<std::string> allow =
@@ -130,14 +141,13 @@ void ModelStore::upsert_model(const StoredModel& m, const std::string& bytes) {
                               allow,
                               static_cast<std::int64_t>(bytes.size()),
                               blob});
-        return 0;
     });
 }
 
-std::vector<StoredModel> ModelStore::models_in_record(const std::string& id) {
+StoreResult<std::vector<StoredModel>> ModelStore::models_in_record(const std::string& id) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("ML model store unreachable");
+        return std::unexpected(std::string("ML model store unreachable"));
     }
     return with_txn(conn_, [&](pqxx::work& txn) {
         std::vector<StoredModel> out;
@@ -152,13 +162,14 @@ std::vector<StoredModel> ModelStore::models_in_record(const std::string& id) {
     });
 }
 
-std::vector<StoredModel> ModelStore::models_by_ids(const std::vector<std::int64_t>& ids) {
+StoreResult<std::vector<StoredModel>>
+ModelStore::models_by_ids(const std::vector<std::int64_t>& ids) {
     if (ids.empty()) {
-        return {};
+        return std::vector<StoredModel>();
     }
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("ML model store unreachable");
+        return std::unexpected(std::string("ML model store unreachable"));
     }
     return with_txn(conn_, [&](pqxx::work& txn) {
         std::vector<StoredModel> out;
@@ -173,10 +184,10 @@ std::vector<StoredModel> ModelStore::models_by_ids(const std::vector<std::int64_
     });
 }
 
-std::optional<StoredModel> ModelStore::get_bytes(std::int64_t id) {
+StoreResult<std::optional<StoredModel>> ModelStore::get_bytes(std::int64_t id) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("ML model store unreachable");
+        return std::unexpected(std::string("ML model store unreachable"));
     }
     return with_txn(conn_, [&](pqxx::work& txn) -> std::optional<StoredModel> {
         const auto rows = txn.exec(std::string("SELECT ") + kModelColumns +
@@ -193,10 +204,10 @@ std::optional<StoredModel> ModelStore::get_bytes(std::int64_t id) {
     });
 }
 
-bool ModelStore::remove_model(std::int64_t id) {
+StoreResult<bool> ModelStore::remove_model(std::int64_t id) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("ML model store unreachable");
+        return std::unexpected(std::string("ML model store unreachable"));
     }
     return with_txn(conn_, [&](pqxx::work& txn) {
         return txn.exec("DELETE FROM ml_models WHERE model_unique_id = $1", pqxx::params{id})
@@ -204,10 +215,10 @@ bool ModelStore::remove_model(std::int64_t id) {
     });
 }
 
-bool ModelStore::remove_record(const std::string& id) {
+StoreResult<bool> ModelStore::remove_record(const std::string& id) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!ensure_connected_locked()) {
-        throw std::runtime_error("ML model store unreachable");
+        return std::unexpected(std::string("ML model store unreachable"));
     }
     return with_txn(conn_, [&](pqxx::work& txn) {
         return txn.exec("DELETE FROM ml_store_records WHERE store_trans_id = $1", pqxx::params{id})
