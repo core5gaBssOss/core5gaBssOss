@@ -121,15 +121,22 @@ TEST(NwdafPhaseA, AnUnsupportedAnalyticsIdIsA404NotAnEmpty200) {
 // REVIEW-5ae0ef1 RULE-02: a feature store query that fails is answered as an unreachable store is
 // -- the YAML's 404 naming the reason -- not thrown into the server's catch-all 500. The NWDAF is
 // pointed at Doris' information_schema: the connection succeeds, the subscriber_features query
-// does not. Skipped, not passed, without a Doris on the config's 127.0.0.1:9030.
+// does not. Skipped, not passed, without a Doris where the NWDAF will look:
+// NWDAF_FEATURE_STORE_HOST / _PORT when set (CI: 127.0.0.1:19030), else config/nwdaf.json's
+// 127.0.0.1:9030.
 TEST(NwdafPhaseA, AFailingFeatureStoreQueryIsThe404NotA500) {
     {
+        const char* host_env = std::getenv("NWDAF_FEATURE_STORE_HOST");
+        const char* port_env = std::getenv("NWDAF_FEATURE_STORE_PORT");
+        const std::string host = host_env ? host_env : "127.0.0.1";
+        const auto port = static_cast<unsigned short>(port_env ? std::stoi(port_env) : 9030);
         boost::asio::io_context ioc;
         boost::asio::ip::tcp::socket sock(ioc);
         boost::system::error_code ec;
-        sock.connect({boost::asio::ip::make_address("127.0.0.1"), 9030}, ec);
+        sock.connect({boost::asio::ip::make_address(host), port}, ec);
         if (ec) {
-            GTEST_SKIP() << "no Apache Doris on 127.0.0.1:9030 -- skipped, not passed";
+            GTEST_SKIP() << "no Apache Doris on " << host << ":" << port
+                         << " -- skipped, not passed";
         }
     }
     nf_test::SpawnedProcess nrf(NRF_PATH);
