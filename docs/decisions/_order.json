@@ -495,7 +495,8 @@
   "ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md",
   "ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md",
   "ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md",
-  "ADR-0536-nef-store-bounds-per-store-and-per-token-sub-ts-29-122.md"
+  "ADR-0536-nef-store-bounds-per-store-and-per-token-sub-ts-29-122.md",
+  "ADR-0538-nef-sweeps-the-expiries-its-apis-make-mandatory-sus-02.md"
  ],
  "split_commit": "0530e4f"
 }

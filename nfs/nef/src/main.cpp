@@ -156,13 +156,16 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <optional>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "expiry.hpp"
 #include "monitoring_mapping.hpp"
 #include "qos_mapping.hpp"
 // TS29122_AsSessionWithQoS.hpp (ADR-0315) merged into TS26510_CommonData_grp.hpp once TS29565
@@ -732,6 +735,22 @@ int main() {
             nf_config::require<std::size_t>(config, "store_max_entries", "NEF_STORE_MAX_ENTRIES"),
         .max_per_consumer = nf_config::require<std::size_t>(
             config, "store_max_entries_per_consumer", "NEF_STORE_MAX_ENTRIES_PER_CONSUMER"),
+    };
+    // ADR-0538 (REVIEW-5ae0ef1 SUS-02): the latest expiry the NEF confirms for a proposed
+    // monitorExpireTime / monDur / time-sync expiry, and how often expired resources are swept.
+    const std::chrono::seconds subscription_max_lifetime{nf_config::require<std::int64_t>(
+        config, "subscription_max_lifetime_seconds", "NEF_SUBSCRIPTION_MAX_LIFETIME_SECONDS")};
+    const std::chrono::seconds store_sweep_interval{nf_config::require<std::int64_t>(
+        config, "store_sweep_interval_seconds", "NEF_STORE_SWEEP_INTERVAL_SECONDS")};
+    if (subscription_max_lifetime.count() <= 0 || store_sweep_interval.count() <= 0) {
+        nf_config::fatal("nef: subscription_max_lifetime_seconds and store_sweep_interval_seconds "
+                         "must be positive");
+    }
+    // ADR-0538: the proposed expiry at `pointer`, capped (TS 29.591 4.2.2.2.2 / TS 29.522
+    // 5.15.4.3.2: the one confirmed is no later than the one requested).
+    const auto confirm_expiry = [subscription_max_lifetime](json& doc, const char* pointer) {
+        nef::confirm_proposed_expiry(
+            doc, json::json_pointer(pointer), nef::Clock::now(), subscription_max_lifetime);
     };
 
     sbi_core::init_metrics(metrics_bind_address);
@@ -1652,14 +1671,15 @@ int main() {
     server.add_route(
         "POST",
         std::string(kEventExposureApiRoot) + "/subscriptions",
-        [&event_exposure_subs,
-         &event_exposure_create_counter](const sbi_core::http2::Request& req) {
+        [&event_exposure_subs, &event_exposure_create_counter, confirm_expiry](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NefEventExposureSubsc>(req, err);
             if (!body.has_value()) {
                 return err;
             }
             json j = *body;
+            confirm_expiry(j, "/eventsRepInfo/monDur");
             const auto id_created = event_exposure_subs.create(j, req.token_sub);
             if (!id_created) {
                 return nef_store_refused(req, id_created.error());
@@ -1692,7 +1712,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&event_exposure_subs, &event_exposure_put_counter](const sbi_core::http2::Request& req) {
+        [&event_exposure_subs, &event_exposure_put_counter, confirm_expiry](
+            const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subscriptionId");
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::NefEventExposureSubsc>(req, err);
@@ -1700,6 +1721,7 @@ int main() {
                 return err;
             }
             json j = *body;
+            confirm_expiry(j, "/eventsRepInfo/monDur");
             if (!event_exposure_subs.put(id, j)) {
                 return sbi_core::http2::problem_response(404,
                                                          "Not Found",
@@ -3894,13 +3916,14 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions",
-        [&af_time_sync](const sbi_core::http2::Request& req) {
+        [&af_time_sync, confirm_expiry](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TimeSyncExposureSubsc>(req, err);
             if (!body.has_value()) {
                 return err;
             }
             json j = *body;
+            confirm_expiry(j, "/expiry");
             const auto id_created =
                 af_time_sync.create(req.path_params.at("afId"), j, req.token_sub);
             if (!id_created) {
@@ -3943,13 +3966,14 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&af_time_sync](const sbi_core::http2::Request& req) {
+        [&af_time_sync, confirm_expiry](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TimeSyncExposureSubsc>(req, err);
             if (!body.has_value()) {
                 return err;
             }
             json j = *body;
+            confirm_expiry(j, "/expiry");
             if (!af_time_sync.put(
                     req.path_params.at("afId"), req.path_params.at("subscriptionId"), j)) {
                 // PUT only replaces: the YAML answers 200/204, never 201 (REVIEW-5ae0ef1 SPEC-07).
@@ -7313,7 +7337,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions",
-        [&af_monitoring_subs, &udr_client, udm_base_url, self_base_url](
+        [&af_monitoring_subs, &udr_client, udm_base_url, self_base_url, confirm_expiry](
             const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
@@ -7335,6 +7359,9 @@ int main() {
 
             const auto af_id = req.path_params.at("scsAsId");
             json j = *body;
+            // ADR-0538: TS 29.522 4.4.2 -- the NEF may determine the monitoring expiry by
+            // operator policy, taking the requested one into account.
+            confirm_expiry(j, "/monitorExpireTime");
             const auto sub_id_created = af_monitoring_subs.create(af_id, j, req.token_sub);
             if (!sub_id_created) {
                 return nef_store_refused(req, sub_id_created.error());
@@ -7363,12 +7390,17 @@ int main() {
                 ee.callbackReference =
                     self_base_url + "/nnef-callback/v1/monitoring-notify/" + af_id + "/" + sub_id;
                 ee.monitoringConfigurations = json{{"0", config}};
-                if (body->maximumNumberOfReports.has_value()) {
+                if (body->maximumNumberOfReports.has_value() || j.contains("monitorExpireTime")) {
                     // Suffixed since ADR-0358 pulled Ndccf_DataManagement's own ReportingOptions
                     // into the generated set; this is the UDM EE one, which is what an EE
                     // subscription carries.
                     sbi_gen::ReportingOptions_Nudm_EE options{};
                     options.maxNumOfReports = body->maximumNumberOfReports;
+                    // ADR-0538: the UDM's subscription ends when the AF's does (TS 29.503
+                    // ReportingOptions.expiry); the NEF's sweep deletes it there too.
+                    if (j.contains("monitorExpireTime")) {
+                        options.expiry = j.at("monitorExpireTime").get<std::string>();
+                    }
                     ee.reportingOptions = options;
                 }
 
@@ -7440,7 +7472,7 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&af_monitoring_subs](const sbi_core::http2::Request& req) {
+        [&af_monitoring_subs, confirm_expiry](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::MonitoringEventSubscription>(req, err);
@@ -7448,6 +7480,7 @@ int main() {
                 return err;
             }
             json j = *body;
+            confirm_expiry(j, "/monitorExpireTime");
             if (!af_monitoring_subs.put(
                     req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j)) {
                 return sbi_core::http2::problem_response(
@@ -7462,7 +7495,7 @@ int main() {
     server.add_route(
         "PATCH",
         std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&af_monitoring_subs](const sbi_core::http2::Request& req) {
+        [&af_monitoring_subs, confirm_expiry](const sbi_core::http2::Request& req) {
             // REVIEW-5ae0ef1 SPEC-02: TS29122_MonitoringEvent.yaml patches with
             // application/json-patch+json, a PatchItem array (RFC 6902) -- not a merge patch.
             const auto af_id = req.path_params.at("scsAsId");
@@ -7485,6 +7518,7 @@ int main() {
                     e.what(),
                     sbi_core::http2::dto_error_cause(e));
             }
+            confirm_expiry(*patched, "/monitorExpireTime");
             if (!af_monitoring_subs.put(af_id, sub_id, *patched)) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such monitoring subscription", "SUBSCRIPTION_NOT_FOUND");
@@ -8476,6 +8510,58 @@ int main() {
 
     std::thread(run_nrf_lifecycle, nef_instance_id, nrf_base).detach();
 
+    // ADR-0538 (REVIEW-5ae0ef1 SUS-02): the expiries the APIs make mandatory, swept on a timer.
+    // A removed monitoring subscription's UDM ee-subscription is deleted there too; nothing else
+    // swept here has a peer-side resource. Declared after the stores, so it stops first.
+    std::jthread expiry_sweeper([&event_exposure_subs,
+                                 &af_monitoring_subs,
+                                 &af_time_sync,
+                                 &af_np_config,
+                                 &af_5glan_pp,
+                                 &af_cp_prov,
+                                 &udr_client,
+                                 udm_base_url,
+                                 store_sweep_interval](const std::stop_token& stop) {
+        std::mutex mutex;
+        std::condition_variable_any wake;
+        std::unique_lock lock(mutex);
+        while (!wake.wait_for(lock, stop, store_sweep_interval, [] { return false; }) &&
+               !stop.stop_requested()) {
+            const auto now = nef::Clock::now();
+            std::size_t removed = 0;
+            std::size_t rewritten = 0;
+            removed += event_exposure_subs.sweep(
+                [now](json& d) { return nef::expire_event_exposure(d, now); });
+            const auto ee_gone =
+                af_monitoring_subs.sweep([now](json& d) { return nef::expire_monitoring(d, now); });
+            removed += ee_gone.size();
+            for (const auto& [ue, ee_id] : ee_gone) {
+                sbi_core::http2::ClientRequest del;
+                del.method = "DELETE";
+                del.url = udm_base_url + "/nudm-ee/v1/" + ue + "/ee-subscriptions/" + ee_id;
+                if (auto r = udr_client.send(del); !r.has_value() || r->status >= 300) {
+                    spdlog::warn("nef: UDM ee-subscription {} of an expired monitoring "
+                                 "subscription not deleted; its own expiry ends it at the UDM",
+                                 ee_id);
+                }
+            }
+            const auto tally = [&](const nef::AfDocumentStore::SweepCount& count) {
+                removed += count.removed;
+                rewritten += count.rewritten;
+            };
+            tally(af_time_sync.sweep([now](json& d) { return nef::expire_time_sync(d, now); }));
+            tally(af_np_config.sweep(
+                [now](json& d) { return nef::expire_np_configuration(d, now); }));
+            tally(
+                af_5glan_pp.sweep([now](json& d) { return nef::expire_5glan_np_config(d, now); }));
+            tally(
+                af_cp_prov.sweep([now](json& d) { return nef::expire_cp_parameter_sets(d, now); }));
+            if (removed > 0 || rewritten > 0) {
+                spdlog::info(
+                    "nef: expiry sweep removed {} resource(s), trimmed {}", removed, rewritten);
+            }
+        }
+    });
     server.start();
     spdlog::info("nef: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);
     spdlog::info("nef: Prometheus metrics at http://{}/metrics", metrics_bind_address);
