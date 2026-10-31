@@ -32,12 +32,14 @@
 #include <cstdlib>
 #include <librdkafka/rdkafkacpp.h>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "location_path.hpp"
 #include "spawn_guard.hpp"
+#include "tcp_relay.hpp"
 #include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
@@ -909,45 +911,111 @@ TEST(Adrf, MlModelsStoredServedAndAccessControlled) {
 // answer the next request. Runs with or without the lab's Doris and PostgreSQL: both addresses
 // below are closed ports.
 TEST(Adrf, StoreErrorsAreAnsweredNotThrown) {
+    // Both stores reachable at startup (the ADRF exits otherwise, by design), through relays the
+    // test then cuts: the stores die under a running ADRF.
+    const auto env_or = [](const char* name, std::string fallback) {
+        const char* v = std::getenv(name);
+        return v != nullptr ? std::string(v) : fallback;
+    };
+    const auto loopback = [](std::string host) { return host == "localhost" ? "127.0.0.1" : host; };
+    const std::string ds_host = loopback(env_or("ADRF_DATA_STORE_HOST", "127.0.0.1"));
+    const auto ds_port =
+        static_cast<std::uint16_t>(std::stoi(env_or("ADRF_DATA_STORE_PORT", "9030")));
+    const std::string ml_url =
+        env_or("ADRF_ML_MODEL_STORE_DATABASE_URL", "postgresql://adrf:adrf@127.0.0.1:5438/adrf");
+    const auto at = ml_url.rfind('@');
+    const auto colon = ml_url.find(':', at);
+    const auto slash = ml_url.find('/', colon);
+    ASSERT_TRUE(at != std::string::npos && colon != std::string::npos && slash != std::string::npos)
+        << ml_url;
+    const std::string ml_host = loopback(ml_url.substr(at + 1, colon - at - 1));
+    const auto ml_port =
+        static_cast<std::uint16_t>(std::stoi(ml_url.substr(colon + 1, slash - colon - 1)));
+
+    nf_test::TcpRelay ds_relay(ds_host, ds_port);
+    nf_test::TcpRelay ml_relay(ml_host, ml_port);
+    ASSERT_NE(ds_relay.port(), 0);
+    ASSERT_NE(ml_relay.port(), 0);
+    const auto reachable = [](const std::string& host, std::uint16_t port) {
+        const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_port = htons(port);
+        const bool ok = fd >= 0 && ::inet_pton(AF_INET, host.c_str(), &a.sin_addr) == 1 &&
+                        ::connect(fd, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0;
+        if (fd >= 0) {
+            ::close(fd);
+        }
+        return ok;
+    };
+    if (!reachable(ds_host, ds_port) || !reachable(ml_host, ml_port)) {
+        GTEST_SKIP() << "no Doris at " << ds_host << ":" << ds_port << " or no PostgreSQL at "
+                     << ml_host << ":" << ml_port << " -- skipped, not passed";
+    }
+
+    struct EnvOverride { // restores what CI set, rather than unsetting it
+        std::string name;
+        std::optional<std::string> old;
+        EnvOverride(std::string n, const std::string& v) : name(std::move(n)) {
+            if (const char* o = std::getenv(name.c_str())) {
+                old = o;
+            }
+            setenv(name.c_str(), v.c_str(), 1);
+        }
+        ~EnvOverride() {
+            if (old) {
+                setenv(name.c_str(), old->c_str(), 1);
+            } else {
+                unsetenv(name.c_str());
+            }
+        }
+    };
     nf_test::SpawnedProcess nrf(NRF_PATH);
-    setenv("ADRF_DATA_STORE_HOST", "127.0.0.1", 1);
-    setenv("ADRF_DATA_STORE_PORT", "1", 1);
-    setenv("ADRF_ML_MODEL_STORE_DATABASE_URL",
-           "postgresql://adrf@127.0.0.1:1/adrf?connect_timeout=1",
-           1);
-    nf_test::SpawnedProcess adrf(ADRF_PATH);
-    unsetenv("ADRF_DATA_STORE_HOST");
-    unsetenv("ADRF_DATA_STORE_PORT");
-    unsetenv("ADRF_ML_MODEL_STORE_DATABASE_URL");
+    std::optional<nf_test::SpawnedProcess> adrf;
+    {
+        const EnvOverride h("ADRF_DATA_STORE_HOST", "127.0.0.1");
+        const EnvOverride p("ADRF_DATA_STORE_PORT", std::to_string(ds_relay.port()));
+        const EnvOverride u("ADRF_ML_MODEL_STORE_DATABASE_URL",
+                            ml_url.substr(0, at + 1) + "127.0.0.1:" +
+                                std::to_string(ml_relay.port()) + ml_url.substr(slash));
+        adrf.emplace(ADRF_PATH);
+    }
     auto c = make_client();
     nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kAdrf) + kDm + "/data-store-records", 30s))
         << "ADRF never came up";
 
-    const auto expect_store_failure = [](const auto& r, const std::string& why) {
+    ds_relay.cut();
+    ml_relay.cut();
+
+    // The first call on a dropped connection fails as "connection lost" or "statement failed",
+    // later ones as "unreachable"; each is a 500 SYSTEM_FAILURE naming the store, never a crash.
+    const auto expect_store_failure = [](const auto& r, const std::string& store) {
         ASSERT_TRUE(r.has_value()) << r.error();
         EXPECT_EQ(r->status, 500) << r->body;
         const auto pd = json::parse(r->body);
         EXPECT_EQ(pd.value("cause", ""), "SYSTEM_FAILURE") << r->body;
-        EXPECT_NE(pd.value("detail", "").find(why), std::string::npos) << r->body;
+        EXPECT_NE(pd.value("detail", "").find(store), std::string::npos) << r->body;
     };
     expect_store_failure(c.send(request("POST",
                                         std::string(kAdrf) + kDm + "/data-store-records",
                                         nrf_data_record("rule02"))),
-                         "data store unreachable");
+                         "data store");
     expect_store_failure(
         c.send(
             request("GET", std::string(kAdrf) + kDm + "/data-store-records?store-trans-id=rule02")),
-        "data store unreachable");
+        "data store");
     expect_store_failure(
         c.send(request("DELETE", std::string(kAdrf) + kDm + "/data-store-records/rule02")),
-        "data store unreachable");
+        "data store");
     expect_store_failure(
         c.send(request("GET",
                        std::string(kAdrf) + kMl + "/mlmodel-store-records?store-trans-id=rule02")),
-        "ML model store unreachable");
+        "ML model store");
     expect_store_failure(
         c.send(
             request("POST", std::string(kAdrf) + kMl + "/remove-stored-mlmodel", json::array({1}))),
-        "ML model store unreachable");
+        "ML model store");
+    // Still serving: the store failures did not take the process down.
+    EXPECT_TRUE(wait_up(c, std::string(kAdrf) + kDm + "/data-store-records", 5s));
 }
