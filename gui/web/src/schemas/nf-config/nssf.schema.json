@@ -13,6 +13,11 @@
       "type": "string",
       "x-cpp-type": "std::string"
     },
+    "advertised_ipv4": {
+      "type": "string",
+      "x-env-override": "NSSF_ADVERTISED_IPV4",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -32,6 +37,7 @@
     }
   },
   "required": [
+    "advertised_ipv4",
     "metrics_bind_address",
     "nrf_base_url",
     "port",

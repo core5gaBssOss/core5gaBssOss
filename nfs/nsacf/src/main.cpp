@@ -51,6 +51,7 @@
 //    consumer that has supplied one. Until some NF does, EAC state is tracked and logged but has
 //    nowhere to be delivered -- a property of the spec's own design, not a shortcut.
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
@@ -401,7 +402,7 @@ nsacf::SacSubscriptionRecord to_record(const sbi_gen::SACEventSubscription& sub,
 // nfs/ausf/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
 void run_nrf_lifecycle(const std::string& nsacf_instance_id,
                        const std::string& nrf_base,
-                       const std::string& advertised_ipv4) {
+                       const std::string& profile_ipv4) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/nsacf/cert.pem",
         .key_path = CERTS_DIR "/nsacf/key.pem",
@@ -429,10 +430,8 @@ void run_nrf_lifecycle(const std::string& nsacf_instance_id,
         {"nfInstanceId", nsacf_instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        // ADR-0453/follow-up: NRF's NFProfile validation requires a real dotted-quad IPv4
-        // literal here, not a Docker Compose hostname -- see nfs/udsf/src/main.cpp's fix for the
-        // same bug, root-caused live.
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        // ADR-0518: advertised_ipv4 resolved to a literal at startup (the NRF requires one).
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", kHeartbeatSeconds},
     };
 
@@ -482,6 +481,8 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "NSACF_NRF_BASE_URL");
     const auto advertised_ipv4 =
         nf_config::require<std::string>(config, "advertised_ipv4", "NSACF_ADVERTISED_IPV4");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses), as a literal the NRF accepts.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die("nsacf", advertised_ipv4, nrf_base);
 
     sbi_core::init_metrics(metrics_bind_address);
 
@@ -914,7 +915,7 @@ int main() {
                          return resp;
                      });
 
-    std::thread(run_nrf_lifecycle, nsacf_instance_id, nrf_base, advertised_ipv4).detach();
+    std::thread(run_nrf_lifecycle, nsacf_instance_id, nrf_base, profile_ipv4).detach();
     // ADR-0394 (extended): NOT detached -- see run_periodic_reporting's own header comment. Joined
     // below, after run_multi_threaded(ioc) returns, so subscriptions/slices are not destructed
     // while this thread might still be using them.

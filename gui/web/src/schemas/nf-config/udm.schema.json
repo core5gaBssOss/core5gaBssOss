@@ -13,6 +13,11 @@
       "type": "string",
       "x-cpp-type": "std::string"
     },
+    "advertised_ipv4": {
+      "type": "string",
+      "x-env-override": "UDM_ADVERTISED_IPV4",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -134,6 +139,7 @@
     }
   },
   "required": [
+    "advertised_ipv4",
     "hlr_number",
     "map_server_port",
     "metrics_bind_address",

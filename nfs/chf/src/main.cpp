@@ -101,6 +101,7 @@
 //   more sophisticated than it is. See build_rating_grant/reserve_subscriber_balance/
 //   finalize_subscriber_balance's own comments for the full reasoning.
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
@@ -320,7 +321,9 @@ chf::DorisOptions chf_doris_options(const nlohmann::json& config) {
 
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as every other
 // NF's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
-void run_nrf_lifecycle(const std::string& chf_instance_id, const std::string& nrf_base) {
+void run_nrf_lifecycle(const std::string& chf_instance_id,
+                       const std::string& nrf_base,
+                       const std::string& profile_ipv4) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/chf/cert.pem",
         .key_path = CERTS_DIR "/chf/key.pem",
@@ -348,7 +351,7 @@ void run_nrf_lifecycle(const std::string& chf_instance_id, const std::string& nr
         {"nfInstanceId", chf_instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", kHeartbeatSeconds},
     };
 
@@ -423,6 +426,12 @@ int main() {
         nf_config::require<std::string>(config, "sbi_bind_address", "CHF_SBI_BIND_ADDRESS");
     const auto nrf_base_url =
         nf_config::require<std::string>(config, "nrf_base_url", "CHF_NRF_BASE_URL");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses) -- a literal, or "auto" for the local
+    // address toward the NRF -- instead of a hardcoded 127.0.0.1 no other host can reach.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die(
+        "chf",
+        nf_config::require<std::string>(config, "advertised_ipv4", "CHF_ADVERTISED_IPV4"),
+        nrf_base_url);
     const auto rating_database_url =
         nf_config::require<std::string>(config, "rating_database_url", "CHF_RATING_DATABASE_URL");
     // TS 29.500 clause 5.2.8: "The server may consider an idempotency key as expired after an
@@ -1987,7 +1996,7 @@ int main() {
             return resp;
         });
 
-    std::thread(run_nrf_lifecycle, chf_instance_id, nrf_base_url).detach();
+    std::thread(run_nrf_lifecycle, chf_instance_id, nrf_base_url, profile_ipv4).detach();
     std::thread(run_catalog_snapshot_refresh,
                 std::ref(catalog_snapshot),
                 static_cast<int>(catalog_snapshot_refresh_interval_seconds))

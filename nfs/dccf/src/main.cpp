@@ -52,6 +52,7 @@
 //   * A PUT that changes the fingerprint is an unsubscribe of the old collection and a subscribe
 //     to the new one, with the same subscriptionId.
 //   * LI: TS 33.127 has no DCCF-specific POI clause; nothing built.
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -220,7 +221,7 @@ bool targets_a_user(const json& source_sub) {
 
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
-                       const std::string& advertised_ipv4,
+                       const std::string& profile_ipv4,
                        int heartbeat_seconds) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/dccf/cert.pem",
@@ -253,10 +254,8 @@ void run_nrf_lifecycle(const std::string& instance_id,
         {"nfInstanceId", instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        // ADR-0453/follow-up: NRF's NFProfile validation requires a real dotted-quad IPv4
-        // literal here, not a Docker Compose hostname -- see nfs/udsf/src/main.cpp's fix for the
-        // same bug, root-caused live.
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        // ADR-0518: advertised_ipv4 resolved to a literal at startup (the NRF requires one).
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", heartbeat_seconds},
         {"nfServices",
          json::array({service("ndccf-datamanagement"), service("ndccf-contextmanagement")})},
@@ -305,6 +304,8 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "DCCF_NRF_BASE_URL");
     const auto advertised_ipv4 =
         nf_config::require<std::string>(config, "advertised_ipv4", "DCCF_ADVERTISED_IPV4");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses), as a literal the NRF accepts.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die("dccf", advertised_ipv4, nrf_base);
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "DCCF_REDIS_URL");
     const auto heartbeat_seconds =
         nf_config::require<int>(config, "nrf_heartbeat_seconds", "DCCF_NRF_HEARTBEAT_SECONDS");
@@ -923,8 +924,7 @@ int main() {
                          return resp;
                      });
 
-    std::thread(run_nrf_lifecycle, instance_id, nrf_base, advertised_ipv4, heartbeat_seconds)
-        .detach();
+    std::thread(run_nrf_lifecycle, instance_id, nrf_base, profile_ipv4, heartbeat_seconds).detach();
     server.start();
     spdlog::info("dccf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS); MFAF at {}, AMF at {}, "
                  "NSACF at {}, NWDAF at {}",

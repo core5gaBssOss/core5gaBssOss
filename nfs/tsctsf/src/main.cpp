@@ -28,6 +28,7 @@
 //     connectivity, notifications to the consumer, Time Synchronization and ASTI services.
 //   * Contexts are kept in memory (single replica, deploy/helm/tsctsf).
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -140,7 +141,9 @@ struct Context {
     std::vector<AfSession> af_sessions;
 };
 
-void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_base) {
+void run_nrf_lifecycle(const std::string& instance_id,
+                       const std::string& nrf_base,
+                       const std::string& profile_ipv4) {
     http2::Client http_client(tsctsf_tls());
     // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
     // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
@@ -150,7 +153,7 @@ void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_ba
     const json profile{{"nfInstanceId", instance_id},
                        {"nfType", "TSCTSF"},
                        {"nfStatus", "REGISTERED"},
-                       {"ipv4Addresses", json::array({"127.0.0.1"})},
+                       {"ipv4Addresses", json::array({profile_ipv4})},
                        {"heartBeatTimer", kHeartbeatSeconds}};
     while (true) {
         http2::ClientRequest put;
@@ -193,6 +196,12 @@ int main() {
         config, "metrics_bind_address", "TSCTSF_METRICS_BIND_ADDRESS");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "TSCTSF_NRF_BASE_URL");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses) -- a literal, or "auto" for the local
+    // address toward the NRF -- instead of a hardcoded 127.0.0.1 no other host can reach.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die(
+        "tsctsf",
+        nf_config::require<std::string>(config, "advertised_ipv4", "TSCTSF_ADVERTISED_IPV4"),
+        nrf_base);
     const auto udm_base =
         nf_config::require<std::string>(config, "udm_base_url", "TSCTSF_UDM_BASE_URL");
     const auto bsf_base =
@@ -541,7 +550,7 @@ int main() {
         },
         http2::RouteAuth::None);
 
-    std::thread(run_nrf_lifecycle, instance_id, nrf_base).detach();
+    std::thread(run_nrf_lifecycle, instance_id, nrf_base, profile_ipv4).detach();
     server.start();
     spdlog::info("tsctsf: listening on https://{}:{} (TLS 1.3 + mTLS)", bind, port);
     sbi_core::run_multi_threaded(ioc);

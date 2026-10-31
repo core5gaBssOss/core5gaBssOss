@@ -31,6 +31,7 @@ add_library(sbi_core STATIC
     src/rate_limit.cpp
     src/authorizer.cpp
     src/api_catalog.cpp
+    src/advertised_address.cpp
 )
 
 target_include_directories(sbi_core PUBLIC

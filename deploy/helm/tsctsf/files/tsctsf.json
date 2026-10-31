@@ -1,6 +1,7 @@
 {
   "port": 7825,
   "sbi_bind_address": "0.0.0.0",
+  "advertised_ipv4": "auto",
   "metrics_bind_address": "0.0.0.0:9497",
   "nrf_base_url": "https://nrf:7777",
   "udm_base_url": "https://udm:7780",

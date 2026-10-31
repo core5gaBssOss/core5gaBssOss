@@ -99,6 +99,7 @@
 //   pipeline exists to actually push the MT data to a UE, same class of gap as every other
 //   NAS-adjacent simplification in this file.
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
@@ -275,7 +276,9 @@ constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/amf/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
-void run_nrf_lifecycle(const std::string& smf_instance_id, const std::string& nrf_base) {
+void run_nrf_lifecycle(const std::string& smf_instance_id,
+                       const std::string& nrf_base,
+                       const std::string& profile_ipv4) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/smf/cert.pem",
         .key_path = CERTS_DIR "/smf/key.pem",
@@ -303,7 +306,7 @@ void run_nrf_lifecycle(const std::string& smf_instance_id, const std::string& nr
         {"nfInstanceId", smf_instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", kHeartbeatSeconds},
     };
 
@@ -2122,6 +2125,12 @@ int main() {
     const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
     const auto nrf_base_url =
         nf_config::require<std::string>(config, "nrf_base_url", "SMF_NRF_BASE_URL");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses) -- a literal, or "auto" for the local
+    // address toward the NRF -- instead of a hardcoded 127.0.0.1 no other host can reach.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die(
+        "smf",
+        nf_config::require<std::string>(config, "advertised_ipv4", "SMF_ADVERTISED_IPV4"),
+        nrf_base_url);
     const auto self_base_url =
         nf_config::require<std::string>(config, "self_base_url", "SMF_SELF_BASE_URL");
     // ADR-0320: UDR, for AF traffic-influence data. NEF has been writing TrafficInfluData to UDR
@@ -4800,7 +4809,7 @@ int main() {
             return resp;
         });
 
-    std::thread(run_nrf_lifecycle, smf_instance_id, nrf_base_url).detach();
+    std::thread(run_nrf_lifecycle, smf_instance_id, nrf_base_url, profile_ipv4).detach();
     // ADR-0394 (extended): NOT detached -- this thread holds references to upf_endpoint_store/
     // pfcp_peer, both main()-local and destructed on return. While UPF association hasn't yet
     // succeeded (its own retry loop, real in this project's own test logs: "smf: no UPF

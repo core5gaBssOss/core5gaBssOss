@@ -34,6 +34,7 @@
 // function with no real caller, since dead code presented as live infrastructure would be worse
 // than disclosing the gap plainly.
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -81,7 +82,9 @@ constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/ausf/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
-void run_nrf_lifecycle(const std::string& scp_instance_id, const std::string& nrf_base) {
+void run_nrf_lifecycle(const std::string& scp_instance_id,
+                       const std::string& nrf_base,
+                       const std::string& profile_ipv4) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/scp/cert.pem",
         .key_path = CERTS_DIR "/scp/key.pem",
@@ -109,7 +112,7 @@ void run_nrf_lifecycle(const std::string& scp_instance_id, const std::string& nr
         {"nfInstanceId", scp_instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", kHeartbeatSeconds},
     };
 
@@ -159,6 +162,12 @@ int main() {
     const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "SCP_NRF_BASE_URL");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses) -- a literal, or "auto" for the local
+    // address toward the NRF -- instead of a hardcoded 127.0.0.1 no other host can reach.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die(
+        "scp",
+        nf_config::require<std::string>(config, "advertised_ipv4", "SCP_ADVERTISED_IPV4"),
+        nrf_base);
 
     sbi_core::init_metrics(metrics_bind_address);
 
@@ -283,7 +292,7 @@ int main() {
                          return resp;
                      });
 
-    std::thread(run_nrf_lifecycle, scp_instance_id, nrf_base).detach();
+    std::thread(run_nrf_lifecycle, scp_instance_id, nrf_base, profile_ipv4).detach();
 
     server.start();
     spdlog::info("scp: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);

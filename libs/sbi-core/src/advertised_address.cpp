@@ -1,13 +1,14 @@
-#include "advertised_address.hpp"
+#include "sbi_core/advertised_address.hpp"
 
 #include <arpa/inet.h>
 #include <cstring>
 #include <memory>
 #include <netdb.h>
+#include <nf_config/nf_config.hpp>
 #include <sys/socket.h>
 #include <unistd.h>
 
-namespace upf {
+namespace sbi_core {
 
 namespace {
 
@@ -39,7 +40,7 @@ tl::expected<Ipv4, std::string> parse_literal(const std::string& s) {
     // names).
     if (s.empty() || ::inet_pton(AF_INET, s.c_str(), &a) != 1) {
         return tl::unexpected("advertised_ipv4 '" + s +
-                              "' is not a literal IPv4 address or \"auto\" (the SMF parses the "
+                              "' is not a literal IPv4 address or \"auto\" (consumers parse the "
                               "NRF-registered address as a literal, so a hostname cannot work)");
     }
     Ipv4 ip{};
@@ -114,9 +115,19 @@ tl::expected<Ipv4, std::string> resolve_advertised_ipv4(const std::string& setti
     return ip;
 }
 
-std::string to_string(const Ipv4& ip) {
+std::string ipv4_to_string(const Ipv4& ip) {
     return std::to_string(ip[0]) + "." + std::to_string(ip[1]) + "." + std::to_string(ip[2]) + "." +
            std::to_string(ip[3]);
 }
 
-} // namespace upf
+std::string advertised_ipv4_or_die(std::string_view nf,
+                                   const std::string& setting,
+                                   const std::string& nrf_base_url) {
+    const auto ip = resolve_advertised_ipv4(setting, nrf_base_url);
+    if (!ip) {
+        nf_config::fatal(std::string(nf) + ": " + ip.error());
+    }
+    return ipv4_to_string(*ip);
+}
+
+} // namespace sbi_core

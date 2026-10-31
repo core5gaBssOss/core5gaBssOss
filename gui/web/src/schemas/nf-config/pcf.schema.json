@@ -13,6 +13,11 @@
       "type": "string",
       "x-cpp-type": "std::string"
     },
+    "advertised_ipv4": {
+      "type": "string",
+      "x-env-override": "PCF_ADVERTISED_IPV4",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -4474,6 +4479,7 @@
     }
   },
   "required": [
+    "advertised_ipv4",
     "chf_base_url",
     "metrics_bind_address",
     "nrf_base_url",

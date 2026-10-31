@@ -498,6 +498,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0535](decisions/ADR-0535-udm-store-bounds-per-store-and-per-token-sub-confirmed.md) UDM store bounds per store and per token sub, confirmed subscription expiry (SUS-02)
 - [0504](decisions/ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md) NWDAF MTLF-based ML model accuracy monitoring from ADRF-stored inference data (TS 23.288 6.2E.2)
 - [0516](decisions/ADR-0516-helm-charts-for-the-bss-and-a-bss-provisioning-image-dep-03.md) Helm charts for the BSS and a bss/provisioning image (DEP-03, BSS half)
+- [0518](decisions/ADR-0518-nfs-register-their-advertised-address-in-the-nfprofile-not.md) NFs register their advertised address in the NFProfile, not 127.0.0.1
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
