@@ -1,6 +1,7 @@
 {
   "port": 7801,
   "sbi_bind_address": "0.0.0.0",
+  "advertised_ipv4": "auto",
   "metrics_bind_address": "0.0.0.0:9486",
   "nrf_base_url": "https://nrf:7777",
   "self_base_url": "https://nssf:7801",
