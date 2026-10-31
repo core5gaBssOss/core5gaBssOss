@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-product-catalog
+  labels:
+    app.kubernetes.io/name: product-catalog
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  # Single replica: running more than one has not been verified for this component in a cluster.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: product-catalog
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        app.kubernetes.io/name: product-catalog
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      # No Kubernetes service-link variables: they are named <SERVICE>_PORT etc., the same names
+      # as nf_config's <SERVICE>_<KEY> overrides (ADR-0513).
+      enableServiceLinks: false
+      containers:
+        - name: product-catalog
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            # Host of the component's own advertised base (resource hrefs): the pod IP, known
+            # only at runtime (files/product-catalog.json has no advertised_ipv4, so a missing
+            # value fails fast).
+            - name: PRODUCT_CATALOG_ADVERTISED_IPV4
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: api
+              containerPort: 7785
+              protocol: TCP
+            - name: metrics
+              containerPort: 9473
+              protocol: TCP
+          volumeMounts:
+            # ADR-0453 in Helm: the image holds only the binary.
+            - name: config
+              mountPath: /build/config/product-catalog.json
+              subPath: product-catalog.json
+              readOnly: true
+            - name: certs
+              mountPath: /build/certs
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-product-catalog-config
+        # The component's own TLS material only, laid out as CERTS_DIR expects. Create it with
+        # scripts/helm/lab-pki-secrets.sh (lab PKI) or from your own CA with the same keys.
+        - name: certs
+          secret:
+            secretName: {{ .Values.certs.secretName | default "product-catalog-certs" }}
+            defaultMode: 0440
+            items:
+              - key: ca.crt
+                path: ca/ca.crt
+              - key: cert.pem
+                path: product-catalog/cert.pem
+              - key: key.pem
+                path: product-catalog/key.pem

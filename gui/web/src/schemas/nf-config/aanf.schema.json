@@ -14,6 +14,11 @@
       "type": "string",
       "x-cpp-type": "std::string"
     },
+    "advertised_ipv4": {
+      "type": "string",
+      "x-env-override": "AANF_ADVERTISED_IPV4",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "AANF_METRICS_BIND_ADDRESS",
@@ -53,6 +58,9 @@
     "deny_roaming_ues": {
       "type": "boolean"
     },
+    "roaming_check_on_udm_failure": {
+      "type": "string"
+    },
     "oauth2_required": {
       "type": "boolean",
       "x-env-override": "AANF_OAUTH2_REQUIRED",
@@ -60,6 +68,7 @@
     }
   },
   "required": [
+    "advertised_ipv4",
     "kaf_lifetime_seconds",
     "metrics_bind_address",
     "nrf_base_url",

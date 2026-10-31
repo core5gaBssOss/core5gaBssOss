@@ -1,6 +1,7 @@
 {
   "port": 7791,
   "sbi_bind_address": "0.0.0.0",
+  "advertised_ipv4": "172.30.0.50",
   "metrics_bind_address": "0.0.0.0:9479",
   "nrf_base_url": "https://nrf:7777",
   "self_base_url": "https://scp:7791",
