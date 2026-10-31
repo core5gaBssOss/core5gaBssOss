@@ -475,12 +475,24 @@ compute(const std::string& event_id,
         std::vector<nwdaf::FeatureRow> today, yesterday;
         {
             const std::lock_guard<std::mutex> lock(features_mutex);
-            const auto latest = features.latest_date();
+            // A query that fails is answered as an unreachable store is: no analytics (the
+            // caller's 404 / UNAVAILABLE_DATA), never a thrown error (REVIEW-5ae0ef1 RULE-02).
+            const auto latest_read = features.latest_date();
+            if (!latest_read) {
+                spdlog::warn("nwdaf: ABNORMAL_BEHAVIOUR: {}", latest_read.error());
+                return std::nullopt;
+            }
+            const std::string& latest = *latest_read;
             if (latest.empty()) {
                 data.abnorBehavrs = std::vector<sbi_gen::AbnormalBehaviour>();
                 return data; // a real, empty answer: no data yet
             }
-            today = features.read_day(latest);
+            auto today_read = features.read_day(latest);
+            if (!today_read) {
+                spdlog::warn("nwdaf: ABNORMAL_BEHAVIOUR: {}", today_read.error());
+                return std::nullopt;
+            }
+            today = std::move(*today_read);
             // The day before, for the trend -- derived from the latest date, not from the clock.
             std::tm tm{};
             if (strptime(latest.c_str(), "%Y-%m-%d", &tm) != nullptr) {
@@ -488,7 +500,12 @@ compute(const std::string& event_id,
                 const auto t = timegm(&tm);
                 char buf[16];
                 std::strftime(buf, sizeof(buf), "%Y-%m-%d", gmtime(&t));
-                yesterday = features.read_day(buf);
+                auto yesterday_read = features.read_day(buf);
+                if (!yesterday_read) {
+                    spdlog::warn("nwdaf: ABNORMAL_BEHAVIOUR: {}", yesterday_read.error());
+                    return std::nullopt;
+                }
+                yesterday = std::move(*yesterday_read);
             }
         }
         if (target && target->supis && !target->supis->empty()) {
@@ -1206,7 +1223,8 @@ int main() {
                 // The YAML's 404 for this operation. The detail says WHICH of the two reasons.
                 const std::string why =
                     ev->second == sbi_gen::NwdafEvent::ABNORMAL_BEHAVIOUR
-                        ? "ABNORMAL_BEHAVIOUR needs the CHF feature store, which is unreachable"
+                        ? "ABNORMAL_BEHAVIOUR needs the CHF feature store, which is unreachable "
+                          "or failing its queries"
                         : "analytics ID '" + ev->second +
                               "' is not computed by this NWDAF (NF_LOAD, "
                               "ABNORMAL_BEHAVIOUR, SERVICE_EXPERIENCE)";
