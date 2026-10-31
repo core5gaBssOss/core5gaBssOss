@@ -443,11 +443,10 @@ target_compile_definitions(udsf_integration_tests PRIVATE
 )
 gtest_discover_tests(udsf_integration_tests PROPERTIES TIMEOUT 300)
 
-# ADR-0466: the UPF's advertised IPv4 (literal or "auto"). Opens no listening port (UDP connect() only).
-add_executable(upf_advertised_address_tests test_upf_advertised_address.cpp
-    ${CMAKE_SOURCE_DIR}/nfs/upf/src/advertised_address.cpp)
-target_include_directories(upf_advertised_address_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/upf/src)
-target_link_libraries(upf_advertised_address_tests PRIVATE GTest::gtest GTest::gtest_main)
+# ADR-0466: the advertised IPv4 (literal or "auto"), in sbi-core for every NF since ADR-0518. Opens
+# no listening port (UDP connect() only).
+add_executable(upf_advertised_address_tests test_upf_advertised_address.cpp)
+target_link_libraries(upf_advertised_address_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
 gtest_discover_tests(upf_advertised_address_tests)
 
 # ADR-0464: the CC chain -- UPF CC-POI (real upf::UpfLiPoi, packets fed through its tap seam) ->
@@ -476,6 +475,17 @@ add_executable(sbi_nrf_heartbeat_tests test_nrf_heartbeat.cpp)
 target_link_libraries(sbi_nrf_heartbeat_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
 target_compile_definitions(sbi_nrf_heartbeat_tests PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(sbi_nrf_heartbeat_tests PROPERTIES TIMEOUT 60)
+
+# ADR-0518: an NF registers its advertised_ipv4 (literal or "auto"), not 127.0.0.1. The real EIR
+# binary against an in-process NRF stand-in on an ephemeral port; ports 28761-28762.
+add_executable(nf_profile_address_tests test_nf_profile_address.cpp)
+target_link_libraries(nf_profile_address_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+add_dependencies(nf_profile_address_tests eir)
+target_compile_definitions(nf_profile_address_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
+    EIR_PATH="$<TARGET_FILE:eir>"
+    EIR_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/eir.json")
+gtest_discover_tests(nf_profile_address_tests PROPERTIES TIMEOUT 90)
 
 # ADR-0478: the opt-in TLS 1.2 floor. In-process server on an ephemeral port; no NF processes.
 add_executable(sbi_tls_min_version_tests test_sbi_tls_min_version.cpp)

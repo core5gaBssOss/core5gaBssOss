@@ -38,6 +38,7 @@
 // real SUCI de-concealment itself before generating auth data. A real SUCI-formatted id no longer
 // 404s; it round-trips through UDM's own real ECIES Profile A/B decryption.
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -103,7 +104,9 @@ constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/udm/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
-void run_nrf_lifecycle(const std::string& ausf_instance_id, const std::string& nrf_base) {
+void run_nrf_lifecycle(const std::string& ausf_instance_id,
+                       const std::string& nrf_base,
+                       const std::string& profile_ipv4) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/ausf/cert.pem",
         .key_path = CERTS_DIR "/ausf/key.pem",
@@ -131,7 +134,7 @@ void run_nrf_lifecycle(const std::string& ausf_instance_id, const std::string& n
         {"nfInstanceId", ausf_instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", kHeartbeatSeconds},
     };
 
@@ -182,6 +185,12 @@ int main() {
     const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "AUSF_NRF_BASE_URL");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses) -- a literal, or "auto" for the local
+    // address toward the NRF -- instead of a hardcoded 127.0.0.1 no other host can reach.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die(
+        "ausf",
+        nf_config::require<std::string>(config, "advertised_ipv4", "AUSF_ADVERTISED_IPV4"),
+        nrf_base);
     const auto udm_base =
         nf_config::require<std::string>(config, "udm_base_url", "AUSF_UDM_BASE_URL");
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "AUSF_REDIS_URL");
@@ -1122,7 +1131,7 @@ int main() {
                 std::nullopt);
         });
 
-    std::thread(run_nrf_lifecycle, ausf_instance_id, nrf_base).detach();
+    std::thread(run_nrf_lifecycle, ausf_instance_id, nrf_base, profile_ipv4).detach();
 
     server.start();
     spdlog::info("ausf: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);

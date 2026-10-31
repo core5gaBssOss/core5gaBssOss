@@ -39,6 +39,7 @@
 //   * NRF: registered as nfType SEPP (fqdn, plmnList) with heartbeat; no SeppInfo (ports / N32
 //     purposes) is advertised, and NFs do not discover the SEPP through the NRF here.
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -233,6 +234,7 @@ std::pair<std::string, std::string> split_api_root(const std::string& api_root) 
 // (e.g. nfs/eir run_nrf_lifecycle); on its own thread, never on the server's io_context.
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
+                       const std::string& profile_ipv4,
                        const std::string& fqdn,
                        const std::string& mcc,
                        const std::string& mnc,
@@ -249,7 +251,7 @@ void run_nrf_lifecycle(const std::string& instance_id,
         {"nfStatus", "REGISTERED"},
         {"fqdn", fqdn},
         {"plmnList", json::array({json{{"mcc", mcc}, {"mnc", mnc}}})},
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", kHeartbeatSeconds},
     };
     const auto pause = [&](int seconds) {
@@ -358,6 +360,12 @@ int main() {
     const auto retry_seconds = config.value("handshake_retry_seconds", 2);
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "SEPP_NRF_BASE_URL");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses) -- a literal, or "auto" for the local
+    // address toward the NRF -- instead of a hardcoded 127.0.0.1 no other host can reach.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die(
+        "sepp",
+        nf_config::require<std::string>(config, "advertised_ipv4", "SEPP_ADVERTISED_IPV4"),
+        nrf_base);
 
     sepp::NegotiationPolicy policy;
     policy.own_fqdn = lower(nf_config::require<std::string>(config, "fqdn", "SEPP_FQDN"));
@@ -1112,6 +1120,7 @@ int main() {
     std::thread nrf_thread(run_nrf_lifecycle,
                            instance_id,
                            nrf_base,
+                           profile_ipv4,
                            policy.own_fqdn,
                            policy.own_mcc,
                            policy.own_mnc,

@@ -21,6 +21,7 @@
 // TagType presence/UNIQUE_KEY are not enforced) and AdvancedCounting (the YAML's tag-count-filter
 // encoding contradicts the TS). Notifications are delivered at most once. No LI POI: TS 33.127 has
 // no UDSF clause.
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -113,7 +114,7 @@ json udsf_info(const udsf::Settings& settings) {
 
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
-                       const std::string& advertised_ipv4,
+                       const std::string& profile_ipv4,
                        unsigned short port,
                        int heartbeat_seconds,
                        const json& info) {
@@ -144,25 +145,19 @@ void run_nrf_lifecycle(const std::string& instance_id,
              json::array({json{{"apiVersionInUri", "v1"}, {"apiFullVersion", version}}})},
             {"scheme", "https"},
             {"nfServiceStatus", "REGISTERED"},
-            // Same NRF ipv4Address validation as the top-level ipv4Addresses fix just above --
-            // this field is validated identically and also rejects a hostname.
-            {"ipEndPoints", json::array({json{{"ipv4Address", "127.0.0.1"}, {"port", port}}})},
+            // The NRF validates this field as it does ipv4Addresses: a literal (ADR-0518).
+            {"ipEndPoints", json::array({json{{"ipv4Address", profile_ipv4}, {"port", port}}})},
             {"supportedFeatures", features}};
     };
     const json profile{
         {"nfInstanceId", instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        // ADR-0453: NRF's own NFProfile validation requires a real dotted-quad IPv4 literal for
-        // both this field and nfServices[].ipEndPoints[].ipv4Address below -- advertised_ipv4 is
-        // a Docker Compose service DNS name ("udsf"), not an IP, so NRF rejected every
-        // registration attempt with 400 "ipv4Addresses contains an invalid IPv4 address"
-        // (confirmed by replaying the exact request directly against NRF). Same placeholder
-        // convention every other working NF's own registration code already uses (e.g.
-        // nfs/chf/src/main.cpp). Real SBI-to-SBI connections in this project use config-provided
-        // base URLs (hostnames), not the IP NRF returns in a discovered NFProfile, so this
-        // placeholder does not break discovery/connection logic.
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        // ADR-0453: the NRF requires a dotted-quad literal here and in ipEndPoints above, and
+        // rejected a hostname with 400 "ipv4Addresses contains an invalid IPv4 address". ADR-0518:
+        // advertised_ipv4 resolved to that literal at startup, not a 127.0.0.1 placeholder that a
+        // consumer discovering this UDSF could not reach.
+        {"ipv4Addresses", json::array({profile_ipv4})},
         {"heartBeatTimer", heartbeat_seconds},
         {"udsfInfo", info},
         // info.version of each YAML: DataRepository 1.3.0; Timer 1.3.0 (see the YAML files).
@@ -213,6 +208,8 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "UDSF_NRF_BASE_URL");
     const auto advertised_ipv4 =
         nf_config::require<std::string>(config, "advertised_ipv4", "UDSF_ADVERTISED_IPV4");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses), as a literal the NRF accepts.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die("udsf", advertised_ipv4, nrf_base);
     auto redis_url = nf_config::require<std::string>(config, "redis_url", "UDSF_REDIS_URL");
     const auto redis_pool_size =
         nf_config::require<int>(config, "redis_pool_size", "UDSF_REDIS_POOL_SIZE");
@@ -314,7 +311,7 @@ int main() {
     std::thread(run_nrf_lifecycle,
                 instance_id,
                 nrf_base,
-                advertised_ipv4,
+                profile_ipv4,
                 port,
                 heartbeat_seconds,
                 udsf_info(settings))

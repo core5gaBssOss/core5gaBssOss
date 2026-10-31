@@ -2,6 +2,7 @@
   "port": 7820,
   "n32_port": 7821,
   "sbi_bind_address": "0.0.0.0",
+  "advertised_ipv4": "172.30.0.50",
   "metrics_bind_address": "0.0.0.0:9494",
   "nrf_base_url": "https://nrf:7777",
   "fqdn": "sepp.5gc.mnc001.mcc001.3gppnetwork.org",

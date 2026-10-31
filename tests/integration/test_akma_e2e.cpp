@@ -345,6 +345,21 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
                                   unknown.dump());
     EXPECT_EQ(ext_unknown.status, 403);
 
+    // ADR-0537 (REVIEW-5ae0ef1 SEC-06): with the UDM gone the roaming status is unknown, and the
+    // shipped roaming_check_on_udm_failure "deny" refuses AKMA (it was provided before).
+    {
+        const nf_test::SpawnedProcess stopped = std::move(udm); // reaped (SIGTERM) here
+    }
+    const auto no_udm = send(af,
+                             "POST",
+                             std::string(kAanf) + "/retrieve-applicationkey",
+                             af_token,
+                             "application/json",
+                             request.dump());
+    EXPECT_EQ(no_udm.status, 500) << no_udm.body;
+    EXPECT_EQ(json::parse(no_udm.body).value("cause", ""), "SYSTEM_FAILURE") << no_udm.body;
+    EXPECT_FALSE(json::parse(no_udm.body).contains("kaf")) << no_udm.body;
+
     // Context removal (6.6): 204, then the key is gone, then 404 AKMA_CONTEXT_NOT_FOUND.
     const json remove{{"supi", kSupi}};
     const auto anchor_token = token(c, "naanf-akma%20naanf-akma:anchorkey", "AANF");

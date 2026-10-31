@@ -28,6 +28,7 @@
 //   * kAkma / kaf are hexadecimal strings: TS 29.535 / 29.522 type them "string" without an
 //     encoding; hex follows the key fields of TS 29.509 (kseaf, kausf).
 
+#include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -160,7 +161,9 @@ std::string af_fqdn(const std::string& af_id) {
     return af_id.substr(0, af_id.rfind('.'));
 }
 
-void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_base) {
+void run_nrf_lifecycle(const std::string& instance_id,
+                       const std::string& nrf_base,
+                       const std::string& profile_ipv4) {
     http2::Client http_client(aanf_tls());
     // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
     // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
@@ -170,7 +173,7 @@ void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_ba
     const json profile{{"nfInstanceId", instance_id},
                        {"nfType", "AANF"},
                        {"nfStatus", "REGISTERED"},
-                       {"ipv4Addresses", json::array({"127.0.0.1"})},
+                       {"ipv4Addresses", json::array({profile_ipv4})},
                        {"heartBeatTimer", kHeartbeatSeconds}};
     while (true) {
         http2::ClientRequest put;
@@ -213,6 +216,12 @@ int main() {
         config, "metrics_bind_address", "AANF_METRICS_BIND_ADDRESS");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "AANF_NRF_BASE_URL");
+    // ADR-0518: what the NFProfile registers (ipv4Addresses) -- a literal, or "auto" for the local
+    // address toward the NRF -- instead of a hardcoded 127.0.0.1 no other host can reach.
+    const auto profile_ipv4 = sbi_core::advertised_ipv4_or_die(
+        "aanf",
+        nf_config::require<std::string>(config, "advertised_ipv4", "AANF_ADVERTISED_IPV4"),
+        nrf_base);
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "AANF_REDIS_URL");
     // ADR-0514 (REVIEW-5ae0ef1 SEC-04): the key-encryption key that seals KAKMA at rest -- 64 hex
     // digits in a file only the AAnF is given (scripts/gen-lab-pki.sh writes the lab's).
@@ -232,6 +241,15 @@ int main() {
     const auto udm_base = config.value("udm_base_url", std::string{});
     // ADR-0497, TS 33.535 6.2.1 steps 5-7 (feature RoamingRestriction): deny AKMA to a roaming UE.
     const bool deny_roaming = config.value("deny_roaming_ues", false);
+    // ADR-0537 (REVIEW-5ae0ef1 SEC-06): when the UDM cannot say whether the UE roams (no answer,
+    // not 201, a body that is not an EeSubscription), "deny" refuses AKMA; "provide" keeps the
+    // pre-ADR-0537 fail-open behaviour as a disclosed operator choice.
+    const auto on_udm_failure = config.value("roaming_check_on_udm_failure", std::string("deny"));
+    if (on_udm_failure != "deny" && on_udm_failure != "provide") {
+        spdlog::critical("aanf: roaming_check_on_udm_failure is '{}', not deny or provide",
+                         on_udm_failure);
+        return 1;
+    }
     const auto self_base = config.value("self_base_url", std::string{});
 
     sbi_core::init_metrics(metrics_bind_address);
@@ -357,8 +375,19 @@ int main() {
                         .dump();
                 const auto r = udm_client.send(sub);
                 std::optional<bool> roaming;
+                // Why the UDM gave no usable answer; empty when it answered 201 with an
+                // EeSubscription (with or without a report).
+                std::string udm_failure;
+                if (!r) {
+                    udm_failure = "no answer: " + r.error();
+                } else if (r->status != 201) {
+                    udm_failure = "answered " + std::to_string(r->status);
+                }
                 if (r && r->status == 201) {
                     const auto created = json::parse(r->body, nullptr, false);
+                    if (!created.is_object()) {
+                        udm_failure = "answered 201 with a body that is not an EeSubscription";
+                    }
                     if (created.is_object() && created.contains("eventReports")) {
                         for (const auto& rep : created.at("eventReports")) {
                             if (rep.value("eventType", "") == "ROAMING_STATUS" &&
@@ -391,7 +420,25 @@ int main() {
                                    "AKMA is not provided to a roaming UE (local policy)",
                                    "ROAMING_AKMA_SERVICE_DENIED");
                 }
-                if (!roaming) {
+                if (!udm_failure.empty()) {
+                    // ROAMING_AKMA_SERVICE_DENIED is for a UE identified as roaming (TS 29.535
+                    // 5.1.7.3); this one is not identified at all, so the generic TS 29.500 cause.
+                    if (on_udm_failure == "deny") {
+                        spdlog::warn("aanf: roaming status of {} unknown, UDM {}; AKMA refused",
+                                     ctx->supi,
+                                     udm_failure);
+                        return problem(500,
+                                       "Internal Server Error",
+                                       "the UE's roaming status could not be obtained from the "
+                                       "UDM (" +
+                                           udm_failure + ")",
+                                       "SYSTEM_FAILURE");
+                    }
+                    spdlog::warn("aanf: roaming status of {} unknown, UDM {}; AKMA provided "
+                                 "(roaming_check_on_udm_failure provide)",
+                                 ctx->supi,
+                                 udm_failure);
+                } else if (!roaming) {
                     spdlog::warn("aanf: no roaming status for {} from the UDM; AKMA provided",
                                  ctx->supi);
                 }
@@ -468,7 +515,7 @@ int main() {
         // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
         http2::RouteAuth::None);
 
-    std::thread(run_nrf_lifecycle, instance_id, nrf_base).detach();
+    std::thread(run_nrf_lifecycle, instance_id, nrf_base, profile_ipv4).detach();
     server.start();
     spdlog::info("aanf: listening on https://{}:{} (TLS 1.3 + mTLS)", bind, port);
     sbi_core::run_multi_threaded(ioc);
