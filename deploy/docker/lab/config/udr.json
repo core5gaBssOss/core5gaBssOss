@@ -1,7 +1,7 @@
 {
   "port": 7781,
   "sbi_bind_address": "0.0.0.0",
-  "advertised_ipv4": "172.30.0.56",
+  "advertised_ipv4": "172.30.0.57",
   "metrics_bind_address": "0.0.0.0:9468",
   "nrf_base_url": "https://nrf:7777",
   "database_url": "postgresql://udr:udr@postgres-udr:5432/udr",
