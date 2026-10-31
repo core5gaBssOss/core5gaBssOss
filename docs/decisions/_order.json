@@ -497,6 +497,7 @@
   "ADR-0504-nwdaf-mtlf-based-ml-model-accuracy-monitoring-from-adrf.md",
   "ADR-0516-helm-charts-for-the-bss-and-a-bss-provisioning-image-dep-03.md",
   "ADR-0518-nfs-register-their-advertised-address-in-the-nfprofile-not.md",
+  "ADR-0536-nef-store-bounds-per-store-and-per-token-sub-ts-29-122.md",
   "ADR-0537-aanf-roaming-check-fails-closed-when-the-udm-cannot-answer.md"
  ],
  "split_commit": "0530e4f"

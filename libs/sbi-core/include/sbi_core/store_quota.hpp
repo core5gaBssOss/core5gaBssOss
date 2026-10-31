@@ -18,6 +18,13 @@ struct StoreLimits {
     std::size_t max_per_consumer = 0; // per store, per access-token sub (http2::Request::token_sub)
 };
 
+// Why StoreQuota::try_admit refused a key (ADR-0536): some APIs define their own cause for a
+// consumer over its share -- TS 29.122's 403 QUOTA_EXCEEDED -- but none for a full store.
+enum class Refusal {
+    store_full,    // the store holds max_entries keys
+    consumer_full, // the creating consumer holds max_per_consumer of them
+};
+
 // Who created each key of one store, and the counts the limits apply to. Not synchronised: the
 // owning store calls it under its own lock. A consumer "" (a request with no token) counts only
 // toward max_entries.
@@ -25,25 +32,30 @@ class StoreQuota {
 public:
     explicit StoreQuota(StoreLimits limits) : limits_(limits) {}
 
-    // A key not yet held: counted for `consumer` (true), or refused when the store or that
-    // consumer's share of it is full (false). A key already held: true, nothing counted -- a
-    // replace keeps the creator as owner.
-    bool admit(const std::string& key, const std::string& consumer) {
+    // A key not yet held: counted for `consumer` (nullopt), or refused when the store or that
+    // consumer's share of it is full (the reason). A key already held: nullopt, nothing counted --
+    // a replace keeps the creator as owner.
+    std::optional<Refusal> try_admit(const std::string& key, const std::string& consumer) {
         if (owner_.contains(key)) {
-            return true;
+            return std::nullopt;
         }
         if (owner_.size() >= limits_.max_entries) {
-            return false;
+            return Refusal::store_full;
         }
         if (!consumer.empty()) {
             const auto it = per_consumer_.find(consumer);
             if ((it == per_consumer_.end() ? 0 : it->second) >= limits_.max_per_consumer) {
-                return false;
+                return Refusal::consumer_full;
             }
             ++per_consumer_[consumer];
         }
         owner_.emplace(key, consumer);
-        return true;
+        return std::nullopt;
+    }
+
+    // try_admit without the reason: true when admitted.
+    bool admit(const std::string& key, const std::string& consumer) {
+        return !try_admit(key, consumer).has_value();
     }
 
     // Forgets `key`; a key not held is ignored.
