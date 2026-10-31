@@ -501,6 +501,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0516](decisions/ADR-0516-helm-charts-for-the-bss-and-a-bss-provisioning-image-dep-03.md) Helm charts for the BSS and a bss/provisioning image (DEP-03, BSS half)
 - [0518](decisions/ADR-0518-nfs-register-their-advertised-address-in-the-nfprofile-not.md) NFs register their advertised address in the NFProfile, not 127.0.0.1
 - [0537](decisions/ADR-0537-aanf-roaming-check-fails-closed-when-the-udm-cannot-answer.md) AAnF roaming check fails closed when the UDM cannot answer (SEC-06)
+- [0538](decisions/ADR-0538-nef-sweeps-the-expiries-its-apis-make-mandatory-sus-02.md) NEF sweeps the expiries its APIs make mandatory (SUS-02)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
