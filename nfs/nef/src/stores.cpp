@@ -47,9 +47,14 @@ PfdCatalogStore::get_if_changed_since(const std::string& application_id,
     return std::nullopt;
 }
 
-std::string PfdSubscriptionStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal>
+PfdSubscriptionStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "pfdsub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -75,12 +80,18 @@ bool PfdSubscriptionStore::put(const std::string& sub_id, nlohmann::json subscri
 
 bool PfdSubscriptionStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
-std::string DnaiMapSubStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal> DnaiMapSubStore::create(nlohmann::json subscription,
+                                                                      const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "dnaimapsub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -96,12 +107,18 @@ std::optional<nlohmann::json> DnaiMapSubStore::get(const std::string& sub_id) {
 
 bool DnaiMapSubStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
-std::string EasDeploySubStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal>
+EasDeploySubStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "easdeploysub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -117,12 +134,18 @@ std::optional<nlohmann::json> EasDeploySubStore::get(const std::string& sub_id) 
 
 bool EasDeploySubStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
-std::string SmContextStore::create(nlohmann::json created_data) {
+std::expected<std::string, sbi_core::Refusal> SmContextStore::create(nlohmann::json created_data,
+                                                                     const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "smctx-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     contexts_.emplace(id, std::move(created_data));
     return id;
 }
@@ -151,12 +174,18 @@ bool SmContextStore::update(const std::string& sm_context_id,
 
 bool SmContextStore::remove(const std::string& sm_context_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sm_context_id);
     return contexts_.erase(sm_context_id) > 0;
 }
 
-std::string EcsAddrCfgInfoSubStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal>
+EcsAddrCfgInfoSubStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "ecsaddrsub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -192,12 +221,18 @@ bool EcsAddrCfgInfoSubStore::patch(const std::string& sub_id, const nlohmann::js
 
 bool EcsAddrCfgInfoSubStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
-std::string NefEventExposureSubStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal>
+NefEventExposureSubStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "evtexpsub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -223,12 +258,18 @@ bool NefEventExposureSubStore::put(const std::string& sub_id, nlohmann::json sub
 
 bool NefEventExposureSubStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
-std::string TrafficInfluDataSubStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal>
+TrafficInfluDataSubStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "trafficinfsub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -254,12 +295,18 @@ bool TrafficInfluDataSubStore::put(const std::string& sub_id, nlohmann::json sub
 
 bool TrafficInfluDataSubStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
-std::string InferEventSubStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal>
+InferEventSubStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "infersub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -295,12 +342,18 @@ bool InferEventSubStore::patch(const std::string& sub_id, const nlohmann::json& 
 
 bool InferEventSubStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
-std::string TrainEventsSubStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal>
+TrainEventsSubStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "trainsub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -336,12 +389,18 @@ bool TrainEventsSubStore::patch(const std::string& sub_id, const nlohmann::json&
 
 bool TrainEventsSubStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
-std::string VflInferSubStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal>
+VflInferSubStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "vflinfersub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -377,12 +436,18 @@ bool VflInferSubStore::patch(const std::string& sub_id, const nlohmann::json& me
 
 bool VflInferSubStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
-std::string NefVflTrainSubStore::create(nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal>
+NefVflTrainSubStore::create(nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "vfltrainsub-" + std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(id, consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_.emplace(id, std::move(subscription));
     return id;
 }
@@ -418,15 +483,20 @@ bool NefVflTrainSubStore::patch(const std::string& sub_id, const nlohmann::json&
 
 bool NefVflTrainSubStore::remove(const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(sub_id);
     return subscriptions_.erase(sub_id) > 0;
 }
 
 // --- ADR-0302: AF-facing TrafficInfluence subscriptions ---
 
-std::string AfTrafficInfluenceSubStore::create(const std::string& af_id,
-                                               nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal> AfTrafficInfluenceSubStore::create(
+    const std::string& af_id, nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto sub_id = std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(key(af_id, sub_id), consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_[key(af_id, sub_id)] = std::move(subscription);
     return sub_id;
 }
@@ -479,14 +549,21 @@ std::optional<nlohmann::json> AfTrafficInfluenceSubStore::merge_patch(const std:
 
 bool AfTrafficInfluenceSubStore::remove(const std::string& af_id, const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(key(af_id, sub_id));
     return subscriptions_.erase(key(af_id, sub_id)) > 0;
 }
 
 // --- ADR-0315: AF-facing AsSessionWithQoS subscriptions ---
 
-std::string AfQosSubStore::create(const std::string& af_id, nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal> AfQosSubStore::create(const std::string& af_id,
+                                                                    nlohmann::json subscription,
+                                                                    const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto sub_id = std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(key(af_id, sub_id), consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_[key(af_id, sub_id)] = std::move(subscription);
     return sub_id;
 }
@@ -540,6 +617,7 @@ std::optional<nlohmann::json> AfQosSubStore::merge_patch(const std::string& af_i
 bool AfQosSubStore::remove(const std::string& af_id, const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     app_sessions_.erase(key(af_id, sub_id));
+    quota_.release(key(af_id, sub_id));
     return subscriptions_.erase(key(af_id, sub_id)) > 0;
 }
 
@@ -562,9 +640,14 @@ std::optional<std::string> AfQosSubStore::app_session(const std::string& af_id,
 
 // --- ADR-0316: AF-facing MonitoringEvent subscriptions ---
 
-std::string AfMonitoringSubStore::create(const std::string& af_id, nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal> AfMonitoringSubStore::create(
+    const std::string& af_id, nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto sub_id = std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(key(af_id, sub_id), consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_[key(af_id, sub_id)] = std::move(subscription);
     return sub_id;
 }
@@ -606,6 +689,7 @@ bool AfMonitoringSubStore::put(const std::string& af_id,
 bool AfMonitoringSubStore::remove(const std::string& af_id, const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     ee_subs_.erase(key(af_id, sub_id));
+    quota_.release(key(af_id, sub_id));
     return subscriptions_.erase(key(af_id, sub_id)) > 0;
 }
 
@@ -629,9 +713,14 @@ AfMonitoringSubStore::ee_subscription(const std::string& af_id, const std::strin
 
 // --- ADR-0319: AF-provisioned UE-ID mappings ---
 
-std::string AfUeIdMappingStore::create(const std::string& af_id, nlohmann::json mapping) {
+std::expected<std::string, sbi_core::Refusal> AfUeIdMappingStore::create(
+    const std::string& af_id, nlohmann::json mapping, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto id = std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(key(af_id, id), consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     mappings_[key(af_id, id)] = std::move(mapping);
     return id;
 }
@@ -684,14 +773,20 @@ std::optional<nlohmann::json> AfUeIdMappingStore::merge_patch(const std::string&
 
 bool AfUeIdMappingStore::remove(const std::string& af_id, const std::string& id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(key(af_id, id));
     return mappings_.erase(key(af_id, id)) > 0;
 }
 
 // --- ADR-0321: AF-facing ServiceParameter subscriptions ---
 
-std::string AfServiceParamSubStore::create(const std::string& af_id, nlohmann::json subscription) {
+std::expected<std::string, sbi_core::Refusal> AfServiceParamSubStore::create(
+    const std::string& af_id, nlohmann::json subscription, const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto sub_id = std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(key(af_id, sub_id), consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     subscriptions_[key(af_id, sub_id)] = std::move(subscription);
     return sub_id;
 }
@@ -744,14 +839,21 @@ std::optional<nlohmann::json> AfServiceParamSubStore::merge_patch(const std::str
 
 bool AfServiceParamSubStore::remove(const std::string& af_id, const std::string& sub_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(key(af_id, sub_id));
     return subscriptions_.erase(key(af_id, sub_id)) > 0;
 }
 
 // --- ADR-0322: shared per-AF document store ---
 
-std::string AfDocumentStore::create(const std::string& af_id, nlohmann::json document) {
+std::expected<std::string, sbi_core::Refusal> AfDocumentStore::create(const std::string& af_id,
+                                                                      nlohmann::json document,
+                                                                      const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto id = std::to_string(next_id_++);
+    if (const auto refused = quota_.try_admit(key(af_id, id), consumer)) {
+        --next_id_;
+        return std::unexpected(*refused);
+    }
     documents_[key(af_id, id)] = std::move(document);
     return id;
 }
@@ -802,10 +904,15 @@ std::optional<nlohmann::json> AfDocumentStore::merge_patch(const std::string& af
     return it->second;
 }
 
-bool AfDocumentStore::create_with_id(const std::string& af_id,
-                                     const std::string& id,
-                                     nlohmann::json document) {
+std::expected<bool, sbi_core::Refusal>
+AfDocumentStore::create_with_id(const std::string& af_id,
+                                const std::string& id,
+                                nlohmann::json document,
+                                const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (const auto refused = quota_.try_admit(key(af_id, id), consumer)) {
+        return std::unexpected(*refused);
+    }
     return documents_.emplace(key(af_id, id), std::move(document)).second;
 }
 
@@ -827,6 +934,7 @@ std::optional<nlohmann::json> AfDocumentStore::json_patch(const std::string& af_
 
 bool AfDocumentStore::remove(const std::string& af_id, const std::string& id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    quota_.release(key(af_id, id));
     return documents_.erase(key(af_id, id)) > 0;
 }
 

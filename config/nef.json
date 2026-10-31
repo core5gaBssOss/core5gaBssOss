@@ -1,6 +1,7 @@
 {
   "port": 7790,
   "sbi_bind_address": "0.0.0.0",
+  "advertised_ipv4": "127.0.0.1",
   "metrics_bind_address": "0.0.0.0:9478",
   "nrf_base_url": "https://127.0.0.1:7777",
   "self_base_url": "https://127.0.0.1:7790",
@@ -24,5 +25,7 @@
     "x1_allow_deactivate_all": true
   },
   "tsctsf_base_url": "https://127.0.0.1:7825",
-  "oauth2_required": true
+  "oauth2_required": true,
+  "store_max_entries": 100000,
+  "store_max_entries_per_consumer": 10000
 }

@@ -1,6 +1,7 @@
 {
   "port": 7824,
   "sbi_bind_address": "0.0.0.0",
+  "advertised_ipv4": "172.30.0.10",
   "metrics_bind_address": "0.0.0.0:9496",
   "nrf_base_url": "https://nrf:7777",
   "redis_url": "tcp://valkey:6379",
@@ -11,5 +12,6 @@
   "gpsi_af_fqdns": [],
   "self_base_url": "https://aanf:7824",
   "deny_roaming_ues": false,
+  "roaming_check_on_udm_failure": "deny",
   "oauth2_required": true
 }

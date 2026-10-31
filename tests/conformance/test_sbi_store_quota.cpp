@@ -74,3 +74,14 @@ TEST(SbiConfirmExpiry, ALaterOrMissingProposalGetsTheMaximumLessASpread) {
         }
     }
 }
+
+// ADR-0536: the reason for a refusal, so an API that defines its own cause for a consumer over its
+// share (TS 29.122 QUOTA_EXCEEDED) can send it, and a full store is told apart.
+TEST(SbiStoreQuota, ARefusalSaysWhetherTheStoreOrTheConsumerIsFull) {
+    StoreQuota quota(StoreLimits{.max_entries = 2, .max_per_consumer = 1});
+    EXPECT_FALSE(quota.try_admit("k1", "nf-a").has_value());
+    EXPECT_EQ(quota.try_admit("k2", "nf-a"), sbi_core::Refusal::consumer_full);
+    EXPECT_FALSE(quota.try_admit("k2", "nf-b").has_value());
+    EXPECT_EQ(quota.try_admit("k3", "nf-c"), sbi_core::Refusal::store_full);
+    EXPECT_FALSE(quota.try_admit("k1", "nf-c").has_value()) << "a held key is never refused";
+}

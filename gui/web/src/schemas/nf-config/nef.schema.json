@@ -13,6 +13,11 @@
       "type": "string",
       "x-cpp-type": "std::string"
     },
+    "advertised_ipv4": {
+      "type": "string",
+      "x-env-override": "NEF_ADVERTISED_IPV4",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -97,15 +102,28 @@
       "type": "boolean",
       "x-env-override": "NEF_OAUTH2_REQUIRED",
       "x-cpp-type": "bool"
+    },
+    "store_max_entries": {
+      "type": "integer",
+      "x-env-override": "NEF_STORE_MAX_ENTRIES",
+      "x-cpp-type": "std::size_t"
+    },
+    "store_max_entries_per_consumer": {
+      "type": "integer",
+      "x-env-override": "NEF_STORE_MAX_ENTRIES_PER_CONSUMER",
+      "x-cpp-type": "std::size_t"
     }
   },
   "required": [
+    "advertised_ipv4",
     "metrics_bind_address",
     "nrf_base_url",
     "pcf_base_url",
     "port",
     "sbi_bind_address",
     "self_base_url",
+    "store_max_entries",
+    "store_max_entries_per_consumer",
     "udm_base_url",
     "udr_base_url"
   ],

@@ -20,6 +20,8 @@
 #include <string>
 #include <vector>
 
+#include "store_result.hpp"
+
 typedef struct st_mysql MYSQL;
 
 namespace adrf {
@@ -62,33 +64,35 @@ public:
 
     bool connected();
 
-    // Every call throws std::runtime_error on a Doris error (the handler turns that into a 500).
-    void insert(const StoredRecord& r);
-    std::optional<StoredRecord> get(const std::string& store_trans_id);
-    std::vector<StoredRecord> get_many(const std::vector<std::string>& ids);
-    std::vector<StoredRecord> by_data_set(const std::string& data_set_id,
-                                          const std::optional<TimeWindow>& window);
-    std::vector<StoredRecord> by_fingerprint(const std::string& spec_fp,
-                                             const std::optional<TimeWindow>& window);
+    // Every call answers the database's error text instead of a value on a Doris error (the
+    // handler turns that into a 500).
+    StoreResult<void> insert(const StoredRecord& r);
+    StoreResult<std::optional<StoredRecord>> get(const std::string& store_trans_id);
+    StoreResult<std::vector<StoredRecord>> get_many(const std::vector<std::string>& ids);
+    StoreResult<std::vector<StoredRecord>> by_data_set(const std::string& data_set_id,
+                                                       const std::optional<TimeWindow>& window);
+    StoreResult<std::vector<StoredRecord>> by_fingerprint(const std::string& spec_fp,
+                                                          const std::optional<TimeWindow>& window);
     // true when the row existed.
-    bool remove(const std::string& store_trans_id);
+    StoreResult<bool> remove(const std::string& store_trans_id);
     // Rows matching `spec_fp` or `data_set_id` (exactly one given) inside the window.
-    std::int64_t remove_matching(const std::optional<std::string>& spec_fp,
-                                 const std::optional<std::string>& data_set_id,
-                                 const TimeWindow& window);
+    StoreResult<std::int64_t> remove_matching(const std::optional<std::string>& spec_fp,
+                                              const std::optional<std::string>& data_set_id,
+                                              const TimeWindow& window);
 
     // Lifetime bookkeeping for the reaper (main.cpp): rows expiring before `before` whose deletion
     // alert has not been sent and that name a delNotifUri; then the outcomes.
-    std::vector<StoredRecord> awaiting_alert(std::chrono::system_clock::time_point before);
-    void mark_alert_sent(const std::string& store_trans_id);
-    void defer_expiry(const std::string& store_trans_id,
-                      std::chrono::system_clock::time_point new_expiry);
-    std::int64_t remove_expired(std::chrono::system_clock::time_point now);
+    StoreResult<std::vector<StoredRecord>>
+    awaiting_alert(std::chrono::system_clock::time_point before);
+    StoreResult<void> mark_alert_sent(const std::string& store_trans_id);
+    StoreResult<void> defer_expiry(const std::string& store_trans_id,
+                                   std::chrono::system_clock::time_point new_expiry);
+    StoreResult<std::int64_t> remove_expired(std::chrono::system_clock::time_point now);
 
 private:
     bool ensure_connected_locked();
-    void exec_locked(const std::string& sql);
-    std::vector<StoredRecord> select_locked(const std::string& where_clause);
+    StoreResult<void> exec_locked(const std::string& sql);
+    StoreResult<std::vector<StoredRecord>> select_locked(const std::string& where_clause);
     std::string quote_locked(const std::string& s);
 
     RecordStoreOptions options_;

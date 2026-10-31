@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The component's name: what every peer's config and its certificate (DNS:provisioning) use.
+  name: {{ .Values.service.name | default "provisioning" }}
+  labels:
+    app.kubernetes.io/name: provisioning
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: provisioning
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    # Customer order API, called by the oam-gui-bff.
+    - name: api
+      port: 7802
+      targetPort: api
+      protocol: TCP
+    - name: metrics
+      port: 9498
+      targetPort: metrics
+      protocol: TCP
