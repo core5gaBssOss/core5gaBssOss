@@ -220,6 +220,15 @@ int main() {
     const auto udm_base = config.value("udm_base_url", std::string{});
     // ADR-0497, TS 33.535 6.2.1 steps 5-7 (feature RoamingRestriction): deny AKMA to a roaming UE.
     const bool deny_roaming = config.value("deny_roaming_ues", false);
+    // ADR-0537 (REVIEW-5ae0ef1 SEC-06): when the UDM cannot say whether the UE roams (no answer,
+    // not 201, a body that is not an EeSubscription), "deny" refuses AKMA; "provide" keeps the
+    // pre-ADR-0537 fail-open behaviour as a disclosed operator choice.
+    const auto on_udm_failure = config.value("roaming_check_on_udm_failure", std::string("deny"));
+    if (on_udm_failure != "deny" && on_udm_failure != "provide") {
+        spdlog::critical("aanf: roaming_check_on_udm_failure is '{}', not deny or provide",
+                         on_udm_failure);
+        return 1;
+    }
     const auto self_base = config.value("self_base_url", std::string{});
 
     sbi_core::init_metrics(metrics_bind_address);
@@ -339,8 +348,19 @@ int main() {
                         .dump();
                 const auto r = udm_client.send(sub);
                 std::optional<bool> roaming;
+                // Why the UDM gave no usable answer; empty when it answered 201 with an
+                // EeSubscription (with or without a report).
+                std::string udm_failure;
+                if (!r) {
+                    udm_failure = "no answer: " + r.error();
+                } else if (r->status != 201) {
+                    udm_failure = "answered " + std::to_string(r->status);
+                }
                 if (r && r->status == 201) {
                     const auto created = json::parse(r->body, nullptr, false);
+                    if (!created.is_object()) {
+                        udm_failure = "answered 201 with a body that is not an EeSubscription";
+                    }
                     if (created.is_object() && created.contains("eventReports")) {
                         for (const auto& rep : created.at("eventReports")) {
                             if (rep.value("eventType", "") == "ROAMING_STATUS" &&
@@ -373,7 +393,25 @@ int main() {
                                    "AKMA is not provided to a roaming UE (local policy)",
                                    "ROAMING_AKMA_SERVICE_DENIED");
                 }
-                if (!roaming) {
+                if (!udm_failure.empty()) {
+                    // ROAMING_AKMA_SERVICE_DENIED is for a UE identified as roaming (TS 29.535
+                    // 5.1.7.3); this one is not identified at all, so the generic TS 29.500 cause.
+                    if (on_udm_failure == "deny") {
+                        spdlog::warn("aanf: roaming status of {} unknown, UDM {}; AKMA refused",
+                                     ctx->supi,
+                                     udm_failure);
+                        return problem(500,
+                                       "Internal Server Error",
+                                       "the UE's roaming status could not be obtained from the "
+                                       "UDM (" +
+                                           udm_failure + ")",
+                                       "SYSTEM_FAILURE");
+                    }
+                    spdlog::warn("aanf: roaming status of {} unknown, UDM {}; AKMA provided "
+                                 "(roaming_check_on_udm_failure provide)",
+                                 ctx->supi,
+                                 udm_failure);
+                } else if (!roaming) {
                     spdlog::warn("aanf: no roaming status for {} from the UDM; AKMA provided",
                                  ctx->supi);
                 }

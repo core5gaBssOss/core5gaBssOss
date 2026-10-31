@@ -58,6 +58,9 @@
     "deny_roaming_ues": {
       "type": "boolean"
     },
+    "roaming_check_on_udm_failure": {
+      "type": "string"
+    },
     "oauth2_required": {
       "type": "boolean",
       "x-env-override": "AANF_OAUTH2_REQUIRED",
