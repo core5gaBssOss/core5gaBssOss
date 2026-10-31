@@ -1,8 +1,11 @@
 #pragma once
 
+#include "sbi_core/store_quota.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <expected>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -12,6 +15,11 @@
 // Private to nfs/nef -- not shared with any other NF, per CLAUDE.md's "no NF includes another
 // NF's private headers" rule. In-memory only, no persistence across restarts -- same disclosed
 // simplification as every other NF's store built so far.
+//
+// ADR-0536 (REVIEW-5ae0ef1 SUS-02): every store a request can add to is bounded by an
+// sbi_core::StoreQuota -- at most `max_entries` keys, and `max_per_consumer` keys created by one
+// access-token sub. A create the quota refuses stores nothing and returns the reason; the handler
+// answers it (nef_store_refused in main.cpp). Removing an entry releases its key.
 
 namespace nef {
 
@@ -44,7 +52,9 @@ private:
 // `PfdSubscription` (TS29551) as JSON.
 class PfdSubscriptionStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit PfdSubscriptionStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool put(const std::string& sub_id, nlohmann::json subscription);
     bool remove(const std::string& sub_id);
@@ -53,6 +63,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0207 (gap-closure task #164, first NEF slice). Backs Nnef_DNAIMapping's individual DNAI
@@ -62,7 +73,9 @@ private:
 // has its own real id namespace/lifecycle.
 class DnaiMapSubStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit DnaiMapSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool remove(const std::string& sub_id);
 
@@ -70,13 +83,16 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0207 (gap-closure task #164, first NEF slice). Backs Nnef_EASDeployment's individual EAS
 // Deployment Event Subscription resource (TS29591). Keyed by an NEF-generated subscriptionId.
 class EasDeploySubStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit EasDeploySubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool remove(const std::string& sub_id);
 
@@ -84,6 +100,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0208 (gap-closure task #164, second NEF slice). Backs Nnef_SMContext's Individual SM
@@ -92,7 +109,9 @@ private:
 // its own fields are optional per the real YAML, i.e. a partial update), not a full replace.
 class SmContextStore {
 public:
-    std::string create(nlohmann::json created_data);
+    explicit SmContextStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json created_data,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sm_context_id);
     bool update(const std::string& sm_context_id, const nlohmann::json& partial_update);
     bool remove(const std::string& sm_context_id);
@@ -101,6 +120,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> contexts_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0208 (gap-closure task #164, second NEF slice). Backs Nnef_ECSAddress's Individual ECS
@@ -110,7 +130,9 @@ private:
 // implements RFC 7396 natively, not a hand-rolled approximation).
 class EcsAddrCfgInfoSubStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit EcsAddrCfgInfoSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool put(const std::string& sub_id, nlohmann::json subscription);
     bool patch(const std::string& sub_id, const nlohmann::json& merge_patch);
@@ -120,6 +142,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0209 (gap-closure task #164, third NEF slice). Backs Nnef_EventExposure's Individual
@@ -128,7 +151,9 @@ private:
 // Delete per its own YAML).
 class NefEventExposureSubStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit NefEventExposureSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool put(const std::string& sub_id, nlohmann::json subscription);
     bool remove(const std::string& sub_id);
@@ -137,6 +162,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0210 (gap-closure task #164, fourth and final NEF slice). Backs Nnef_TrafficInfluenceData's
@@ -144,7 +170,9 @@ private:
 // shape as `PfdSubscriptionStore` -- no PATCH exists on this real resource.
 class TrafficInfluDataSubStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit TrafficInfluDataSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool put(const std::string& sub_id, nlohmann::json subscription);
     bool remove(const std::string& sub_id);
@@ -153,6 +181,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // Shared real create/get/put/patch(RFC 7396 merge-patch)/remove shape backing
@@ -164,7 +193,9 @@ private:
 // path, and a flat id namespace would quietly make it global.
 class AfTrafficInfluenceSubStore {
 public:
-    std::string create(const std::string& af_id, nlohmann::json subscription);
+    explicit AfTrafficInfluenceSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal>
+    create(const std::string& af_id, nlohmann::json subscription, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& af_id, const std::string& sub_id);
     std::vector<nlohmann::json> list(const std::string& af_id);
     bool put(const std::string& af_id, const std::string& sub_id, nlohmann::json subscription);
@@ -179,6 +210,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0315: AF-facing TS 29.122 AsSessionWithQoS subscriptions, keyed by "{scsAsId}/{subId}" for
@@ -187,7 +219,9 @@ private:
 // another.
 class AfQosSubStore {
 public:
-    std::string create(const std::string& af_id, nlohmann::json subscription);
+    explicit AfQosSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal>
+    create(const std::string& af_id, nlohmann::json subscription, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& af_id, const std::string& sub_id);
     std::vector<nlohmann::json> list(const std::string& af_id);
     bool put(const std::string& af_id, const std::string& sub_id, nlohmann::json subscription);
@@ -210,13 +244,16 @@ private:
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::unordered_map<std::string, std::string> app_sessions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0316: AF-facing TS 29.122 MonitoringEvent subscriptions, keyed "{scsAsId}/{subId}" for the
 // same per-AF isolation reason as the two AF stores above.
 class AfMonitoringSubStore {
 public:
-    std::string create(const std::string& af_id, nlohmann::json subscription);
+    explicit AfMonitoringSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal>
+    create(const std::string& af_id, nlohmann::json subscription, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& af_id, const std::string& sub_id);
     std::vector<nlohmann::json> list(const std::string& af_id);
     bool put(const std::string& af_id, const std::string& sub_id, nlohmann::json subscription);
@@ -240,6 +277,7 @@ private:
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::unordered_map<std::string, std::pair<std::string, std::string>> ee_subs_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0319: AF-provisioned UE-ID mappings (TS 29.522 UEId). The provisioned resource is a
@@ -247,7 +285,9 @@ private:
 // different thing the lookup operations in the same file ask for.
 class AfUeIdMappingStore {
 public:
-    std::string create(const std::string& af_id, nlohmann::json mapping);
+    explicit AfUeIdMappingStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal>
+    create(const std::string& af_id, nlohmann::json mapping, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& af_id, const std::string& id);
     std::vector<nlohmann::json> list(const std::string& af_id);
     bool put(const std::string& af_id, const std::string& id, nlohmann::json mapping);
@@ -262,12 +302,15 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> mappings_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0321: AF-facing TS 29.522 ServiceParameter subscriptions, per-AF keyed like the others.
 class AfServiceParamSubStore {
 public:
-    std::string create(const std::string& af_id, nlohmann::json subscription);
+    explicit AfServiceParamSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal>
+    create(const std::string& af_id, nlohmann::json subscription, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& af_id, const std::string& sub_id);
     std::vector<nlohmann::json> list(const std::string& af_id);
     bool put(const std::string& af_id, const std::string& sub_id, nlohmann::json subscription);
@@ -282,6 +325,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 // ADR-0322: one store shape reused by the AF-facing provisioning services that share it.
@@ -294,7 +338,9 @@ private:
 // that differ.
 class AfDocumentStore {
 public:
-    std::string create(const std::string& af_id, nlohmann::json document);
+    explicit AfDocumentStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal>
+    create(const std::string& af_id, nlohmann::json document, const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& af_id, const std::string& id);
     std::vector<nlohmann::json> list(const std::string& af_id);
     bool put(const std::string& af_id, const std::string& id, nlohmann::json document);
@@ -313,7 +359,11 @@ public:
     // define several where the AF names the resource and PUT creates it if absent. Distinct from
     // create(), which allocates the id itself. Returns false only if the id is already taken,
     // which the PUT path has already ruled out via put().
-    bool create_with_id(const std::string& af_id, const std::string& id, nlohmann::json document);
+    // Since ADR-0536 a new id the quota refuses is the error; otherwise false when the id is taken.
+    std::expected<bool, sbi_core::Refusal> create_with_id(const std::string& af_id,
+                                                          const std::string& id,
+                                                          nlohmann::json document,
+                                                          const std::string& consumer);
     bool remove(const std::string& af_id, const std::string& id);
 
 private:
@@ -323,11 +373,14 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> documents_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 class InferEventSubStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit InferEventSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool put(const std::string& sub_id, nlohmann::json subscription);
     bool patch(const std::string& sub_id, const nlohmann::json& merge_patch);
@@ -337,11 +390,14 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 class TrainEventsSubStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit TrainEventsSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool put(const std::string& sub_id, nlohmann::json subscription);
     bool patch(const std::string& sub_id, const nlohmann::json& merge_patch);
@@ -351,11 +407,14 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 class VflInferSubStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit VflInferSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool put(const std::string& sub_id, nlohmann::json subscription);
     bool patch(const std::string& sub_id, const nlohmann::json& merge_patch);
@@ -365,11 +424,14 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 class NefVflTrainSubStore {
 public:
-    std::string create(nlohmann::json subscription);
+    explicit NefVflTrainSubStore(sbi_core::StoreLimits limits) : quota_(limits) {}
+    std::expected<std::string, sbi_core::Refusal> create(nlohmann::json subscription,
+                                                         const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& sub_id);
     bool put(const std::string& sub_id, nlohmann::json subscription);
     bool patch(const std::string& sub_id, const nlohmann::json& merge_patch);
@@ -379,6 +441,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<std::string, nlohmann::json> subscriptions_;
     std::uint64_t next_id_ = 1;
+    sbi_core::StoreQuota quota_;
 };
 
 } // namespace nef

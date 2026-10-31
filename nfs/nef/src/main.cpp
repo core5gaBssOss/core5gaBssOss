@@ -662,6 +662,33 @@ void run_nrf_lifecycle(const std::string& nef_instance_id,
                                   std::chrono::seconds(kHeartbeatSeconds / 2));
 }
 
+// ADR-0536 (REVIEW-5ae0ef1 SUS-02): the answer to a create a store's bound refused. TS 29.122
+// Table 5.2.6-1 makes TS 29.500 5.2.7.2's causes apply to the northbound APIs, so a full store is
+// 500 INSUFFICIENT_RESOURCES ("The request is rejected due to insufficient resources") on every
+// API. A consumer over its own share is the same, except where the API defines a cause for it:
+// `quota_exceeded_defined` for the two TS 29.122 creates whose procedure says "if the SCS/AS has
+// exceeded its quota ... 403 Forbidden ... QUOTA_EXCEEDED" (4.4.5.3.1 MT NIDD, 4.4.8.2 Network
+// Status Reporting).
+sbi_core::http2::Response nef_store_refused(const sbi_core::http2::Request& req,
+                                            sbi_core::Refusal why,
+                                            bool quota_exceeded_defined = false) {
+    const auto path = req.path.substr(0, req.path.find('?'));
+    if (why == sbi_core::Refusal::consumer_full && quota_exceeded_defined) {
+        return sbi_core::http2::problem_response(
+            403,
+            "Forbidden",
+            path + ": the SCS/AS has reached its quota of resources at this NEF",
+            "QUOTA_EXCEEDED");
+    }
+    return sbi_core::http2::problem_response(
+        500,
+        "Internal Server Error",
+        path + (why == sbi_core::Refusal::store_full
+                    ? ": this NEF's store limit is reached"
+                    : ": this consumer's share of this NEF's store is reached"),
+        "INSUFFICIENT_RESOURCES");
+}
+
 } // namespace
 
 int main() {
@@ -707,6 +734,14 @@ int main() {
     // ADR-0498: the TSCTSF, for AF requested QoS for a UE identified by GPSI only (TS 29.522
     // 4.4.9.3: "No direct interactions between the NEF and the PCF shall take place").
     const std::string tsctsf_base_url = config.value("tsctsf_base_url", std::string{});
+    // ADR-0536 (REVIEW-5ae0ef1 SUS-02): bounds on every store a request can add to -- operator
+    // configuration, not code.
+    const sbi_core::StoreLimits store_limits{
+        .max_entries =
+            nf_config::require<std::size_t>(config, "store_max_entries", "NEF_STORE_MAX_ENTRIES"),
+        .max_per_consumer = nf_config::require<std::size_t>(
+            config, "store_max_entries_per_consumer", "NEF_STORE_MAX_ENTRIES_PER_CONSUMER"),
+    };
 
     sbi_core::init_metrics(metrics_bind_address);
 
@@ -762,59 +797,59 @@ int main() {
             sub_for_gpsi->at("gpsi").get<std::string>(), af_id, op, subscription, patch, status);
     };
 
-    nef::AfTrafficInfluenceSubStore af_traffic_influence_subs;
-    nef::AfQosSubStore af_qos_subs;
-    nef::AfMonitoringSubStore af_monitoring_subs;
-    nef::AfUeIdMappingStore af_ueid_mappings;
-    nef::AfServiceParamSubStore af_service_param_subs;
-    nef::AfDocumentStore af_iptv_configs;
-    nef::AfDocumentStore af_lpi_provisionings;
-    nef::AfDocumentStore af_acs_subscriptions;
-    nef::AfDocumentStore af_cag_pp;
-    nef::AfDocumentStore af_addr_pp;
-    nef::AfDocumentStore af_slice_pp;
-    nef::AfDocumentStore af_group_pp;
-    nef::AfDocumentStore af_device_trigger;
-    nef::AfDocumentStore af_np_config;
-    nef::AfDocumentStore af_racs;
-    nef::AfDocumentStore af_net_status;
-    nef::AfDocumentStore af_bdt;
-    nef::AfDocumentStore af_analytics;
-    nef::AfDocumentStore af_asti;
-    nef::AfDocumentStore af_ims_event;
-    nef::AfDocumentStore af_cp_prov;
-    nef::AfDocumentStore af_ecr;
-    nef::AfDocumentStore af_gmd_mb2;
-    nef::AfDocumentStore af_gmd_xmb;
-    nef::AfDocumentStore af_nidd;
-    nef::AfDocumentStore af_pfd;
-    nef::AfDocumentStore af_aiot;
-    nef::AfDocumentStore af_akma;
-    nef::AfDocumentStore af_am_policy_auth;
-    nef::AfDocumentStore af_eas_deploy;
-    nef::AfDocumentStore af_ecs_address;
-    nef::AfDocumentStore af_mbs_session;
-    nef::AfDocumentStore af_mbs_tmgi;
-    nef::AfDocumentStore af_mo_lcs;
-    nef::AfDocumentStore af_time_sync;
-    nef::AfDocumentStore af_uav_fa;
-    nef::AfDocumentStore af_ue_address;
-    nef::AfDocumentStore af_vfl_disc;
-    nef::AfDocumentStore af_chargeable_party;
-    nef::AfDocumentStore af_5glan_pp;
-    nef::AfDocumentStore af_am_influence;
-    nef::AfDocumentStore af_apply_bdt;
-    nef::AfDocumentStore af_dnai_mapping;
-    nef::AfDocumentStore af_ecs_addr_prov;
-    nef::AfDocumentStore af_ims_pp;
-    nef::AfDocumentStore af_ims_sm;
-    nef::AfDocumentStore af_mbs_group_msg;
-    nef::AfDocumentStore af_ms_event;
-    nef::AfDocumentStore af_musa;
-    nef::AfDocumentStore af_pdtq;
-    nef::AfDocumentStore af_rslppi_pp;
-    nef::AfDocumentStore af_vfl_infer;
-    nef::AfDocumentStore af_vfl_train;
+    nef::AfTrafficInfluenceSubStore af_traffic_influence_subs{store_limits};
+    nef::AfQosSubStore af_qos_subs{store_limits};
+    nef::AfMonitoringSubStore af_monitoring_subs{store_limits};
+    nef::AfUeIdMappingStore af_ueid_mappings{store_limits};
+    nef::AfServiceParamSubStore af_service_param_subs{store_limits};
+    nef::AfDocumentStore af_iptv_configs{store_limits};
+    nef::AfDocumentStore af_lpi_provisionings{store_limits};
+    nef::AfDocumentStore af_acs_subscriptions{store_limits};
+    nef::AfDocumentStore af_cag_pp{store_limits};
+    nef::AfDocumentStore af_addr_pp{store_limits};
+    nef::AfDocumentStore af_slice_pp{store_limits};
+    nef::AfDocumentStore af_group_pp{store_limits};
+    nef::AfDocumentStore af_device_trigger{store_limits};
+    nef::AfDocumentStore af_np_config{store_limits};
+    nef::AfDocumentStore af_racs{store_limits};
+    nef::AfDocumentStore af_net_status{store_limits};
+    nef::AfDocumentStore af_bdt{store_limits};
+    nef::AfDocumentStore af_analytics{store_limits};
+    nef::AfDocumentStore af_asti{store_limits};
+    nef::AfDocumentStore af_ims_event{store_limits};
+    nef::AfDocumentStore af_cp_prov{store_limits};
+    nef::AfDocumentStore af_ecr{store_limits};
+    nef::AfDocumentStore af_gmd_mb2{store_limits};
+    nef::AfDocumentStore af_gmd_xmb{store_limits};
+    nef::AfDocumentStore af_nidd{store_limits};
+    nef::AfDocumentStore af_pfd{store_limits};
+    nef::AfDocumentStore af_aiot{store_limits};
+    nef::AfDocumentStore af_akma{store_limits};
+    nef::AfDocumentStore af_am_policy_auth{store_limits};
+    nef::AfDocumentStore af_eas_deploy{store_limits};
+    nef::AfDocumentStore af_ecs_address{store_limits};
+    nef::AfDocumentStore af_mbs_session{store_limits};
+    nef::AfDocumentStore af_mbs_tmgi{store_limits};
+    nef::AfDocumentStore af_mo_lcs{store_limits};
+    nef::AfDocumentStore af_time_sync{store_limits};
+    nef::AfDocumentStore af_uav_fa{store_limits};
+    nef::AfDocumentStore af_ue_address{store_limits};
+    nef::AfDocumentStore af_vfl_disc{store_limits};
+    nef::AfDocumentStore af_chargeable_party{store_limits};
+    nef::AfDocumentStore af_5glan_pp{store_limits};
+    nef::AfDocumentStore af_am_influence{store_limits};
+    nef::AfDocumentStore af_apply_bdt{store_limits};
+    nef::AfDocumentStore af_dnai_mapping{store_limits};
+    nef::AfDocumentStore af_ecs_addr_prov{store_limits};
+    nef::AfDocumentStore af_ims_pp{store_limits};
+    nef::AfDocumentStore af_ims_sm{store_limits};
+    nef::AfDocumentStore af_mbs_group_msg{store_limits};
+    nef::AfDocumentStore af_ms_event{store_limits};
+    nef::AfDocumentStore af_musa{store_limits};
+    nef::AfDocumentStore af_pdtq{store_limits};
+    nef::AfDocumentStore af_rslppi_pp{store_limits};
+    nef::AfDocumentStore af_vfl_infer{store_limits};
+    nef::AfDocumentStore af_vfl_train{store_limits};
     // One client per thread is this project's standing contract for http2::Client (libcurl's own
     // per-easy-handle single-thread requirement); the server runs its handlers on a single
     // io_context thread, so one client shared by those handlers is correct here -- the same shape
@@ -850,17 +885,17 @@ int main() {
 
     nef::PfdCatalogStore pfd_catalog;
     seed_pfd_catalog(pfd_catalog);
-    nef::PfdSubscriptionStore subscriptions;
-    nef::DnaiMapSubStore dnai_map_subs;
-    nef::EasDeploySubStore eas_deploy_subs;
-    nef::SmContextStore sm_contexts;
-    nef::EcsAddrCfgInfoSubStore ecs_addr_subs;
-    nef::NefEventExposureSubStore event_exposure_subs;
-    nef::TrafficInfluDataSubStore traffic_influence_subs;
-    nef::InferEventSubStore inference_subs;
-    nef::TrainEventsSubStore training_subs;
-    nef::VflInferSubStore vfl_inference_subs;
-    nef::NefVflTrainSubStore vfl_training_subs;
+    nef::PfdSubscriptionStore subscriptions{store_limits};
+    nef::DnaiMapSubStore dnai_map_subs{store_limits};
+    nef::EasDeploySubStore eas_deploy_subs{store_limits};
+    nef::SmContextStore sm_contexts{store_limits};
+    nef::EcsAddrCfgInfoSubStore ecs_addr_subs{store_limits};
+    nef::NefEventExposureSubStore event_exposure_subs{store_limits};
+    nef::TrafficInfluDataSubStore traffic_influence_subs{store_limits};
+    nef::InferEventSubStore inference_subs{store_limits};
+    nef::TrainEventsSubStore training_subs{store_limits};
+    nef::VflInferSubStore vfl_inference_subs{store_limits};
+    nef::NefVflTrainSubStore vfl_training_subs{store_limits};
 
     auto meter = sbi_core::get_meter("nef");
     auto all_fetch_counter = meter->CreateUInt64Counter("nef_pfd_all_fetch_total",
@@ -1081,7 +1116,11 @@ int main() {
 
             sub_create_counter->Add(1);
             json j = *body;
-            const auto id = subscriptions.create(j);
+            const auto id_created = subscriptions.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
 
             sbi_core::http2::Response resp;
             resp.status = 201;
@@ -1242,7 +1281,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = dnai_map_subs.create(j);
+            const auto id_created = dnai_map_subs.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             dnai_map_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -1296,7 +1339,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = eas_deploy_subs.create(j);
+            const auto id_created = eas_deploy_subs.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             eas_deploy_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -1364,7 +1411,11 @@ int main() {
             created.snssai = body->snssai;
             created.nefId = body->nefId;
             json j = created;
-            const auto id = sm_contexts.create(json(*body));
+            const auto id_created = sm_contexts.create(json(*body), req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
 
             sbi_core::http2::Response resp;
             resp.status = 201;
@@ -1512,7 +1563,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = ecs_addr_subs.create(j);
+            const auto id_created = ecs_addr_subs.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             ecs_addr_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -1614,7 +1669,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = event_exposure_subs.create(j);
+            const auto id_created = event_exposure_subs.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             event_exposure_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -1715,7 +1774,11 @@ int main() {
                          }
                          const auto af_id = req.path_params.at("scsAsId");
                          json j = *body;
-                         const auto id = af_device_trigger.create(af_id, j);
+                         const auto id_created = af_device_trigger.create(af_id, j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -1811,7 +1874,11 @@ int main() {
                          }
                          const auto af_id = req.path_params.at("scsAsId");
                          json j = *body;
-                         const auto id = af_np_config.create(af_id, j);
+                         const auto id_created = af_np_config.create(af_id, j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -1907,7 +1974,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("scsAsId");
             json j = *body;
-            const auto id = af_racs.create(af_id, j);
+            const auto id_created = af_racs.create(af_id, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -2002,7 +2073,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("scsAsId");
             json j = *body;
-            const auto id = af_net_status.create(af_id, j);
+            const auto id_created = af_net_status.create(af_id, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error(), true);
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -2105,7 +2180,11 @@ int main() {
                          }
                          const auto af_id = req.path_params.at("scsAsId");
                          json j = *body;
-                         const auto id = af_bdt.create(af_id, j);
+                         const auto id_created = af_bdt.create(af_id, j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -2200,7 +2279,12 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_cp_prov.create(req.path_params.at("scsAsId"), j);
+                         const auto id_created =
+                             af_cp_prov.create(req.path_params.at("scsAsId"), j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -2344,7 +2428,12 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_gmd_mb2.create(req.path_params.at("scsAsId"), j);
+                         const auto id_created =
+                             af_gmd_mb2.create(req.path_params.at("scsAsId"), j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -2433,8 +2522,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_gmd_mb2.create(
-                req.path_params.at("scsAsId") + "/" + req.path_params.at("tmgi"), j);
+            const auto id_created = af_gmd_mb2.create(
+                req.path_params.at("scsAsId") + "/" + req.path_params.at("tmgi"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -2533,7 +2626,12 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_gmd_xmb.create(req.path_params.at("scsAsId"), j);
+                         const auto id_created =
+                             af_gmd_xmb.create(req.path_params.at("scsAsId"), j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -2590,8 +2688,14 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_gmd_xmb.create(
-                req.path_params.at("scsAsId") + "/" + req.path_params.at("serviceId"), j);
+            const auto id_created = af_gmd_xmb.create(req.path_params.at("scsAsId") + "/" +
+                                                          req.path_params.at("serviceId"),
+                                                      j,
+                                                      req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -2692,7 +2796,12 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_nidd.create(req.path_params.at("scsAsId"), j);
+                         const auto id_created =
+                             af_nidd.create(req.path_params.at("scsAsId"), j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -2768,8 +2877,14 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_nidd.create(
-                req.path_params.at("scsAsId") + "/" + req.path_params.at("configurationId"), j);
+            const auto id_created = af_nidd.create(req.path_params.at("scsAsId") + "/" +
+                                                       req.path_params.at("configurationId"),
+                                                   j,
+                                                   req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error(), true);
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -2907,10 +3022,15 @@ int main() {
                              // PUT on this API creates the resource when it does not yet exist; the
                              // store's put() only replaces, so fall through to create under the
                              // addressed id.
-                             af_nidd.create_with_id(req.path_params.at("scsAsId") + "/" +
-                                                        req.path_params.at("configurationId"),
-                                                    req.path_params.at("portId"),
-                                                    j);
+                             const auto inserted =
+                                 af_nidd.create_with_id(req.path_params.at("scsAsId") + "/" +
+                                                            req.path_params.at("configurationId"),
+                                                        req.path_params.at("portId"),
+                                                        j,
+                                                        req.token_sub);
+                             if (!inserted) {
+                                 return nef_store_refused(req, inserted.error());
+                             }
                              sbi_core::http2::Response created;
                              created.status = 201;
                              created.headers.emplace("content-type", "application/json");
@@ -2939,7 +3059,12 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_pfd.create(req.path_params.at("scsAsId"), j);
+                         const auto id_created =
+                             af_pfd.create(req.path_params.at("scsAsId"), j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -3191,7 +3316,12 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_am_policy_auth.create(req.path_params.at("afId"), j);
+                         const auto id_created =
+                             af_am_policy_auth.create(req.path_params.at("afId"), j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -3276,10 +3406,14 @@ int main() {
                                        j)) {
                 // PUT on this API creates the resource when it does not yet exist; the store's
                 // put() only replaces, so fall through to create under the addressed id.
-                af_am_policy_auth.create_with_id(req.path_params.at("afId") + "/" +
-                                                     req.path_params.at("appAmContextId"),
-                                                 "events-subscription",
-                                                 j);
+                const auto inserted = af_am_policy_auth.create_with_id(
+                    req.path_params.at("afId") + "/" + req.path_params.at("appAmContextId"),
+                    "events-subscription",
+                    j,
+                    req.token_sub);
+                if (!inserted) {
+                    return nef_store_refused(req, inserted.error());
+                }
                 sbi_core::http2::Response created;
                 created.status = 201;
                 created.headers.emplace("content-type", "application/json");
@@ -3323,7 +3457,12 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_eas_deploy.create(req.path_params.at("afId"), j);
+                         const auto id_created =
+                             af_eas_deploy.create(req.path_params.at("afId"), j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -3412,7 +3551,12 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_ecs_address.create(req.path_params.at("afId"), j);
+                         const auto id_created =
+                             af_ecs_address.create(req.path_params.at("afId"), j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -3502,7 +3646,11 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_mbs_session.create("", j);
+                         const auto id_created = af_mbs_session.create("", j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -3577,7 +3725,11 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_mbs_session.create("", j);
+                         const auto id_created = af_mbs_session.create("", j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -3607,7 +3759,11 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_mbs_session.create("", j);
+                         const auto id_created = af_mbs_session.create("", j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -3754,7 +3910,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_time_sync.create(req.path_params.at("afId"), j);
+            const auto id_created =
+                af_time_sync.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -3827,8 +3988,14 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_time_sync.create(
-                req.path_params.at("afId") + "/" + req.path_params.at("subscriptionId"), j);
+            const auto id_created = af_time_sync.create(req.path_params.at("afId") + "/" +
+                                                            req.path_params.at("subscriptionId"),
+                                                        j,
+                                                        req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -3899,27 +4066,31 @@ int main() {
                          }
                          return sbi_core::http2::Response::json(200, out.dump());
                      });
-    server.add_route("POST",
-                     std::string(kAfUavFaApiRoot) + "/{afId}/configurations",
-                     [&af_uav_fa](const sbi_core::http2::Request& req) {
-                         sbi_core::http2::Response err;
-                         auto body = sbi_core::http2::parse_json_body<sbi_gen::UavFlightAssistance>(
-                             req, err);
-                         if (!body.has_value()) {
-                             return err;
-                         }
-                         json j = *body;
-                         const auto id = af_uav_fa.create(req.path_params.at("afId"), j);
-                         sbi_core::http2::Response resp;
-                         resp.status = 201;
-                         resp.headers.emplace("content-type", "application/json");
-                         // req.path still carries any query string (the router strips it only for
-                         // matching), so Location must be built from the path portion alone.
-                         const auto path_only = req.path.substr(0, req.path.find('?'));
-                         resp.headers.emplace("location", path_only + "/" + id);
-                         resp.body = j.dump();
-                         return resp;
-                     });
+    server.add_route(
+        "POST",
+        std::string(kAfUavFaApiRoot) + "/{afId}/configurations",
+        [&af_uav_fa](const sbi_core::http2::Request& req) {
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::UavFlightAssistance>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            const auto id_created = af_uav_fa.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            // req.path still carries any query string (the router strips it only for
+            // matching), so Location must be built from the path portion alone.
+            const auto path_only = req.path.substr(0, req.path.find('?'));
+            resp.headers.emplace("location", path_only + "/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
     server.add_route(
         "DELETE",
         std::string(kAfUavFaApiRoot) + "/{afId}/configurations/{configurationId}",
@@ -4031,7 +4202,11 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_ue_address.create("", j);
+                         const auto id_created = af_ue_address.create("", j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -4120,7 +4295,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_chargeable_party.create(req.path_params.at("scsAsId"), j);
+            const auto id_created =
+                af_chargeable_party.create(req.path_params.at("scsAsId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -4197,7 +4377,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_5glan_pp.create(req.path_params.at("afId"), j);
+            const auto id_created =
+                af_5glan_pp.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -4317,7 +4502,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_am_influence.create(req.path_params.at("afId"), j);
+            const auto id_created =
+                af_am_influence.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -4415,7 +4605,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_apply_bdt.create(req.path_params.at("afId"), j);
+            const auto id_created =
+                af_apply_bdt.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -4489,7 +4684,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_dnai_mapping.create(req.path_params.at("afId"), j);
+            const auto id_created =
+                af_dnai_mapping.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -4549,7 +4749,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_ecs_addr_prov.create(req.path_params.at("afId"), j);
+            const auto id_created =
+                af_ecs_addr_prov.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -4623,7 +4828,11 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_ims_pp.create("", j);
+                         const auto id_created = af_ims_pp.create("", j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -4748,7 +4957,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_ims_sm.create("", j);
+            const auto id_created = af_ims_sm.create("", j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -4870,7 +5083,11 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_mbs_group_msg.create("", j);
+                         const auto id_created = af_mbs_group_msg.create("", j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -4942,7 +5159,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_ms_event.create("", j);
+            const auto id_created = af_ms_event.create("", j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5012,7 +5233,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_musa.create(req.path_params.at("afId"), j);
+            const auto id_created = af_musa.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5099,26 +5324,30 @@ int main() {
                          return sbi_core::http2::Response::json(200, out.dump());
                      });
 
-    server.add_route("POST",
-                     std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions",
-                     [&af_pdtq](const sbi_core::http2::Request& req) {
-                         sbi_core::http2::Response err;
-                         auto body = sbi_core::http2::parse_json_body<sbi_gen::Pdtq>(req, err);
-                         if (!body.has_value()) {
-                             return err;
-                         }
-                         json j = *body;
-                         const auto id = af_pdtq.create(req.path_params.at("afId"), j);
-                         sbi_core::http2::Response resp;
-                         resp.status = 201;
-                         resp.headers.emplace("content-type", "application/json");
-                         resp.headers.emplace("location",
-                                              std::string(kAfPdtqApiRoot) + "/" +
-                                                  req.path_params.at("afId") + "/subscriptions/" +
-                                                  id);
-                         resp.body = j.dump();
-                         return resp;
-                     });
+    server.add_route(
+        "POST",
+        std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions",
+        [&af_pdtq](const sbi_core::http2::Request& req) {
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::Pdtq>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            const auto id_created = af_pdtq.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location",
+                                 std::string(kAfPdtqApiRoot) + "/" + req.path_params.at("afId") +
+                                     "/subscriptions/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
 
     server.add_route("GET",
                      std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
@@ -5182,7 +5411,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_rslppi_pp.create("", j);
+            const auto id_created = af_rslppi_pp.create("", j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5267,7 +5500,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_vfl_infer.create(req.path_params.at("afId"), j);
+            const auto id_created =
+                af_vfl_infer.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5368,7 +5606,12 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_vfl_train.create(req.path_params.at("afId"), j);
+            const auto id_created =
+                af_vfl_train.create(req.path_params.at("afId"), j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5487,7 +5730,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("afId");
             json j = *body;
-            const auto id = af_analytics.create(af_id, j);
+            const auto id_created = af_analytics.create(af_id, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5594,7 +5841,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("afId");
             json j = *body;
-            const auto id = af_asti.create(af_id, j);
+            const auto id_created = af_asti.create(af_id, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5669,7 +5920,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("afId");
             json j = *body;
-            const auto id = af_ims_event.create(af_id, j);
+            const auto id_created = af_ims_event.create(af_id, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5778,7 +6033,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_cag_pp.create(kPpNamespace, j);
+            const auto id_created = af_cag_pp.create(kPpNamespace, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5865,7 +6124,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_addr_pp.create(kPpNamespace, j);
+            const auto id_created = af_addr_pp.create(kPpNamespace, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -5953,7 +6216,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = af_slice_pp.create(kPpNamespace, j);
+            const auto id_created = af_slice_pp.create(kPpNamespace, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -6041,7 +6308,11 @@ int main() {
                              return err;
                          }
                          json j = *body;
-                         const auto id = af_group_pp.create(kPpNamespace, j);
+                         const auto id_created = af_group_pp.create(kPpNamespace, j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -6147,7 +6418,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("afId");
             json j = *body;
-            const auto id = af_iptv_configs.create(af_id, j);
+            const auto id_created = af_iptv_configs.create(af_id, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             // ADR-0322: IPTV configurations have a real UDR home
             // (application-data/iptvConfigData), so they are provisioned there rather than kept
             // only at NEF. The other two services in this batch have no UDR counterpart -- see
@@ -6301,7 +6576,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("afId");
             json j = *body;
-            const auto id = af_lpi_provisionings.create(af_id, j);
+            const auto id_created = af_lpi_provisionings.create(af_id, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -6400,7 +6679,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("afId");
             json j = *body;
-            const auto id = af_acs_subscriptions.create(af_id, j);
+            const auto id_created = af_acs_subscriptions.create(af_id, j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -6517,7 +6800,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("afId");
             json j = *body;
-            const auto sub_id = af_service_param_subs.create(af_id, j);
+            const auto sub_id_created = af_service_param_subs.create(af_id, j, req.token_sub);
+            if (!sub_id_created) {
+                return nef_store_refused(req, sub_id_created.error());
+            }
+            const auto& sub_id = *sub_id_created;
 
             // Only the fields UDR's own schema shares are sent; see this block's header.
             json udr_body = json::object();
@@ -6764,7 +7051,11 @@ int main() {
                          }
                          const auto af_id = req.path_params.at("afId");
                          json j = *body;
-                         const auto id = af_ueid_mappings.create(af_id, j);
+                         const auto id_created = af_ueid_mappings.create(af_id, j, req.token_sub);
+                         if (!id_created) {
+                             return nef_store_refused(req, id_created.error());
+                         }
+                         const auto& id = *id_created;
                          sbi_core::http2::Response resp;
                          resp.status = 201;
                          resp.headers.emplace("content-type", "application/json");
@@ -7053,7 +7344,11 @@ int main() {
 
             const auto af_id = req.path_params.at("scsAsId");
             json j = *body;
-            const auto sub_id = af_monitoring_subs.create(af_id, j);
+            const auto sub_id_created = af_monitoring_subs.create(af_id, j, req.token_sub);
+            if (!sub_id_created) {
+                return nef_store_refused(req, sub_id_created.error());
+            }
+            const auto& sub_id = *sub_id_created;
 
             const auto gpsi = af_target_to_gpsi(*body);
             if (!gpsi.has_value()) {
@@ -7269,7 +7564,11 @@ int main() {
             }
             const auto af_id = req.path_params.at("scsAsId");
             json j = *body;
-            const auto sub_id = af_qos_subs.create(af_id, j);
+            const auto sub_id_created = af_qos_subs.create(af_id, j, req.token_sub);
+            if (!sub_id_created) {
+                return nef_store_refused(req, sub_id_created.error());
+            }
+            const auto& sub_id = *sub_id_created;
             const std::string nef_notif =
                 self_base_url + "/nnef-callback/v1/qos-notify/" + af_id + "/" + sub_id;
 
@@ -7595,7 +7894,11 @@ int main() {
 
             const auto af_id = req.path_params.at("afId");
             json j = *body;
-            const auto sub_id = af_traffic_influence_subs.create(af_id, j);
+            const auto sub_id_created = af_traffic_influence_subs.create(af_id, j, req.token_sub);
+            if (!sub_id_created) {
+                return nef_store_refused(req, sub_id_created.error());
+            }
+            const auto& sub_id = *sub_id_created;
             // The influenceId is derived from the AF and subscription ids so the UDR record can be
             // found and deleted again from the AF-facing resource alone.
             push_influence_to_udr(
@@ -7724,7 +8027,11 @@ int main() {
                                                          "MANDATORY_IE_MISSING");
             }
             json j = *body;
-            const auto id = traffic_influence_subs.create(j);
+            const auto id_created = traffic_influence_subs.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             traffic_influence_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -7810,7 +8117,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = inference_subs.create(j);
+            const auto id_created = inference_subs.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             inference_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -7892,7 +8203,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = training_subs.create(j);
+            const auto id_created = training_subs.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             training_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -7973,7 +8288,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = vfl_inference_subs.create(j);
+            const auto id_created = vfl_inference_subs.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             vfl_inference_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -8075,7 +8394,11 @@ int main() {
                 return err;
             }
             json j = *body;
-            const auto id = vfl_training_subs.create(j);
+            const auto id_created = vfl_training_subs.create(j, req.token_sub);
+            if (!id_created) {
+                return nef_store_refused(req, id_created.error());
+            }
+            const auto& id = *id_created;
             vfl_training_create_counter->Add(1);
 
             sbi_core::http2::Response resp;

@@ -25,5 +25,7 @@
     "x1_allow_deactivate_all": true
   },
   "tsctsf_base_url": "https://tsctsf:7825",
-  "oauth2_required": true
+  "oauth2_required": true,
+  "store_max_entries": 100000,
+  "store_max_entries_per_consumer": 10000
 }
