@@ -5,7 +5,7 @@ The complete component list for this project, in scope per `CLAUDE.md` and
 
 - ✅ **Built**: the component's code exists in this repo. It does not mean feature-complete; each
   component's ADRs and `docs/TRACEABILITY.md` record what it covers and what it does not.
-- ⚠️ **Partial**: some of the component exists; the gap is stated.
+- ⚠️ **Partial**: some of the component exists; what is deferred for future implementation is stated.
 - 🕒 **Already in Pipeline**: in scope, no code in the repo yet.
 
 **Keep this file current.** When a component is added or its status changes, update its row and the

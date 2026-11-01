@@ -10,7 +10,7 @@
 - Built one service group per increment, starting with the requirement and policy groups that drive the core (application requirement, V2V config, PC5 provisioning).
 - The HD-map and file-distribution payloads are carried and stored as the YAML defines them; no map content is generated.
 
-**Disclosed now.** Nothing in this track is implemented. The README, `docs/COMPONENT_STATUS.md` and the architecture diagram show it as a dashed placeholder (🕒 Already in Pipeline). The stage-2 specs are fetched with `tools/specs/fetch_3gpp_specs.py` when the track starts, and a stage-3 gap is marked in the README's 3GPP spec gaps section, never filled by invention.
+**Disclosed now.** Nothing in this track is implemented. The README, `docs/COMPONENT_STATUS.md` and the architecture diagram show it as a dashed placeholder (🕒 Already in Pipeline). The stage-2 specs are fetched with `tools/specs/fetch_3gpp_specs.py` when the track starts, and any stage-3 API not yet published is recorded in the README as deferred for future implementation, never filled by invention.
 
 **Rejected alternatives.**
 

@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-01. **Status:** in progress -- scope recorded and README/diagram/status placeholders landed; no code yet. Each implementation PR moves this on.
 
-**Context.** The project targets all of REL-19, but `scripts/docs/gen_r19_gap_register.py` (added here) finds that **305 of the 472** REL-19 OpenAPI files in `specs/5G_APIs-REL-19/` are used by no NF, BSS or library code. One of them, `TS29532_Nmbsmf_TMGI`, is named only by a test and the codegen catalog. The user asked to add all of it, starting with V2X and drones, with nothing from R19 missed. A file being referenced does not mean it is fully implemented: V2X/A2X, UAV and Ambient IoT parts inside referenced files (TS29525, TS29518, TS29510, TS29531, TS32291) are also missing.
+**Context.** The project targets all of REL-19, but `scripts/docs/gen_r19_deferred_register.py` (added here) finds that **305 of the 472** REL-19 OpenAPI files in `specs/5G_APIs-REL-19/` are used by no NF, BSS or library code. One of them, `TS29532_Nmbsmf_TMGI`, is named only by a test and the codegen catalog. The user asked to add all of it, starting with V2X and drones, with nothing from R19 missed. A file being referenced does not mean it is fully implemented: V2X/A2X, UAV and Ambient IoT parts inside referenced files (TS29525, TS29518, TS29510, TS29531, TS32291) are also missing.
 
 | Track | ADR | Unused files |
 |---|---|---|
@@ -22,11 +22,11 @@
 - Each track is one subsystem per turn, with its TS 23.502 / stage-2 procedure list shown for approval before any code (guardrail 2).
 - Docs first: the README (append/update only), `docs/COMPONENT_STATUS.md` (rows 62+), the architecture diagram (a dashed "R19 verticals, IoT & enablers" area) and the hero image carry every track as a placeholder before code starts.
 
-**Disclosed now.** Nothing in this track is implemented. The README, `docs/COMPONENT_STATUS.md` and the architecture diagram show it as a dashed placeholder (🕒 Already in Pipeline). The stage-2 specs are fetched with `tools/specs/fetch_3gpp_specs.py` when the track starts, and a stage-3 gap is marked in the README's 3GPP spec gaps section, never filled by invention.
+**Disclosed now.** Nothing in this track is implemented. The README, `docs/COMPONENT_STATUS.md` and the architecture diagram show it as a dashed placeholder (🕒 Already in Pipeline). The stage-2 specs are fetched with `tools/specs/fetch_3gpp_specs.py` when the track starts, and any stage-3 API not yet published is recorded in the README as deferred for future implementation, never filled by invention.
 
 **Rejected alternatives.**
 
 - *Leaving the scope at the CLAUDE.md Tier 2/3 lists.* Rejected: those lists miss V2X/VAE, UAS, NSCE, AIMLE, the OAM NRMs and the media APIs, all of which have REL-19 YAML.
-- *A hand-kept gap list.* Rejected: it would go stale; the register is generated.
+- *A hand-kept list of deferred items.* Rejected: it would go stale; the register is generated.
 - *Hand-writing DTOs or paths ahead of the YAML.* Rejected: CLAUDE.md source-of-truth rule; every type is generated from `specs/5G_APIs-REL-19/`.
 - *Building all of it in one change.* Rejected: one NF or subsystem per turn, procedure list approved first (guardrail 2).
