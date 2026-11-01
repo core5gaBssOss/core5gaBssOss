@@ -126,4 +126,52 @@ else
     echo "  ${JWT_KEY_DIR}/private.pem already exists, reusing"
 fi
 
+has_nf() { printf '%s\n' "${NF_NAMES[@]}" | grep -qx "$1"; }
+
+# ADR-0514 (REVIEW-5ae0ef1 SEC-04, TS 33.117 4.2.3.2.3): the AAnF seals every KAKMA it stores with
+# this AES-256 key-encryption key (64 hex digits). Only the AAnF reads it.
+if has_nf aanf; then
+    echo "== AAnF KAKMA key-encryption key =="
+    if [ ! -f "${CERTS_DIR}/aanf/kakma.kek" ]; then
+        (umask 027 && openssl rand -hex 32 > "${CERTS_DIR}/aanf/kakma.kek")
+        echo "  generated ${CERTS_DIR}/aanf/kakma.kek"
+    else
+        echo "  ${CERTS_DIR}/aanf/kakma.kek already exists, reusing"
+    fi
+fi
+
+# ADR-0514: one Valkey ACL user per NF that uses the lab's single-node Valkey, each with its own
+# random password (certs/<nf>/valkey.password, read via the NF's redis_password_file). The ACL
+# file holds only SHA-256 hashes, so it is world-readable for the Valkey image's non-root user.
+# The default (unauthenticated) user is off, so an NF without its credentials fails at its startup
+# PING (nf_config::connect_redis_or_die), not at its first command. The AAnF's user is
+# confined to its own keys; every other user is kept to logical database 0 (no SELECT, MOVE,
+# COPY, SWAPDB) while the AAnF's contexts are in database 1, so no other NF can read them.
+VALKEY_NFS=(amf ausf chf nwdaf dccf adrf li-mdf li-mdf3 mfaf aanf)
+valkey_users=()
+for nf in "${VALKEY_NFS[@]}"; do
+    has_nf "${nf}" && valkey_users+=("${nf}")
+done
+if [ ${#valkey_users[@]} -gt 0 ]; then
+    echo "== Valkey ACL users =="
+    mkdir -p "${CERTS_DIR}/valkey"
+    acl="user default off resetchannels -@all"
+    for nf in "${valkey_users[@]}"; do
+        pw_file="${CERTS_DIR}/${nf}/valkey.password"
+        if [ ! -f "${pw_file}" ]; then
+            (umask 027 && openssl rand -hex 32 > "${pw_file}")
+        fi
+        hash="$(tr -d '\n' < "${pw_file}" | openssl dgst -sha256 -r | cut -d' ' -f1)"
+        if [ "${nf}" = "aanf" ]; then
+            rules="resetkeys ~aanf:* resetchannels +@all -@admin -@dangerous"
+        else
+            rules="resetkeys ~* resetchannels +@all -@admin -@dangerous -select -move -copy"
+        fi
+        acl+=$'\n'"user ${nf} on #${hash} ${rules}"
+    done
+    printf '%s\n' "${acl}" > "${CERTS_DIR}/valkey/users.acl"
+    chmod 644 "${CERTS_DIR}/valkey/users.acl"
+    echo "  wrote ${CERTS_DIR}/valkey/users.acl (${valkey_users[*]})"
+fi
+
 echo "== Done. CA: ${CERTS_DIR}/ca/ca.crt =="
