@@ -4476,6 +4476,27 @@
       "type": "boolean",
       "x-env-override": "PCF_OAUTH2_REQUIRED",
       "x-cpp-type": "bool"
+    },
+    "amf_base_url": {
+      "type": "string"
+    },
+    "udm_base_url": {
+      "type": "string"
+    },
+    "v2x_pc5_qos_flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "pqi": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "pc5_link_aggregate_bit_rate_bps": {
+      "type": "integer"
     }
   },
   "required": [
@@ -4494,6 +4515,7 @@
   ],
   "x-apply": "restart",
   "x-review": [
-    "policy_counter_actions[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
+    "policy_counter_actions[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "v2x_pc5_qos_flows[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

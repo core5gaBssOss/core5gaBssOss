@@ -515,6 +515,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0548](decisions/ADR-0548-readme-append-only-check-accepts-user-approved-heading.md) README append-only check accepts user-approved heading renames
 - [0549](decisions/ADR-0549-aanf-supi-path-encoding-and-atomic-akma-context-replace-sec.md) AAnF SUPI path encoding and atomic AKMA context replace (SEC-15)
 - [0550](decisions/ADR-0550-functionality-survey-against-mmt-studio-5g6g-items-deferred.md) Functionality survey against mmt-studio-5g6g: items deferred for future implementation
+- [0551](decisions/ADR-0551-pcf-v2x-a2x-ue-policy-provisioning-p1-p7.md) PCF V2X/A2X UE policy provisioning (P1-P7)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

@@ -25,5 +25,13 @@
     }
   ],
   "bsf_base_url": "https://127.0.0.1:7789",
-  "oauth2_required": true
+  "oauth2_required": true,
+  "amf_base_url": "https://127.0.0.1:7778",
+  "udm_base_url": "https://127.0.0.1:7780",
+  "v2x_pc5_qos_flows": [
+    {
+      "pqi": 55
+    }
+  ],
+  "pc5_link_aggregate_bit_rate_bps": 10000000
 }

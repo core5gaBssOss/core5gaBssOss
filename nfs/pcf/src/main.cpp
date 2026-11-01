@@ -137,6 +137,7 @@
 #include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -148,7 +149,9 @@
 #include "TS26510_CommonData_grp.hpp"
 #include "TS29537_Npcf_MBSPolicyAuthorization.hpp"
 #include "TS29537_Npcf_MBSPolicyControl.hpp"
+#include "bounded_worker.hpp"
 #include "stores.hpp"
+#include "v2x.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
 #include "nf_config/nf_config.hpp"
@@ -559,6 +562,13 @@ int main() {
     // ADR-0498: the BSF the PCF registers PDU session bindings at (Nbsf_Management_Register, TS
     // 29.513 / TS 29.521); absent = no binding registration.
     const std::string bsf_base_url = config.value("bsf_base_url", std::string{});
+    // ADR-0551: V2X/A2X UE policy provisioning (P1, P2, P5). The UDM answers the v2x-data /
+    // a2x-data eligibility queries (Nudm_SDM, TS 29.503); the AMF carries the N2 PC5 policy to the
+    // NG-RAN (Namf_Communication_N1N2MessageTransfer, TS 29.525 4.2.2.3). Either absent = no V2X
+    // provisioning (logged once below).
+    const std::string amf_base_url = config.value("amf_base_url", std::string{});
+    const std::string udm_base_url = config.value("udm_base_url", std::string{});
+    auto pc5_config = pcf::v2x::parse_pc5_config(config);
 
     sbi_core::init_logging("pcf");
     sbi_core::init_tracing("pcf");
@@ -638,6 +648,58 @@ int main() {
     });
     sbi_core::OAuth2Client bsf_oauth(
         bsf_client, nrf_base_url + "/oauth2/token", pcf_instance_id, "nbsf-management", "BSF");
+    // ADR-0551 (P5): outbound UDM / AMF calls for V2X/A2X provisioning, run on one bounded worker
+    // so a slow UDM or AMF never holds an SBI server thread.
+    sbi_core::http2::Client v2x_udm_client(sbi_core::http2::TlsConfig{
+        .cert_path = CERTS_DIR "/pcf/cert.pem",
+        .key_path = CERTS_DIR "/pcf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    });
+    sbi_core::OAuth2Client v2x_udm_oauth(
+        v2x_udm_client, nrf_base_url + "/oauth2/token", pcf_instance_id, "nudm-sdm", "UDM");
+    sbi_core::http2::Client v2x_amf_client(sbi_core::http2::TlsConfig{
+        .cert_path = CERTS_DIR "/pcf/cert.pem",
+        .key_path = CERTS_DIR "/pcf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    });
+    sbi_core::OAuth2Client v2x_amf_oauth(
+        v2x_amf_client, nrf_base_url + "/oauth2/token", pcf_instance_id, "namf-comm", "AMF");
+    if (!pc5_config.has_value()) {
+        spdlog::error("pcf: v2x_pc5_qos_flows rejected ({}); no N2 PC5 policy will be sent",
+                      pc5_config.error());
+    }
+    pcf::v2x::ProvisionDeps v2x_deps{
+        .udm_client = v2x_udm_client,
+        .udm_oauth = v2x_udm_oauth,
+        .amf_client = v2x_amf_client,
+        .amf_oauth = v2x_amf_oauth,
+        .udm_base_url = udm_base_url,
+        .amf_base_url = amf_base_url,
+        .pc5 = pc5_config.value_or(pcf::v2x::Pc5Config{}),
+    };
+    const bool v2x_enabled = !udm_base_url.empty() && !amf_base_url.empty();
+    if (!v2x_enabled) {
+        spdlog::info("pcf: udm_base_url or amf_base_url not set; V2X/A2X provisioning is off");
+    }
+    pcf::BoundedWorker v2x_worker(1024);
+    // Queue the P5 provisioning for one UE; v2x / a2x say which of the two to determine.
+    const auto schedule_v2x =
+        [&](const std::string& supi, const std::string& supp_feat, bool v2x, bool a2x) {
+            if (!v2x_enabled || (!v2x && !a2x)) {
+                return;
+            }
+            const bool queued = v2x_worker.try_post([&v2x_deps, supi, supp_feat, v2x, a2x] {
+                if (v2x) {
+                    pcf::v2x::provision_v2x(v2x_deps, supi, supp_feat);
+                }
+                if (a2x) {
+                    pcf::v2x::check_a2x(v2x_deps, supi);
+                }
+            });
+            if (!queued) {
+                spdlog::warn("pcf: V2X provisioning queue full; UE {} not provisioned", supi);
+            }
+        };
     std::mutex bindings_mutex;
     std::map<std::string, std::string> binding_by_sm_policy; // smPolicyId -> BSF bindingId
     const auto register_binding = [&](const std::string& sm_policy_id,
@@ -1385,7 +1447,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUePolicyApiRoot) + "/policies",
-        [&ue_policies, &ue_policy_create_counter](const sbi_core::http2::Request& req) {
+        [&ue_policies, &ue_policy_create_counter, &schedule_v2x](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
                 sbi_gen::PolicyAssociationRequest_Npcf_UEPolicyControl>(req, err);
@@ -1395,10 +1458,20 @@ int main() {
 
             sbi_gen::PolicyAssociation_Npcf_UEPolicyControl association{};
             association.request = *body;
-            association.suppFeat = body->suppFeat;
+            // TS 29.571 SupportedFeatures negotiation: only features both sides support.
+            association.suppFeat =
+                pcf::v2x::intersect_features(body->suppFeat, pcf::v2x::pcf_supported_features());
             json j = association;
             const auto id = ue_policies.create(j);
             ue_policy_create_counter->Add(1);
+            // ADR-0551 P1: a UE that reports PC5 / A2X capability on a V2X / A2X association gets
+            // its eligibility checked at the UDM, then (P5) the N2 PC5 policy.
+            schedule_v2x(body->supi,
+                         association.suppFeat,
+                         pcf::v2x::has_feature(association.suppFeat, pcf::v2x::kFeatureV2x) &&
+                             body->pc5Capab.has_value(),
+                         pcf::v2x::has_feature(association.suppFeat, pcf::v2x::kFeatureA2x) &&
+                             body->a2xCapab.has_value() && !body->a2xCapab->empty());
 
             sbi_core::http2::Response resp;
             resp.status = 201;
@@ -1439,7 +1512,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUePolicyApiRoot) + "/policies/{polAssoId}/update",
-        [&ue_policies, &ue_policy_update_counter](const sbi_core::http2::Request& req) {
+        [&ue_policies, &ue_policy_update_counter, &schedule_v2x](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
                 sbi_gen::PolicyAssociationUpdateRequest_Npcf_UEPolicyControl>(req, err);
@@ -1456,13 +1530,50 @@ int main() {
             if (body->triggers.has_value()) {
                 association.triggers = body->triggers;
             }
+            // ADR-0551 P2: a changed pc5Capab / a2xCapab (TS 29.525 4.2.3.1), or PLMN_CH when
+            // "PlmnChange" was negotiated (4.2.3.2 NOTE 1), makes the PCF re-determine the policy.
+            bool v2x_again = false;
+            bool a2x_again = false;
+            if (association.request.has_value()) {
+                auto& stored_req = *association.request;
+                if (body->pc5Capab.has_value() &&
+                    json(*body->pc5Capab) != json(stored_req.pc5Capab)) {
+                    stored_req.pc5Capab = body->pc5Capab;
+                    v2x_again = true;
+                }
+                if (body->a2xCapab.has_value() &&
+                    json(*body->a2xCapab) != json(stored_req.a2xCapab)) {
+                    stored_req.a2xCapab = body->a2xCapab;
+                    a2x_again = true;
+                }
+                const bool plmn_changed =
+                    pcf::v2x::has_feature(association.suppFeat, pcf::v2x::kFeaturePlmnChange) &&
+                    body->triggers.has_value() &&
+                    std::any_of(body->triggers->begin(), body->triggers->end(), [](const auto& t) {
+                        return t.value == sbi_gen::RequestTrigger_Npcf_UEPolicyControl::PLMN_CH;
+                    });
+                if (plmn_changed) {
+                    v2x_again = true;
+                    a2x_again = true;
+                }
+                v2x_again = v2x_again &&
+                            pcf::v2x::has_feature(association.suppFeat, pcf::v2x::kFeatureV2x) &&
+                            stored_req.pc5Capab.has_value();
+                a2x_again = a2x_again &&
+                            pcf::v2x::has_feature(association.suppFeat, pcf::v2x::kFeatureA2x) &&
+                            stored_req.a2xCapab.has_value() && !stored_req.a2xCapab->empty();
+            }
             ue_policies.put(pol_asso_id, json(association));
+            if (association.request.has_value()) {
+                schedule_v2x(association.request->supi, association.suppFeat, v2x_again, a2x_again);
+            }
 
             // Disclosed simplification (ADR-0204): no real UE Route Selection Policy (URSP) or
             // access-network-discovery-and-selection-policy (ANDSP) generation logic exists in
             // this build -- the updated policies reported back are always empty (`uePolicy`
             // absent), same "acknowledge the real report, no real policy content to hand back"
-            // class of gap already established for Nudm_NIDDAU/Nudm_SSAU (ADR-0202).
+            // class of item deferred for future implementation already established for
+            // Nudm_NIDDAU/Nudm_SSAU (ADR-0202).
             sbi_gen::PolicyUpdate_Npcf_UEPolicyControl update{};
             update.resourceUri = std::string(kUePolicyApiRoot) + "/policies/" + pol_asso_id;
             update.triggers = body->triggers;
