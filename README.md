@@ -52,6 +52,9 @@ not implement it, and a title should not need a footnote to be true.
   catalog data, not code.
 - **OSS:** an operator console (React + JSON Forms) for NF configuration and approvals, TS 28.552
   performance counters and Prometheus business alarms.
+- **In the pipeline (R19 completeness, ADR-0539):** V2X/A2X, UAS (drones), the V2X application
+  enabler, Ambient IoT, edge and application enablers, IMS/HSS, ProSe, 5MBS, OAM and media. None of
+  it is built yet; see [R19 completeness](#r19-completeness).
 - **AI:** NWDAF analytics, and AI-assisted quota sizing in the CHF (off by default), run in-process
   with ONNX Runtime. The model advises; a deterministic engine decides.
 
@@ -111,7 +114,7 @@ Summary:
 | User plane: PFCP and an eBPF/XDP uplink GTP-U path (lab fixture, not a gNB-facing N3) | Done for what is stated |
 | Charging and TM Forum BSS | Verified end to end in the lab |
 | NWDAF and AI/ML pipelines | In progress |
-| Release 19 NFs (Tier 2/3) | In progress: 10 of 16 Tier 2 NFs built; Tier 3 not started |
+| Release 19 NFs (Tier 2/3) | In progress: 10 of 16 Tier 2 NFs built; Tier 3 not started. R19 completeness (V2X/A2X, UAS drones, VAE, Ambient IoT, edge and application enablers, IMS/HSS, ProSe, 5MBS, OAM, media): 305 REL-19 API files in the pipeline, none built yet ([register](docs/R19_COMPLETENESS.md), ADR-0539) |
 | Operator console | Started |
 | Lab packaging (Compose, Helm) | Partial |
 
@@ -125,7 +128,7 @@ By phase:
 | 3 | User plane: N4/PFCP, UPF datapath (an eBPF/XDP uplink GTP-U decapsulation path; lab veth/netns fixture, not a gNB-facing N3; no downlink and no LI hook) | Done for what is stated |
 | 4 | Charging + TM Forum SID/BSS layer | Live-verified end to end |
 | 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, predicted with the MTLF's model in-process via ONNX Runtime; ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE from the SMF QOS_MON feed aggregated per S-NSSAI, ADR-0358/0360/0368/0369/0379), MTLF (Nnwdaf_MLModelProvision, Python training sidecar + MLflow, models through the ADRF, ADR-0369), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) on the no-in-process-state architecture of ADR-0359; Nnwdaf_MLModelMonitor accuracy loop (ADR-0370); the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription surface (ADR-0380); Nnwdaf_MLModelTraining subscription CRUD and model notification (ADR-0471, FL round logic next); an optional LLM extension seam is specified but not built (ADR-0470); next roaming / HFL (ADR-0359 step 6) |
-| 6 | R19 feature NFs (Tier 2/3) | In progress — 10 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF, UDSF) the SEPP in part (N32 with TLS security or PRINS, telescopic FQDN, ADR-0491-0494; no roaming intermediaries) the AAnF in part (AKMA, ADR-0495-0497) and the TSCTSF in part (AF requested QoS, ADR-0498); Tier 3 not started |
+| 6 | R19 feature NFs (Tier 2/3) | In progress — 10 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF, UDSF) the SEPP in part (N32 with TLS security or PRINS, telescopic FQDN, ADR-0491-0494; no roaming intermediaries) the AAnF in part (AKMA, ADR-0495-0497) and the TSCTSF in part (AF requested QoS, ADR-0498); Tier 3 not started. R19 completeness entered the pipeline on 2026-11-01 (ADR-0539..0547): first V2X/A2X in the PCF, AMF, NRF and CHF, then the UAS NFs (TS 29.255, TS 29.257) and the VAE server (TS 29.486) |
 | 7 | GUI / operations console | **Started** — React + JSON Forms operator GUI behind a C++ backend-for-frontend (`gui/`, ADR-0420..0425): OIDC login against a real, self-hosted Keycloak realm (ADR-0441 — authorization-code + PKCE, real TOTP MFA gating a real `acr` claim via Keycloak step-up; back-channel logout and per-action step-up still deferred), shop-scoped RBAC + maker-checker + hash-chained audit in the `operator_iam` DB, customer onboarding, TMF620 catalog proposals, approvals, and NF configuration (schemas derived for all 34 components; four-eyes editing live for `product-catalog` only). `oam-gui-bff` is now containerized for compose (Dockerfile, `docker-compose.yml` service, ADR-0442) — the login proof runs a real, compiled `oam-gui-bff` binary in a real container against a real, containerized Keycloak, both sharing the lab CA; the Node/`gui/web` build stage ran and was verified inside Docker, but the C++ builder stage (`vcpkg`, `asn1c`, `cmake --build`) never completed inside Docker in this session — three attempts were all defeated by host network conditions before finishing, disclosed in full in ADR-0442, which also has the exact command for whoever next has a working link to build and reverify the real image. The Helm chart also lands with this ADR but is lint/template-verified only — it does not start in a real cluster yet (no chart in this repo provisions `operator_iam`'s PostgreSQL in-cluster). Dear ImGui engineering console: later track. Scope still fixed: **all** product/tariff/policy configuration must be GUI-editable (ADR-0289) |
 | 8 | Lab packaging (`make lab-up`) | Partial (counted 2026-10-08) — Compose builds 33 services from this repo's Dockerfiles: 27 NF services (including the UPF, added by ADR-0466, and the `nwdaf-mtlf` variant), `oam-gui-bff`, `postgres-chf`, and 4 BSS services; Helm charts exist for 9 NFs (amf, ausf, li-admf, nrf, pcf, smf, udm, udr, upf) plus keycloak and oam-gui-bff. **UPF packaging (ADR-0466): the image was built and the container run once on 2026-10-09 (it registers with the NRF over TLS 1.3 + mTLS and serves PFCP; that run found and fixed a missing `libli_core`/`libxml2` and a missing `pki-init` certificate), but the eBPF/XDP datapath does not start in the container (`mount --make-shared /run/netns: Permission denied`, cause not yet determined), no SMF PFCP association was tried, and the Helm chart was never applied to a cluster; the UPF now advertises its auto-detected address (`advertised_ipv4: auto`) instead of `127.0.0.1`, covered by unit tests but not yet exercised SMF-to-UPF in a container.** No `make lab-up` yet (there is no Makefile) |
 | P4.12 | Telco-grade hardening (TPS governance, chaos, business alarming, retention, autoscaling) | Done except P11, which is deferred — see [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md) |
@@ -427,8 +430,34 @@ Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`.
 | [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) | Procedure → TS clause → code → test |
 | [`docs/CHARGING_MAPPING.md`](docs/CHARGING_MAPPING.md) | 3GPP charging fields → TM Forum SID → TMF API |
 | [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md) | 3GPP 33-series assessment |
+| [`docs/R19_COMPLETENESS.md`](docs/R19_COMPLETENESS.md) | Every REL-19 OpenAPI file not used by code yet, with its owning ADR (generated, ADR-0539) |
 | [`specs/README.md`](specs/README.md) | Vendored spec inputs, and how to fetch the documents the code cites |
 | [`CHANGELOG.md`](CHANGELOG.md) | Releases and notable changes |
+
+<h2 align="center">R19 completeness: V2X, UAS, Ambient IoT and enablers (in pipeline)</h2>
+
+<a id="r19-completeness"></a>
+Of the 472 REL-19 OpenAPI files in `specs/5G_APIs-REL-19/`, **305 are not used by any code yet**.
+[`docs/R19_COMPLETENESS.md`](docs/R19_COMPLETENESS.md) lists every one with its owning ADR. It is
+generated by `scripts/docs/gen_r19_gap_register.py`, which fails on any REL-19 spec family that has
+no owner, so nothing from R19 drops out unnoticed. Everything below is a **placeholder: 🕒 Already in
+Pipeline, no code yet.** Each track is built one subsystem at a time, and its procedure list is
+approved before any code is written.
+
+| Track | What is missing | Stage-3 YAML | Files | ADR | Status |
+|---|---|---|---|---|---|
+| V2X / A2X in the core | PCF V2X/A2X policy, AMF V2X/A2X context, NRF capability fields, CHF charging data (UDM/UDR data is in) | TS 29.525, TS 29.518, TS 29.510, TS 32.291 | partial areas | [ADR-0540](docs/decisions/ADR-0540-v2x-and-a2x-in-the-core-nfs-pcf-policy-amf-context-nrf.md) | 🕒 Already in Pipeline (first) |
+| UAS (drones) | USS `Naf_Authentication`, the UAE server (C2 operation mode, USS change, DAA, flight path and route, no-transmit zones, real-time UAV status, UAV dynamic info), AMF/UDM UAV fields (the NEF's UUAA and flight assistance are in) | TS 29.255, TS 29.257 | 9 | [ADR-0541](docs/decisions/ADR-0541-uas-drones-naf-authentication-ts-29-255-and-the-uae-server.md) | 🕒 Already in Pipeline |
+| V2X application enabler (VAE) | 12 VAE services, from application requirement and V2V config to HD map dynamic info and VRU zone management | TS 29.486 | 12 | [ADR-0542](docs/decisions/ADR-0542-v2x-application-enabler-server-vae-ts-29-486.md) | 🕒 Already in Pipeline |
+| Ambient IoT | AIOTF (`Naiotf_AIoT`), `Nadm_Sec`, AIoT fields in NRF/NSSF/CHF (the AMF, NEF and UDR AIoT parts are in) | TS 29.569, TS 29.369 | 2 + partial areas | [ADR-0543](docs/decisions/ADR-0543-ambient-iot-completion-aiotf-ts-29-569-nadm-sec-ts-29-369.md) | 🕒 Already in Pipeline |
+| Edge computing and application enablers | CAPIF, EES/ECS, NSCE, spatial maps, AIMLE, LMS, ADAE, SEAL, SEALDD, VFL | TS 29.222, TS 29.558, TS 24.558, TS 29.435, TS 29.437, TS 29.482, TS 29.549, TS 29.548, TS 29.530, … | 140 | [ADR-0544](docs/decisions/ADR-0544-edge-computing-and-application-enablers-ees-ecs-nsce-sm-san.md) | 🕒 Already in Pipeline |
+| IMS, HSS, GBA and messaging | HSS, GBA BSF, SMS router, IWK-MSC, MMTel/data channel, IMS AS, MF, MSGin5G | TS 29.562, TS 29.563, TS 29.309, TS 29.577, TS 29.579, TS 29.392, TS 29.175, TS 29.176, TS 29.538 | 30 | [ADR-0545](docs/decisions/ADR-0545-ims-hss-gba-and-messaging-ts-29-562-29-563-29-309-29-577-29.md) | 🕒 Already in Pipeline |
+| ProSe, 5MBS, PIN and remaining 5GC services | 5G DDNMF, ProSe AF, PKMF, PAnF, SLPKMF, SoR AF, MNPF, PIN, MB-SMF, MBSF, MBSTF, EASDF, UCMF, NSSAAF, TSCTSF (rest), EIF | TS 29.555, 29.557, 29.559, 29.553, 29.586, 29.550, 29.578, 29.583, 29.532, 29.580, 29.581, 29.556, 29.673, 29.675, 29.526, 29.565, 29.566 | 28 | [ADR-0546](docs/decisions/ADR-0546-prose-5mbs-pin-and-remaining-5gc-services-ts-29-5xx-29-67x.md) | 🕒 Already in Pipeline |
+| OAM and media | Management services (provisioning, NRM, PM, fault, intent, energy, MDA, AI/ML NRM) and 5G media streaming / data collection | TS 28.xxx, TS 26.xxx | 84 | [ADR-0547](docs/decisions/ADR-0547-oam-ts-28-xxx-and-media-ts-26-xxx-rel-19-apis.md) | 🕒 Already in Pipeline |
+
+Order of work: V2X/A2X in the PCF, then the AMF, NRF and CHF; then TS 29.255, TS 29.257 and
+TS 29.486; then Ambient IoT; then the other tracks. Where stage-3 YAML is missing for an R19 item,
+the work follows stage 2 and the gap is recorded in the 3GPP specification gaps section below.
 
 <h2 align="center">3GPP specification gaps</h2>
 

@@ -502,6 +502,15 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0518](decisions/ADR-0518-nfs-register-their-advertised-address-in-the-nfprofile-not.md) NFs register their advertised address in the NFProfile, not 127.0.0.1
 - [0537](decisions/ADR-0537-aanf-roaming-check-fails-closed-when-the-udm-cannot-answer.md) AAnF roaming check fails closed when the UDM cannot answer (SEC-06)
 - [0538](decisions/ADR-0538-nef-sweeps-the-expiries-its-apis-make-mandatory-sus-02.md) NEF sweeps the expiries its APIs make mandatory (SUS-02)
+- [0539](decisions/ADR-0539-r19-completeness-every-unimplemented-rel-19-api-family.md) R19 completeness: every unimplemented REL-19 API family enters the pipeline (umbrella)
+- [0540](decisions/ADR-0540-v2x-and-a2x-in-the-core-nfs-pcf-policy-amf-context-nrf.md) V2X and A2X in the core NFs: PCF policy, AMF context, NRF fields, CHF charging
+- [0541](decisions/ADR-0541-uas-drones-naf-authentication-ts-29-255-and-the-uae-server.md) UAS (drones): Naf_Authentication (TS 29.255) and the UAE server (TS 29.257)
+- [0542](decisions/ADR-0542-v2x-application-enabler-server-vae-ts-29-486.md) V2X application enabler server (VAE, TS 29.486)
+- [0543](decisions/ADR-0543-ambient-iot-completion-aiotf-ts-29-569-nadm-sec-ts-29-369.md) Ambient IoT completion: AIOTF (TS 29.569), Nadm_Sec (TS 29.369), NRF/NSSF/CHF AIoT fields
+- [0544](decisions/ADR-0544-edge-computing-and-application-enablers-ees-ecs-nsce-sm-san.md) Edge computing and application enablers: EES/ECS, NSCE, SM/SAn, AIMLE, LMS, ADAE, SEALDD, VFL, CAPIF
+- [0545](decisions/ADR-0545-ims-hss-gba-and-messaging-ts-29-562-29-563-29-309-29-577-29.md) IMS, HSS, GBA and messaging: TS 29.562/29.563/29.309/29.577/29.579/29.392/29.175/29.176/29.538
+- [0546](decisions/ADR-0546-prose-5mbs-pin-and-remaining-5gc-services-ts-29-5xx-29-67x.md) ProSe, 5MBS, PIN and remaining 5GC services (TS 29.5xx/29.67x)
+- [0547](decisions/ADR-0547-oam-ts-28-xxx-and-media-ts-26-xxx-rel-19-apis.md) OAM (TS 28.xxx) and media (TS 26.xxx) REL-19 APIs
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
