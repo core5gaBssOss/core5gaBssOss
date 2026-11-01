@@ -515,6 +515,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0548](decisions/ADR-0548-readme-append-only-check-accepts-user-approved-heading.md) README append-only check accepts user-approved heading renames
 - [0549](decisions/ADR-0549-aanf-supi-path-encoding-and-atomic-akma-context-replace-sec.md) AAnF SUPI path encoding and atomic AKMA context replace (SEC-15)
 - [0550](decisions/ADR-0550-functionality-survey-against-mmt-studio-5g6g-items-deferred.md) Functionality survey against mmt-studio-5g6g: items deferred for future implementation
+- [0552](decisions/ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md) Adopt SBI TLS and OAuth2 review skills adapted from Anthropic-Cybersecurity-Skills (Apache-2.0)
 - [0554](decisions/ADR-0554-strict-nrf-token-refusal-per-ts-33-501-13-4-1-1-2-consumer.md) Strict NRF token refusal per TS 33.501 13.4.1.1.2; consumer shows the AccessTokenErr value
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
