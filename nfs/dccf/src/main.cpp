@@ -355,7 +355,8 @@ int main() {
     sbi_core::OAuth2Client oauth_nwdaf(
         client, nrf_base + "/oauth2/token", instance_id, "nnwdaf-eventssubscription", "NWDAF");
 
-    dccf::SubscriptionStore store(nf_config::connect_redis_or_die(redis_url, "dccf"));
+    dccf::SubscriptionStore store(
+        nf_config::connect_redis_or_die(redis_url, "dccf", nf_config::redis_auth(config, "DCCF")));
 
     auto meter = sbi_core::get_meter("dccf");
     auto subscriptions_counter = meter->CreateUInt64Counter(

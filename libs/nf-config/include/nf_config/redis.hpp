@@ -5,6 +5,7 @@
 // in-memory store.
 #pragma once
 
+#include <fstream>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -14,12 +15,57 @@
 
 namespace nf_config {
 
+// ADR-0514 (REVIEW-5ae0ef1 SEC-04): the NF's own Valkey ACL user. `redis_user` and
+// `redis_password_file` (environment <PREFIX>_REDIS_USER / <PREFIX>_REDIS_PASSWORD_FILE win, as
+// for require<>); the password is read from a file so it is in neither a config file nor the
+// environment. Neither set: the URL's own credentials, else the default user -- as before.
+struct RedisAuth {
+    std::string user;
+    std::string password_file;
+};
+
+inline RedisAuth redis_auth(const nlohmann::json& config, const std::string& env_prefix) {
+    const auto user_env = env_prefix + "_REDIS_USER";
+    const auto file_env = env_prefix + "_REDIS_PASSWORD_FILE";
+    return RedisAuth{
+        optional<std::string>(config, "redis_user", user_env.c_str()).value_or(""),
+        optional<std::string>(config, "redis_password_file", file_env.c_str()).value_or("")};
+}
+
+namespace detail {
+struct RedisOptions {
+    sw::redis::ConnectionOptions connection;
+    sw::redis::ConnectionPoolOptions pool;
+};
+
+// `url` parsed, with `auth` applied over it. Throws (caught by the connect functions) if the
+// password file cannot be read.
+inline RedisOptions redis_options(const std::string& url, const RedisAuth& auth) {
+    const sw::redis::Uri parsed(url);
+    RedisOptions out{parsed.connection_options(), parsed.connection_pool_options()};
+    auto& opts = out.connection;
+    if (!auth.user.empty()) {
+        opts.user = auth.user;
+    }
+    if (!auth.password_file.empty()) {
+        std::ifstream in(auth.password_file);
+        std::string password;
+        if (!in || !std::getline(in, password) || password.empty()) {
+            throw std::runtime_error("cannot read the Valkey password file " + auth.password_file);
+        }
+        opts.password = password;
+    }
+    return out;
+}
+} // namespace detail
+
 // Construct a Redis client and prove connectivity now (PING). On any failure, log and exit --
 // never return a client that is not known to be connected.
-inline std::shared_ptr<sw::redis::Redis> connect_redis_or_die(const std::string& url,
-                                                              std::string_view nf) {
+inline std::shared_ptr<sw::redis::Redis>
+connect_redis_or_die(const std::string& url, std::string_view nf, const RedisAuth& auth = {}) {
     try {
-        auto redis = std::make_shared<sw::redis::Redis>(url);
+        const auto opts = detail::redis_options(url, auth);
+        auto redis = std::make_shared<sw::redis::Redis>(opts.connection, opts.pool);
         redis->ping();
         spdlog::info("{}: connected to Redis/Valkey", nf);
         return redis;
@@ -39,12 +85,11 @@ inline std::shared_ptr<sw::redis::Redis> connect_redis_or_die(const std::string&
 // for_each(...) forces a real connection to, and PING of, every node the seed URL's CLUSTER SLOTS
 // response discovers -- the same fail-fast rule as connect_redis_or_die, but stronger: it proves
 // every shard is reachable at startup, not just the one seed node.
-inline std::shared_ptr<sw::redis::RedisCluster> connect_redis_cluster_or_die(const std::string& url,
-                                                                             std::string_view nf) {
+inline std::shared_ptr<sw::redis::RedisCluster> connect_redis_cluster_or_die(
+    const std::string& url, std::string_view nf, const RedisAuth& auth = {}) {
     try {
-        const sw::redis::Uri parsed(url);
-        auto cluster = std::make_shared<sw::redis::RedisCluster>(parsed.connection_options(),
-                                                                 parsed.connection_pool_options());
+        const auto opts = detail::redis_options(url, auth);
+        auto cluster = std::make_shared<sw::redis::RedisCluster>(opts.connection, opts.pool);
         cluster->for_each([](sw::redis::Redis& r) { r.ping(); });
         spdlog::info("{}: connected to Valkey Cluster (seed {})", nf, url);
         return cluster;

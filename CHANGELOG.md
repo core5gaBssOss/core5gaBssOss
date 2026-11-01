@@ -8,6 +8,14 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ## [Unreleased]
 
+### Security
+
+- The AAnF stores KAKMA sealed with AES-256-GCM under a key-encryption key file, never in the
+  clear. In the lab, each NF signs in to Valkey as its own ACL user, and Valkey is no longer
+  published on the host
+  ([ADR-0514](docs/decisions/ADR-0514-akma-anchor-keys-sealed-at-rest-aes-256-gcm-aanf-key.md)).
+  An existing local `certs/` needs `scripts/gen-lab-pki.sh aanf` once, to create the key.
+
 ## [0.1.0] - 2026-10-31
 
 The first tagged release. It records the state of the project after its first three months of

@@ -50,4 +50,12 @@ EOF
     if [ "${nf}" = "nrf" ]; then
         echo "  nrf-jwt-private.pem: $(b64 "${CERTS_DIR}/nrf-jwt/private.pem")"
     fi
+    # ADR-0514: the NF's Valkey ACL password (gen-lab-pki.sh writes one per Valkey NF) and the
+    # AAnF's KAKMA KEK; each chart that reads them mounts the key.
+    if [ -f "${CERTS_DIR}/${nf}/valkey.password" ]; then
+        echo "  valkey.password: $(b64 "${CERTS_DIR}/${nf}/valkey.password")"
+    fi
+    if [ "${nf}" = "aanf" ]; then
+        echo "  kakma.kek: $(b64 "${CERTS_DIR}/aanf/kakma.kek")"
+    fi
 done

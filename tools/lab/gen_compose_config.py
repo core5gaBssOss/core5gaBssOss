@@ -11,7 +11,8 @@ writes, from config/ (the single source of truth), never by hand:
                                       container's fixed IP;
   deploy/docker/docker-compose.lab.yml  a fixed-IP network for every service, <SERVICE>_CONFIG_FILE
                                       pointing each NF at its file (nf_config.hpp), the config-set
-                                      mount, and the Valkey dependency the AAnF/AUSF lacked.
+                                      mount, and the Valkey dependency the AAnF/AUSF lacked;
+                                      each Valkey client's ACL user and password file (ADR-0514).
 
 `--check` fails if the generated files are not what config/ and docker-compose.yml produce now.
 """
@@ -107,6 +108,19 @@ def rewrite(node, key, ports, ips, svc, unresolved):
     return re.sub(LOOPBACK + r':(\d+)', sub, node)
 
 
+def valkey_auth(data, nf, env):
+    """ADR-0514: an NF on the single-node Valkey authenticates as its own ACL user; the AAnF's
+    contexts are in logical database 1, which no other user may SELECT (scripts/gen-lab-pki.sh).
+    A service whose environment points it elsewhere (the UDSF: the Valkey Cluster) is left as is."""
+    url = env.get(f'{nf.upper().replace("-", "_")}_REDIS_URL', data.get('redis_url'))
+    if url != 'tcp://valkey:6379':
+        return
+    data['redis_user'] = nf
+    data['redis_password_file'] = f'/build/certs/{nf}/valkey.password'
+    if nf == 'aanf':
+        data['redis_url'] = 'tcp://valkey:6379/1'
+
+
 def generate():
     compose = yaml.safe_load(COMPOSE.read_text())
     services = compose['services']
@@ -125,6 +139,7 @@ def generate():
         own = any(k.endswith('_CONFIG_FILE') for k in (svc.get('environment') or {}))
         if cfg.exists() and mounts_config and not own:
             data = rewrite(json.loads(cfg.read_text()), '', ports, ips, name, unresolved)
+            valkey_auth(data, binary, svc.get('environment') or {})
             files[f'{name}.json'] = json.dumps(data, indent=2) + '\n'
             entry['environment'] = {f'{binary.upper()}_CONFIG_FILE': f'{MOUNT}/{name}.json'}
             entry['volumes'] = [f'./lab/config:{MOUNT}:ro']
