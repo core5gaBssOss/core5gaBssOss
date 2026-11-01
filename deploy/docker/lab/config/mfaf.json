@@ -12,5 +12,7 @@
   "event_bus_flush_timeout_ms": 10000,
   "event_bus_poll_timeout_ms": 500,
   "fetch_buffer_ttl_seconds": 300,
-  "oauth2_required": true
+  "oauth2_required": true,
+  "redis_user": "mfaf",
+  "redis_password_file": "/build/certs/mfaf/valkey.password"
 }

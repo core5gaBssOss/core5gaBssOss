@@ -11,5 +11,7 @@
   "nsacf_base_url": "https://nsacf:7797",
   "nwdaf_base_url": "https://nwdaf:7798",
   "user_consent_policy": "consumer-checked",
-  "oauth2_required": true
+  "oauth2_required": true,
+  "redis_user": "dccf",
+  "redis_password_file": "/build/certs/dccf/valkey.password"
 }

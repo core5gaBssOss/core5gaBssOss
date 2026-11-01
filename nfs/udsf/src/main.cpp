@@ -262,10 +262,12 @@ int main() {
                  std::string("pool_size=") + std::to_string(redis_pool_size);
     std::optional<udsf::Store> store_opt;
     if (redis_mode == "cluster") {
-        store_opt.emplace(nf_config::connect_redis_cluster_or_die(redis_url, "udsf"),
+        store_opt.emplace(nf_config::connect_redis_cluster_or_die(
+                              redis_url, "udsf", nf_config::redis_auth(config, "UDSF")),
                           settings.self_base + udsf::kDrRoot);
     } else {
-        store_opt.emplace(nf_config::connect_redis_or_die(redis_url, "udsf"),
+        store_opt.emplace(nf_config::connect_redis_or_die(
+                              redis_url, "udsf", nf_config::redis_auth(config, "UDSF")),
                           settings.self_base + udsf::kDrRoot);
     }
     udsf::Store& store = *store_opt;

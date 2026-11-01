@@ -514,9 +514,11 @@ int main() {
             nf_config::optional<int>(config, "redis_pool_size", "CHF_REDIS_POOL_SIZE").value_or(8);
         chf_redis_url += (chf_redis_url.find('?') == std::string::npos ? "?" : "&") +
                          std::string("pool_size=") + std::to_string(redis_pool_size);
-        chf_redis_router_opt.emplace(nf_config::connect_redis_cluster_or_die(chf_redis_url, "chf"));
+        chf_redis_router_opt.emplace(nf_config::connect_redis_cluster_or_die(
+            chf_redis_url, "chf", nf_config::redis_auth(config, "CHF")));
     } else {
-        chf_redis_router_opt.emplace(nf_config::connect_redis_or_die(chf_redis_url, "chf"));
+        chf_redis_router_opt.emplace(nf_config::connect_redis_or_die(
+            chf_redis_url, "chf", nf_config::redis_auth(config, "CHF")));
     }
     nf_config::RedisRouter& redis = *chf_redis_router_opt;
     chf::ChargingDataStore charging_data_store(redis);
