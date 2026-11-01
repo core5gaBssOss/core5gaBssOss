@@ -137,7 +137,7 @@ services:
         condition: service_completed_successfully
       nrf:
         condition: service_started
-      # ADR-0069 (gap-closure Tier 1b): GetAmData/GetSmfSelData/GetSmData now make real
+      # ADR-0069 (deferred-item closure Tier 1b): GetAmData/GetSmfSelData/GetSmData now make real
       # Nudr_DataRepository calls -- same "depends_on the NF it real-calls" pattern ausf's own
       # dependency on udm already established.
       udr:
@@ -152,7 +152,7 @@ services:
       - "7780:7780"   # Nudm_UECM / Nudm_SDM (TLS 1.3 + mTLS)
       - "9467:9467"   # Prometheus /metrics
 
-  # Real PostgreSQL for UDR's context-data persistence (ADR-0068, gap-closure Tier 1a) -- own
+  # Real PostgreSQL for UDR's context-data persistence (ADR-0068, deferred-item closure Tier 1a) -- own
   # dedicated instance, same "one postgres per consumer" shape as every other PostgreSQL-backed
   # service in this compose file.
   postgres-udr:
@@ -612,7 +612,7 @@ services:
       UDSF_ADVERTISED_IPV4: udsf
     volumes:
       - certs_data:/build/certs
-      # ADR-0453: same real, pre-existing gap as nrf's own volumes block above -- udsf.Dockerfile
+      # ADR-0453: same real, pre-existing deferred item as nrf's own volumes block above -- udsf.Dockerfile
       # never copied config/udsf.json either, so a fresh container crashed immediately on this
       # exact "could not open config file" error, found while finally running ADR-0451's live
       # functional check.
@@ -958,13 +958,13 @@ services:
 
   # ADR-0442: the operator GUI's backend-for-frontend, containerized -- closes ADR-0441's
   # COMPOSE-side deferral ("oam-gui-bff itself has no Dockerfile or compose/Helm entry"; the Helm
-  # half is a separate, still-open gap -- deploy/helm/oam-gui-bff/Chart.yaml discloses it, do not
+  # half is a separate, still-open deferred item -- deploy/helm/oam-gui-bff/Chart.yaml discloses it, do not
   # read this compose entry as closing that side too). Shares the lab CA every other NF does
   # (pki-init's NF list above now includes oam-gui-bff) for its own leaf certificate AND for
   # trusting keycloak's TLS server certificate (both signed by the same CA -- see
   # oam-gui-bff.Dockerfile's header comment). Its own OIDC-facing OPERATOR mTLS trust anchor
   # (`operator_ca_path`) and IdP client secret (`client_secret_file`) are a SEPARATE PKI this
-  # compose file does not provision (same disclosed gap category as keycloak's own realm import
+  # compose file does not provision (same disclosed deferred item category as keycloak's own realm import
   # above): `gui/scripts/gen-operator-pki.sh terminal-lab-1` + `deploy/keycloak/render-realm.sh`,
   # run on the HOST exactly as ADR-0441 already documented, then bind-mounted in below by the two
   # specific files they produce -- NOT the whole certs_data volume, which stays container-CA-only
@@ -1155,7 +1155,7 @@ services:
   # single-node service, unchanged, on purpose: their store code talks to Valkey through
   # sw::redis::Redis, which has no MOVED/ASK-redirect handling, so pointing it at one node of a
   # real cluster would silently serve only the ~1/N of keys that happen to hash to that node's own
-  # slot range and error on the rest -- a real gap ADR-0443 disclosed rather than hid behind a
+  # slot range and error on the rest -- a real deferred item ADR-0443 disclosed rather than hid behind a
   # cluster that would only actually have one usable shard. UDSF is the one NF whose CODE was
   # converted (store.hpp's RedisRouter, built on sw::redis::RedisCluster, which does handle
   # redirects) -- ADR-0443 left its own compose entry on `redis_mode=single` anyway, since its own
@@ -1353,7 +1353,7 @@ services:
       # CAP (port 2905) is deliberately NOT host-published here: Docker's `ports:` short syntax
       # only accepts tcp/udp, and SCTP does not traverse Docker's userland-proxy/iptables NAT the
       # way tcp/udp do -- a real, disclosed Docker networking limitation, not this project's own
-      # gap. Container-to-container SCTP on the shared compose bridge network works fine (direct
+      # deferred item. Container-to-container SCTP on the shared compose bridge network works fine (direct
       # L3 hop, no NAT); a real SS7 peer container reaching CHF for lab testing should join this
       # same compose network and dial `chf:2905` directly, not a host-published port.
 

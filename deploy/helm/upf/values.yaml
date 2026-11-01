@@ -6,7 +6,7 @@ image:
 service:
   type: ClusterIP
 
-# Capabilities the eBPF/XDP datapath needs (see Chart.yaml gap 3). Remove the block to run PFCP-only.
+# Capabilities the eBPF/XDP datapath needs (see Chart.yaml deferred item 3). Remove the block to run PFCP-only.
 securityContext:
   capabilities:
     add: [NET_ADMIN, SYS_ADMIN, DAC_OVERRIDE, BPF, PERFMON]

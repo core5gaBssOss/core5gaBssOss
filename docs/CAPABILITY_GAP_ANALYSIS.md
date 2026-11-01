@@ -1,4 +1,4 @@
-# Capability gap analysis vs free5GC and open5GS
+# Capability analysis of deferred items vs free5GC and open5GS
 
 **Status: first pass COMPLETE for the original 9 built NFs, code-free review gate** (same pattern as
 `docs/CHARGING_MAPPING.md`) -- user-directed, full sweep of every built NF against both real
@@ -17,14 +17,14 @@ all eight NFs added after this pass (NSSF/BSF/NEF/SCP/5G-EIR/SMSF/GMLC/LMF, "SWE
 built via ADR-0183 through ADR-0191) -- the intro paragraph below was simply never updated to match
 when that later work landed. Coverage is uneven, stated per-NF in the Summary rather than here: NSSF
 and GMLC/LMF's rows name real reference-comparison findings, while BSF's row states plainly "no
-known real gap identified yet since no reference-source diff has been done" -- not every one of the
+known real deferred item identified yet since no reference-source diff has been done" -- not every one of the
 eight got the same free5GC/open5GS depth the original 9 did. See the Summary section at the end for
 the real, current, per-NF picture rather than this paragraph.
 
 ## Method
 
 For each of this project's built NFs (`nrf, amf, ausf, chf, pcf, smf, udm, udr, upf` --
-`nssf/nef/scp/bsf` don't exist yet in this project at all, a separate "whole NF missing" gap
+`nssf/nef/scp/bsf` don't exist yet in this project at all, a separate "whole NF missing" deferred item
 tracked at the end, not blended into per-NF findings below), real source was pulled directly:
 - **free5GC**: cloned live from `github.com/free5gc/<nf>.git` (the `free5gc-main.zip` umbrella
   repo only contains empty git-submodule pointers, no real source -- confirmed by inspection,
@@ -45,9 +45,9 @@ having actually read the cited source.
 | `Nnrf_NFDiscovery` (SearchNFInstances) | Real | Real | Real |
 | `Nnrf_AccessToken` (OAuth2 token) | Real | Real | Real |
 | `Nnrf_NFManagement` Subscriptions (Create/Update/Remove) | Real | Real | Real |
-| `Nnrf_Bootstrapping` | **Stub only** -- free5GC's own `HTTPBootstrappingInfoRequest` returns HTTP 501 Not Implemented (`internal/sbi/api_bootstrapping.go`) | Not found | Not implemented | Not a real gap -- free5GC itself doesn't implement this either. |
+| `Nnrf_Bootstrapping` | **Stub only** -- free5GC's own `HTTPBootstrappingInfoRequest` returns HTTP 501 Not Implemented (`internal/sbi/api_bootstrapping.go`) | Not found | Not implemented | Not a real deferred item -- free5GC itself doesn't implement this either. |
 
-### Real gaps found (this project is missing real behavior both/one reference has)
+### Real deferred items found (this project is missing real behavior both/one reference has)
 
 1. **`NFProfile` semantic validation was missing -- closed, docs/DECISIONS.md ADR-0079.** free5GC
    has ~290 lines of real validation (`internal/sbi/processor/nf_profile_validation.go`):
@@ -69,7 +69,7 @@ having actually read the cited source.
    no background expiry sweep at all -- a crashed NF that never sent `DELETE` stayed registered
    forever. free5GC does not appear to have this either (only stores the `HeartBeatTimer` value,
    `internal/context/management_data.go:62`) -- this was specifically an open5GS capability this
-   project lacked, not a universal gap. Now real: `NfRegistry::sweep_expired`, a periodic
+   project lacked, not a universal deferred item. Now real: `NfRegistry::sweep_expired`, a periodic
    background sweep (this project's own design, not a byte-for-byte port of open5GS's per-NF
    timer object) -- live-verified end-to-end, including that a `PATCH` heartbeat genuinely resets
    the expiry window, not just that expiry fires at all.
@@ -77,7 +77,7 @@ having actually read the cited source.
 3. **Subscription `subscrCond` filtering is ignored.** open5GS validates and applies
    `subscrCond` (an `nfType`-or-`serviceName` XOR filter, `src/nrf/nnrf-handler.c:481-603`, citing
    its own real upstream bug fix, issue #2630: "must be `oneOf`"). This project's own code already
-   self-discloses this exact gap (`nfs/nrf/src/main.cpp:18`: "Subscription notification fan-out
+   self-discloses this exact deferred item (`nfs/nrf/src/main.cpp:18`: "Subscription notification fan-out
    ignores `subscrCond` (delivers to every active subscriber...)"). **Already known, now
    independently corroborated, not a new finding** -- listed here for completeness of the record.
 
@@ -101,7 +101,7 @@ roughly-equivalent implementation with a few missing edges.
 | Service | free5GC | This project |
 |---|---|---|
 | `Namf_Communication` (UEContext CRUD, N1N2MessageTransfer(+subscribe), non-UE-N2-messages(+subscribe)) | Real (`internal/sbi/processor/{ue_context,n1n2message}.go`) | Real, route-for-route match (`nfs/amf/src/main.cpp`, 16 routes) |
-| `Namf_EventExposure` (Create/Delete/Modify subscription -- mobility, reachability, comm-failure, location-report events, TS 29.518) | Real (`processor/event_exposure.go`, 3 real handlers) | **Real, all 6 real operations** (individual + AMF-Set-level bulk families, ADR-0199) -- real subscription CRUD, real RFC 6902 `PATCH`; notification delivery not implemented (disclosed, same gap class as this NF's other subscription types) |
+| `Namf_EventExposure` (Create/Delete/Modify subscription -- mobility, reachability, comm-failure, location-report events, TS 29.518) | Real (`processor/event_exposure.go`, 3 real handlers) | **Real, all 6 real operations** (individual + AMF-Set-level bulk families, ADR-0199) -- real subscription CRUD, real RFC 6902 `PATCH`; notification delivery not implemented (disclosed, same deferred item class as this NF's other subscription types) |
 | `Namf_Location` (ProvideLocationInfo -- used by LMF/GMLC for positioning) | Real (`processor/location_info.go`) | **Real, all 3 real operations** (ADR-0199) -- `ProvidePositioningInfo` real `501` (no LPP/GNSS/PRU capability, disclosed), `ProvideLocationInfo` real 404/honestly-empty-200, `CancelLocation` real `404` |
 | `Namf_MT` (ProvideDomainSelectionInfo -- CS/PS domain selection for MT SMS/call) | Real (`processor/mt.go`) | **Real, all 3 real operations** (ADR-0200) -- `ProvideDomainSelectionInfo` real 404/honestly-empty-200, `EnableUeReachability` real 404/real-ack, `EnableGroupReachability` real 200 with honestly-empty `ueConnectedList` |
 | `Namf_OAM` (RegisteredUEContext query) | Real (`processor/oam.go`) | **Missing entirely** |
@@ -150,7 +150,7 @@ hand-built-genuine-message unit tests, not by interop, since no reachable trigge
 `ServiceRequest` from UERANSIM was found this pass (see the NGAP `UEContextRelease` finding
 below). What `ServiceRequest` does NOT yet do: drive real N2 PDU Session Resource Setup for any
 PDU session its own `uplinkDataStatus` reports pending -- that requires SMF's own `UpdateSMContext`
-N2SmInfo dispatch, still a gap (see next section).
+N2SmInfo dispatch, still a deferred item (see next section).
 
 ### Real NGAP (N2) procedure coverage
 
@@ -173,8 +173,8 @@ still absent from `ngap_codec.hpp` entirely -- not even encodable/decodable, not
 **This project's AMF has zero N2 handover support** -- no `HandoverRequired`, no
 `PathSwitchRequest`, nothing. A UE cannot be handed over between gNBs in this implementation
 today; only initial attach + PDU session establishment on a single gNB is real. This is a
-structural gap, not a missing edge case. **Not addressed by ADR-0076 or ADR-0078** (those passes
-closed `ServiceRequest`/GMM and `UEContextRelease` specifically, not this NGAP-side gap) -- still
+structural deferred item, not a missing edge case. **Not addressed by ADR-0076 or ADR-0078** (those passes
+closed `ServiceRequest`/GMM and `UEContextRelease` specifically, not this NGAP-side deferred item) -- still
 mostly open, tracked as the remaining scope of task #100/#101.
 
 **Partial closure, ADR-0090**: `PathSwitchRequest`/`PathSwitchRequestAcknowledge`/
@@ -195,14 +195,14 @@ rearchitected it to one real `std::thread` per association plus a new `GnbAssoci
 real cross-thread relay/correlation). Live-verified against a real, unmodified UERANSIM
 registration plus two hand-crafted scratch gNB clients, including a genuine, unplanned bonus
 confirmation: UERANSIM's own real gNB correctly processed a real, new AMF-initiated
-`UEContextReleaseCommand` this same pass added (closing the exact gap ADR-0078 disclosed as the
-"AMF-INITIATED direction... not implemented" below). Real, disclosed remaining gap:
+`UEContextReleaseCommand` this same pass added (closing the exact deferred item ADR-0078 disclosed as the
+"AMF-INITIATED direction... not implemented" below). Real, disclosed remaining deferred item:
 `HandoverCancel`/`HandoverCancelAcknowledge` (a separate elementary procedure, not part of the
 closed chain), and `HandoverRequest`'s own per-session PDU transfer content is real but carries a
 placeholder N3 address (no real AMF->SMF relay built for handover, same disclosed class as
-`PathSwitchRequest`'s own still-open "AMF doesn't call SMF yet" gap two rows below).
+`PathSwitchRequest`'s own still-open "AMF doesn't call SMF yet" deferred item two rows below).
 
-**Real NGAP gap found via live interop, closed the same way it was found**: attempting to
+**Real NGAP deferred item found via live interop, closed the same way it was found**: attempting to
 trigger a real `ServiceRequest` naturally (gNB-initiated idle-mode re-entry via UERANSIM's
 `nr-cli <gnb> --exec 'ue-release <id>'`) sent a real NGAP `UEContextReleaseRequest` this AMF could
 not decode at all -- `amf-ngap: failed to decode NGAP PDU (25 bytes), ignoring: 002a4015...`.
@@ -233,12 +233,12 @@ free5GC's real routes (`internal/sbi/api_ueauthentication.go`): `POST /ue-authen
 (initiate), `PUT .../5g-aka-confirmation`, `DELETE .../5g-aka-confirmation`, `POST
 .../eap-session`, `DELETE .../eap-session`. This project's AUSF (`nfs/ausf/src/main.cpp`)
 implements all five, route-for-route, plus one additional real route,
-`POST /ue-authentications/deregister`. **No gap on the core service** -- both 5G-AKA and
+`POST /ue-authentications/deregister`. **No deferred item on the core service** -- both 5G-AKA and
 EAP-AKA' paths, confirmed already live-tested in this project's own integration tests
 (`AusfIntegration.FiveGAkaSuccessfulAuthentication...`,
 `AusfIntegration.EapAkaPrimeSuccessfulAuthentication...`).
 
-### Real gaps found -- both free5GC-only, not shared with open5GS
+### Real deferred items found -- both free5GC-only, not shared with open5GS
 
 1. **`Nausf_SoRProtection`** (`POST /{supi}/ue-sor`, real TS 33.501 Annex A.17/A.18 (originally
    miscited as "Annex E.2" -- corrected and independently verified against a real local copy of
@@ -264,7 +264,7 @@ EAP-AKA' paths, confirmed already live-tested in this project's own integration 
    cross-session persistence both need a live PAnF (ProSe Anchor Function) this project doesn't
    have (a whole separate, unbuilt NF), and return a real, disclosed `501 Not Implemented`.
 
-Per ADR-0075's capability-completeness mandate, both are real gaps to close eventually regardless
+Per ADR-0075's capability-completeness mandate, both are real deferred items to close eventually regardless
 of being free5GC-only -- "superior to both, never behind either" doesn't stop at whichever
 reference happens to have less.
 
@@ -276,13 +276,13 @@ reference happens to have less.
 (C) -- roughly 10-16x, the same order as AMF, and for the same underlying reason: the Create path
 is real, the Update path is largely a stub.
 
-### `Nsmf_PDUSession` -- Create and Release real, Update is the gap
+### `Nsmf_PDUSession` -- Create and Release real, Update is the deferred item
 
 free5GC's real top-level procedures (`internal/sbi/processor/pdu_session.go`):
 `HandlePDUSessionSMContextCreate` (334 lines), `HandlePDUSessionSMContextUpdate` (852 lines --
 by far the largest single procedure in the file), `HandlePDUSessionSMContextRelease`,
 `HandlePDUSessionSMContextLocalRelease`. This project's SMF (`nfs/smf/src/main.cpp`) implements
-all four route-for-route, and **its own header comments already self-disclose** the real gap:
+all four route-for-route, and **its own header comments already self-disclose** the real deferred item:
 "`UpdateSMContext` still does NOT call PCF's `UpdateSMPolicy`... acknowledges (204) without
 fabricating `SmContextUpdatedData` content" (`main.cpp:25,46`). Confirmed by reading free5GC's
 852-line `HandlePDUSessionSMContextUpdate`: it's a real dispatcher over a large, genuine set of N2
@@ -293,8 +293,8 @@ today, effectively a no-op ack -- **none of these sub-procedures exist**.
 
 This directly couples to AMF's own finding above (zero N2 handover NGAP support): even if SMF
 computed real updated N2 SM info for a handover, AMF has no NGAP handler to carry
-`PATH_SWITCH_REQ`/`HANDOVER_REQUIRED` in the first place. The two gaps are the same real
-capability (N2 handover) viewed from each NF's own side, not two independent gaps.
+`PATH_SWITCH_REQ`/`HANDOVER_REQUIRED` in the first place. The two deferred items are the same real
+capability (N2 handover) viewed from each NF's own side, not two independent deferred items.
 
 **Partial closure, ADR-0092**: `PATH_SWITCH_REQ`/`PATH_SWITCH_REQ_ACK` are now real -- `UpdateSMContext`
 gained real multipart parsing, decodes the real NGAP `PathSwitchRequestTransfer`, issues a real
@@ -306,7 +306,7 @@ Live-verified, three-way corroborated (SMF log, UPF log, and independent decode 
 response). Real, disclosed scope: AMF's own `PathSwitchRequest` handler does not call this
 endpoint yet (deferred, separate relay-wiring piece); the downlink PDR's match criteria is
 `SourceInterface`-only (this project has no real UE IP allocation anywhere, a real, deeper,
-separate gap found while scoping this ADR); the new FAR's `OuterHeaderCreation` is real at the
+separate deferred item found while scoping this ADR); the new FAR's `OuterHeaderCreation` is real at the
 PFCP control-plane level only, not wired into the real eBPF/XDP datapath (no downlink GTP-U
 encapsulation path exists there). ~~The other 20 real `N2SmInfoType` values (`PDU_RES_*`,
 `HANDOVER_*`, ...) remain unreal~~ -- **CLOSED, ADR-0259 + ADR-0260**; ADR-0092's own
@@ -318,17 +318,17 @@ real eBPF/XDP downlink encapsulation) are unchanged and now live in the shared
 
 - **ULCL (Uplink Classifier) / multi-homed PDU sessions** (R16 local-breakout/edge-computing
   feature): free5GC has a dedicated `internal/sbi/processor/ulcl_procedure.go`. Grep-confirmed no
-  equivalent concept anywhere in this project's SMF. Real gap, not yet measured for size/depth.
+  equivalent concept anywhere in this project's SMF. Real deferred item, not yet measured for size/depth.
   Whether open5GS has an equivalent was not yet checked in this pass.
 - **PFCP/N4 procedure breadth**: free5GC's `internal/pfcp/handler/handler.go` +
   `internal/context/pfcp_{rules,reports,session_context}.go` suggest a real, fuller N4 session
-  report/rule surface than this project's own UPF-side implementation (ADR from gap-closure Tier
+  report/rule surface than this project's own UPF-side implementation (ADR from deferred-item closure Tier
   1d covers Create/Modify/Delete + QER/BAR, but a direct procedure-by-procedure PFCP diff against
   both references was not done in this pass -- flagged as owed, not yet delivered).
 - Charging trigger integration (`internal/sbi/processor/charging_trigger.go`) -- this project's
   own N40/CHF wiring is real and already tested (unlike free5GC's, this project's charging system
   is comparatively the more built-out side per the CHF brief), so this is flagged for a
-  behavior-level diff, not assumed to be a gap in either direction.
+  behavior-level diff, not assumed to be a deferred item in either direction.
 
 ---
 
@@ -352,7 +352,7 @@ verified priority evidence for them:
 
 | Service | free5GC | open5GS | Priority signal |
 |---|---|---|---|
-| `Npcf_PolicyAuthorization` | Real (`policyauthorization.go`) | Real -- confirmed via `OGS_SBI_RESOURCE_NAME_APP_SESSIONS` in `npcf-handler.c` (1,686 lines), the real TS 29.514 resource name | **Closed, docs/DECISIONS.md ADR-0080.** Both references implement this; this project's own `nfs/pcf/src/main.cpp` now does too (`PostAppSessions`/`GetAppSession`/`ModAppSession`/`DeleteAppSession`/`updateEventsSubsc`/`DeleteEventsSubsc`/`PcscfRestoration`, all live-verified). Real, disclosed gap remaining: no PCC-rule engine to authorize a requested media flow against -- returns a schema-correct, non-fabricated "authorized" outcome (no `ServAuthInfo` failure code), not real subscriber-specific decisioning. |
+| `Npcf_PolicyAuthorization` | Real (`policyauthorization.go`) | Real -- confirmed via `OGS_SBI_RESOURCE_NAME_APP_SESSIONS` in `npcf-handler.c` (1,686 lines), the real TS 29.514 resource name | **Closed, docs/DECISIONS.md ADR-0080.** Both references implement this; this project's own `nfs/pcf/src/main.cpp` now does too (`PostAppSessions`/`GetAppSession`/`ModAppSession`/`DeleteAppSession`/`updateEventsSubsc`/`DeleteEventsSubsc`/`PcscfRestoration`, all live-verified). Real, disclosed deferred item remaining: no PCC-rule engine to authorize a requested media flow against -- returns a schema-correct, non-fabricated "authorized" outcome (no `ServAuthInfo` failure code), not real subscriber-specific decisioning. |
 | `Npcf_UEPolicyControl` (URSP) | Real (`api_uepolicy.go`) | Grep-confirmed absent (no URSP/UE-policy resource name found in open5GS's PCF source) | free5GC-only. Still owed per ADR-0075, lower relative priority than PolicyAuthorization. |
 | `Npcf_BDTPolicyControl` | Real (`bdtpolicy.go`) | Grep-confirmed absent | free5GC-only. |
 | `Npcf_EventExposure` | Not found in free5GC's own processor directory either | Not checked in depth | Neither reference clearly implements this -- lowest priority of the self-disclosed list, pending a closer look. |
@@ -381,11 +381,11 @@ free5GC's real UDM processors: `subscriber_data_management.go` (`Nudm_SDM`),
 auth-events) -- route-for-route matching free5GC's own core surface, already covered by this
 project's own live-verified integration tests.
 
-**Real gap, entirely missing, both references -- closed, docs/DECISIONS.md ADR-0082**: `Nudm_EE`
+**Real deferred item, entirely missing, both references -- closed, docs/DECISIONS.md ADR-0082**: `Nudm_EE`
 (Event Exposure -- `CreateEeSubscription`/`UpdateEeSubscription`/`DeleteEeSubscription`, real
 subscription-based UDM event notifications) and `Nudm_PP` (Parameter Provisioning -- the real
 `Get`/`Update` `pp-data` operation the analysis named). Both free5GC-only (grep-confirmed absent
-from open5GS's UDM too), still real gaps per ADR-0075, now closed and live-verified. Real,
+from open5GS's UDM too), still real deferred items per ADR-0075, now closed and live-verified. Real,
 newly-discovered additional `Nudm_PP` scope found while implementing this (not in the original
 finding above): three larger, more specialized resource groups -- `/5g-vn-groups/{extGroupId}`
 (5G LAN/VN group CRUD), `/{ueId}/pp-data-store/{afInstanceId}` (PP Data Entry CRUD),
@@ -397,7 +397,7 @@ or silently dropped.
 ## UDR
 
 **Scale context**: this project's UDR is 963 lines vs free5GC's 9,547 (Go) vs open5GS's 2,400 (C).
-UDR is architecturally a wide-but-shallow data repository (TS 29.504) -- the real gap here is
+UDR is architecturally a wide-but-shallow data repository (TS 29.504) -- the real deferred item here is
 resource-type COUNT, not per-resource complexity.
 
 ### Real resource-type coverage
@@ -527,7 +527,7 @@ SMF-registrations context-data (full CRUD,
 `sm-data`, -- ADR-0106 -- `lcs-bca-data`, -- ADR-0125 -- `sms-mng-data`, -- ADR-0126 -- `sms-data`, and -- ADR-0127 -- `trace-data`), and the real nested `policy-data/ues/{ueId}/sm-data` resource from ADR-0072
 (`SmPolicyData` with full `SmPolicySnssaiData -> SmPolicyDnnData` nesting and RFC 7396 merge-patch
 semantics -- genuinely more complete for THIS one resource than a bare CRUD document, per that
-ADR's own real, deliberate design). What's covered is solid; the real gap is breadth -- roughly 53
+ADR's own real, deliberate design). What's covered is solid; the real deferred item is breadth -- roughly 53
 of free5GC's ~42+ real resource types (9 as of ADR-0083, 10 as of ADR-0093, 12 as of ADR-0097, 13
 as of ADR-0098, 14 as of ADR-0099, 15 as of ADR-0100, 16 as of ADR-0101, 17 as of ADR-0102, 18 as
 of ADR-0103, 19 as of ADR-0104, 20 as of ADR-0105, 21 as of ADR-0106, 22 as of ADR-0107, 23 as of
@@ -546,7 +546,7 @@ was a `Nudr_GroupIDmap` resource, no `Nudr_DataRepository` count change), 72 as 
 (ADR-0166 composed entirely from already-counted resources, no count change), 74 as of ADR-0167,
 76 as of ADR-0168, now 78 as of ADR-0169 -- see below). This is well past free5GC's own ~42+
 figure for real
-`Nudr_DataRepository` resource types; the real, still-open gap from here is
+`Nudr_DataRepository` resource types; the real, still-open deferred item from here is
 the not-yet-surveyed remainder of `TS29505_Subscription_Data.yaml` itself (`group-data/*`,
 `a2x-data`, `rangingsl-privacy-data`, `ranging-slpos-data`, `5mbs-data`, and others) plus the
 genuinely deferred subsystems below, not a shrinking free5GC-comparison count.
@@ -665,7 +665,7 @@ metric, still 34. **Closed, docs/DECISIONS.md ADR-0164**: `GetNfGroupIDs` (`/nf-
 second real `Nudr_GroupIDmap` resource, genuinely unblocked once ADR-0161's array-parsing infra
 landed -- also does **NOT** count toward the `Nudr_DataRepository` metric. `Nudr_GroupIDmap`'s own
 remaining resources (the `/nf-group-ids/subscriptions` change-notification family, surveyed in
-ADR-0164 but deliberately deferred, same "no real webhook delivery" gap class as
+ADR-0164 but deliberately deferred, same "no real webhook delivery" deferred item class as
 `subs-to-notify`) remain open.
 **Closed, docs/DECISIONS.md ADR-0121** (self-correction): NIDD Authorization Info context-data
 (`CreateNIDDAuthorizationInfo`/`GetNiddAuthorizationInfo`/`ModifyNiddAuthorizationInfo`/
@@ -685,7 +685,7 @@ confirmed genuinely deeply-nested subscription-lifecycle resources (server-gener
 `POST`, further nested `amf-`/`smf-`/`hss-subscriptions` sub-collections, plus a parallel
 `group-data`-scoped tree), and `/policy-data/subs-to-notify` is confirmed a real `POST`-based
 collection with a server-generated `Location` and real webhook callback registration -- all three
-remain genuine, disclosed gaps, not silently re-deferred. **Closed, docs/DECISIONS.md ADR-0123**:
+remain genuine, disclosed deferred items, not silently re-deferred. **Closed, docs/DECISIONS.md ADR-0123**:
 ODB Data (`GetOdbData`, real GET-only, seeded at startup, same shape as
 `coverage-restriction-data`) -- taking UDR from 36 to 37 of free5GC's ~42+ real
 `Nudr_DataRepository` resource types. **Closed, docs/DECISIONS.md ADR-0125**: SMS Management
@@ -726,7 +726,7 @@ NOT part of the `provisioned-data` group -- keyed by `ueId` alone, so a new `udr
 table/store) -- taking UDR from 44 to 45 of free5GC's ~42+ real `Nudr_DataRepository` resource
 types. Its real sibling `nidd-authorization-data` was surveyed in the same pass and confirmed
 genuinely blocked (not silently skipped): real required complex-object query parameters this
-project has no parsing precedent for, the same class of gap already disclosed for `pdtq-data` --
+project has no parsing precedent for, the same class of deferred item already disclosed for `pdtq-data` --
 moved to the genuinely-deferred list below. **Closed, docs/DECISIONS.md ADR-0134**: A2X
 Subscription Data (`QueryA2xData`, schema `A2xSubscriptionData` -- every field optional, same
 shape as `v2x-data`/`prose-data`; real GET-only, genuinely NOT part of the `provisioned-data`
@@ -754,7 +754,7 @@ PUT+GET+PATCH+DELETE, real distinct 201-vs-204 PUT, real RFC 6902 PATCH, composi
 serviceType)` key -- taking UDR from 49 to 50 of free5GC's ~42+ real `Nudr_DataRepository`
 resource types. Its real sibling `service-specific-authorization-data/{serviceType}` was surveyed
 in the same pass and confirmed genuinely blocked (not silently skipped): real required
-complex-object query parameters this project has no parsing precedent for, same class of gap
+complex-object query parameters this project has no parsing precedent for, same class of deferred item
 already disclosed for `nidd-authorization-data`. **Closed, docs/DECISIONS.md ADR-0140**: Group
 Identifiers mapping resource (`GetGroupIdentifiers`, schema `GroupIdentifiers` -- every field
 optional, no path parameters, genuinely NOT per-UE; two real optional query parameters
@@ -769,7 +769,7 @@ UDR from 51 to 52 of free5GC's ~42+ real `Nudr_DataRepository` resource types. F
 `ue-update-confirmation-data` sub-resource closed -- its `sor-data`/`upu-data`/`subscribed-cag`
 siblings remain genuinely deferred. Bare `/subscription-data/{ueId}` was surveyed in the same pass
 and confirmed genuinely blocked: it combines both the array-query-param (`dataset-names`) and
-complex-object-query-param (`single-nssai`) gaps already disclosed elsewhere. **Closed,
+complex-object-query-param (`single-nssai`) deferred items already disclosed elsewhere. **Closed,
 docs/DECISIONS.md ADR-0142**: CAG update ack (Document) resource (`CreateCagUpdateAck`/
 `QueryCagAck`, schema `CagAckData` -- identical shape to `NssaiAckData`, same real 204-only-PUT,
 no create-vs-update distinction) -- taking UDR from 52 to 53 of free5GC's ~42+ real
@@ -882,7 +882,7 @@ GET+PUT+PATCH+DELETE, array-valued `AmfSubscriptionInfo[]` document, real distin
 PUT), the group-data-scoped sibling of `ee-subscriptions/{subsId}/amf-subscriptions` (ADR-0152)
 -- taking UDR from 66 to 67 of free5GC's ~42+ real `Nudr_DataRepository` resource types. This
 ADR also found the ADR-0156 Location-header bug was far more widespread than its own 3-occurrence
-fix: ~20 routes project-wide, including foundational Tier 1a resources predating any gap-closure
+fix: ~20 routes project-wide, including foundational Tier 1a resources predating any deferred-item closure
 ADR. Presented to the user via `AskUserQuestion`; user explicitly chose to fix all ~20 occurrences
 in this same turn via one new shared `resolved_location()` helper, rather than deferring or
 narrowing scope. **Closed, docs/DECISIONS.md ADR-0158**: SMF Event Group Subscription Info
@@ -937,7 +937,7 @@ deliberately deferred to its own future turn.
 **Closed, docs/DECISIONS.md ADR-0165**: `GetNiddAuData`
 (`/subscription-data/{ueId}/nidd-authorization-data`, `TS29505_Subscription_Data.yaml`) --
 genuinely distinct from the already-closed `context-data/nidd-authorizations` (ADR-0121). Real
-finding: its actual blocker was **not** ADR-0161's array-query-param gap -- its real REQUIRED
+finding: its actual blocker was **not** ADR-0161's array-query-param deferred item -- its real REQUIRED
 `single-nssai` uses `content: application/json` (a JSON-encoded query value), a genuinely
 different shape, handled with a direct `json::parse()` rather than new shared infra. GET-only, no
 write path exists in this project's in-scope APIs (real provisioning is UDM's own `Nudm_NIDDAU`
@@ -948,9 +948,9 @@ service, out of scope); seeded at startup -- taking UDR from 71 to 72 of free5GC
 UeUpdConfData`) composed **entirely** from already-closed sub-resources; needed zero new stores.
 Does **NOT** increment the `Nudr_DataRepository` count -- still 72, unchanged from ADR-0165, same
 non-double-counting precedent as `QueryContextData`/`ue-update-confirmation-data`. Real, disclosed
-gaps: `serving-plmn` (optional here, required by `ProvisionedDataStore`'s own composite key) gates
+deferred items: `serving-plmn` (optional here, required by `ProvisionedDataStore`'s own composite key) gates
 7 fields when absent (recoverable once supplied); `niddAuthData` is never composed (a permanent
-gap -- its own key needs `mtc-provider-information`, a param this resource doesn't expose at all).
+deferred item -- its own key needs `mtc-provider-information`, a param this resource doesn't expose at all).
 **Closed, docs/DECISIONS.md ADR-0167**: bare `group-data/5g-vn-groups` and
 `group-data/mbs-group-membership` collection GETs (`Query5GVnGroup`/`Query5GmbsGroup`) -- real map
 responses composed from the same tables their own individual-resource siblings already write to
@@ -978,7 +978,7 @@ subscription-management family (`CreateGroupIdSubscription`/`QueryGroupIdSubscri
 `ModifyGroupIdSubscription`/`RemoveGroupIdSubscription`) -- real CRUD, structurally the same shape
 as `ee-subscriptions`/`subs-to-notify`, contrary to ADR-0164's own earlier "genuinely more
 complex" characterization (made without a detailed read at the time). Real, disclosed: the spec's
-own `onGroupIdMapChange` webhook callback is not implemented -- same disclosed gap class as
+own `onGroupIdMapChange` webhook callback is not implemented -- same disclosed deferred item class as
 `subs-to-notify`'s own lack of real webhook delivery. Does **NOT** increment the
 `Nudr_DataRepository` count -- still 78, same non-counting precedent as `GetRoutingIDs`/
 `GetNfGroupIDs`.
@@ -1054,11 +1054,11 @@ individual document (`PUT`+RFC 6902 `PATCH`+`DELETE`) and its 3 nested `amf-subs
 the already-wired per-UE `ee-subscriptions` family -- **61 real per-UE call sites + 26 real
 non-per-UE call sites = 87 real write-route call sites total, 41 distinct resource types wired**.
 This closes ADR-0176's own disclosed non-per-UE candidate list in full. Live-verified the
-create->subscribe->PATCH chain end-to-end via the real HTTPS receiver. The only remaining real gap
+create->subscribe->PATCH chain end-to-end via the real HTTPS receiver. The only remaining real deferred item
 in `onDataChange`-adjacent delivery is `Nudr_GroupIDmap`'s own separate `onGroupIdMapChange`
 callback, a genuinely different API, currently unfireable regardless since `nf-group-ids` itself
 has no write path.
-**Continued, docs/DECISIONS.md ADR-0179**: closed the real, previously-disclosed testing gap named
+**Continued, docs/DECISIONS.md ADR-0179**: closed the real, previously-disclosed testing deferred item named
 in every prior `onDataChange` ADR -- delivery had only ever been verified manually. New automated
 test `UdrIntegration.OnDataChangeWebhookDeliveredOnPutPatchDelete`
 (`tests/integration/test_udr_ondatachange_webhook.cpp`) drives a real `POST subs-to-notify` +
@@ -1070,7 +1070,7 @@ mistake (assumed `amf-3gpp-access` supports `DELETE`; it genuinely doesn't), a r
 real test-isolation bug (fixed `ue_id` colliding with leftover PostgreSQL state from an
 interrupted prior run, fixed via this project's own existing `getpid()`-suffix precedent). 332/332
 tests pass.
-**Continued, docs/DECISIONS.md ADR-0180**: the last remaining real gap, `Nudr_GroupIDmap`'s own
+**Continued, docs/DECISIONS.md ADR-0180**: the last remaining real deferred item, `Nudr_GroupIDmap`'s own
 separate `onGroupIdMapChange` callback, is now wired. Direct read of
 `TS29504_Nudr_GroupIDmap.yaml` confirmed `/nf-group-ids` genuinely has no write operation at all
 to trigger it from -- rather than inventing a non-spec write endpoint, the callback now fires from
@@ -1114,7 +1114,7 @@ distinct from the bare `authentication-status` document) -- a real new resource 
 **NOT** increment the resource-type count, same non-double-counting precedent as
 `QueryUeSubscribedData`/`QueryContextData`, since it composes entirely from already-closed
 sub-resources. Same ADR corrected a stale claim in this doc's own earlier Tier-B audit: the
-previously-claimed "`subs-to-notify` bulk-DELETE" gap does not correspond to any real operation in
+previously-claimed "`subs-to-notify` bulk-DELETE" deferred item does not correspond to any real operation in
 the spec (the collection is `POST`-only) and that resource is already fully implemented
 (task #122) -- no code fix needed, documentation only.
 
@@ -1126,8 +1126,8 @@ composed entirely from the already-closed individual `bdt-data/{bdtReferenceId}`
 **NOT** increment the count), and the `Policy_Data`-specific Policy Data Subscriptions
 (Collection) + Individual Policy (Data) Subscription (Document) (a real new resource type,
 genuinely distinct from `Subscription_Data`'s own `subs-to-notify`). **UDR now has zero known
-Tier-B gaps -- every real operation across both `Subscription_Data.yaml` and `Policy_Data.yaml`
-is either implemented or an explicitly disclosed, out-of-scope gap.**
+Tier-B deferred items -- every real operation across both `Subscription_Data.yaml` and `Policy_Data.yaml`
+is either implemented or an explicitly disclosed, out-of-scope deferred item.**
 
 ---
 
@@ -1145,8 +1145,8 @@ request+response pairs): `Heartbeat`, `PFDManagement`, `AssociationSetup`, `Asso
 of these except `SessionSetDeletion` -- `Heartbeat`, `AssociationSetup`, `AssociationUpdate`,
 `AssociationRelease`, `SessionEstablishment`/`Modification`/`Deletion`, `PFDManagement`, sends and
 now (real, both directions) receives `NodeReport`. `AssociationUpdate`/`AssociationRelease` closed
-by gap-closure task #107 part 1 (ADR-0084, live-verified over real raw UDP); `PFDManagement` closed
-by task #107 part 2 (ADR-0086, live-verified over real raw UDP -- real, disclosed gap: no
+by deferred-item closure task #107 part 1 (ADR-0084, live-verified over real raw UDP); `PFDManagement` closed
+by task #107 part 2 (ADR-0086, live-verified over real raw UDP -- real, disclosed deferred item: no
 Application Detection Filter engine yet consumes the provisioned PFDs); `NodeReport` closed by task
 #107's final slice (ADR-0087, live-verified between two real, independently-built processes --
 UPF's own send-side encoder and SMF's real `PfcpPeer` receive-side handler).
@@ -1160,10 +1160,10 @@ only -- **not Sxc**, and N4 (this project's own real interface) is Sxc. Its own 
 free5GC's own dispatch of this message type is real, but does not by itself mean the message
 applies to a 5GC-only N4 deployment such as this one's -- a genuine "not applicable" per the spec
 text actually read, not a deferred stub. **Task #107 is now closed in full**: 4 of its 5 originally-
-named gaps are real and closed, the 5th is a real non-gap.
+named deferred items are real and closed, the 5th is not a real deferred item.
 
 ### Datapath: this project is already ahead here, worth recording per ADR-0075's "superior, not
-just parity" framing, not just gaps
+just parity" framing, not just deferred items
 
 free5GC's UPF forwards via **`gtp5g`**, a real, separate Linux kernel module the free5GC project
 maintains and drives via netlink (`internal/forwarder/gtp5g.go`/`gtp5glink.go`) -- a real,
@@ -1175,7 +1175,7 @@ in-kernel, no-custom-module, generally higher-throughput datapath approach than 
 own choice. **Real, disclosed, not yet benchmarked**: ADR-0049 already recorded "zero
 benchmarking of any kind... performed against free5GC or anything else" -- this is architectural
 superiority on paper, not yet a proven-faster claim, and P4.12/ADR-0049's own benchmarking-harness
-gap is what would actually prove it.
+deferred item is what would actually prove it.
 
 ---
 
@@ -1201,7 +1201,7 @@ CHF has any equivalent of. **On 5G-native service breadth and legacy-protocol tr
 project is already ahead of free5GC**, consistent with ADR-0075's "superior, not just parity"
 mandate already being true in this specific area, not just aspirational.
 
-### Real gap, now CLOSED (task #108, ADR-0089): TS 32.298 CDR encoding
+### Real deferred item, now CLOSED (task #108, ADR-0089): TS 32.298 CDR encoding
 
 free5GC's CHF has a real, substantial `cdr/` module (4,746 lines) implementing genuine TS 32.298
 ASN.1 BER CDR encoding -- confirmed by real, specific 3GPP IE-matching type names
@@ -1211,7 +1211,7 @@ ASN.1 BER CDR encoding -- confirmed by real, specific 3GPP IE-matching type name
 (`cdr/asn/ber_{marshal,unmarshal}.go` -- not asn1c-generated from a vendored `.asn` file, but a
 real, faithful transcription of the real TS 32.298 field layout into Go structs).
 
-This project's own `nfs/chf/schema.clickhouse.sql` used to self-disclose the matching gap: "this
+This project's own `nfs/chf/schema.clickhouse.sql` used to self-disclose the matching deferred item: "this
 is NOT a conformant TS 32.298 CDR... TS 32.298 is not vendored in this repo." The user supplied
 the real spec (`specs/TS_32_298.pdf`, ETSI TS 132 298 V18.8.0/Release 18, verified genuine) and
 `nfs/chf/src/cdr_asn1.{hpp,cpp}` now implements a real, BER-encoded `[200] chargingFunctionRecord`
@@ -1220,53 +1220,53 @@ ADR-0001's "reference reading only, never copy" rule. Real, disclosed, narrower 
 free5GC's: 10 of 46 real `ChargingRecord` fields are populated (the ones this project's own CHF
 has genuine data for); the rest need unvendored specs (TS 32.255, TS 32.260) or don't apply to
 this project's current scope. Live-verified via real curl + direct ClickHouse hex-decode of the
-stored `asn1_cdr` column against a real running CHF instance. Disclosed version gap: v18.8.0/
+stored `asn1_cdr` column against a real running CHF instance. Disclosed version difference: v18.8.0/
 Release 18, not yet re-verified against REL-19. Full detail in ADR-0089/`docs/TRACEABILITY.md`.
 
-### `ccs_diameter/` -- roughly parallel to this project's own Gy/Rf, not a new gap
+### `ccs_diameter/` -- roughly parallel to this project's own Gy/Rf, not a new deferred item
 
 free5GC's `ccs_diameter/` (Diameter CCS -- Credit Control Service, its own Ro/Gy-class dictionary
 and codec) is architecturally the same real capability this project's own Diameter Gy/Rf/Sy
 implementation (P4.5, ADR-0059/-0060) already covers. Not re-derived line-by-line in this pass
 since this project's own Diameter work is already real, tested, and live-verified -- flagged for
-a closer behavioral diff only if a specific discrepancy surfaces later, not assumed to be a gap.
+a closer behavioral diff only if a specific discrepancy surfaces later, not assumed to be a deferred item.
 
 ---
 
 ## Summary and priority signal (9 of 17 built NFs covered by the original sweep; NSSF/BSF/NEF/SCP/5G-EIR/SMSF/GMLC/LMF added later, ADR-0183 through ADR-0191)
 
-| NF | Scale ratio (ref/ours) | Highest-priority real gap |
+| NF | Scale ratio (ref/ours) | Highest-priority real deferred item |
 |---|---|---|
-| NRF | ~1-1.3x | **STALE ROW CORRECTED (ADR-0251)** -- both listed gaps are CLOSED: NFProfile semantic validation is real (`validate_nf_profile`, `nfs/nrf/src/main.cpp`, called on register), and the active heartbeat-expiry sweep landed in ADR-0079 (task #102). No known open gap from the original sweep. |
-| AMF | ~10-14x | `ServiceRequest`: CLOSED (ADR-0076). N2 handover: CLOSED in full (task #100, ADR-0090 `PathSwitchRequest` slice + ADR-0095/ADR-0096 real concurrent associations + the full `HandoverRequired`...`HandoverNotify` chain); real AMF->SMF PDU-session-transfer depth **CLOSED, ADR-0258** (AMF now calls `Nsmf_PDUSession_UpdateSMContext` with `n2SmInfoType=HANDOVER_REQUIRED` per PDU session and relays SMF's real transfer; the fabricated TEID=0/0.0.0.0 transfer is deleted). `HandoverCancel` **CLOSED, ADR-0261** (real HandoverCancelAcknowledge to the source, `hoState=CANCELLED` to SMF per PDU session, `UEContextReleaseCommand` with `Cause=handover-cancelled` to the target gNB whose identity AMF now persists at preparation time). Disclosed: covers an already-PREPARED handover, not one racing an in-flight preparation (ADR-0009 synchronous-relay debt); AMF half's acknowledge path is now covered end-to-end over real SCTP by ADR-0264's test gNB; the **full relay is now tested end to end (ADR-0269)** -- a registered UE with a real PDU session, two simultaneously open gNB associations, HandoverRequired -> SMF -> HandoverRequest -> target gNB -> HandoverRequestAcknowledge -> HandoverCommand, verified against AMF's own log. Real gap that closing it exposed and ADR-0269 discloses rather than leaves implicit: AMF never calls SMF with the target's `HANDOVER_REQ_ACK` N2 SM info (TS 23.502 §4.9.1.3.2), the exact mirror of the gap ADR-0258 closed for HANDOVER_REQUIRED -- so UPF's downlink still points at the source gNB after a completed handover. **CLOSED, ADR-0270**: AMF now calls SMF with `HANDOVER_REQ_ACK` per admitted session and puts SMF's returned `HandoverCommandTransfer` in the `HandoverCommand`'s own `PDUSessionResourceHandoverList` (an IE it previously omitted) -- verified by UPF's own log naming the target gNB's TEID, four processes deep |
+| NRF | ~1-1.3x | **STALE ROW CORRECTED (ADR-0251)** -- both listed deferred items are CLOSED: NFProfile semantic validation is real (`validate_nf_profile`, `nfs/nrf/src/main.cpp`, called on register), and the active heartbeat-expiry sweep landed in ADR-0079 (task #102). No known open deferred item from the original sweep. |
+| AMF | ~10-14x | `ServiceRequest`: CLOSED (ADR-0076). N2 handover: CLOSED in full (task #100, ADR-0090 `PathSwitchRequest` slice + ADR-0095/ADR-0096 real concurrent associations + the full `HandoverRequired`...`HandoverNotify` chain); real AMF->SMF PDU-session-transfer depth **CLOSED, ADR-0258** (AMF now calls `Nsmf_PDUSession_UpdateSMContext` with `n2SmInfoType=HANDOVER_REQUIRED` per PDU session and relays SMF's real transfer; the fabricated TEID=0/0.0.0.0 transfer is deleted). `HandoverCancel` **CLOSED, ADR-0261** (real HandoverCancelAcknowledge to the source, `hoState=CANCELLED` to SMF per PDU session, `UEContextReleaseCommand` with `Cause=handover-cancelled` to the target gNB whose identity AMF now persists at preparation time). Disclosed: covers an already-PREPARED handover, not one racing an in-flight preparation (ADR-0009 synchronous-relay debt); AMF half's acknowledge path is now covered end-to-end over real SCTP by ADR-0264's test gNB; the **full relay is now tested end to end (ADR-0269)** -- a registered UE with a real PDU session, two simultaneously open gNB associations, HandoverRequired -> SMF -> HandoverRequest -> target gNB -> HandoverRequestAcknowledge -> HandoverCommand, verified against AMF's own log. Real deferred item that closing it exposed and ADR-0269 discloses rather than leaves implicit: AMF never calls SMF with the target's `HANDOVER_REQ_ACK` N2 SM info (TS 23.502 §4.9.1.3.2), the exact mirror of the deferred item ADR-0258 closed for HANDOVER_REQUIRED -- so UPF's downlink still points at the source gNB after a completed handover. **CLOSED, ADR-0270**: AMF now calls SMF with `HANDOVER_REQ_ACK` per admitted session and puts SMF's returned `HandoverCommandTransfer` in the `HandoverCommand`'s own `PDUSessionResourceHandoverList` (an IE it previously omitted) -- verified by UPF's own log naming the target gNB's TEID, four processes deep |
 | AUSF | ~3-5x | **STALE ROW CORRECTED (ADR-0251)** -- both CLOSED: `Nausf_SoRProtection` and real TS 33.503 5G ProSe authentication are implemented (ADR-0091, task #104). |
 | SMF | ~10-16x | `UpdateSMContext`: `PATH_SWITCH_REQ`/`_ACK` slice CLOSED (task #101, ADR-0092, real downlink FAR/GTP-U control-plane); ~~**COUNT CORRECTED (ADR-0251)**: 22 of the 26 real N2SmInfoType values remain a stub -- SMF now implements 4 (PATH_SWITCH_REQ/_ACK, plus HANDOVER_REQ_ACK in ADR-0248 and HANDOVER_REQUIRED in ADR-0249).~~ **CLOSED, ADR-0259 + ADR-0260**: all 26 values are now accounted for -- 16 decoded and handled inbound, 10 rejected with 400 as SMF-originated transfers rather than swallowed by the old blanket 204. Depth still varies and ADR-0260 names which values record rather than act; enum coverage is not the same claim as behavioural parity and neither ADR makes the second one. AMF's own N2 handover NGAP side is now closed (ADR-0095/ADR-0096), and the AMF->SMF relay wiring for handover-triggered PDU session resource re-setup is **CLOSED, ADR-0258** -- AMF really calls this endpoint now, pinned by `tests/integration/test_smf_handover_n2sminfo.cpp` |
-| PCF | ~7-10x | **STALE ROW CORRECTED (ADR-0251)** -- `Npcf_PolicyAuthorization` (AF/IMS-facing QoS) was CLOSED by ADR-0080 (task #103); it stayed listed as the top open gap long afterwards and nearly caused it to be reimplemented. PCF's 7 remaining YAML files closed in ADR-0204/0205/0206 (task #163). |
+| PCF | ~7-10x | **STALE ROW CORRECTED (ADR-0251)** -- `Npcf_PolicyAuthorization` (AF/IMS-facing QoS) was CLOSED by ADR-0080 (task #103); it stayed listed as the top open deferred item long afterwards and nearly caused it to be reimplemented. PCF's 7 remaining YAML files closed in ADR-0204/0205/0206 (task #163). |
 | UDM | ~3-6x | **STALE ROW CORRECTED (ADR-0251)** -- both CLOSED: `Nudm_EE` in ADR-0082 (task #105), `Nudm_PP`'s 11 ops in ADR-0237. ~~Genuinely open: UECM's non-3GPP-AMF/SMSF/IP-SM-GW/NWDAF registration groups and UEAU's GetRgAuthData/GenerateAv/GenerateGbaAv.~~ **BOTH CLOSED, re-checked ADR-0258**: UEAU's three ops in ADR-0214; UECM's entire Tier-B backlog across ADR-0215/0216/0217/0218/0219/0220/0221/0227. This row was still asserting them open. |
-| UDR | ~2.5-10x | Resource-type breadth (78 of 42+ real TS 29.504 resources closed, past parity -- both ee-subscriptions nested-subscription trees, bare `{ueId}/context-data`/`{ueId}` (32-field aggregate)/`pdtq-data`, `Nudr_GroupIDmap`'s `GetNfGroupIDs` + real `nf-group-ids/subscriptions` CRUD family, `GetNiddAuData`, and `group-data`'s entire `5g-vn-groups`/`mbs-group-membership` resource set (bare collection, individual, `/internal`, `/pp-profile-data` singleton) now fully closed (ADR-0161 through ADR-0170 -- fully closes this series' own array-parsing-infra-unblocked candidate list; ADR-0168 also found and fixed a real router literal-vs-wildcard ordering hazard, re-applied in ADR-0169; ADR-0169 is this project's first genuinely keyless singleton resource); real `onDataChange` webhook delivery infrastructure built and live-verified end-to-end (ADR-0171 through ADR-0180), wired into all 31 of ~40 real per-UE write resources this project has identified plus all 10 non-per-UE resources unblocked by the ADR-0176 schema fix (87 real write-route call sites total, 41 distinct resource types), backed by a real automated `ctest` integration test (ADR-0179), plus `Nudr_GroupIDmap`'s own separate `onGroupIdMapChange` callback now fired from the one real mutation its mapping data has -- startup seed, since the real spec genuinely has no live write path for it (ADR-0180) -- closing real `onDataChange`/`onGroupIdMapChange` coverage across both of UDR's real Nudr APIs; the real `gpsis`/`ext-group-ids` filtering backlog across `Query5GVnGroup`/`Query5GmbsGroup`/`Query5GVNGroupPPData`/`Query5GMbsGroupPPData` is now closed too (ADR-0181) -- `QueryUeSubscribedData`'s own unrelated `ext-group-ids` filter remains correctly unhonored (no store to filter its 32 flat per-UE fields against), `niddAuthData`'s permanent gap in the aggregate (needs `mtc-provider-information`, not exposed by that resource), and `GetSSAuData` (deliberately deferred, ADR-0160) remain real, disclosed gaps, see UDR section above) |
+| UDR | ~2.5-10x | Resource-type breadth (78 of 42+ real TS 29.504 resources closed, past parity -- both ee-subscriptions nested-subscription trees, bare `{ueId}/context-data`/`{ueId}` (32-field aggregate)/`pdtq-data`, `Nudr_GroupIDmap`'s `GetNfGroupIDs` + real `nf-group-ids/subscriptions` CRUD family, `GetNiddAuData`, and `group-data`'s entire `5g-vn-groups`/`mbs-group-membership` resource set (bare collection, individual, `/internal`, `/pp-profile-data` singleton) now fully closed (ADR-0161 through ADR-0170 -- fully closes this series' own array-parsing-infra-unblocked candidate list; ADR-0168 also found and fixed a real router literal-vs-wildcard ordering hazard, re-applied in ADR-0169; ADR-0169 is this project's first genuinely keyless singleton resource); real `onDataChange` webhook delivery infrastructure built and live-verified end-to-end (ADR-0171 through ADR-0180), wired into all 31 of ~40 real per-UE write resources this project has identified plus all 10 non-per-UE resources unblocked by the ADR-0176 schema fix (87 real write-route call sites total, 41 distinct resource types), backed by a real automated `ctest` integration test (ADR-0179), plus `Nudr_GroupIDmap`'s own separate `onGroupIdMapChange` callback now fired from the one real mutation its mapping data has -- startup seed, since the real spec genuinely has no live write path for it (ADR-0180) -- closing real `onDataChange`/`onGroupIdMapChange` coverage across both of UDR's real Nudr APIs; the real `gpsis`/`ext-group-ids` filtering backlog across `Query5GVnGroup`/`Query5GmbsGroup`/`Query5GVNGroupPPData`/`Query5GMbsGroupPPData` is now closed too (ADR-0181) -- `QueryUeSubscribedData`'s own unrelated `ext-group-ids` filter remains correctly unhonored (no store to filter its 32 flat per-UE fields against), `niddAuthData`'s permanent deferred item in the aggregate (needs `mtc-provider-information`, not exposed by that resource), and `GetSSAuData` (deliberately deferred, ADR-0160) remain real, disclosed deferred items, see UDR section above) |
 | UPF | ~1x (task #107 fully closed: Association Update/Release, ADR-0084; PFD Management, ADR-0086; Node Report, ADR-0087; Session Set Deletion correctly found not applicable to this project's own N4/Sxc interface) | datapath (XDP) already ahead of both references on paper, unbenchmarked |
 | CHF | ~2.2x (free5GC), N/A (open5GS has none) | TS 32.298 real CDR encoding: CLOSED (task #108, ADR-0089, narrower disclosed scope than free5GC's); already ahead on 5G-native service breadth + AI-native charging |
-| NSSF | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0183, not part of the original comparison pass) | Both real `Nnssf_NSSelection`/`Nnssf_NSSAIAvailability` services present, all 8 real operations implemented; real gap: the slice-selection decision itself is catalog-membership filtering against a fixed seed, not real subscriber-entitlement/NRF-discovery/NSAG-mapping logic -- see ADR-0183 |
-| BSF | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0184, not part of the original comparison pass) | Real `Nbsf_Management`, all 15 real operations across 4 resource families implemented, including the spec's own real duplicate-combination 403-with-existing-info logic and real `BsfEvent` notification coverage; no known real gap identified yet since no reference-source diff has been done -- see ADR-0184 |
-| NEF | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0185, not part of the original comparison pass) | All 14 real Nnef YAML files built (`Nnef_PFDmanagement` ADR-0185; `Nnef_SMService`, `Nnef_UEId`, `Nnef_DNAIMapping`, `Nnef_EASDeployment` ADR-0207; `Nnef_SMContext`, `Nnef_Authentication`, `Nnef_ECSAddress` ADR-0208; `Nnef_EventExposure` ADR-0209; `Nnef_TrafficInfluenceData`, `Nnef_Inference`, `Nnef_Training`, `Nnef_VFLInference`, `Nnef_VFLTraining` ADR-0210) -- task #164 complete, no Tier-A gaps remain. Real Tier-B breadth (individual stubbed/missing operations within these files) not separately audited -- see ADR-0210 |
+| NSSF | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0183, not part of the original comparison pass) | Both real `Nnssf_NSSelection`/`Nnssf_NSSAIAvailability` services present, all 8 real operations implemented; real deferred item: the slice-selection decision itself is catalog-membership filtering against a fixed seed, not real subscriber-entitlement/NRF-discovery/NSAG-mapping logic -- see ADR-0183 |
+| BSF | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0184, not part of the original comparison pass) | Real `Nbsf_Management`, all 15 real operations across 4 resource families implemented, including the spec's own real duplicate-combination 403-with-existing-info logic and real `BsfEvent` notification coverage; no known real deferred item identified yet since no reference-source diff has been done -- see ADR-0184 |
+| NEF | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0185, not part of the original comparison pass) | All 14 real Nnef YAML files built (`Nnef_PFDmanagement` ADR-0185; `Nnef_SMService`, `Nnef_UEId`, `Nnef_DNAIMapping`, `Nnef_EASDeployment` ADR-0207; `Nnef_SMContext`, `Nnef_Authentication`, `Nnef_ECSAddress` ADR-0208; `Nnef_EventExposure` ADR-0209; `Nnef_TrafficInfluenceData`, `Nnef_Inference`, `Nnef_Training`, `Nnef_VFLInference`, `Nnef_VFLTraining` ADR-0210) -- task #164 complete, no Tier-A deferred items remain. Real Tier-B breadth (individual stubbed/missing operations within these files) not separately audited -- see ADR-0210 |
 | SCP | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0186, not part of the original comparison pass) | Only `Nscp_EventExposure` built (all 3 real ops) -- SCP's real defining role (TS 29.500 §§6.10-6.11 inline HTTP/2 message-forwarding proxy for indirect communication) remains entirely undesigned and unbuilt, a real architectural departure from every other NF this project has, explicitly scoped out via a user-directed `AskUserQuestion` decision, not silently skipped -- see ADR-0186 |
-| 5G-EIR | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0187, not part of the original comparison pass; free5GC has no 5G-EIR implementation at all as of this project's own knowledge, so no reference exists to sweep against for this NF specifically) | This project's first Tier 2 NF. Real, complete: the entire real `N5g-eir_EquipmentIdentityCheck` API is 1 operation (`GetEquipmentStatus`), fully implemented and live-verified; real, disclosed gap is structural, not a shortfall -- the YAML has no write/provisioning operation anywhere (real IMEI database provisioning is OAM/GSMA scope, out of 3GPP's own SBI framework here), and AMF does not yet call this NF during Registration (TS 23.502 §4.2.2.2.2) -- see ADR-0187 |
-| SMSF | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0188, not part of the original comparison pass) | This project's second Tier 2 NF. Real, complete: all 5 real `Nsmsf_SMService` operations implemented and live-verified, including real `multipart/related` handling and a real cross-file schema dependency on IP-SM-GW's own YAML; real, disclosed gap is structural -- no real downstream SMS-GMSC/IWMSC or TS 24.011 SMS-over-NAS CP-DATA relay exists in this project (genuinely out of this session's spec material), so `SendSMS`/`SendMtSMS` report SMSF-level acceptance only, never a fabricated delivery outcome -- see ADR-0188 |
+| 5G-EIR | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0187, not part of the original comparison pass; free5GC has no 5G-EIR implementation at all as of this project's own knowledge, so no reference exists to sweep against for this NF specifically) | This project's first Tier 2 NF. Real, complete: the entire real `N5g-eir_EquipmentIdentityCheck` API is 1 operation (`GetEquipmentStatus`), fully implemented and live-verified; real, disclosed deferred item is structural, not a shortfall -- the YAML has no write/provisioning operation anywhere (real IMEI database provisioning is OAM/GSMA scope, out of 3GPP's own SBI framework here), and AMF does not yet call this NF during Registration (TS 23.502 §4.2.2.2.2) -- see ADR-0187 |
+| SMSF | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0188, not part of the original comparison pass) | This project's second Tier 2 NF. Real, complete: all 5 real `Nsmsf_SMService` operations implemented and live-verified, including real `multipart/related` handling and a real cross-file schema dependency on IP-SM-GW's own YAML; real, disclosed deferred item is structural -- no real downstream SMS-GMSC/IWMSC or TS 24.011 SMS-over-NAS CP-DATA relay exists in this project (genuinely out of this session's spec material), so `SendSMS`/`SendMtSMS` report SMSF-level acceptance only, never a fabricated delivery outcome -- see ADR-0188 |
 | GMLC | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0189, not part of the original comparison pass) | This project's third Tier 2 NF. Real scope split, not a partial slice: 2 of 5 real `Ngmlc_Location` operations (`RequestLocation`/`CancelLocation`) genuinely require this project's own LMF (unbuilt at the time, now built ADR-0191 -- but not wired) and honestly report `501`/`404` rather than fabricating positioning data; the other 3 (`UpdateLocation`/`LocationUpdateSubcribe`/`PrivacyCheckIdMapping`) have no LMF dependency and are real, complete, live-verified implementations -- see ADR-0189 |
 | LMF | **SWEPT, ADR-0294** (see this file's final section; was built after this table, ADR-0191, not part of the original comparison pass) | This project's fourth Tier 2 NF. Real scope split: 4 of 7 real `Nlmf_Location` operations (`UpSubscriptions`/`DeleteSubscription`/`LocationContextTransfer`/`UpConfig`) are real, complete, RF-independent implementations; the other 3 (`DetermineLocation`/`LocationMeasure`/`CancelLocation`) genuinely require real LPP (TS 37.355) UE positioning or PRU/NRPPa measurement (TS 38.305/38.455), neither implemented in this project, and honestly report `501`/`404` -- see ADR-0191. Also fixed 2 real sbi-codegen/spec bugs found building this NF -- see ADR-0190 |
 
 **Real, honest pattern across the sweep**: this project's "happy path" (initial attach, PDU
 session establishment, core CRUD on each NF's primary resource) is consistently real and already
-tested. The consistent gap is **procedure/service BREADTH** -- mobility/handover, the less-common
+tested. The consistent deferred item is **procedure/service BREADTH** -- mobility/handover, the less-common
 NAS/NGAP procedures, the wider data-repository resource surface, and a handful of
-optional-but-real 3GPP services each NF has. AMF/SMF's shared N2-handover gap is the single
+optional-but-real 3GPP services each NF has. AMF/SMF's shared N2-handover deferred item is the single
 highest-impact, highest-effort item found. CHF is the one NF where this project is already
 ahead of at least one reference on real service breadth.
 
 **Still not done, per ADR-0075's own scope**: this closes the original `nssf`/`nef`/`scp`/`bsf`
 "still not done" list -- all four now have at least one real, live-verified slice built (ADR-0183
 through ADR-0186). None of the four have been swept against free5GC/open5GS source the way the
-other 9 NFs above were, so their own real capability-parity gaps, if any, aren't characterized here
+other 9 NFs above were, so their own real capability-parity deferred items, if any, aren't characterized here
 yet. Two real, large, still-open items within this group: NEF had 13 of its own 14 real YAML files
 entirely unbuilt as of this table's own original writing (6 remain as of ADR-0208, see the NEF row
 above), and SCP's own real message-forwarding/indirect-communication role (TS 29.500
@@ -1285,7 +1285,7 @@ UDSF 2, SEPP 2 -- 12 Tier 2 NFs (per CLAUDE.md's own scope list) remain unbuilt.
 deferred wiring: GMLC's own `RequestLocation`/`CancelLocation` still don't call LMF -- LMF now
 exists and its own `DetermineLocation` is real code, but GMLC->LMF HTTP wiring wasn't done this
 turn, and LMF's own `DetermineLocation`/`LocationMeasure` remain honest `501`s regardless (the real
-LPP/PRU capability gap is unaffected by wiring). Also, this pass found and fixed 2 real defects
+LPP/PRU capability deferred item is unaffected by wiring). Also, this pass found and fixed 2 real defects
 while building LMF (ADR-0190): a vendored-spec transcription typo, and the third real
 sbi-codegen generator bug found this way (after ADR-0022/ADR-0024).
 
@@ -1295,13 +1295,13 @@ Different axis from the free5GC/open5GS behavioral sweep above: this is a litera
 of every real `N<nf>_*` YAML in `specs/5G_APIs-REL-19/` against `libs/sbi-generated/CMakeLists.txt`'s
 pilot set (wired vs. never-wired -- "Tier-A") and, for wired files, every real `operationId` against
 that NF's actual routed handlers (real vs. stub vs. missing -- "Tier-B"). Triggered by the user
-asking why `Nnrf_Bootstrapping` isn't implemented -- confirmed a real, undisclosed gap (the YAML
+asking why `Nnrf_Bootstrapping` isn't implemented -- confirmed a real, undisclosed deferred item (the YAML
 exists, was simply never added to the pilot set) -- then extended project-wide per ADR-0193's own
 mandatory, ASAP, one-by-one audit-and-close directive. Performed by a single-pass background
 agent, real grep/read evidence, not guessed; "needs closer look" reserved for anything a quick
 check couldn't resolve (none surfaced this pass).
 
-**Confirmed Tier-A gaps (whole API file never wired into codegen) by NF:**
+**Confirmed Tier-A deferred items (whole API file never wired into codegen) by NF:**
 
 | NF | Missing YAML file(s) |
 |---|---|
@@ -1314,19 +1314,19 @@ check couldn't resolve (none surfaced this pass).
 | PCF | ~~`Npcf_EventExposure`, `Npcf_UEPolicyControl`, `Npcf_AMPolicyAuthorization`, `Npcf_MBSPolicyAuthorization`, `Npcf_MBSPolicyControl`, `Npcf_PDTQPolicyControl`, `Npcf_BDTPolicyControl`~~ CLOSED, ADR-0204/ADR-0205/ADR-0206 (task #163, all 7 files, three slices) |
 | NEF | ~~`Nnef_SMService`, `Nnef_UEId`, `Nnef_DNAIMapping`, `Nnef_EASDeployment`~~ CLOSED, ADR-0207 (first slice); ~~`Nnef_SMContext`, `Nnef_Authentication`, `Nnef_ECSAddress`~~ CLOSED, ADR-0208 (second slice); ~~`Nnef_EventExposure`~~ CLOSED, ADR-0209 (third slice); ~~`Nnef_TrafficInfluenceData`, `Nnef_Inference`, `Nnef_Training`, `Nnef_VFLInference`, `Nnef_VFLTraining`~~ CLOSED, ADR-0210 (fourth slice) -- **all 13 of 13 closed, task #164 complete** |
 | LMF | ~~`Nlmf_Broadcast`, `Nlmf_DataExposure`~~ CLOSED, ADR-0196 |
-| UPF | ~~`Nupf_EventExposure`, `Nupf_GetUEPrivateIPaddrAndIdentifiers`~~ CLOSED, ADR-0203 -- was lower severity (UPF's real primary control interface is N4/PFCP, TS 23.501, not SBI) but a real gap: `nfs/upf/src/main.cpp`'s own file header had incorrectly claimed no `Nupf_*` API existed at all |
+| UPF | ~~`Nupf_EventExposure`, `Nupf_GetUEPrivateIPaddrAndIdentifiers`~~ CLOSED, ADR-0203 -- was lower severity (UPF's real primary control interface is N4/PFCP, TS 23.501, not SBI) but a real deferred item: `nfs/upf/src/main.cpp`'s own file header had incorrectly claimed no `Nupf_*` API existed at all |
 
-NSSF, BSF, SCP, CHF, EIR, SMSF, GMLC: **zero** Tier-A gaps found (single-file NFs already fully
+NSSF, BSF, SCP, CHF, EIR, SMSF, GMLC: **zero** Tier-A deferred items found (single-file NFs already fully
 wired, or CHF's deliberately narrow 3-file scope matching CLAUDE.md exactly).
 
 **Related but distinct: wired-and-silently-empty ("looks real, isn't").** ~~AMF's `Namf_Location`
 and `Namf_EventExposure` were both in the pilot set and generated real DTOs, but
 `nfs/amf/src/main.cpp` routed zero operations for either~~ **CLOSED, ADR-0199**: all 9 real
-operations across both now routed, with the real capability gaps that remain (no LPP/GNSS/PRU
+operations across both now routed, with the real capability deferred items that remain (no LPP/GNSS/PRU
 positioning, no event notification delivery) disclosed explicitly in code and in ADR-0199, not
 silently absent.
 
-**Related but distinct: undisclosed Tier-B gaps inside NFs already marked "real."** Two concrete
+**Related but distinct: undisclosed Tier-B deferred items inside NFs already marked "real."** Two concrete
 factual errors, not just missing coverage -- **CLOSED, ADR-0197**: UDR's own ADR-0111/ADR-0114
 comments asserted `operator-specific-data` has no PUT/DELETE in the YAML -- it does (both
 `Subscription_Data.yaml` and `Policy_Data.yaml`, confirmed by direct read), and both now have real,
@@ -1340,7 +1340,7 @@ resource is `GET`/`PATCH`/`DELETE`), and the entire `subs-to-notify` resource is
 implemented (task #122). `Subscription_Data`'s own Tier-B item is now fully closed. ~~~12 in
 `Policy_Data` (bare `{ueId}` aggregate, `sm-data/{usageMonId}` family, bare `bdt-data` collection
 GET, and an entire `subs-to-notify` subscription family distinct from `Subscription_Data`'s
-own)~~ **CLOSED, ADR-0213 -- UDR now has zero known Tier-B gaps.**
+own)~~ **CLOSED, ADR-0213 -- UDR now has zero known Tier-B deferred items.**
 ~~NRF's 4 undisclosed missing operations (`OptionsNFInstances`, `RetrieveStoredSearch`,
 `RetrieveCompleteSearch`, `RetrieveKeyRequest`)~~ **CLOSED, ADR-0211** (the audit's separately-flagged
 "stale `ScpDomainRoutingInfo*` disclosure comment" was checked directly and found already accurate
@@ -1395,7 +1395,7 @@ registration records), `GetEcrData` (UDR's own existing `coverage-restriction-da
 nested path)~~ **CLOSED, ADR-0230** (5-op slice -- real, disclosed narrowing:
 `PduSession.dnn` is required while the source `SmfRegistration.dnn` is optional, so a registration
 with no `dnn` is skipped rather than fabricated; `epsInterworkingInfo`/`pgwInfo`/`emergencyInfo`
-remain real, disclosed gaps with no data source); ~~`Modify`~~ **CLOSED, ADR-0232** (real RFC 7396
+remain real, disclosed deferred items with no data source); ~~`Modify`~~ **CLOSED, ADR-0232** (real RFC 7396
 merge-patch, same shape this file's other PATCH routes already use -- completes
 `Subscribe`/`Unsubscribe`/`Modify` in full); ~~group C2: `GetTimeSyncSubscriptionData`/
 `GetRangingSlPosData`~~ **CLOSED, ADR-0233** (real, disclosed correction of ADR-0230's own scoping
@@ -1410,7 +1410,7 @@ UDR itself never built the bulk endpoint; subscription CRUD backed by a new, gen
 UDM-local `SharedDataSubscriptionStore`); ~~2 identifier-lookup ops: `GetSupiOrGpsi`/
 `GetMultipleIdentifiers`~~ **CLOSED (forward direction), ADR-0236** (real `gpsis` field added to
 UDR's seeded am-data; SUPI->GPSI direction genuinely real for both ops; GPSI->SUPI direction
-remains a real, disclosed architectural gap -- no query-by-gpsi capability exists anywhere in the
+remains a real, disclosed architectural deferred item -- no query-by-gpsi capability exists anywhere in the
 real Nudr_DR API, and this project's NFs talk only over SBI, so it can't be built without either
 inventing an API or duplicating UDR's data in UDM); leaving only `Update SOR Info` open (real KDF
 primitive already exists in `libs/aka-crypto`, but a real CounterSoR state machine and real
@@ -1419,8 +1419,8 @@ steering list content do not -- disclosed, not stubbed) to fully close `Nudm_SDM
 deferred in ADR-0082)~~ **CLOSED, ADR-0237** (all 3 real UDR backing resources were already fully
 live -- 9 of 11 ops are real, direct proxies; the 2 `Modify` ops are a real RFC
 7396-over-RFC-6902 translation via GET+merge_patch+PUT against UDR). Every one was a real,
-individually small CRUD/subscription operation within already-wired files, not a structural gap.
-**This closes `Nudm_PP` in full and, with it, UDM's entire Tier-B gap-closure backlog except
+individually small CRUD/subscription operation within already-wired files, not a structural deferred item.
+**This closes `Nudm_PP` in full and, with it, UDM's entire Tier-B deferred-item closure backlog except
 `Update SOR Info`.**
 
 ### Prioritization for closure (per ADR-0193's continuous, one-at-a-time process)
@@ -1464,10 +1464,10 @@ reference to sweep against at all.**
 The bottom five are capabilities neither reference implementation has. Per ADR-0075's mandate
 this is recorded as a real lead, not as a victory lap: "no reference exists" says nothing about
 whether ours is *correct*, only that there is nothing to compare it against. Their own disclosed
-gaps (ADR-0187/0188/0189/0191: no IMEI provisioning path, no SMS-GMSC relay, no LPP/PRU
+deferred items (ADR-0187/0188/0189/0191: no IMEI provisioning path, no SMS-GMSC relay, no LPP/PRU
 positioning) are unaffected by this.
 
-### NSSF -- one real, previously undisclosed gap, and one place we are ahead
+### NSSF -- one real, previously undisclosed deferred item, and one place we are ahead
 
 Ours implements all 8 real operations across both `Nnssf_NSSelection` and
 `Nnssf_NSSAIAvailability`, and accepts all five real slice-info request types. open5GS handles
@@ -1513,12 +1513,12 @@ All 15 operations in `TS29521_Nbsf_Management.yaml` are implemented, and the que
 (`pcfBindings`, `pcf-ue-bindings`, `pcf-mbs-bindings`, `subscriptions`) plus one extra --
 `GetIndPCFBinding` (`GET /pcfBindings/{bindingId}`) -- **which does not exist in the R19 YAML**
 (the individual resource is DELETE/PATCH only). That is free5GC carrying an older or extended
-shape, not a gap on our side; noted rather than copied, per this project's YAML-is-the-source rule.
+shape, not a deferred item on our side; noted rather than copied, per this project's YAML-is-the-source rule.
 
-**No real gap found for BSF.** First NF in this project for which that is true against a real
+**No real deferred item found for BSF.** First NF in this project for which that is true against a real
 reference.
 
-### NEF -- the largest undisclosed gap this sweep found
+### NEF -- the largest undisclosed deferred item this sweep found
 
 This project's NEF implements all 14 `Nnef_*` YAML files (ADR-0185 through ADR-0210). That is the
 *NF-facing* half. The **AF-facing half -- which is what "Network Exposure" names -- is entirely
@@ -1534,7 +1534,7 @@ absent**, and free5GC has it:
   spec files, present on disk, never built.**
 - **Why this was never caught:** ADR-0193's project-wide YAML coverage audit cross-referenced
   `N<nf>_*` files only. `TS29122_*`/`TS29522_*` do not match that pattern, so the audit's own
-  "zero Tier-A gaps" verdict for NEF was scoped narrower than it read. Correcting the audit's
+  "zero Tier-A deferred items" verdict for NEF was scoped narrower than it read. Correcting the audit's
   scope, not just its result.
 
 Second, structural: **our NEF has no outbound consumer at all.** Its only HTTP client traffic is
@@ -1544,7 +1544,7 @@ and PCF. A NEF that stores traffic-influence data locally instead of writing it 
 influence anything -- the SMF/PCF that would act on it never see it. This is the same
 "server with no consumer" failure class ADR-0293 just closed for UDM's MAP client.
 
-### SCP -- the known gap, now corroborated with evidence
+### SCP -- the known deferred item, now corroborated with evidence
 
 ADR-0186 recorded that SCP's real message-forwarding role (TS 29.500 §§6.10-6.11) is unbuilt and
 was scoped out by explicit user decision. open5GS confirms the size of what that defers:
@@ -1563,12 +1563,12 @@ implementation *does*, read from its source. P10's "exceeds free5GC" claim from 
 commercialization mandate (ADR-0049) still has **zero** measurements behind it, and nothing in
 this section changes that. Blocker 3 in `docs/COMPLIANCE_P1_P15.md` stands exactly as written.
 
-## Capability-completeness gap-closure (moved from README.md)
+## Capability-completeness deferred-item closure (moved from README.md)
 
-Alongside the phase plan, an ongoing effort closes real gaps found by comparing this project
+Alongside the phase plan, an ongoing effort closes real deferred items found by comparing this project
 against free5GC's and open5GS's own actual source (not just their docs) — every change is real,
 live-verified, and tracked as its own ADR rather than just unit-tested. NRF, AMF, SMF, AUSF, PCF,
-UDM, CHF, and UPF have each closed multiple real procedure/resource gaps this way (N2 handover,
+UDM, CHF, and UPF have each closed multiple real procedure/resource deferred items this way (N2 handover,
 5G ProSe authentication, TS 32.298 CDR encoding, the full PFCP Association lifecycle, and more).
 UDR is the largest single target: it now implements the large majority of free5GC's real
 `Nudr_DataRepository` resource types, plus a distinct `Nudr_GroupIDmap` resource.
@@ -1581,7 +1581,7 @@ operations — 1 of NEF's own 14 real YAML files; the other 13 remain unbuilt, A
 `nssf`/`nef`/`scp`/`bsf` list, though SCP's own real defining role (an inline HTTP/2
 message-forwarding proxy, TS 29.500 §§6.10-6.11) is a real architectural departure from every
 other NF here and remains entirely undesigned — a real, explicit scope decision made via
-`AskUserQuestion`, not a silent gap. As of ADR-0184, this project moves to the next NF/subsystem
+`AskUserQuestion`, not a silent deferred item. As of ADR-0184, this project moves to the next NF/subsystem
 continuously as each one completes rather than waiting on a fresh per-NF decision each time — the
 same quality bar (live verification, zero-warning builds, full doc trail) still applies to each.
 Tier 2 has now begun with **5G-EIR** (`N5g-eir_EquipmentIdentityCheck`, its entire real API — 1
@@ -1601,7 +1601,7 @@ provisioning path, and `Nlmf_DataExposure`'s full subscription CRUD lifecycle);
 `DetermineLocation`/`LocationMeasure`/`CancelLocation` genuinely need real LPP (TS 37.355) UE
 positioning or PRU/NRPPa measurement data this project doesn't have, so they honestly report
 `501`/`404` (GMLC->LMF wiring itself remains a real, disclosed, deferred step), and
-`Nlmf_DataExposure`'s own notification path shares that same disclosed gap. Building LMF also
+`Nlmf_DataExposure`'s own notification path shares that same disclosed deferred item. Building LMF also
 found and fixed 2 real defects — a vendored-spec transcription typo and a real
 `tools/sbi-codegen` allOf-merge field-deduplication bug (ADR-0190).
 And **UDSF** (`Nudsf_DataRepository` + `Nudsf_Timer`, all 27 real operations of TS 29.598's two
@@ -1613,8 +1613,8 @@ swallowed by a folded `example:` scalar; `GetMetaSchema`'s 200 names the multipa
 the features not advertised (Meta Schema, AdvancedCounting).
 
 A separate, project-wide audit (ADR-0193) checked every real `N<nf>_*` YAML against every NF's
-actual wiring — whole files never added to the sbi-codegen pilot set ("Tier-A" gaps) and, for
-wired files, individual operations that were stubbed or silently missing ("Tier-B" gaps). Closed so
+actual wiring — whole files never added to the sbi-codegen pilot set ("Tier-A" deferred items) and, for
+wired files, individual operations that were stubbed or silently missing ("Tier-B" deferred items). Closed so
 far: **NRF** `Nnrf_Bootstrapping` (ADR-0194), **AUSF** `Nausf_UPUProtection` (ADR-0195), **UDR**'s
 own two documentation-bug fixes plus a hand-written-DTO replacement (ADR-0197/ADR-0198), **AMF**
 `Namf_Location`+`Namf_EventExposure` (ADR-0199) and `Namf_AIoT`/`Namf_MBSBroadcast`/
@@ -1634,19 +1634,19 @@ already-shipping code, a new consequence class, disclosed in full in the ADR); `
 (ADR-0209 — also fixed a real `tools/sbi-codegen` allOf-narrowing limitation, and the fix's own
 real, project-wide common-data-group-rename consequence, both disclosed in full in the ADR); and
 `Nnef_TrafficInfluenceData`/`Nnef_Inference`/`Nnef_Training`/`Nnef_VFLInference`/`Nnef_VFLTraining`
-(ADR-0210, task #164 now complete — no NEF Tier-A gaps remain). **Every NF's real Tier-A gaps are
+(ADR-0210, task #164 now complete — no NEF Tier-A deferred items remain). **Every NF's real Tier-A deferred items are
 now closed project-wide** — with the scope correction ADR-0294 made to that claim: the audit
 matched `N<nf>_*` filenames only, so NEF's AF-facing `TS29122_*`/`TS29522_*` surface (58 of 60
-spec files present on disk, unwired) was never inside it. That is a real, open gap, and free5GC
+spec files present on disk, unwired) was never inside it. That is a real, open deferred item, and free5GC
 implements two of those APIs. Tier-B closure has begun: **NRF** `OptionsNFInstances`+
 `RetrieveStoredSearch`/`RetrieveCompleteSearch`+`RetrieveKeyRequest` (ADR-0211, the smallest
 remaining Tier-B item), and **UDR**'s Individual Authentication Status (Document) +
 `QueryProvisionedData` (ADR-0212 — also corrected a stale claim in the audit doc itself: a
-previously-recorded "`subs-to-notify` bulk-DELETE" gap does not correspond to any real operation in
+previously-recorded "`subs-to-notify` bulk-DELETE" deferred item does not correspond to any real operation in
 the spec, and that resource was already fully implemented), and **UDR**'s remaining
 `Policy_Data.yaml` backlog in full (ADR-0213 — `ReadPolicyData` aggregate, Usage Monitoring
 Information, `ReadBdtData` collection GET, and the `Policy_Data`-specific Policy Data
-Subscriptions family). **UDR now has zero known Tier-B gaps.** UDM is now the only remaining real
+Subscriptions family). **UDR now has zero known Tier-B deferred items.** UDM is now the only remaining real
 Tier-B item project-wide; a background audit produced the first real per-operation breakdown
 (`Nudm_UECM` ~24, `Nudm_SDM` ~33, `Nudm_PP` 11 already flagged deferred in ADR-0082) and closed
 nine slices: **UDM** `Nudm_UEAU`'s 3 operations — `GetRgAuthData`, `GenerateAv` (real HSS
@@ -1670,7 +1670,7 @@ composes `RoutingInfoSmResponse` from the real SMSF/IP-SM-GW stores; disclosed: 
 `Trigger P-CSCF Restoration`, `GetLocationInfo`, `authTrigger` (ADR-0227 — `GetLocationInfo` is a
 real, complete local composition from the already-stored AMF registration records; the other two
 are real accept-and-validate operations with a disclosed non-relay to the serving AMF/AUSF) —
-individual stubbed/missing operations within already-wired files, not a structural gap.
+individual stubbed/missing operations within already-wired files, not a structural deferred item.
 **`Nudm_UECM`'s entire Tier-B backlog is now fully closed.** `Nudm_SDM` closure has begun:
 group A (`GetSmsData`/`GetSmsMngtData`/`GetTraceConfigData`/`GetLcsBcaData`, backed by UDR's own
 individual provisioned-data routes) and group B (`GetLcsPrivacyData`/`GetLcsMoData`/
@@ -1692,13 +1692,13 @@ accept-and-validate) closed as a 4-operation slice (ADR-0234), then the shared-d
 genuinely global UDM-local subscription store) closed as a 6-operation slice (ADR-0235), then
 `GetSupiOrGpsi`/`GetMultipleIdentifiers` closed for their real forward (SUPI→GPSI) direction — a
 new real `gpsis` field added to UDR's seeded am-data — as a 2-operation slice (ADR-0236; the
-reverse GPSI→SUPI direction remains a real, disclosed gap: no query-by-gpsi capability exists
+reverse GPSI→SUPI direction remains a real, disclosed deferred item: no query-by-gpsi capability exists
 anywhere in the real Nudr_DR API). **`Nudm_SDM` is now fully closed except `Update SOR Info`**
 (needs a real CounterSoR state machine and real steering-list content, neither of which exists in
 this build). `Nudm_PP`'s remaining 11 ops (5G VN Group / PP Data Entry / 5G MBS Group CRUD,
 disclosed-deferred since ADR-0082) are now closed too (ADR-0237) — all 3 real UDR backing
 resources were already fully live; 9 of 11 ops are real, direct proxies, and the 2 `Modify` ops are
-a real RFC 7396-over-RFC-6902 translation. **UDM's entire Tier-B gap-closure backlog is now closed
+a real RFC 7396-over-RFC-6902 translation. **UDM's entire Tier-B deferred-item closure backlog is now closed
 except `Update SOR Info`.**
 
 The full evidence base, current per-resource breakdown, and what's still open lives in
@@ -1736,7 +1736,7 @@ first.
 CHF/UDR/balance-management's persistence design was independently fact-checked against HEAD (every
 claim verified true) before acting on it. Decision: PostgreSQL stays the sole authority for balance
 and the ledger; Valkey carries only non-monetary, rebuildable session state — no cross-store
-balance-consistency redesign, because no benchmark evidence yet shows one is needed. Real gaps this
+balance-consistency redesign, because no benchmark evidence yet shows one is needed. Real deferred items this
 surfaced and not yet fixed: settlement as two non-atomic calls (unreserve, then debit), `double`
 money arithmetic over `NUMERIC` columns, UDR's ~80 unpooled PostgreSQL connections, and an
 unbounded-wait shared connection pool. Full comparison, the rejected alternatives, and the

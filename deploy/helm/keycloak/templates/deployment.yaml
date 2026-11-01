@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/name: keycloak
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  # Single replica: no HA/clustering (disclosed gap, ADR-0441 -- same category as the other
+  # Single replica: no HA/clustering (disclosed deferred item, ADR-0441 -- same category as the other
   # lab-grade charts in deploy/helm/). A second replica would need Keycloak's own Infinispan
   # clustering configured, which this chart does not attempt.
   replicas: 1

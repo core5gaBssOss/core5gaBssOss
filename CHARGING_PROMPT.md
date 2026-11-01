@@ -390,7 +390,7 @@ autoscaling (P8, P10), per-protocol TPS spike protection validated under load
 (P15), retention-driven archival validated (P14), chaos tests (kill a node
 mid-session, partition the balance store) asserting no double-charge and no lost
 usage, documented RPO/RTO, and a full compliance matrix against P1-P15.
-Produce an honest gap list: what would still block a production deployment.
+Produce an honest list of items deferred for future implementation: what would still block a production deployment.
 ```
 
 ---
@@ -398,7 +398,7 @@ Produce an honest gap list: what would still block a production deployment.
 ## SECTION D — Note on the "production carrier core" target
 
 `PROMPT.md` targets production-INTENT architecture: every decision must survive a
-carrier deployment, delivered incrementally, with an honest gap list maintained
+carrier deployment, delivered incrementally, with an honest list of items deferred for future implementation maintained
 throughout and no "carrier-grade" claim without conformance and soak evidence.
 
 For calibration: the 2023 UCS plan estimated the charging system alone at 80

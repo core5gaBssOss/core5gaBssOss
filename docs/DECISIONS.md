@@ -511,6 +511,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0545](decisions/ADR-0545-ims-hss-gba-and-messaging-ts-29-562-29-563-29-309-29-577-29.md) IMS, HSS, GBA and messaging: TS 29.562/29.563/29.309/29.577/29.579/29.392/29.175/29.176/29.538
 - [0546](decisions/ADR-0546-prose-5mbs-pin-and-remaining-5gc-services-ts-29-5xx-29-67x.md) ProSe, 5MBS, PIN and remaining 5GC services (TS 29.5xx/29.67x)
 - [0547](decisions/ADR-0547-oam-ts-28-xxx-and-media-ts-26-xxx-rel-19-apis.md) OAM (TS 28.xxx) and media (TS 26.xxx) REL-19 APIs
+- [0548](decisions/ADR-0548-readme-append-only-check-accepts-user-approved-heading.md) README append-only check accepts user-approved heading renames
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

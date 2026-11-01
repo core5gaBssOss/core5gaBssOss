@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv ca-certificates bison flex patch \
     # libsctp-dev/libbpf-dev/libcap-dev/clang-18: libs/ngap-core (SCTP) and nfs/upf
     # (eBPF/XDP datapath) require these at CMake configure time -- same real,
-    # pre-existing gap as the asn1c one above, matching the fix
+    # pre-existing deferred item as the asn1c one above, matching the fix
     # .github/workflows/ci.yml already needed for the identical reason.
     libsctp-dev libbpf-dev libcap-dev clang-18 \
     && rm -rf /var/lib/apt/lists/*
@@ -48,7 +48,7 @@ WORKDIR /build
 COPY . .
 
 # asn1c: libs/ngap-generated needs this real toolchain at configure time (ADR-0030/
-# ADR-0031) -- pre-existing gap, independent of the libpqxx/bison fix above: this repo's
+# ADR-0031) -- pre-existing deferred item, independent of the libpqxx/bison fix above: this repo's
 # Dockerfiles never ran this step, so a from-scratch image build was already broken
 # before product-catalog/libpqxx existed. Found by actually running a real docker build,
 # not assumed.

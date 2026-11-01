@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for taking the time to file a bug. Please check `docs/DECISIONS.md` and
         `docs/CAPABILITY_GAP_ANALYSIS.md` first — this project discloses known stubs,
-        simplifications, and open gaps explicitly, and your finding may already be a
+        simplifications, and open deferred items explicitly, and your finding may already be a
         documented, open item rather than a new bug.
 
   - type: dropdown

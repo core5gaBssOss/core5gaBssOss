@@ -45,7 +45,7 @@ CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA partman;
 -- the "future only" reading its name suggests, and harmless: extra past-dated empty partitions cost
 -- nothing, and a week of partitions always exists ahead of the write path either way (pg_partman
 -- default premake is 4; a wider margin is cheap and this is Tier-1 production data, so "ran out of
--- partition to insert into" must not be reachable by any plausible maintenance-run gap).
+-- partition to insert into" must not be reachable by any plausible maintenance-run deferred item).
 --
 -- p_start_partition => NULL (the default): pg_partman starts creating partitions from the current
 -- time, not from each table's oldest row -- deliberate, since the DEFAULT partition already holds

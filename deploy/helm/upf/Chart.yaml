@@ -2,7 +2,7 @@ apiVersion: v2
 name: upf
 description: >
   UPF (User Plane Function) -- PFCP N4 (TS 29.244) plus this project's lab eBPF/XDP GTP-U datapath, and
-  Nupf_EventExposure. Lab-grade Helm chart (ADR-0466). DISCLOSED GAPS, not silently shipped:
+  Nupf_EventExposure. Lab-grade Helm chart (ADR-0466). DISCLOSED DEFERRED ITEMS, not silently shipped:
   (1) config and certificates as deploy/helm/smf/Chart.yaml (ADR-0513);
   (2) `advertised_ipv4: auto` makes the UPF register the pod IP it uses to reach the NRF; in a kind
   cluster (ADR-0513) the SMF discovered the UPF at that IP and established the PFCP association; (3) the datapath is a lab veth/netns fixture (10.99.0.0/30), not an N3 interface to a gNB, and

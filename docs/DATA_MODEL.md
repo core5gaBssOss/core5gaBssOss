@@ -13,7 +13,7 @@ that this document itself deferred to "the architecture ADR, not resolved here."
 written until ADR-0445, and the implementation that actually shipped
 (`bss/balance-management`, ADR-0056/0057/0385) took a different path: **PostgreSQL alone is
 authoritative for `Bucket`/balance, reserve, and the ledger** — no Redis/Valkey balance projection
-was built. ADR-0445 evaluates this gap directly (as "Option 1" against two alternatives that would
+was built. ADR-0445 evaluates this deferred item directly (as "Option 1" against two alternatives that would
 have matched this document's original two-store sketch) and keeps PostgreSQL-only, for reasons
 recorded there (no measured need for a hot-balance cache; the harder atomicity problem is already
 solved by Postgres row locks). This document's E6 sketch is left as the historical P4.1 planning
@@ -701,7 +701,7 @@ many subscribers against one shared `Balance` row) in the architecture ADR.
    supplies the 28-series text directly (low expected value given its confirmed network-config,
    not billing, scope — not worth chasing further speculatively).
 2. **TS 32.298**: **accepted as reference-only for now** — P4.4 (CDF/CGF) proceeds against
-   TS 32.291's already-vendored `MultipleUnitUsage`/CDR-adjacent shapes; if a real gap surfaces
+   TS 32.291's already-vendored `MultipleUnitUsage`/CDR-adjacent shapes; if a real missing shape surfaces
    once CDR encode/decode is actually designed in P4.4, ask again at that point with the specific
    missing field, rather than blocking P4.1-P4.3 on it now.
 3. **TMF654's balance-query surface — resolved, real source confirmed.** Fetched the actual

@@ -45,5 +45,5 @@ injection-class bugs (SQL, command, etc.) in any NF or shared library.
 Out of scope: issues that only manifest when running with the project's own disclosed lab-grade
 simplifications intentionally enabled (these are already tracked as open items in
 `docs/DECISIONS.md`/`docs/CAPABILITY_GAP_ANALYSIS.md`, not silently hidden) — please check those
-documents first if you're unsure whether something is a known, already-disclosed gap rather than a
+documents first if you're unsure whether something is a known, already-disclosed deferred item rather than a
 new finding.

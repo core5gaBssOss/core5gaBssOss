@@ -66,7 +66,7 @@ defined against it. An earlier revision of this document risked reading as "CHF 
 
 This matters directly to ADR-0049's mandate: CHF is the commercial centre of this project, and
 the framework selected in ADR-0238 does not measure it. Charging-domain performance lives in the
-TS 32.xxx series instead. **This is a real gap in the selected framework, disclosed here rather
+TS 32.xxx series instead. **This is a real open point in the selected framework, disclosed here rather
 than papered over by mapping CHF onto some loosely-similar family.** It does not invalidate
 ADR-0238 (28.552 remains right for the NFs it does cover), but "carrier-grade measurement of CHF"
 is not achieved by 28.552 alone and no one should assume otherwise.
@@ -98,7 +98,7 @@ counterpart in clause 5.10** -- they are this project's own, not spec measuremen
 be relabelled as such.
 
 **Honest headline for NRF: 0 of 13 measurements are fully conformant today; 2 are partially
-served by one counter that conflates request with success.** The dominant gap is structural, not
+served by one counter that conflates request with success.** The dominant deferred item is structural, not
 volume: 28.552 consistently splits every operation into request / success / per-cause failure,
 and this project's counters mostly count only "it happened".
 
@@ -107,9 +107,9 @@ and this project's counters mostly count only "it happened".
 | NF | 28.552 clause | Project metrics today | Assessment |
 |---|---|---|---|
 | NRF | 5.10 (13 meas.) | 5 + **7 conformant (ADR-0262)** | `NFS.RegReq`/`RegSucc`/`RegFailEncodeErr` and `NFS.DiscReq`/`DiscSucc`/`DiscFailUnauth`/`DiscFailInputErr` implemented under their own spec names. `NFS.RegFailNrfErr`/`DiscFailNrfErr` deliberately not exposed -- no internal-error path exists, and a permanently-zero series would overclaim |
-| AMF | 5.2 (RM.*/MM.*, ~166 meas.) | 19 | Large gap; RM.*/MM.* is the biggest family in the spec |
-| SMF | 5.3 (SM.*, ~54 meas.) | 13 + **3 conformant (ADR-0262)** | `SM.PduSessionCreationReq`/`Succ`/`Fail` with the spec's own asymmetric filters (Req/Succ per PLMN+S-NSSAI+ReqType; Fail per PLMN+cause). Still a large gap overall; `SM.SessionNbrMean` (5.3.1.2, an SI gauge) is not built, so TS 28.554 6.4.1 stays out of reach |
-| UPF | 5.4 (GTP.*, ~46 meas.) | 4 | Large gap; datapath counters not exposed |
+| AMF | 5.2 (RM.*/MM.*, ~166 meas.) | 19 | Large set deferred for future implementation; RM.*/MM.* is the biggest family in the spec |
+| SMF | 5.3 (SM.*, ~54 meas.) | 13 + **3 conformant (ADR-0262)** | `SM.PduSessionCreationReq`/`Succ`/`Fail` with the spec's own asymmetric filters (Req/Succ per PLMN+S-NSSAI+ReqType; Fail per PLMN+cause). Still a large set deferred for future implementation overall; `SM.SessionNbrMean` (5.3.1.2, an SI gauge) is not built, so TS 28.554 6.4.1 stays out of reach |
+| UPF | 5.4 (GTP.*, ~46 meas.) | 4 | Large set deferred for future implementation; datapath counters not exposed |
 | PCF | 5.5 | 34 | Needs per-measurement audit |
 | UDM | 5.6 | 44 | Needs per-measurement audit |
 | UDR | 5.13 | 150 | Highest local coverage; needs audit |
@@ -157,7 +157,7 @@ specs (already vendored as R19 YAML).
 ## What this document does NOT do
 
 It does not claim conformance, and it does not compare against free5GC (ADR-0238 step (4), which
-remains OPEN). It is the mapping, with the gaps stated plainly.
+remains OPEN). It is the mapping, with the deferred items stated plainly.
 
 **Updated by ADR-0262/ADR-0263**: the counter split this document called "the single
 highest-leverage instrumentation change" is now done for SMF and NRF only -- see those two rows
