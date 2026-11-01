@@ -64,7 +64,8 @@ std::int64_t integer(const char* v) {
 }
 } // namespace
 
-std::vector<FeatureRow> FeatureStore::read_day(const std::string& date) {
+std::expected<std::vector<FeatureRow>, std::string>
+FeatureStore::read_day(const std::string& date) {
     std::vector<FeatureRow> rows;
     if (conn_ == nullptr) {
         return rows;
@@ -76,11 +77,11 @@ std::vector<FeatureRow> FeatureStore::read_day(const std::string& date) {
         escape_date(conn_, date) + "'" +
         (max_rows_ > 0 ? " LIMIT " + std::to_string(max_rows_) : "");
     if (mysql_real_query(conn_, sql.c_str(), static_cast<unsigned long>(sql.size())) != 0) {
-        throw std::runtime_error(std::string("feature store query failed: ") + mysql_error(conn_));
+        return std::unexpected(std::string("feature store query failed: ") + mysql_error(conn_));
     }
     MYSQL_RES* res = mysql_store_result(conn_);
     if (res == nullptr) {
-        throw std::runtime_error(std::string("feature store result failed: ") + mysql_error(conn_));
+        return std::unexpected(std::string("feature store result failed: ") + mysql_error(conn_));
     }
     while (MYSQL_ROW r = mysql_fetch_row(res)) {
         FeatureRow row;
@@ -98,13 +99,13 @@ std::vector<FeatureRow> FeatureStore::read_day(const std::string& date) {
     return rows;
 }
 
-std::string FeatureStore::latest_date() {
+std::expected<std::string, std::string> FeatureStore::latest_date() {
     if (conn_ == nullptr) {
-        return {};
+        return std::string();
     }
     const char* sql = "SELECT MAX(feature_date) FROM subscriber_features";
     if (mysql_real_query(conn_, sql, static_cast<unsigned long>(std::strlen(sql))) != 0) {
-        throw std::runtime_error(std::string("feature store query failed: ") + mysql_error(conn_));
+        return std::unexpected(std::string("feature store query failed: ") + mysql_error(conn_));
     }
     MYSQL_RES* res = mysql_store_result(conn_);
     std::string out;
