@@ -3,7 +3,7 @@ name: keycloak
 description: >
   Keycloak (Apache-2.0, self-hosted) -- the real OIDC identity provider for the operator GUI
   (ADR-0424, ADR-0441): authorization-code + PKCE, TOTP MFA gating a real `acr` claim via
-  Keycloak's step-up (Level-of-Authentication) mechanism. Lab-grade Helm chart, same disclosed-gap
+  Keycloak's step-up (Level-of-Authentication) mechanism. Lab-grade Helm chart, same disclosed-deferred-item
   category as deploy/helm/udr/Chart.yaml: no PKI provisioning (the operator creates a
   `<release>-keycloak-tls` TLS secret out of band -- see deploy/keycloak/render-realm.sh's compose
   equivalent for what that cert must satisfy), no HA/clustering (single replica, both for Keycloak

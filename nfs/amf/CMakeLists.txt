@@ -1,5 +1,5 @@
 # redis-plus-plus (Valkey-protocol-compatible): real persistence for UeSecurityContextStore
-# (gap-closure, docs/CAPABILITY_GAP_ANALYSIS.md task #100/ADR-0075) -- same real dependency every
+# (deferred-item closure, docs/CAPABILITY_GAP_ANALYSIS.md task #100/ADR-0075) -- same real dependency every
 # other NF's own Redis-backed hot-path store already uses (CHF's ChargingDataStore, PCF's
 # SpendingLimitTrackingStore).
 find_package(redis++ CONFIG REQUIRED)

@@ -2,7 +2,7 @@ apiVersion: v2
 name: li-admf
 description: >
   ADMF (Administration Function, TS 33.127 5.3.5): LI_HI1 receiver for the LEA (ETSI TS 103 120)
-  and LI_X1 client of the POIs and the MDF2 (ADR-0462). Lab-grade Helm chart. DISCLOSED GAPS, not
+  and LI_X1 client of the POIs and the MDF2 (ADR-0462). Lab-grade Helm chart. DISCLOSED DEFERRED ITEMS, not
   silently shipped: (1) config and certificates come from a ConfigMap (files/li-admf.json, generated)
   and the Secret li-admf-certs (ADR-0513), but no PostgreSQL -- the warrant store
   (nfs/li-admf/schema.sql) must be supplied and `databaseUrl` set; the Services do not expose the

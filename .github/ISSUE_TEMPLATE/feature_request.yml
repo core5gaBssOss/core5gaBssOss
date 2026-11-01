@@ -7,7 +7,7 @@ body:
       value: |
         This project only builds against real 3GPP/GSMA/TM Forum spec material — nothing is
         hand-invented. Please cite the real spec source for what you're requesting; if you don't
-        have one, say so and it'll be tracked as a spec-sourcing gap rather than implemented
+        have one, say so and it'll be tracked as a spec-sourcing deferred item rather than implemented
         against a guess.
 
   - type: dropdown
@@ -63,6 +63,6 @@ body:
     id: why
     attributes:
       label: Why is this needed?
-      description: What does this unblock, or what capability gap does it close?
+      description: What does this unblock, or what capability deferred item does it close?
     validations:
       required: true

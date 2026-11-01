@@ -2,7 +2,7 @@
 
 Arms-length external test tool, not part of this project's own source tree. See
 `docs/DECISIONS.md` ADR-0016 for the full rationale (license, why it's fetched instead of
-vendored, why it's a separate directory, current scope/gaps).
+vendored, why it's a separate directory, current scope/deferred items).
 
 ## What this is
 

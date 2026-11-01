@@ -20,10 +20,10 @@ verification recorded in `docs/DECISIONS.md` ADR-0012 (tamper rejection) and thi
 | GetNFInstance | `GET /nnrf-nfm/v1/nf-instances/{nfInstanceID}` (NFManagement.yaml) | Integration test (`wait_for_nrf` probe) |
 | UpdateNFInstance (heartbeat) | `PATCH /nnrf-nfm/v1/nf-instances/{nfInstanceID}`, RFC 6902 JSON Patch (NFManagement.yaml) | Integration test (heartbeat step) -- patch is actually applied via `nlohmann::json::patch()`, not accepted-and-ignored like Phase 0's stub-nrf |
 | DeregisterNFInstance | `DELETE /nnrf-nfm/v1/nf-instances/{nfInstanceID}` (NFManagement.yaml) | Integration test (deregister step) |
-| GetNFInstances | `GET /nnrf-nfm/v1/nf-instances` (NFManagement.yaml) | Manual curl only -- no automated test yet, disclosed gap |
+| GetNFInstances | `GET /nnrf-nfm/v1/nf-instances` (NFManagement.yaml) | Manual curl only -- no automated test yet, disclosed deferred item |
 | CreateSubscription | `POST /nnrf-nfm/v1/subscriptions` (NFManagement.yaml) | Manual curl (201, notification delivery verified separately -- see below) |
-| UpdateSubscription | `PATCH /nnrf-nfm/v1/subscriptions/{subscriptionID}` (NFManagement.yaml) | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed gap. |
-| RemoveSubscription | `DELETE /nnrf-nfm/v1/subscriptions/{subscriptionID}` (NFManagement.yaml) | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed gap. |
+| UpdateSubscription | `PATCH /nnrf-nfm/v1/subscriptions/{subscriptionID}` (NFManagement.yaml) | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed deferred item. |
+| RemoveSubscription | `DELETE /nnrf-nfm/v1/subscriptions/{subscriptionID}` (NFManagement.yaml) | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed deferred item. |
 | SearchNFInstances | `GET /nnrf-disc/v1/nf-instances?target-nf-type=...` (NFDiscovery.yaml) | Manual curl (registered an SMF, searched target-nf-type=SMF, got it back) |
 | OAuth2 access token issuance | `POST /oauth2/token` (AccessToken.yaml), real ES256-signed JWT | Integration test (every step uses a real token) + manual curl tamper-rejection check (401, `ProblemDetails{"detail":"invalid signature"}`) + standalone round-trip test (see ADR-0012) |
 
@@ -68,19 +68,19 @@ once `sbi_core::multipart` landed (ADR-0020).
 | CreateUEContext | `PUT /namf-comm/v1/ue-contexts/{ueContextId}` (multipart/related) | Integration test (`CreateUEContextOverMultipartThenEBIAssignmentAndRelease`, real 201 + real `UeContextCreatedData` deserialization) + (`RelocateAndCancelRelocateUEContextOverMultipart`, wrong-content-type 400 case) |
 | ReleaseUEContext | `POST /namf-comm/v1/ue-contexts/{ueContextId}/release` | Integration test, both branches: `MissingUeContextIs404...` (404) and `CreateUEContextOverMultipartThenEBIAssignmentAndRelease` (204 on a real context, then 404 on double-release) |
 | EBIAssignment | `POST /namf-comm/v1/ue-contexts/{ueContextId}/assign-ebi` | Integration test (`CreateUEContextOverMultipartThenEBIAssignmentAndRelease`, real 200 on a real context) |
-| UEContextTransfer | `POST /namf-comm/v1/ue-contexts/{ueContextId}/transfer` | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed gap |
-| RegistrationStatusUpdate | `POST /namf-comm/v1/ue-contexts/{ueContextId}/transfer-update` | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed gap |
+| UEContextTransfer | `POST /namf-comm/v1/ue-contexts/{ueContextId}/transfer` | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed deferred item |
+| RegistrationStatusUpdate | `POST /namf-comm/v1/ue-contexts/{ueContextId}/transfer-update` | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed deferred item |
 | RelocateUEContext | `POST /namf-comm/v1/ue-contexts/{ueContextId}/relocate` (multipart/related) | Integration test (`RelocateAndCancelRelocateUEContextOverMultipart`, real 201 + real `UeContextRelocatedData` deserialization, plus 404 on a nonexistent context) |
 | CancelRelocateUEContext | `POST /namf-comm/v1/ue-contexts/{ueContextId}/cancel-relocate` (multipart/related) | Integration test (`RelocateAndCancelRelocateUEContextOverMultipart`, real 204) |
 | N1N2MessageTransfer | `POST /namf-comm/v1/ue-contexts/{ueContextId}/n1-n2-messages` | Manual curl (400 on malformed body verified during development; 404-on-no-context path shares the same code as the other per-context ops) |
 | N1N2MessageSubscribe | `POST /namf-comm/v1/ue-contexts/{ueContextId}/n1-n2-messages/subscriptions` | Integration test (`N1N2SubscribeAndUnsubscribe`, real 201 + body) |
 | N1N2MessageUnSubscribe | `DELETE /namf-comm/v1/ue-contexts/{ueContextId}/n1-n2-messages/subscriptions/{subscriptionId}` | Integration test (`N1N2SubscribeAndUnsubscribe`, 204 then 404 on double-remove) |
 | NonUeN2MessageTransfer | `POST /namf-comm/v1/non-ue-n2-messages/transfer` | Integration test (`AmfStatusChangeSubscribeAndNonUeN2Transfer`, real 200 + body) |
-| NonUeN2InfoSubscribe | `POST /namf-comm/v1/non-ue-n2-messages/subscriptions` | Manual curl only (201) -- no automated test yet, disclosed gap |
-| NonUeN2InfoUnSubscribe | `DELETE /namf-comm/v1/non-ue-n2-messages/subscriptions/{n2NotifySubscriptionId}` | Manual curl only -- no automated test yet, disclosed gap |
+| NonUeN2InfoSubscribe | `POST /namf-comm/v1/non-ue-n2-messages/subscriptions` | Manual curl only (201) -- no automated test yet, disclosed deferred item |
+| NonUeN2InfoUnSubscribe | `DELETE /namf-comm/v1/non-ue-n2-messages/subscriptions/{n2NotifySubscriptionId}` | Manual curl only -- no automated test yet, disclosed deferred item |
 | AMFStatusChangeSubscribe | `POST /namf-comm/v1/subscriptions` | Integration test (`AmfStatusChangeSubscribeAndNonUeN2Transfer`, real 201 + Location header) |
-| AMFStatusChangeUnSubscribe | `DELETE /namf-comm/v1/subscriptions/{subscriptionId}` | Manual curl only -- no automated test yet, disclosed gap |
-| AMFStatusChangeSubscribeModfy | `PUT /namf-comm/v1/subscriptions/{subscriptionId}` | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed gap |
+| AMFStatusChangeUnSubscribe | `DELETE /namf-comm/v1/subscriptions/{subscriptionId}` | Manual curl only -- no automated test yet, disclosed deferred item |
+| AMFStatusChangeSubscribeModfy | `PUT /namf-comm/v1/subscriptions/{subscriptionId}` | Not exercised by any test yet -- implemented, unverified beyond compiling. Disclosed deferred item |
 | OAuth2 registration/heartbeat as an SBI client | N/A (`nfs/amf/src/main.cpp`'s `run_nrf_lifecycle`, dedicated thread per ADR-0019) | Manual verification below (`amf: registered with NRF (HTTP 201)` log line) + every integration test above implicitly depends on it succeeding |
 
 **Manual verification (2026-08-05, not captured in an automated test -- recorded here so it's not
@@ -495,7 +495,7 @@ deploy/docker/nrf.Dockerfile -t 5gc-nrf:test .` succeeded -- see `docs/DECISIONS
 the two real build issues hit and fixed along the way, not just anticipated). `deploy/docker/
 docker-compose.yml` and `deploy/helm/nrf/` (Chart.yaml + deployment/service templates) exist but
 are not proven by this session's testing beyond `docker build` succeeding for the image itself --
-`docker compose up` and `helm install`/`helm template` were not run. Disclosed gap, not silently
+`docker compose up` and `helm install`/`helm template` were not run. Disclosed deferred item, not silently
 assumed to work.
 
 ## Deployment infrastructure (Phase 2, AMF)
@@ -505,10 +505,10 @@ Not a procedure row. `deploy/docker/amf.Dockerfile` (multi-stage Ubuntu 24.04 bu
 -t 5gc-amf:test .` -- see `docs/DECISIONS.md` ADR-0019 for the result and the shared-PKI bug found
 and fixed in `deploy/docker/docker-compose.yml` along the way). `deploy/helm/amf/` exists (mirrors
 `deploy/helm/nrf/`) but, like NRF's chart, is not proven by `helm install`/`helm template` this
-session -- and additionally has a disclosed, unresolved gap of its own: no shared-PKI mechanism
+session -- and additionally has a disclosed, unresolved deferred item of its own: no shared-PKI mechanism
 between separate Helm releases (see `deploy/helm/amf/Chart.yaml`'s description and ADR-0019).
 `docker compose up` (both `nrf` and `amf` containers actually mTLS-registering with each other) was
-NOT run this session -- same disclosed-not-silently-assumed gap ADR-0014 already recorded for NRF
+NOT run this session -- same disclosed-not-silently-assumed deferred item ADR-0014 already recorded for NRF
 alone.
 
 ## Deployment infrastructure (Phase 2, SMF)
@@ -519,10 +519,10 @@ Not a procedure row. `deploy/docker/smf.Dockerfile` (multi-stage Ubuntu 24.04 bu
 unit, TS29502_Nsmf_PDUSession.yaml having grown the type count to 1240). `deploy/docker/
 docker-compose.yml` updated with an `smf` service (added to `pki-init`'s shared-volume
 provisioning, same pattern as ADR-0019). `deploy/helm/smf/` (mirrors `deploy/helm/amf/`, including
-the same disclosed cross-chart shared-PKI gap noted in `deploy/helm/smf/Chart.yaml`) -- not proven
-by `helm install`/`helm template`, same disclosed gap as NRF/AMF's charts. `docker compose up`
+the same disclosed cross-chart shared-PKI deferred item noted in `deploy/helm/smf/Chart.yaml`) -- not proven
+by `helm install`/`helm template`, same disclosed deferred item as NRF/AMF's charts. `docker compose up`
 (all three containers actually mTLS-registering with each other) was NOT run this session -- same
-disclosed-not-silently-assumed gap ADR-0014 already recorded for NRF alone. See
+disclosed-not-silently-assumed deferred item ADR-0014 already recorded for NRF alone. See
 `docs/DECISIONS.md` ADR-0021.
 
 ## Deployment infrastructure (Phase 2, UDM)
@@ -531,10 +531,10 @@ Not a procedure row. `deploy/docker/udm.Dockerfile` (multi-stage Ubuntu 24.04 bu
 `smf.Dockerfile`), actually built in this environment (`docker build -f deploy/docker/udm.Dockerfile
 -t 5gc-udm:test .` succeeded). `deploy/docker/docker-compose.yml` updated with a `udm` service
 (added to `pki-init`'s shared-volume provisioning, same pattern as ADR-0019). `deploy/helm/udm/`
-(mirrors `deploy/helm/smf/`, including the same disclosed cross-chart shared-PKI gap noted in
-`deploy/helm/udm/Chart.yaml`) -- not proven by `helm install`/`helm template`, same disclosed gap
+(mirrors `deploy/helm/smf/`, including the same disclosed cross-chart shared-PKI deferred item noted in
+`deploy/helm/udm/Chart.yaml`) -- not proven by `helm install`/`helm template`, same disclosed deferred item
 as NRF/AMF/SMF's charts. `docker compose up` (all four containers actually mTLS-registering with
-each other) was NOT run this session -- same disclosed-not-silently-assumed gap ADR-0014 already
+each other) was NOT run this session -- same disclosed-not-silently-assumed deferred item ADR-0014 already
 recorded for NRF alone. See `docs/DECISIONS.md` ADR-0023.
 
 ## Deployment infrastructure (Phase 2, UDR)
@@ -543,10 +543,10 @@ Not a procedure row. `deploy/docker/udr.Dockerfile` (multi-stage Ubuntu 24.04 bu
 `udm.Dockerfile`), built in this environment (`docker build -f deploy/docker/udr.Dockerfile -t
 5gc-udr:test .`). `deploy/docker/docker-compose.yml` updated with a `udr` service (added to
 `pki-init`'s shared-volume provisioning, same pattern as ADR-0019). `deploy/helm/udr/` (mirrors
-`deploy/helm/udm/`, including the same disclosed cross-chart shared-PKI gap noted in
-`deploy/helm/udr/Chart.yaml`) -- not proven by `helm install`/`helm template`, same disclosed gap
+`deploy/helm/udm/`, including the same disclosed cross-chart shared-PKI deferred item noted in
+`deploy/helm/udr/Chart.yaml`) -- not proven by `helm install`/`helm template`, same disclosed deferred item
 as NRF/AMF/SMF/UDM's charts. `docker compose up` (all five containers actually mTLS-registering
-with each other) was NOT run this session -- same disclosed-not-silently-assumed gap ADR-0014
+with each other) was NOT run this session -- same disclosed-not-silently-assumed deferred item ADR-0014
 already recorded for NRF alone. See `docs/DECISIONS.md` ADR-0025.
 
 ## Deployment infrastructure (Phase 2, AUSF)
@@ -556,11 +556,11 @@ Not a procedure row. `deploy/docker/ausf.Dockerfile` (multi-stage Ubuntu 24.04 b
 5gc-ausf:test .`). `deploy/docker/docker-compose.yml` updated with an `ausf` service (added to
 `pki-init`'s shared-volume provisioning; the first NF service whose `depends_on` includes another
 NF besides `nrf` -- `udm`, since AUSF's own handlers call it). `deploy/helm/ausf/` (mirrors
-`deploy/helm/udr/`, including the same disclosed cross-chart shared-PKI gap noted in
-`deploy/helm/ausf/Chart.yaml`) -- not proven by `helm install`/`helm template`, same disclosed gap
+`deploy/helm/udr/`, including the same disclosed cross-chart shared-PKI deferred item noted in
+`deploy/helm/ausf/Chart.yaml`) -- not proven by `helm install`/`helm template`, same disclosed deferred item
 as NRF/AMF/SMF/UDM/UDR's charts. `docker compose up` (all six containers actually mTLS-registering
 with each other, and AUSF actually calling UDM inside the compose network) was NOT run this
-session -- same disclosed-not-silently-assumed gap ADR-0014 already recorded for NRF alone. See
+session -- same disclosed-not-silently-assumed deferred item ADR-0014 already recorded for NRF alone. See
 `docs/DECISIONS.md` ADR-0027.
 
 ## Deployment infrastructure (Phase 2, PCF)
@@ -570,10 +570,10 @@ Not a procedure row. `deploy/docker/pcf.Dockerfile` (multi-stage Ubuntu 24.04 bu
 5gc-pcf:test .`). `deploy/docker/docker-compose.yml` updated with a `pcf` service (added to
 `pki-init`'s shared-volume provisioning; `depends_on` is just `nrf`, since PCF doesn't call any
 other NF this turn -- see ADR-0028's deferred AMF/SMF wiring). `deploy/helm/pcf/` (mirrors
-`deploy/helm/ausf/`, including the same disclosed cross-chart shared-PKI gap noted in
-`deploy/helm/pcf/Chart.yaml`) -- not proven by `helm install`/`helm template`, same disclosed gap
+`deploy/helm/ausf/`, including the same disclosed cross-chart shared-PKI deferred item noted in
+`deploy/helm/pcf/Chart.yaml`) -- not proven by `helm install`/`helm template`, same disclosed deferred item
 as NRF/AMF/SMF/UDM/UDR/AUSF's charts. `docker compose up` and `helm install`/`helm template` were
-NOT run this session -- same disclosed-not-silently-assumed gap ADR-0014 already recorded for NRF
+NOT run this session -- same disclosed-not-silently-assumed deferred item ADR-0014 already recorded for NRF
 alone. See `docs/DECISIONS.md` ADR-0028.
 
 ## AMF NGAP/N2 + NAS-5GS Registration and PDU Session Establishment (staged plan, Stages 0-5, plus ADR-0036/ADR-0037/ADR-0038)
@@ -589,8 +589,8 @@ from PCF's actual QoS decision → delivered to AMF via `Namf_Communication` `N1
 forwarded to the UE via `DownlinkNASTransport`. `nr-ue` logged `Initial Registration is successful`,
 then `Sending PDU Session Establishment Request`, then `PDU Session Establishment Accept received`
 and `PDU Session establishment is successful PSI[1]` -- the complete procedure, both directions,
-with no gap left unimplemented. This supersedes every "Not reachable live (SQN gap)" note this
-table previously carried, and closes the PDU Session Establishment Accept gap ADR-0036/ADR-0037
+with nothing left unimplemented. This supersedes every "Not reachable live (SQN gap)" note this
+table previously carried, and closes the PDU Session Establishment Accept deferred item ADR-0036/ADR-0037
 both disclosed.
 
 | Procedure | TS clause / message | Test |
@@ -614,7 +614,7 @@ both disclosed.
 | SMF -> AMF `POST /namf-comm/v1/ue-contexts/{ueContextId}/n1-n2-messages` (`N1N2MessageTransfer`) | TS 29.518 `Namf_Communication` | Real `nr-ue` interop: real HTTP 200 from real AMF, first attempt, on two independent clean runs. AMF's pre-existing stub (JSON-only, no real delivery) replaced with a real `multipart/related` handler + `NgapUeRegistry` cross-thread handoff to the live NGAP association. See ADR-0038 |
 | NAS DlNasTransport encode (delivering the Accept to the UE) | TS 24.501 §8.2.9 | Real `nr-ue` interop: the real UE received and correctly decoded/deciphered/MAC-verified this message before decoding the 5GSM Accept inside it. Unit test `NasCodec.EncodesDlNasTransportWithCorrectEnvelopeAndDecryptsToExpectedInner`. See ADR-0038 |
 
-The PDU Session Establishment Accept gap ADR-0036/ADR-0037 both disclosed (AMF had nothing real to
+The PDU Session Establishment Accept deferred item ADR-0036/ADR-0037 both disclosed (AMF had nothing real to
 send back to the UE after `CreateSMContext`, so a real `nr-ue` would retransmit under `T3580` and
 eventually give up) is closed by the four rows above -- ADR-0038. Real end-to-end interop, first
 attempt, zero retries anywhere in the chain, confirmed on two independent clean process sets.
@@ -677,25 +677,25 @@ table above met once real `nr-ue` interop landed, now met for the N4 side too.
 | SMF -> NRF `GET /nnrf-disc/v1/nf-instances?target-nf-type=UPF` (`SearchNFInstances`) | TS 29.510 `Nnrf_NFDiscovery` | Real interop: real HTTP 200 from real NRF, real UPF `ipv4Addresses` extracted -- confirmed in `smf`'s own log (`discovered UPF at 127.0.0.1 via Nnrf_NFDiscovery`). First real use of this NRF capability anywhere in this project; every other NF-to-NF call still uses a hardcoded base URL -- see ADR-0041 |
 | Sx Heartbeat Request/Response | TS 29.244 §7.4.2 | Real interop, verified two ways: (1) a hand-crafted PFCP datagram (ADR-0040) and (2) implicitly exercised by the same codec paths Association Setup below proves against a real independent peer |
 | Sx Association Setup Request/Response | TS 29.244 §7.4.4.1/§7.4.4.2 | Real interop between two independently-built processes: real `smf` (client) and real `upf` (server), neither aware of the other's internals. `smf`'s log: `PFCP Sx Association established with UPF at 127.0.0.1`; `upf`'s own independently-generated log: `Sx Association Setup accepted from 127.0.0.1`. Node ID/Cause/Recovery Time Stamp/CP-and-UP Function Features all decoded correctly on both sides. See ADR-0041 |
-| Sx Association Update Request/Response | TS 29.244 §7.4.4.3/§7.4.4.4 | **Live-verified 2026-08-17**: gap-closure task #107 part 1 (ADR-0084). Real standalone `upf` process, hand-crafted raw UDP client (`pfcp_assoc_verify.py`, real wire bytes, no automatic SMF-side trigger exists yet for this message). Response decoded as `AssociationUpdateResponse` (type 8), sequence number correctly echoed, `Cause=RequestAccepted`, `NodeID` byte-correct. `upf`'s own independently-generated log: `Sx Association Update accepted from 127.0.0.1` |
-| Sx Association Release Request/Response | TS 29.244 §7.4.4.5/§7.4.4.6 | **Live-verified 2026-08-17**: gap-closure task #107 part 1 (ADR-0084). Same hand-crafted raw UDP client. Response decoded as `AssociationReleaseResponse` (type 10), sequence number correctly echoed, `Cause=RequestAccepted`, `NodeID` byte-correct. `upf`'s own independently-generated log: `Sx Association Release accepted from 127.0.0.1 (real, disclosed scope: this UPF's own session state for the peer is NOT bulk-deleted as a side effect...)`. Real, disclosed scope: no bulk session-state deletion on release (deferred to the still-open `SessionSetDeletion` message) |
-| Sx PFD Management Request/Response (provision, per-Application-ID delete, clear-all) | TS 29.244 §7.4.3.1/§7.4.3.2 | **Live-verified 2026-08-17**: gap-closure task #107 part 2 (ADR-0086). Hand-crafted raw UDP client exercising all three real semantic paths from Table 7.4.3.1-1/7.4.3.1-2's own condition text. `upf`'s own independently-generated log confirms each: `"provisioned 2 PFD(s) for Application ID app-exampleapp"`, `"deleted all PFDs for Application ID app-exampleapp"`, `"carried no Application ID's PFDs -- cleared all provisioned PFDs"`. 7 new unit tests (`tests/conformance/test_pfcp_core.cpp`, `PfcpPfdIes.*`) cover the new `PfdContents`/`ApplicationId` codec and a grouped-IE round-trip. Real, disclosed gap: no Application Detection Filter engine yet consumes the provisioned PFDs (see ADR-0086) |
-| Sx Node Report Request/Response (User Plane Path Failure Report) | TS 29.244 §7.4.5.1/§7.4.5.2 | **Live-verified 2026-08-17**: gap-closure task #107 final slice (ADR-0087). This project's strongest verification tier -- two real, independently-built processes: a hand-crafted raw UDP client posing as UPF (the real spec-mandated sender direction, §7.4.5.1.1) sent a real `NodeReportRequest` to a real, standalone `smf` process's real `PfcpPeer` socket (port 8806). `smf`'s own response decoded as `NodeReportResponse` (type 13), `Cause=RequestAccepted`, real `NodeID` present, sequence number echoed. `smf`'s own independently-generated log corroborates the exact reported peer: `"real User Plane Path Failure Report from Node ID 127.0.0.1 -- remote GTP-U peer 10.45.0.1 unreachable (real, disclosed gap: not yet acted on)"`. 4 new unit tests (`PfcpCommonIes.NodeReportType*`/`RemoteGtpuPeer*`). Real, disclosed gap: UPF's own send-side `build_node_report_request_ies` has no live caller (no GTP-U path-failure detector exists), and SMF logs but does not yet act on a received report |
-| Sx Session Set Deletion Request/Response | TS 29.244 §7.4.6 | **Resolved 2026-08-17, not implemented (ADR-0087)**: Table 7.3-1's own Applicability columns mark this message pair "not applicable" to Sxc (this project's own real N4 interface) -- Sxa/Sxb (EPC) only, confirmed independently by its own IE table being entirely SGW-C/PGW-C/MME FQ-CSID concepts. A real, disclosed correction to `docs/CAPABILITY_GAP_ANALYSIS.md`'s original finding, not a deferred gap |
+| Sx Association Update Request/Response | TS 29.244 §7.4.4.3/§7.4.4.4 | **Live-verified 2026-08-17**: deferred-item closure task #107 part 1 (ADR-0084). Real standalone `upf` process, hand-crafted raw UDP client (`pfcp_assoc_verify.py`, real wire bytes, no automatic SMF-side trigger exists yet for this message). Response decoded as `AssociationUpdateResponse` (type 8), sequence number correctly echoed, `Cause=RequestAccepted`, `NodeID` byte-correct. `upf`'s own independently-generated log: `Sx Association Update accepted from 127.0.0.1` |
+| Sx Association Release Request/Response | TS 29.244 §7.4.4.5/§7.4.4.6 | **Live-verified 2026-08-17**: deferred-item closure task #107 part 1 (ADR-0084). Same hand-crafted raw UDP client. Response decoded as `AssociationReleaseResponse` (type 10), sequence number correctly echoed, `Cause=RequestAccepted`, `NodeID` byte-correct. `upf`'s own independently-generated log: `Sx Association Release accepted from 127.0.0.1 (real, disclosed scope: this UPF's own session state for the peer is NOT bulk-deleted as a side effect...)`. Real, disclosed scope: no bulk session-state deletion on release (deferred to the still-open `SessionSetDeletion` message) |
+| Sx PFD Management Request/Response (provision, per-Application-ID delete, clear-all) | TS 29.244 §7.4.3.1/§7.4.3.2 | **Live-verified 2026-08-17**: deferred-item closure task #107 part 2 (ADR-0086). Hand-crafted raw UDP client exercising all three real semantic paths from Table 7.4.3.1-1/7.4.3.1-2's own condition text. `upf`'s own independently-generated log confirms each: `"provisioned 2 PFD(s) for Application ID app-exampleapp"`, `"deleted all PFDs for Application ID app-exampleapp"`, `"carried no Application ID's PFDs -- cleared all provisioned PFDs"`. 7 new unit tests (`tests/conformance/test_pfcp_core.cpp`, `PfcpPfdIes.*`) cover the new `PfdContents`/`ApplicationId` codec and a grouped-IE round-trip. Real, disclosed deferred item: no Application Detection Filter engine yet consumes the provisioned PFDs (see ADR-0086) |
+| Sx Node Report Request/Response (User Plane Path Failure Report) | TS 29.244 §7.4.5.1/§7.4.5.2 | **Live-verified 2026-08-17**: deferred-item closure task #107 final slice (ADR-0087). This project's strongest verification tier -- two real, independently-built processes: a hand-crafted raw UDP client posing as UPF (the real spec-mandated sender direction, §7.4.5.1.1) sent a real `NodeReportRequest` to a real, standalone `smf` process's real `PfcpPeer` socket (port 8806). `smf`'s own response decoded as `NodeReportResponse` (type 13), `Cause=RequestAccepted`, real `NodeID` present, sequence number echoed. `smf`'s own independently-generated log corroborates the exact reported peer: `"real User Plane Path Failure Report from Node ID 127.0.0.1 -- remote GTP-U peer 10.45.0.1 unreachable (real, disclosed gap: not yet acted on)"`. 4 new unit tests (`PfcpCommonIes.NodeReportType*`/`RemoteGtpuPeer*`). Real, disclosed deferred item: UPF's own send-side `build_node_report_request_ies` has no live caller (no GTP-U path-failure detector exists), and SMF logs but does not yet act on a received report |
+| Sx Session Set Deletion Request/Response | TS 29.244 §7.4.6 | **Resolved 2026-08-17, not implemented (ADR-0087)**: Table 7.3-1's own Applicability columns mark this message pair "not applicable" to Sxc (this project's own real N4 interface) -- Sxa/Sxb (EPC) only, confirmed independently by its own IE table being entirely SGW-C/PGW-C/MME FQ-CSID concepts. A real, disclosed correction to `docs/CAPABILITY_GAP_ANALYSIS.md`'s original finding, not a deferred deferred item |
 | Sx Session Establishment Request/Response (one uplink PDR/FAR: Source Interface=Access, F-TEID CH-allocation, FAR Apply Action=FORW/Destination Interface=Core) | TS 29.244 §7.5.2/§7.5.3 | Real interop, triggered by a real `nr-ue` PDU Session Establishment via real `amf`->`smf`->`upf`. `smf`'s log: `N4 Session Establishment succeeded for pduSessionId 1, UPF F-SEID=0x1, allocated uplink F-TEID=0x1`, correctly ordered before the PDU Session Establishment Accept delivery (matching TS 23.502's real step order). `upf`'s own independently-generated log: `allocated F-TEID 0x1 for PDR ID 1` / `Sx Session established from 127.0.0.1`. See ADR-0042 |
 | BPF program load + verifier acceptance (`gtpu_decap.bpf.c`) | -- (kernel/BPF infrastructure, not a 3GPP procedure) | **Live-verified 2026-08-09**: `bpf_object__load` succeeds against a real, privileged `upf` process after fixing a real verifier rejection (`bpf_ringbuf_reserve` needs a compile-time-constant size). See ADR-0043 |
 | veth pair + TUN device creation, XDP attach (generic/SKB mode) | -- (this build's own datapath infrastructure) | **Live-verified 2026-08-09**: `ip link show upf-n3` confirms `xdpgeneric` mode with a real attached program. See ADR-0043 |
 | Real TEID registration from a real PFCP Session Establishment into the live BPF map | TS 29.244 §7.5.2 (trigger) | **Live-verified 2026-08-09**: a real Association Setup + Session Establishment sent to the live, privileged `upf` allocated F-TEID `0x1` and (per the existing Stage 3 code path) called `datapath->register_teid(0x1)` against the real, running BPF map -- no synthetic map poke, the real control-plane path. See ADR-0043 |
 | GTP-U (TS 29.281) header parse + TEID match + decapsulation, actual packet delivery to TUN | TS 29.281 §5.1 (header), Table 6.1-1 (G-PDU=255), §4.4.2.3 (UDP port 2152) | **Live-verified 2026-08-09**: after fixing the same-namespace overlapping-route bug (see ADR-0043's resolution section), a real GTP-U test packet carrying TEID `0x1` (allocated by the real N4 Session Establishment above, not a synthetic value) was sent from an isolated peer namespace. ARP resolved (`ip neigh show`: `10.99.0.1 ... REACHABLE`) and `upf`'s own log confirms `delivered decapsulated T-PDU (44 bytes) to upf-tun0` -- an exact byte-count match, logged only after a checked, successful `write()` to the TUN device |
 
-**Disclosed gaps**: only an uplink PDR/FAR is created -- the downlink direction needs the gNB's
+**Disclosed deferred items**: only an uplink PDR/FAR is created -- the downlink direction needs the gNB's
 real N3 GTP-U endpoint (TEID+IP), which requires NGAP PDU Session Resource Setup (still not
 implemented), disclosed in `nfs/upf/src/main.cpp`'s own header comment (ADR-0042). The datapath
 (ADR-0043) itself has no open runtime-correctness questions left as of 2026-08-09: BPF verifier
 acceptance, control-plane TEID registration, and actual GTP-U decapsulation-and-delivery are all
 live-verified against real, independently-generated evidence (two separate NFs' own logs, real
 `ip neigh`/`tcpdump` output). No real N3 traffic from an actual gNB reaches this path yet (the PDU
-Session Resource Setup gap above) -- that remains the honest boundary of what's proven, not the
+Session Resource Setup deferred item above) -- that remains the honest boundary of what's proven, not the
 datapath's own correctness.
 
 ## CHF Nchf_ConvergedCharging / N40 (Phase 4 Stage 0/1, ADR-0044)
@@ -712,9 +712,9 @@ directly from the vendored spec (not assumed) -- see ADR-0044.
 |---|---|---|
 | CHF -> NRF `PUT /nnrf-nfm/v1/nf-instances/{id}` (`NFType=CHF`) | TS 29.510 `Nnrf_NFManagement` | Real interop: real NRF, real HTTP 201, confirmed in `chf`'s own log (`registered with NRF (HTTP 201)`) |
 | `Nchf_ConvergedCharging_Create` (`POST /chargingdata`) | TS 32.291 (`TS32291_Nchf_ConvergedCharging.yaml`) | Real interop between two independently-built processes (`smf` client, `chf` server), triggered by a real `nr-gnb`/`nr-ue` PDU Session Establishment, right after the real N4 Session Establishment call. `smf`'s log: `Nchf_ConvergedCharging_Create succeeded for pduSessionId 1, ChargingDataRef=chg-1`. Verified independently on CHF's own side, not just SMF's claim, via each NF's own Prometheus counter: `chf_charging_data_create_total{otel_scope_name="chf"} 1` and `smf_chf_charging_data_create_total{otel_scope_name="smf"} 1`. See ADR-0044 |
-| `Nchf_ConvergedCharging_Release` (`POST /chargingdata/{ChargingDataRef}/release`) | TS 32.291 (`TS32291_Nchf_ConvergedCharging.yaml`) | Real interop, triggered directly against SMF's real `ReleaseSMContext` endpoint (real mTLS client cert, HTTP 204 -- no NF in this codebase auto-triggers release yet, disclosed gap, same "provide the missing upstream trigger" pattern this project's integration tests already use). `smf`'s log: `Nchf_ConvergedCharging_Release succeeded for ChargingDataRef=chg-1`. Verified independently via both NFs' own counters: `chf_charging_data_release_total{otel_scope_name="chf"} 1` / `smf_chf_charging_data_release_total{otel_scope_name="smf"} 1`. Negative path also live-verified: releasing the same `ChargingDataRef` again correctly returns 404 `ProblemDetails`, not a silent success. See ADR-0046 |
+| `Nchf_ConvergedCharging_Release` (`POST /chargingdata/{ChargingDataRef}/release`) | TS 32.291 (`TS32291_Nchf_ConvergedCharging.yaml`) | Real interop, triggered directly against SMF's real `ReleaseSMContext` endpoint (real mTLS client cert, HTTP 204 -- no NF in this codebase auto-triggers release yet, disclosed deferred item, same "provide the missing upstream trigger" pattern this project's integration tests already use). `smf`'s log: `Nchf_ConvergedCharging_Release succeeded for ChargingDataRef=chg-1`. Verified independently via both NFs' own counters: `chf_charging_data_release_total{otel_scope_name="chf"} 1` / `smf_chf_charging_data_release_total{otel_scope_name="smf"} 1`. Negative path also live-verified: releasing the same `ChargingDataRef` again correctly returns 404 `ProblemDetails`, not a silent success. See ADR-0046 |
 
-**Disclosed gaps**: no real rating/quota engine (`multipleUnitInformation` is never populated --
+**Disclosed deferred items**: no real rating/quota engine (`multipleUnitInformation` is never populated --
 schema-valid, not a real charging decision); `invocationSequenceNumber` in CHF's response echoes
 the request's value (no field-level spec text available to confirm the alternative); no
 persistence across restarts; `pDUSessionChargingInformation` is not sent by SMF (CHF has nothing
@@ -736,7 +736,7 @@ real, buildable slice: SUPI -> TM Forum `Party`/`Individual`.
 | SUPI -> TMF632 `Individual.individualIdentification` (`identificationType="SUPI"`) | TMF632 Party Management (`Individual`, `IndividualIdentification` -- confirmed real fields via TM Forum's own TMF632 v4.0.0 swagger) | 5 unit tests (`tests/conformance/test_bss_sid.cpp`, `BssSidParty.*`): mapping correctness, `id` deliberately left unset (no real Party store exists), JSON round-trip, `id` omitted (not emitted as `null`) when unset, `IndividualIdentification` round-trip |
 | CHF builds the SID record on a real charging event | -- (this build's own integration, not a 3GPP procedure) | Real interop: a real `nr-gnb`/`nr-ue` PDU Session Establishment drives a real SUPI into CHF's `Nchf_ConvergedCharging_Create` handler; `chf`'s own log confirms the correctly-shaped output built from that real SUPI, `id` correctly absent -- `mapped subscriberIdentifier to TM Forum SID Individual: {"individualIdentification":[{"identificationId":"imsi-999700000000001","identificationType":"SUPI"}]}`. See ADR-0045 |
 
-**Disclosed gaps**: every other row in `docs/CHARGING_MAPPING.md`'s table remains deferred (no real
+**Disclosed deferred items**: every other row in `docs/CHARGING_MAPPING.md`'s table remains deferred (no real
 3GPP data populated for those fields by any NF yet); `libs/bss-sid/`'s `Individual` models only 2 of
 TMF632's ~25 real fields (the ones with real data behind them); no real TMF632 REST surface or
 Party-management store exists -- the mapping is built and logged, not yet exposed or persisted. All
@@ -745,7 +745,7 @@ disclosed in `bss_sid/party.hpp`'s own header and ADR-0045.
 ## `bss/product-catalog`: real TMF620 Product Catalog Management (ADR-0047)
 
 A new, standalone, non-3GPP service (own top-level `bss/` directory, no NRF registration) closing
-the gap PROMPT.md's charging principles named: product/tariff definitions are now real,
+the deferred item PROMPT.md's charging principles named: product/tariff definitions are now real,
 configurable data (a real store behind a real API), not the empty-grant-only state CHF had since
 ADR-0044. Real basePath `/tmf-api/productCatalogManagement/v4/`, fields confirmed by directly
 downloading and parsing TM Forum's own TMF620 v4.1.0 swagger JSON.
@@ -756,7 +756,7 @@ downloading and parsing TM Forum's own TMF620 v4.1.0 swagger JSON.
 | `ProductOffering` Create/Get/List/Delete, referencing prices by id | TMF620, `/productOffering`, `/productOffering/{id}` | Real mTLS interop: created an offering referencing the price above, listed it, retrieved it by id, deleted it (204), confirmed a second delete correctly 404s |
 | mTLS enforcement | -- (transport security, not a TMF procedure) | Live-verified: a request with no client certificate at all fails outright (connection failure), not just a 401 -- proving mTLS is genuinely required, not merely configured |
 
-**Disclosed gaps**: real TMF620 `PATCH` (update) and the `/listener/*` event-notification callbacks
+**Disclosed deferred items**: real TMF620 `PATCH` (update) and the `/listener/*` event-notification callbacks
 are not implemented (Create/Get/List/Delete is enough to prove product/tariff data is configurable,
 per the approved scope); no OAuth2 layer (mTLS-only, disclosed -- no NRF-issued token source exists
 for a non-3GPP component); in-memory only, no persistence across restarts. All disclosed in
@@ -772,7 +772,7 @@ client of `bss/product-catalog`, converting real seeded catalog data into a real
 | `MultipleUnitUsage.ratingGroup` (mandatory field, confirmed via the real YAML's `required:` block) sent by SMF | TS 32.291 | `smf` now sends a real `multipleUnitUsage` entry on every `Nchf_ConvergedCharging_Create` call (`nfs/smf/src/main.cpp`) |
 | CHF's real catalog-derived `GrantedUnit` | TS 32.291 `GrantedUnit`/`MultipleUnitInformation`, realized from TMF620 `ProductOfferingPrice.unitOfMeasure` | Real end-to-end: a real `ProductOfferingPrice` ("10GB Monthly Data", $25/month) and `ProductOffering` ("5G Standard Plan") were seeded via real mTLS `curl` calls; a real `nr-gnb`/`nr-ue` PDU Session Establishment then triggered SMF -> CHF -> product-catalog -> a real grant. `chf`'s own log: `rating engine granted 10000000000 octets from ProductOffering '5G Standard Plan' / ProductOfferingPrice '10GB Monthly Data'` (10 GB × 10^9, correctly converted). Verified at the wire level too: a direct call to CHF's real endpoint returned `{"multipleUnitInformation":[{"grantedUnit":{"totalVolume":10000000000},"ratingGroup":1}]}` in the actual HTTP response body. New `chf_rating_grant_total` Prometheus counter confirmed via direct scrape (`1`). See ADR-0048 |
 
-**Disclosed gaps**: no real subscriber-to-product assignment (grants from whichever `Active`+
+**Disclosed deferred items**: no real subscriber-to-product assignment (grants from whichever `Active`+
 `isSellable` offering is first in the catalog, no customer/subscription store exists); unit
 conversion only handles `"GB"`/`"MB"` → `totalVolume` (decimal, matching 3GPP's own octet-counting
 convention), anything else falls back to `serviceSpecificUnits` unconverted; no quota consumption
@@ -783,7 +783,7 @@ that's TS 32.298/32.299 charging-characteristics configuration, out of scope). A
 
 ## Quota consumption tracking, Stage 0: SMF's real bidirectional PFCP peer (ADR-0050)
 
-7-stage effort (approved, staged plan), closing the real architectural gap blocking quota-
+7-stage effort (approved, staged plan), closing the real architectural deferred item blocking quota-
 consumption tracking: SMF's old per-call ephemeral PFCP sockets could never receive an unsolicited
 message from UPF at all. New `pfcp_core` IEs (Create URR, Usage Report, and children) confirmed
 directly against the real, vendored `specs/PFCP/29244-e30.pdf` (§7.5.2.4, §7.5.8.3, Annex C.2.1.1).
@@ -793,7 +793,7 @@ directly against the real, vendored `specs/PFCP/29244-e30.pdf` (§7.5.2.4, §7.5
 | PFCP IE byte layouts: `SessionReportRequest`/`Response` (56/57), Create URR (6)/Usage Report (80) grouped IEs, `URR ID`/`UR-SEQN`/`Measurement Method`/`Reporting Triggers`/`Volume Threshold`/`Volume Quota`/`Volume Measurement`/`Report Type`/`Usage Report Trigger` | TS 29.244 §7.5.2.4, §7.5.8.3, §8.2.13/19/21/40/41/44/50/54/71 | 12 new unit tests (`tests/conformance/test_pfcp_core.cpp`, `PfcpSessionIes.Urr*`/`*Volume*`/`*Report*`), byte-exact against the real spec figures |
 | SMF's persistent, bidirectional PFCP peer (`nfs/smf/src/pfcp_peer.{hpp,cpp}`) -- real receive-dispatch, sequence-number-correlated responses, unsolicited-message handling | -- (this build's own architecture, not a 3GPP procedure) | Real regression check: a full real `nr-gnb`/`nr-ue` PDU Session Establishment confirmed Association Setup and N4 Session Establishment both still succeed, first attempt, on the new shared-socket code. New capability, independently verified: a hand-crafted-but-real Sx Session Report Request sent directly to SMF's new port 8806 was genuinely received and dispatched (`smf`'s log: `received real Sx Session Report Request from 127.0.0.1 (seq=12345)`) and answered with a real, correctly-typed Sx Session Report Response (message type 57) |
 
-**Disclosed gaps**: this stage's Session Report handler is architecture-proof only -- acknowledges
+**Disclosed deferred items**: this stage's Session Report handler is architecture-proof only -- acknowledges
 unconditionally, does not parse real Usage Report content or call `Nchf_ConvergedCharging_Update`
 (Stage 3), and echoes the request's own SEID rather than looking up the session's real UP-side SEID
 (no per-session PFCP state store exists yet). `kSmfCpFunctionPfcpPort` (8806) is a lab-only
@@ -831,7 +831,7 @@ trip unit tests).
 | Real per-TEID Volume measurement, one-shot Volume Threshold/Quota report triggers | TS 29.244 §7.5.8 (Session Report procedure), Annex C.2.1.1 | 25-packet real GTP-U burst (44 real T-PDU octets each) against a real, small seeded grant (1,000 octets): `upf`'s log shows exactly one VOLTH report at real total=924 octets and exactly one VOLQU report at real total=1012 octets, despite 25 packets continuing to flow past both crossings -- the latch is proven under continued traffic, not just a single-shot coincidence |
 | Real, unsolicited Sx Session Report Request delivery, UP -> CP | TS 29.244 §7.2.2.3 (session-related header), §7.5.8.3 (Usage Report IE) | `smf`'s log independently confirms real receipt of both reports via Stage 0's handler: `received real Sx Session Report Request from 127.0.0.1 (seq=1)` then `(seq=2)` |
 
-**Disclosed gaps carried forward**: TS 29.244 Annex C.2.1.1's real behaviour (UP function stops
+**Disclosed deferred items carried forward**: TS 29.244 Annex C.2.1.1's real behaviour (UP function stops
 forwarding once Volume Quota is reached, until a new quota arrives) is NOT implemented -- traffic
 keeps flowing after the VOLQU report; enforcing a stop before Stage 5 exists to ever provision a
 fresh quota would strand every session permanently. SMF's handler for the reports it now genuinely
@@ -854,7 +854,7 @@ thread).
 |---|---|---|
 | Real Usage Report decode + session resolution + `Nchf_ConvergedCharging_Update` call | TS 29.244 §7.5.8.3 (Usage Report IE); TS 32.291 `POST /chargingdata/{ChargingDataRef}/update` | Same small-seeded-grant (1,000 octets) 25-packet real GTP-U burst as Stage 2: `smf`'s log shows `received real Sx Session Report Request ... (seq=1)` immediately followed by `CHF Nchf_ConvergedCharging_Update returned status 404 ...` (expected -- CHF has no Update handler yet), then the same pair for `(seq=2)`. `chf`'s own log/generic server confirms the request genuinely arrived (a real unregistered-route 404, not a connection failure) |
 
-**Disclosed gaps carried forward**: `perform_n40_charging_data_release` still hardcodes
+**Disclosed deferred items carried forward**: `perform_n40_charging_data_release` still hardcodes
 `invocationSequenceNumber=2` rather than sharing `CpSeidSessionStore`'s real per-session counter --
 a real TS 32.291 "strictly increasing per invocation" violation if both an Update and a Release land
 on the same `ChargingDataRef`; pre-existing, out of this stage's scope, flagged not fixed. CHF still
@@ -872,7 +872,7 @@ a fresh `GrantedUnit` with HTTP 200.
 | Real `Nchf_ConvergedCharging_Update`: reported-usage receipt + re-authorization grant | TS 32.291 `POST /chargingdata/{ChargingDataRef}/update` | Same small-seeded-grant (1,000 octets), real `nr-gnb`/`nr-ue`, 25-packet GTP-U burst as Stages 2-3: `chf`'s log shows `Update for ChargingDataRef=chg-1 reports ratingGroup=1 used 924 octets (localSequenceNumber=1)` immediately followed by a real fresh `rating engine granted 1000 octets`, then the same pair for `used 1012 octets (localSequenceNumber=2)`; `smf`'s log independently confirms real success (not Stage 3's 404): `Nchf_ConvergedCharging_Update succeeded for ChargingDataRef=chg-1, reported 924 octets used` then `... reported 1012 octets used` |
 
 **Disclosed simplifications, not fixed by this stage**: no balance/wallet deduction against
-already-consumed usage (no such store exists, `docs/CHARGING_MAPPING.md`'s TMF654 gap); no
+already-consumed usage (no such store exists, `docs/CHARGING_MAPPING.md`'s TMF654 deferred item); no
 differentiation between a Volume-Threshold report and a Volume-Quota-exhaustion report (SMF doesn't
 forward that distinction as a real `Trigger` either). 140/140 tests pass, zero regressions. See
 ADR-0050's Stage 4 section.
@@ -899,9 +899,9 @@ VOLTH, before the first re-authorization's real CHF-call-plus-PFCP-round-trip (~
 exactly the race TS 29.244 §5.2.2.2.1 NOTE 3/4 itself describes (the Threshold/Quota gap exists to
 give the OCS round-trip time to complete). This test's artificially tiny 1,000-octet quota (needed
 for practical live verification) left far too little real headroom (~2 packets) for a real ~100ms
-round trip; a real deployment sizes this gap in megabytes for exactly this reason. Both
+round trip; a real deployment sizes this deferred item in megabytes for exactly this reason. Both
 Modifications still landed and were applied correctly, just after momentary quota overrun (traffic
-was never stopped either way -- Stage 2's own disclosed gap). 140/140 tests pass, zero regressions.
+was never stopped either way -- Stage 2's own disclosed deferred item). 140/140 tests pass, zero regressions.
 See ADR-0050's Stage 5 section.
 
 **Consequence**: the full quota-consumption-tracking loop, including the feedback path back into
@@ -919,7 +919,7 @@ measured ~100ms round-trip latency.
 
 140/140 tests pass -- final full-suite run for this effort, zero regressions across all 6 stages.
 
-**Real, disclosed gaps still standing at the close of this effort** (none silently dropped): UPF
+**Real, disclosed deferred items still standing at the close of this effort** (none silently dropped): UPF
 never stops forwarding on Volume Quota exhaustion (Stage 2); CHF applies no real balance/wallet
 deduction, re-granting the same catalog amount unconditionally rather than a remaining-balance-aware
 one (Stage 4); neither SMF nor CHF differentiate a Volume-Threshold report from a
@@ -928,7 +928,7 @@ still hardcodes its own `invocationSequenceNumber` (Stage 3); `kSmfCpFunctionPfc
 lab-only convention, not an IANA/spec assignment (Stage 0). See ADR-0050's Stage 6 section for the
 complete list and reasoning.
 
-**Consequence**: ADR-0048's quota-consumption-tracking/re-authorization gap is closed end to end --
+**Consequence**: ADR-0048's quota-consumption-tracking/re-authorization deferred item is closed end to end --
 UPF measures, reports, SMF calls CHF, CHF re-authorizes, SMF pushes the new quota back into the live
 datapath -- demonstrated both under real timing pressure (Stage 5) and with real headroom (this
 stage). This closes the 7-stage effort (ADR-0050).
@@ -975,7 +975,7 @@ ADR-0052.
 ## `bss/subscriber-management` + `bss/roaming-interconnect`: real BSS layer REST services (P4.7, ADR-0066)
 
 Two new standalone HTTP/2 services closing the disclosed "store library only, no HTTP/REST service
-yet" gap both services' `schema.sql` carried since ADR-0060. Real basePaths confirmed directly
+yet" deferred item both services' `schema.sql` carried since ADR-0060. Real basePaths confirmed directly
 against TM Forum's own public swagger, fetched live (not recalled from memory).
 
 | Procedure | TMF resource / operation | Test |
@@ -986,7 +986,7 @@ against TM Forum's own public swagger, fetched live (not recalled from memory).
 | mTLS enforcement, `ProblemDetails` 404 | -- (transport security / error shape, not a TMF procedure) | Live-verified: `GET` for a nonexistent Individual returns a real `{"status":404,"title":"Not Found","detail":"..."}` |
 | Real PostgreSQL persistence, both services | -- | 6 new integration tests (`tests/integration/test_subscriber_management_postgres.cpp`, `test_roaming_interconnect_postgres.cpp`), real cross-process re-derivation (independent `pqxx::connection` per store instance sees the same row), all pass against fresh real Postgres containers; CI extended with two new postgres service containers + schema-apply steps |
 
-**Disclosed gaps**: PATCH/DELETE not implemented (same disclosed narrowing `bss/product-catalog`
+**Disclosed deferred items**: PATCH/DELETE not implemented (same disclosed narrowing `bss/product-catalog`
 already used); no NRF registration/OAuth2 (mTLS-only, same reasoning as every other `bss/*`
 component); `Subscriber`'s real trigger (an NF actually calling this service from a real SUPI
 lookup) doesn't exist yet; `RoamingCdrFileStore` still has no HTTP route -- real GSMA CDR ingestion
@@ -1018,7 +1018,7 @@ committed, real cited field names/tag numbers only, same discipline as TCAP/MAP/
 | `CallEventDetailList` real tag-dispatch across all 9 variants | untagged CHOICE, TAP-SPEC.pdf p.257 | `Tap3Envelope.CallEventDetailListDispatchesAllRealVariants` |
 | `RoamingCdrFileStore` wiring (`format="TAP3"`, real encode/decode) | -- (project-internal storage shape) | `RoamingInterconnectTap3.*` (2 tests), `tests/conformance/test_roaming_interconnect_tap3.cpp` |
 
-**Disclosed gaps**: RAP/NRTRDE remain fully unsupplied (still `"STUB"`); live wiring from CHF's
+**Disclosed deferred items**: RAP/NRTRDE remain fully unsupplied (still `"STUB"`); live wiring from CHF's
 real CDR data into a real outbound TAP3 file is separate, later work -- this codec proves the
 byte-level format is real and correct, not yet fed by a live production data path;
 `TransferBatch.messageDescriptionInfo`, `AuditControlInfo.totalAdvisedChargeValueList`, and
@@ -1031,7 +1031,7 @@ violating the same GSMA confidentiality boundary this codec was built to respect
 is internal round-trip correctness plus per-field tag citations, not conformance against a real
 third-party file.
 
-## `nfs/udr`: real PostgreSQL persistence (gap-closure Tier 1a, ADR-0068)
+## `nfs/udr`: real PostgreSQL persistence (deferred-item closure Tier 1a, ADR-0068)
 
 A real, three-way source comparison against free5GC and open5gs (both have genuinely persistent
 UDR backends -- MongoDB in both cases) found this project's own UDR was in-memory only. Closed by
@@ -1043,12 +1043,12 @@ replacing `std::unordered_map` with real `pqxx::connection`-backed PostgreSQL st
 | `CreateOrUpdateSmfRegistration`/`QuerySmfRegistration`/`QuerySmfRegList`/`UpdateSmfContext`/`DeleteSmfRegistration`, real persistence | same | `UdrIntegration.SmfRegistrationLifecycle` |
 | 404/401 error handling unchanged by the storage-layer swap | -- | `UdrIntegration.MissingResourceIs404AndTamperedTokenIs401` |
 
-**Disclosed gaps**: UDM's `GetAmData`/`GetSmfSelData`/`GetSmData` still don't call this now-real
+**Disclosed deferred items**: UDM's `GetAmData`/`GetSmfSelData`/`GetSmData` still don't call this now-real
 UDR (Tier 1b, separate turn). No MongoDB-specific behavior (transactions, replica sets) was
 replicated -- only the real persistence property both references share, via this project's own
 mandated PostgreSQL stack.
 
-## `nfs/udm` <-> `nfs/udr`: real Nudm_SDM provisioned-data wiring (gap-closure Tier 1b, ADR-0069)
+## `nfs/udm` <-> `nfs/udr`: real Nudm_SDM provisioned-data wiring (deferred-item closure Tier 1b, ADR-0069)
 
 open5gs's own UDM (`src/udm/nudr-build.c`/`nudr-handler.c`) genuinely fetches subscriber data from
 UDR; this project's UDM previously always returned an empty stub. Closed by adding UDR's real
@@ -1061,13 +1061,13 @@ handlers to real `Nudr_DataRepository` calls.
 | A genuinely unprovisioned SUPI returns real `404`, not a schema-valid empty body | -- | same test, added case for `imsi-999999999999999` |
 | UDR's own real `provisioned-data` GET routes | TS29505_Subscription_Data.yaml `/subscription-data/{ueId}/{servingPlmnId}/provisioned-data/*` | exercised transitively by the same `UdmIntegration.SdmDataRetrievalAndSubscriptions` test (no separate UDR-side test file -- this group has no create/update operation to test independently of a real consumer) |
 
-**Disclosed gaps**: `provisioned-data` remains seed-data-only (spec is GET-only, no live
+**Disclosed deferred items**: `provisioned-data` remains seed-data-only (spec is GET-only, no live
 provisioning path); `SmfSelectionSubscriptionData.subscribedSnssaiInfos`/
 `SessionManagementSubscriptionData.dnnConfigurations` (`OPAQUE FALLBACK` codegen types) left
 unpopulated, real nested shape not confirmed with confidence in the time available; UDM's own
-UECM registration stores remain NOT wired to UDR (separate, still-open gap).
+UECM registration stores remain NOT wired to UDR (separate, still-open deferred item).
 
-## `libs/aka-crypto/src/suci.cpp`: real SUCI de-concealment (ECIES Profile A/B, gap-closure Tier 1c, ADR-0070)
+## `libs/aka-crypto/src/suci.cpp`: real SUCI de-concealment (ECIES Profile A/B, deferred-item closure Tier 1c, ADR-0070)
 
 Both free5GC and open5gs genuinely decrypt SUCI to recover SUPI; this project's UDM/AUSF
 previously passed `supiOrSuci` straight through untouched. Closed with a real ECIES Profile A
@@ -1080,11 +1080,11 @@ Annex C), independently verified against the spec's own real, officially-publish
 | A tampered MAC-tag / too-short input fails closed (no partial plaintext) | real ECIES authenticated-encryption guarantee | `Suci.ProfileARejectsTamperedMac`, `Suci.ProfileARejectsTooShortSchemeOutput` |
 | UDM's `GenerateAuthData` recovers the real SUPI from a real `suci-`-formatted id | TS29571_CommonData.yaml's own `SupiOrSuci` pattern (IMSI-type form) | manual real end-to-end `curl` verification against a real running UDM (ADR-0070's own section): `suci-0-274-012-0000-1-1-<scheme output>` -> `imsi-274012001002086`, exact match; tampered MAC -> real 400; existing plain-SUPI passthrough re-verified unchanged |
 
-**Disclosed gaps**: NAI/GCI/GLI-based SUCI (`supiType` 1-7) parsing not implemented (real, cited,
+**Disclosed deferred items**: NAI/GCI/GLI-based SUCI (`supiType` 1-7) parsing not implemented (real, cited,
 deferred -- see ADR-0070); Home Network private key is real spec test-vector material reused as
 lab-only key material, no real production key-provisioning path exists.
 
-## `nfs/upf`: real QER/BAR enforcement + full Sx session management (gap-closure Tier 1d, ADR-0071)
+## `nfs/upf`: real QER/BAR enforcement + full Sx session management (deferred-item closure Tier 1d, ADR-0071)
 
 Both free5GC and open5gs genuinely enforce QER (gate/MBR) and handle Session Deletion; this
 project's UPF previously had neither -- Session Deletion Request fell into the dispatch loop's
@@ -1106,7 +1106,7 @@ never be found by SEID for any later Modification/Deletion. Fixed by decoupling 
 (now unconditional on F-TEID allocation) from `TeidSessionStore` registration (still scoped to
 real URR-bearing sessions, its own genuine purpose).
 
-**Disclosed gaps**: no real downlink QoS/buffering enforcement (DL Gate Status/MBR stored but
+**Disclosed deferred items**: no real downlink QoS/buffering enforcement (DL Gate Status/MBR stored but
 unused; BAR has no real datapath to apply to) -- both need a downlink datapath this project
 doesn't have yet (same NGAP PDU Session Resource Setup dependency already disclosed throughout
 Phase 3). One QER per TEID (real spec allows several per PDR), same narrowing already established
@@ -1140,7 +1140,7 @@ a fixed, hardcoded test SUPI and asserted an initial 404 -- broke on any re-run 
 long-lived UDR Postgres database (real persistence, by design, ADR-0068) once the row already
 existed from a prior run. Fixed with a real per-process/per-call-site-unique test SUPI.
 
-**Disclosed gaps**: CHF was not yet part of this project's automated `ctest` suite as of this ADR
+**Disclosed deferred items**: CHF was not yet part of this project's automated `ctest` suite as of this ADR
 (needs Redis/ClickHouse, neither provisioned in `.github/workflows/ci.yml` at the time) -- closed
 in ADR-0073, see below. Automated PCC/session-rule re-decisioning from a pushed policy-counter status
 not implemented (3GPP leaves the status-to-action mapping operator-defined). `subscriptionTermination`
@@ -1219,7 +1219,7 @@ metric is claimed -- the synthetic bootstrap model exists only to prove the pipe
 functional; a real measurement needs real production usage data this lab environment doesn't have
 yet.
 
-## Gap-closure task #100 (part 1) -- AMF real ServiceRequest, 5G-GUTI, persistent NAS security context (ADR-0076)
+## Deferred-item closure task #100 (part 1) -- AMF real ServiceRequest, 5G-GUTI, persistent NAS security context (ADR-0076)
 
 | Procedure | Real requirement | Test |
 |---|---|---|
@@ -1248,7 +1248,7 @@ failures observed (`SmfIntegration.FullSmContextLifecycleOverRealHttp2`,
 `SubscriberManagementPostgresTest.SubscriberIsFindableBySupi`), both confirmed NOT caused by this
 change -- re-run in isolation after killing leftover manually-started lab processes (the first) and
 independently reproduced with a pre-existing stale-row `psql` duplicate-key error unrelated to any
-file touched this pass (the second, a real, disclosed, pre-existing test-isolation gap in
+file touched this pass (the second, a real, disclosed, pre-existing test-isolation deferred item in
 `SubscriberManagementPostgresTest`, not fixed here).
 
 ## ADR-0077 -- config-file retrofit, AMF (part 1 of project-wide task #109)
@@ -1262,7 +1262,7 @@ No behavioral change to AMF's already-tested procedures -- this is a pure refact
 configuration values come from, verified via the smoke test's exact-match log output plus the
 unchanged 261/261 conformance pass.
 
-## Gap-closure task #100 (part 2) -- AMF real NGAP UEContextRelease{Request,Command,Complete} (ADR-0078)
+## Deferred-item closure task #100 (part 2) -- AMF real NGAP UEContextRelease{Request,Command,Complete} (ADR-0078)
 
 | Procedure | Real requirement | Test |
 |---|---|---|
@@ -1277,7 +1277,7 @@ other message types), extending the patched set to 9. Confirmed via a real `asn1
 (`ngap_generated` target) that the patch compiles cleanly and produces usable, non-empty IE
 containers -- not assumed.
 
-This is the exact gap ADR-0076's own live-interop pass hit and could not work around (AMF
+This is the exact deferred item ADR-0076's own live-interop pass hit and could not work around (AMF
 couldn't decode `UEContextReleaseRequest` at all, blocking that pass's attempt to exercise
 `ServiceRequest` via the most natural real-UE trigger). Closed and re-verified via the identical
 scenario: full lab stack + real `nr-gnb`/`nr-ue` through Initial Registration + PDU Session
@@ -1290,7 +1290,7 @@ own trigger); the AMF-initiated direction (AMF deciding on its own to release, e
 Deregistration) is not. Full N2 handover remains entirely open, tracked as the rest of task
 #100/#101.
 
-## Gap-closure task #102 -- NRF real NFProfile validation + heartbeat-expiry timer (ADR-0079)
+## Deferred-item closure task #102 -- NRF real NFProfile validation + heartbeat-expiry timer (ADR-0079)
 
 | Requirement | Real spec source | Test |
 |---|---|---|
@@ -1311,12 +1311,12 @@ HTTP verification above). A full `ctest -j4` run surfaced 4 failures
 `SmfIntegration.CreateSMContextFailsClosedWhenPcfUnreachable`,
 `PcfN28Integration.CreateSmPolicyFailsOpenWhenChfUnreachable`,
 `PcfChfN28Integration.FullLoopSubscribeStatusChangeNotifyUnsubscribe`); all 4 re-ran and passed
-cleanly under `-j1`, confirming a real, pre-existing test-isolation gap (parallel `ctest` jobs
+cleanly under `-j1`, confirming a real, pre-existing test-isolation deferred item (parallel `ctest` jobs
 spawning their own `nrf`/`pcf`/`chf` on the same fixed ports can collide) rather than a
 regression from this change -- disclosed, not silently worked around, not fixed this pass (a test
 -harness concern, separate from NRF's own product code).
 
-## Gap-closure task #103 -- PCF real Npcf_PolicyAuthorization (ADR-0080)
+## Deferred-item closure task #103 -- PCF real Npcf_PolicyAuthorization (ADR-0080)
 
 | Procedure | Real requirement | Test |
 |---|---|---|
@@ -1325,7 +1325,7 @@ regression from this change -- disclosed, not silently worked around, not fixed 
 | `ModAppSession` (TS29514 §4.2.3.3) | `application/merge-patch+json` (RFC 7396), NOT RFC 6902 (confirmed by reading the YAML's own requestBody content-type) | Live HTTP: merge-patched `{"suppFeat":"3","mcpttId":"mcptt-1"}` onto an existing `ascReqData` -> `suppFeat` updated in place, `mcpttId` added, `notifUri`/`supi` preserved unchanged -- proves real RFC 7396 merge semantics, not a full overwrite |
 | `updateEventsSubsc` (PUT) | 201 on first create, 200 on subsequent modify, stored at `ascReqData.evSubsc` | Live HTTP: first PUT -> 201 + `Location`; second PUT (same appSessionId) -> 200; `GetAppSession` afterward shows the real nested `evSubsc` object with the latest `notifUri` |
 | `DeleteEventsSubsc` (DELETE) | 204, removes `ascReqData.evSubsc` | Live HTTP: 204 |
-| `PcscfRestoration` | 204, no real per-UE inventory to search (disclosed gap) | Live HTTP: 204 |
+| `PcscfRestoration` | 204, no real per-UE inventory to search (disclosed deferred item) | Live HTTP: 204 |
 | `DeleteAppSession` (real spec quirk: `POST .../delete`, not HTTP DELETE) | 204, real resource removal | Live HTTP: 204, then a subsequent `GetAppSession` on the same id -> 404 |
 | Missing mandatory `ascReqData` | 400 | Live HTTP: `{}` body -> 400 "AppSessionContext requires ascReqData" |
 | Nonexistent `appSessionId` | 404 | Live HTTP: both `GetAppSession` and `DeleteAppSession` on an unknown id -> 404 |
@@ -1342,7 +1342,7 @@ fixes needed. Full `conformance_tests` (261/261) and a full `integration_tests` 
 unaffected; no new unit tests added this pass (coverage via live HTTP verification, matching this
 same session's own ADR-0079 precedent).
 
-## Gap-closure task #104 (part 1) -- AUSF real Nausf_SoRProtection (ADR-0081)
+## Deferred-item closure task #104 (part 1) -- AUSF real Nausf_SoRProtection (ADR-0081)
 
 | Procedure | Real requirement | Test |
 |---|---|---|
@@ -1380,10 +1380,10 @@ the same pass, since Redis was its first new DB dependency.
 
 **Real, disclosed, not yet done**: ProSe authentication (task #104's other named half) needs its
 own separate real crypto (`KNR_ProSe`, TS 33.503) not yet supplied; `Nausf_UPUProtection` (a
-related AUSF service found while researching this gap, FC values now independently confirmed)
+related AUSF service found while researching this deferred item, FC values now independently confirmed)
 was not part of this task's scope and is not built.
 
-## Gap-closure task #105 -- UDM real Nudm_EE + Nudm_PP (ADR-0082)
+## Deferred-item closure task #105 -- UDM real Nudm_EE + Nudm_PP (ADR-0082)
 
 | Procedure | Real requirement | Test |
 |---|---|---|
@@ -1398,12 +1398,12 @@ set -- clean regeneration (2136 types, up from 2091), no schema-name collisions 
 `conformance_tests` (268/268) unaffected; no new unit tests (coverage via live HTTP verification).
 
 **Real, disclosed, not yet done**: `Nudm_PP`'s three larger resource groups (5G VN Group, PP Data
-Entry, 5G MBS group), found while reading the YAML but not part of the original gap-analysis
+Entry, 5G MBS group), found while reading the YAML but not part of the original deferred-item analysis
 finding -- flagged for a future turn. Real event-notification delivery for `Nudm_EE`
 subscriptions -- no trigger path exists in this lab yet, same disclosed shape as every other
-proactive-callback gap already named elsewhere in this project.
+proactive-callback deferred item already named elsewhere in this project.
 
-## Gap-closure task #106 -- UDR resource-type breadth (ADR-0083)
+## Deferred-item closure task #106 -- UDR resource-type breadth (ADR-0083)
 
 | Procedure | Real requirement | Test |
 |---|---|---|
@@ -1469,7 +1469,7 @@ in `docs/DECISIONS.md` for the full disclosure, including what remains deliberat
 (`bss/product-catalog`, CHF's remaining Redis/ClickHouse/AI-env fields) -- **task #109 is now
 closed**.
 
-## ADR-0089 -- gap-closure task #108: CHF real TS 32.298 CDR (BER) encoding
+## ADR-0089 -- deferred-item closure task #108: CHF real TS 32.298 CDR (BER) encoding
 
 | Requirement | Test |
 |---|---|
@@ -1486,11 +1486,11 @@ root-caused to a second, previously-unnoticed CDR-write path (`charging_engine.c
 with the new field. Fixed across all 5 sites; re-verified live after the fix (see table row above).
 Real, disclosed, narrower scope than free5GC's own `cdr/` module: 10 of 46 real `ChargingRecord`
 fields populated; the rest need unvendored specs (TS 32.255, TS 32.260) or don't apply to this
-project's current scope. Disclosed version gap: spec supplied is v18.8.0/Release 18, not
+project's current scope. Disclosed version difference: spec supplied is v18.8.0/Release 18, not
 re-verified against REL-19. See ADR-0089 in `docs/DECISIONS.md` for full disclosure -- **this
 closes task #108**.
 
-## ADR-0090 -- gap-closure task #100 (first slice of the N2 handover remainder): real NGAP PathSwitchRequest
+## ADR-0090 -- deferred-item closure task #100 (first slice of the N2 handover remainder): real NGAP PathSwitchRequest
 
 | Requirement | Test |
 |---|---|
@@ -1513,7 +1513,7 @@ Real, disclosed scope: `PDUSessionResourceToBeSwitchedDLList` is parsed but not 
 `docs/DECISIONS.md` for full disclosure -- **task #100 remains open**, this closes one real slice
 of its remainder.
 
-## ADR-0091 -- gap-closure task #104: AUSF/UDM real TS 33.503 5G ProSe authentication
+## ADR-0091 -- deferred-item closure task #104: AUSF/UDM real TS 33.503 5G ProSe authentication
 
 | Requirement | Test |
 |---|---|
@@ -1536,7 +1536,7 @@ confirmed by direct `grep` before writing any application code, so this ADR need
 work. See ADR-0091 in `docs/DECISIONS.md` for full disclosure -- **this closes task #104's ProSe
 half** (AUSF ProSe auth was the task's remaining scope after SoR Protection closed in ADR-0081).
 
-## ADR-0092 -- gap-closure task #101: SMF real UpdateSMContext PATH_SWITCH_REQ (real downlink GTP-U)
+## ADR-0092 -- deferred-item closure task #101: SMF real UpdateSMContext PATH_SWITCH_REQ (real downlink GTP-U)
 
 | Requirement | Test |
 |---|---|
@@ -1573,7 +1573,7 @@ unroot-caused issues since ADR-0071/ADR-0072. See ADR-0093 in `docs/DECISIONS.md
 context, including a real, unrelated, transient GitHub 429 rate-limit finding on a separate CI run
 (`32042601923`) that needed no code action.
 
-## ADR-0094 -- gap-closure task #106 continuation: UDR real `amf-non-3gpp-access` context-data resource
+## ADR-0094 -- deferred-item closure task #106 continuation: UDR real `amf-non-3gpp-access` context-data resource
 
 | Requirement | Test |
 |---|---|
@@ -1591,7 +1591,7 @@ of `Amf3GppAccessRegistration`. Takes UDR's real resource-type coverage from 9 t
 `docs/DECISIONS.md` for full disclosure, including what remains deliberately deferred (AMF's own
 registration path does not yet call this endpoint -- same disclosed "surface first, wire consumers
 later" precedent as `provisioned-data`, ADR-0069) -- task #106 remains open, ~32 resources still a
-real, disclosed gap.
+real, disclosed deferred item.
 
 ## ADR-0095 -- real concurrent NGAP association handling (prerequisite for N2 handover)
 
@@ -1607,7 +1607,7 @@ Real, disclosed: this does not add a coordinated shutdown path for in-flight ass
 multi-relay-per-gNB correlation scheme (one relay in flight per target gNB at a time, a real,
 disclosed lab-scope simplification). See ADR-0095 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0096 -- gap-closure task #100: real N2-based handover (HandoverRequired through HandoverNotify)
+## ADR-0096 -- deferred-item closure task #100: real N2-based handover (HandoverRequired through HandoverNotify)
 
 | Requirement | Test |
 |---|---|
@@ -1615,7 +1615,7 @@ disclosed lab-scope simplification). See ADR-0095 in `docs/DECISIONS.md` for ful
 | Real `HandoverRequest` sent to the target gNB's own live association via cross-thread relay | AMF's own log: `"sending real HandoverRequest (178 bytes) to target gNB..."`; `ho_target_gnb`'s own independent decode confirmed `PDUSessionResourceSetupListHOReq`/`SecurityContext`/`GUAMI` all present |
 | Real `HandoverRequestAcknowledge` received back and correctly correlated across threads | AMF's own log: `"real HandoverRequestAcknowledge received from target gNB..."` |
 | Real `HandoverCommand` sent to source with the target's own relayed `TargetToSource-TransparentContainer` content | `ho_source_trigger`'s own independent decode: content read back byte-for-byte as `"fake-t2s-rrc-container"`, the exact string `ho_target_gnb` sent -- proves correct cross-process content relay, not just a correlated boolean |
-| Real `HandoverNotify` triggers a real, AMF-initiated `UEContextReleaseCommand` to the source (closing the real, previously-disclosed ADR-0078 gap) and re-points `NgapUeRegistry` | AMF's own log, full sequence: `HandoverNotify received` -> `sent real AMF-initiated UEContextReleaseCommand` -> `re-pointed NGAP registry entry... to the new RAN-UE-NGAP-ID=4242` -> `UEContextReleaseComplete received` |
+| Real `HandoverNotify` triggers a real, AMF-initiated `UEContextReleaseCommand` to the source (closing the real, previously-disclosed ADR-0078 deferred item) and re-points `NgapUeRegistry` | AMF's own log, full sequence: `HandoverNotify received` -> `sent real AMF-initiated UEContextReleaseCommand` -> `re-pointed NGAP registry entry... to the new RAN-UE-NGAP-ID=4242` -> `UEContextReleaseComplete received` |
 | Real, third-party interop confirmation | UERANSIM's own real, unmodified gNB (`gnb.log`) independently logged `"UE Context Release Command received"` / `"Releasing RRC connection for UE[1]"` in direct response -- not this project's own tooling |
 | No regression | Full `conformance_tests`: unchanged pass count (no new committed automated test this pass, same disclosed manual-live-verification precedent ADR-0090/ADR-0091/ADR-0092 established), zero regressions; `amf` built clean |
 
@@ -1625,12 +1625,12 @@ spec's own design; `SecurityContext` reuses ADR-0090's own `derive_kgnb`/`derive
 `PDUSessionResourceSetupListHOReq`'s own per-session transfer is structurally real (one real QoS
 flow, 5QI=9 non-dynamic, a genuine standard TS 23.501 value) but its mandatory
 `UL-NGU-UP-TNLInformation` is a disclosed placeholder (no real AMF->SMF relay built this pass,
-same class of gap as ADR-0090/ADR-0092's own "AMF doesn't call SMF yet" disclosure);
+same class of deferred item as ADR-0090/ADR-0092's own "AMF doesn't call SMF yet" disclosure);
 `HandoverCancel`/`HandoverCancelAcknowledge` remain real, open, out of this pass's scope (a
 separate elementary procedure). See ADR-0096 in `docs/DECISIONS.md` for full disclosure --
 **task #100 is closed for its real, scoped chain** (`HandoverRequired` through `HandoverNotify`).
 
-## ADR-0097 -- gap-closure task #106 continuation: UDR real SMSF Registration context-data (3GPP + non-3GPP access)
+## ADR-0097 -- deferred-item closure task #106 continuation: UDR real SMSF Registration context-data (3GPP + non-3GPP access)
 
 | Requirement | Test |
 |---|---|
@@ -1649,9 +1649,9 @@ counterparts). Takes UDR's real resource-type coverage from 10 to 12 of free5GC'
 TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0097 in `docs/DECISIONS.md` for
 full disclosure, including what remains deliberately deferred (SMSF itself doesn't exist as a
 built NF in this project yet, so nothing calls these new routes) -- task #106 remains open, ~30
-resources still a real, disclosed gap.
+resources still a real, disclosed deferred item.
 
-## ADR-0098 -- gap-closure task #106 continuation: UDR real IP-SM-GW Registration context-data
+## ADR-0098 -- deferred-item closure task #106 continuation: UDR real IP-SM-GW Registration context-data
 
 | Requirement | Test |
 |---|---|
@@ -1671,9 +1671,9 @@ resource in this project combining all four real operations, including a real RF
 coverage from 12 to 13 of free5GC's ~42+ real TS 29.504 resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0098 in `docs/DECISIONS.md` for full disclosure,
 including what remains deliberately deferred (no NF currently calls this new endpoint) -- task
-#106 remains open, ~29 resources still a real, disclosed gap.
+#106 remains open, ~29 resources still a real, disclosed deferred item.
 
-## ADR-0099 -- gap-closure task #106 continuation: UDR real Message Waiting Data (Document)
+## ADR-0099 -- deferred-item closure task #106 continuation: UDR real Message Waiting Data (Document)
 
 | Requirement | Test |
 |---|---|
@@ -1694,9 +1694,9 @@ report the distinction in one statement. Takes UDR's real resource-type coverage
 free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0099 in
 `docs/DECISIONS.md` for full disclosure, including what remains deliberately deferred (no NF
 currently calls this new endpoint) -- task #106 remains open, ~28 resources still a real,
-disclosed gap.
+disclosed deferred item.
 
-## ADR-0100 -- gap-closure task #106 continuation: UDR real Roaming Information (Document)
+## ADR-0100 -- deferred-item closure task #106 continuation: UDR real Roaming Information (Document)
 
 | Requirement | Test |
 |---|---|
@@ -1714,9 +1714,9 @@ used by `AmfContextStore`/`AmfNon3GppContextStore`/`MessageWaitingDataStore`. Ta
 resource-type coverage from 14 to 15 of free5GC's ~42+ real TS 29.504 resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0100 in `docs/DECISIONS.md` for full disclosure,
 including what remains deliberately deferred (no NF currently calls this new endpoint) -- task
-#106 remains open, ~27 resources still a real, disclosed gap.
+#106 remains open, ~27 resources still a real, disclosed deferred item.
 
-## ADR-0101 -- gap-closure task #106 continuation: UDR real PEI Information (Document)
+## ADR-0101 -- deferred-item closure task #106 continuation: UDR real PEI Information (Document)
 
 | Requirement | Test |
 |---|---|
@@ -1736,9 +1736,9 @@ UPSERT idiom already used by `RoamingInformationStore` and others. Takes UDR's r
 coverage from 15 to 16 of free5GC's ~42+ real TS 29.504 resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0101 in `docs/DECISIONS.md` for full disclosure,
 including what remains deliberately deferred (no NF currently calls this new endpoint) -- task
-#106 remains open, ~26 resources still a real, disclosed gap.
+#106 remains open, ~26 resources still a real, disclosed deferred item.
 
-## ADR-0102 -- gap-closure task #106 continuation: UDR real Enhanced Coverage Restriction Data
+## ADR-0102 -- deferred-item closure task #106 continuation: UDR real Enhanced Coverage Restriction Data
 
 | Requirement | Test |
 |---|---|
@@ -1754,9 +1754,9 @@ out-of-band provisioning for this data. Takes UDR's real resource-type coverage 
 free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0102 in
 `docs/DECISIONS.md` for full disclosure, including what remains deliberately deferred
 (`ecRestrictionDataWb` left unpopulated in the seed data, no NF currently calls this new endpoint)
--- task #106 remains open, ~25 resources still a real, disclosed gap.
+-- task #106 remains open, ~25 resources still a real, disclosed deferred item.
 
-## ADR-0103 -- gap-closure task #106 continuation: UDR real LCS Privacy Subscription Data
+## ADR-0103 -- deferred-item closure task #106 continuation: UDR real LCS Privacy Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -1772,9 +1772,9 @@ no create/update operation exists at all in the spec), same shape as `CoverageRe
 18 of free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0103 in
 `docs/DECISIONS.md` for full disclosure, including what remains deliberately deferred (most of
 `LcsPrivacyData`'s own other optional fields left unpopulated in the seed data, no NF currently
-calls this new endpoint) -- task #106 remains open, ~24 resources still a real, disclosed gap.
+calls this new endpoint) -- task #106 remains open, ~24 resources still a real, disclosed deferred item.
 
-## ADR-0104 -- gap-closure task #106 continuation: UDR real LCS Subscription Data
+## ADR-0104 -- deferred-item closure task #106 continuation: UDR real LCS Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -1791,9 +1791,9 @@ resource-type coverage from 18 to 19 of free5GC's ~42+ real TS 29.504 resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0104 in `docs/DECISIONS.md` for full disclosure,
 including what remains deliberately deferred (`configuredLmfId`/`lpHapType` left unpopulated in
 the seed data, no NF currently calls this new endpoint) -- task #106 remains open, ~23 resources
-still a real, disclosed gap.
+still a real, disclosed deferred item.
 
-## ADR-0105 -- gap-closure task #106 continuation: UDR real LCS Mobile Originated Subscription Data
+## ADR-0105 -- deferred-item closure task #106 continuation: UDR real LCS Mobile Originated Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -1810,9 +1810,9 @@ real resource-type coverage from 19 to 20 of free5GC's ~42+ real TS 29.504 resou
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0105 in `docs/DECISIONS.md` for full disclosure,
 including what remains deliberately deferred (`moAssistanceDataTypes` left unpopulated in the seed
 data, no NF currently calls this new endpoint) -- task #106 remains open, ~22 resources still a
-real, disclosed gap.
+real, disclosed deferred item.
 
-## ADR-0106 -- gap-closure task #106 continuation: UDR real LCS Broadcast Assistance Data (provisioned-data sibling)
+## ADR-0106 -- deferred-item closure task #106 continuation: UDR real LCS Broadcast Assistance Data (provisioned-data sibling)
 
 | Requirement | Test |
 |---|---|
@@ -1832,9 +1832,9 @@ the new column to the live database -- confirmed via `\d udr_provisioned_data` b
 verification. Takes UDR's real resource-type coverage from 20 to 21 of free5GC's ~42+ real
 TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0106 in `docs/DECISIONS.md` for
 full disclosure, including what remains deliberately deferred (no NF currently calls this new
-endpoint) -- task #106 remains open, ~21 resources still a real, disclosed gap.
+endpoint) -- task #106 remains open, ~21 resources still a real, disclosed deferred item.
 
-## ADR-0107 -- gap-closure task #106 continuation: UDR real Parameter Provision (Document)
+## ADR-0107 -- deferred-item closure task #106 continuation: UDR real Parameter Provision (Document)
 
 | Requirement | Test |
 |---|---|
@@ -1852,9 +1852,9 @@ upsert-capable RFC 6902 pattern. Takes UDR's real resource-type coverage from 21
 free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0107 in
 `docs/DECISIONS.md` for full disclosure, including what remains deliberately deferred
 (`pp-data`'s own siblings `pp-data-store`/`pp-profile-data`, no NF currently calls this new
-endpoint) -- task #106 remains open, ~20 resources still a real, disclosed gap.
+endpoint) -- task #106 remains open, ~20 resources still a real, disclosed deferred item.
 
-## ADR-0108 -- gap-closure task #106 continuation: UDR real Parameter Provision profile Data (Document)
+## ADR-0108 -- deferred-item closure task #106 continuation: UDR real Parameter Provision profile Data (Document)
 
 | Requirement | Test |
 |---|---|
@@ -1869,9 +1869,9 @@ special key `"ALL"` from `PpProfileData`'s own description text, not fabricated.
 resource-type coverage from 22 to 23 of free5GC's ~42+ real TS 29.504 resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0108 in `docs/DECISIONS.md` for full disclosure,
 including what remains deliberately deferred (`pp-data-store`, no NF currently calls this new
-endpoint) -- task #106 remains open, ~19 resources still a real, disclosed gap.
+endpoint) -- task #106 remains open, ~19 resources still a real, disclosed deferred item.
 
-## ADR-0109 -- gap-closure task #106 continuation: UDR real Provisioned Parameter Data Entry (pp-data-store)
+## ADR-0109 -- deferred-item closure task #106 continuation: UDR real Provisioned Parameter Data Entry (pp-data-store)
 
 | Requirement | Test |
 |---|---|
@@ -1894,9 +1894,9 @@ UPSERT idiom for the real 201-vs-204 distinction; `list_for_ue()` matches
 coverage from 23 to 24 of free5GC's ~42+ real TS 29.504 resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0109 in `docs/DECISIONS.md` for full disclosure,
 including what remains deliberately deferred (no NF currently calls these new endpoints) -- task
-#106 remains open, ~18 resources still a real, disclosed gap.
+#106 remains open, ~18 resources still a real, disclosed deferred item.
 
-## ADR-0110 -- gap-closure task #106 continuation: UDR real individual Shared Data (first non-per-UE resource)
+## ADR-0110 -- deferred-item closure task #106 continuation: UDR real individual Shared Data (first non-per-UE resource)
 
 | Requirement | Test |
 |---|---|
@@ -1915,9 +1915,9 @@ from 24 to 25 of free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_AN
 ADR-0110 in `docs/DECISIONS.md` for full disclosure, including what remains deliberately deferred
 (the real sibling collection resource `GetSharedData`, which needs array-query-parameter parsing
 this project has no precedent for yet; no NF currently calls this new endpoint) -- task #106
-remains open, ~17 resources still a real, disclosed gap.
+remains open, ~17 resources still a real, disclosed deferred item.
 
-## ADR-0111 -- gap-closure task #106 continuation: UDR real Operator-Specific Data Container (Document)
+## ADR-0111 -- deferred-item closure task #106 continuation: UDR real Operator-Specific Data Container (Document)
 
 | Requirement | Test |
 |---|---|
@@ -1936,9 +1936,9 @@ same as `PpDataStore`'s own established handling. Takes UDR's real resource-type
 to 26 of free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0111
 in `docs/DECISIONS.md` for full disclosure, including what remains deliberately deferred (no NF
 currently calls these new endpoints) -- task #106 remains open, ~16 resources still a real,
-disclosed gap.
+disclosed deferred item.
 
-## ADR-0112 -- gap-closure task #106 continuation: UDR real Event Exposure Data (Document)
+## ADR-0112 -- deferred-item closure task #106 continuation: UDR real Event Exposure Data (Document)
 
 | Requirement | Test |
 |---|---|
@@ -1956,9 +1956,9 @@ TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0112 in `docs/DEC
 full disclosure, including what remains deliberately deferred (`allowedMtcProvider`/
 `iwkEpcRestricted` left unpopulated in the seed data, the real group-keyed sibling resource, no NF
 currently calls this new endpoint) -- task #106 remains open, ~15 resources still a real,
-disclosed gap.
+disclosed deferred item.
 
-## ADR-0113 -- gap-closure task #106 continuation: UDR real UE Policy Set (policy-data group)
+## ADR-0113 -- deferred-item closure task #106 continuation: UDR real UE Policy Set (policy-data group)
 
 | Requirement | Test |
 |---|---|
@@ -1981,9 +1981,9 @@ from 27 to 28 of free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_AN
 ADR-0113 in `docs/DECISIONS.md` for full disclosure, including what remains deliberately deferred
 (`praInfos`/`uePolicySections` left unpopulated, the real PLMN-keyed sibling resource, no NF
 currently calls these new endpoints) -- task #106 remains open, ~14 resources still a real,
-disclosed gap.
+disclosed deferred item.
 
-## ADR-0114 -- gap-closure task #106 continuation: UDR real policy-data Operator-Specific Data
+## ADR-0114 -- deferred-item closure task #106 continuation: UDR real policy-data Operator-Specific Data
 
 | Requirement | Test |
 |---|---|
@@ -2004,9 +2004,9 @@ pair) from the `subscription-data`-scoped one (ADR-0111) -- confirmed live, not 
 reading. Takes UDR's real resource-type coverage from 28 to 29 of free5GC's ~42+ real TS 29.504
 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0114 in `docs/DECISIONS.md` for full
 disclosure, including what remains deliberately deferred (no NF currently calls these new
-endpoints) -- task #106 remains open, ~13 resources still a real, disclosed gap.
+endpoints) -- task #106 remains open, ~13 resources still a real, disclosed deferred item.
 
-## ADR-0115 -- gap-closure task #106 continuation: UDR real Sponsor Connectivity Data (second non-per-UE resource)
+## ADR-0115 -- deferred-item closure task #106 continuation: UDR real Sponsor Connectivity Data (second non-per-UE resource)
 
 | Requirement | Test |
 |---|---|
@@ -2024,9 +2024,9 @@ distinct `204` ("found but empty") vs `404` ("not found") is not modeled, same s
 existence-based store shape as every other GET-only UDR resource. Takes UDR's real resource-type
 coverage from 29 to 30 of free5GC's ~42+ real TS 29.504 resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0115 in `docs/DECISIONS.md` for full disclosure --
-task #106 remains open, ~12 resources still a real, disclosed gap.
+task #106 remains open, ~12 resources still a real, disclosed deferred item.
 
-## ADR-0116 -- gap-closure task #106 continuation: UDR real individual BDT Data (richest policy-data resource yet)
+## ADR-0116 -- deferred-item closure task #106 continuation: UDR real individual BDT Data (richest policy-data resource yet)
 
 | Requirement | Test |
 |---|---|
@@ -2048,10 +2048,10 @@ is NOT upsert-capable (real `404` if the resource doesn't already exist, unlike 
 `ue-policy-set`'s own upsert-capable merge-patch). Takes UDR's real resource-type coverage from 30
 to 31 of free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0116
 in `docs/DECISIONS.md` for full disclosure, including what remains deliberately deferred (the real
-sibling collection resource, array-query-param parsing gap, no NF currently calls these new
-endpoints) -- task #106 remains open, ~11 resources still a real, disclosed gap.
+sibling collection resource, array-query-param parsing deferred item, no NF currently calls these new
+endpoints) -- task #106 remains open, ~11 resources still a real, disclosed deferred item.
 
-## ADR-0117 -- gap-closure task #106 continuation: UDR real PLMN UE Policy Set
+## ADR-0117 -- deferred-item closure task #106 continuation: UDR real PLMN UE Policy Set
 
 | Requirement | Test |
 |---|---|
@@ -2065,9 +2065,9 @@ per-UE `ue-policy-set` resource (ADR-0113) but genuinely distinct: keyed by `plm
 -- an H-PLMN-scoped default policy set. Takes UDR's real resource-type coverage from 31 to 32 of
 free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0117 in
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open, ~10 resources still a real,
-disclosed gap.
+disclosed deferred item.
 
-## ADR-0118 -- gap-closure task #106 continuation: UDR real Slice-specific Policy Control Data
+## ADR-0118 -- deferred-item closure task #106 continuation: UDR real Slice-specific Policy Control Data
 
 | Requirement | Test |
 |---|---|
@@ -2088,9 +2088,9 @@ already-disclosed `sst + '-' + sd` convention (ADR-0072/PCF's `snssai_map_key`) 
 inventing a second answer to the same open question. Takes UDR's real resource-type coverage from
 32 to 33 of free5GC's ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See
 ADR-0118 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open, ~9 resources still
-a real, disclosed gap.
+a real, disclosed deferred item.
 
-## ADR-0119 -- gap-closure task #106 continuation: UDR real group-specific Policy Control Data
+## ADR-0119 -- deferred-item closure task #106 continuation: UDR real group-specific Policy Control Data
 
 | Requirement | Test |
 |---|---|
@@ -2112,9 +2112,9 @@ documented string encoding and no existing project precedent to reuse -- left de
 inventing a serialization. Takes UDR's real resource-type coverage from 33 to 34 of free5GC's
 ~42+ real TS 29.504 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0119 in
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open, ~8 resources still a real,
-disclosed gap.
+disclosed deferred item.
 
-## ADR-0120 -- gap-closure task #106 continuation: UDR real GetRoutingIDs (Nudr_GroupIDmap, a distinct Nudr API)
+## ADR-0120 -- deferred-item closure task #106 continuation: UDR real GetRoutingIDs (Nudr_GroupIDmap, a distinct Nudr API)
 
 | Requirement | Test |
 |---|---|
@@ -2134,11 +2134,11 @@ inside the existing `udr` binary is correct, but it does **NOT** count toward th
 required scalar query parameters, no path-parameter encoding ambiguity and no array-query-param
 parsing needed. Chosen after explicit user confirmation once both remaining real
 `Nudr_DataRepository` list-siblings turned out blocked (ADR-0119). See ADR-0120 in
-`docs/DECISIONS.md` for full disclosure, including the real array-query-param gap also found on
+`docs/DECISIONS.md` for full disclosure, including the real array-query-param deferred item also found on
 `Nudr_GroupIDmap`'s own `/nf-group-ids` sibling -- task #106 remains open, ~8 real
-`Nudr_DataRepository` resources still a disclosed gap (unchanged by this ADR).
+`Nudr_DataRepository` resources still a disclosed deferred item (unchanged by this ADR).
 
-## ADR-0121 -- gap-closure task #106 continuation: UDR real NIDD Authorization Info context-data (self-correction)
+## ADR-0121 -- deferred-item closure task #106 continuation: UDR real NIDD Authorization Info context-data (self-correction)
 
 | Requirement | Test |
 |---|---|
@@ -2162,9 +2162,9 @@ without individually checking the real YAML -- it is genuinely a flat per-UE doc
 deferred. Takes UDR's real resource-type coverage from 34 to 35 of free5GC's ~42+ real
 `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0121 in
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open, ~7 resources still a real,
-disclosed gap.
+disclosed deferred item.
 
-## ADR-0122 -- gap-closure task #106 continuation: UDR real Identity Data by SUPI or GPSI (plus re-verification of prior deferrals)
+## ADR-0122 -- deferred-item closure task #106 continuation: UDR real Identity Data by SUPI or GPSI (plus re-verification of prior deferrals)
 
 | Requirement | Test |
 |---|---|
@@ -2187,9 +2187,9 @@ confirmed genuinely deferred: real `POST`-based collection, server-generated `Lo
 webhook callback registration, no existing project precedent for either. Takes UDR's real
 resource-type coverage from 35 to 36 of free5GC's ~42+ real `Nudr_DataRepository` resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0122 in `docs/DECISIONS.md` for full disclosure -- task
-#106 remains open, ~6 resources still a real, disclosed gap.
+#106 remains open, ~6 resources still a real, disclosed deferred item.
 
-## ADR-0123 -- gap-closure task #106 continuation: UDR real ODB Data (Query by SUPI or GPSI)
+## ADR-0123 -- deferred-item closure task #106 continuation: UDR real ODB Data (Query by SUPI or GPSI)
 
 | Requirement | Test |
 |---|---|
@@ -2203,9 +2203,9 @@ as every other GET-only resource in this series -- no create/update operation ex
 all. Takes UDR's real resource-type coverage from 36 to 37 of free5GC's ~42+ real
 `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0123 in
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open, ~5 resources still a real,
-disclosed gap.
+disclosed deferred item.
 
-## ADR-0125 -- gap-closure task #106 continuation: UDR real SMS Management Subscription Data
+## ADR-0125 -- deferred-item closure task #106 continuation: UDR real SMS Management Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -2222,9 +2222,9 @@ real resource-type coverage from 37 to 38 of free5GC's ~42+ real `Nudr_DataRepos
 (docs/CAPABILITY_GAP_ANALYSIS.md). The real sibling `.../provisioned-data/sms-data` resource was
 found during the same survey and is a strong next candidate, deliberately left for its own turn.
 See ADR-0125 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open, ~4 resources
-still a real, disclosed gap.
+still a real, disclosed deferred item.
 
-## ADR-0126 -- gap-closure task #106 continuation: UDR real SMS Subscription Data
+## ADR-0126 -- deferred-item closure task #106 continuation: UDR real SMS Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -2240,9 +2240,9 @@ Genuinely distinct real resource from `sms-mng-data` (ADR-0125) -- separate oper
 schema, confirmed by live side-by-side verification. Takes UDR's real resource-type coverage from
 38 to 39 of free5GC's ~42+ real `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md).
 See ADR-0126 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open, ~3 resources
-still a real, disclosed gap.
+still a real, disclosed deferred item.
 
-## ADR-0127 -- gap-closure task #106 continuation: UDR real Trace Data
+## ADR-0127 -- deferred-item closure task #106 continuation: UDR real Trace Data
 
 | Requirement | Test |
 |---|---|
@@ -2259,9 +2259,9 @@ as opaque JSON, no special-casing needed since this store never strongly types s
 bodies. Takes UDR's real resource-type coverage from 39 to 40 of free5GC's ~42+ real
 `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0127 in
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open, ~2 resources still a real,
-disclosed gap.
+disclosed deferred item.
 
-## ADR-0128 -- gap-closure task #106 continuation: UDR real V2X Subscription Data
+## ADR-0128 -- deferred-item closure task #106 continuation: UDR real V2X Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -2278,7 +2278,7 @@ ADR-0128 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open; t
 remainder (`prose-data`, `uc-data`, `time-sync-data`, `group-data/*`, `nidd-authorization-data`,
 and others) is real and larger than the "~1 left" free5GC-comparison figure alone suggests.
 
-## ADR-0129 -- gap-closure task #106 continuation: UDR real ProSe Service Subscription Data
+## ADR-0129 -- deferred-item closure task #106 continuation: UDR real ProSe Service Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -2297,9 +2297,9 @@ UDR now matches or exceeds free5GC's own count on this specific comparison metri
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open; the not-yet-surveyed remainder
 (`uc-data`, `time-sync-data`, `group-data/*`, `nidd-authorization-data`, and others) and the
 genuinely deferred subsystems (`ee-subscriptions`/`sdm-subscriptions`, `subs-to-notify`,
-`pdtq-data`, `mbs-session-pol-data`) remain real, disclosed gaps.
+`pdtq-data`, `mbs-session-pol-data`) remain real, disclosed deferred items.
 
-## ADR-0130 -- gap-closure task #106 continuation: UDR real User Consent Subscription Data
+## ADR-0130 -- deferred-item closure task #106 continuation: UDR real User Consent Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -2319,9 +2319,9 @@ resources (docs/CAPABILITY_GAP_ANALYSIS.md) -- past the free5GC comparison basel
 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open; the not-yet-surveyed
 remainder (`time-sync-data`, `group-data/*`, `nidd-authorization-data`, and others) and the
 genuinely deferred subsystems (`ee-subscriptions`/`sdm-subscriptions`, `subs-to-notify`,
-`pdtq-data`, `mbs-session-pol-data`) remain real, disclosed gaps.
+`pdtq-data`, `mbs-session-pol-data`) remain real, disclosed deferred items.
 
-## ADR-0131 -- gap-closure task #106 continuation: UDR real Time Synchronization Subscription Data
+## ADR-0131 -- deferred-item closure task #106 continuation: UDR real Time Synchronization Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -2343,9 +2343,9 @@ alone, so backed by its own new `udr_time_sync_data` table/store, same shape as 
 (`group-data/*`, `nidd-authorization-data`, `a2x-data`, `rangingsl-privacy-data`,
 `ranging-slpos-data`, `5mbs-data`, and others) and the genuinely deferred subsystems
 (`ee-subscriptions`/`sdm-subscriptions`, `subs-to-notify`, `pdtq-data`, `mbs-session-pol-data`)
-remain real, disclosed gaps.
+remain real, disclosed deferred items.
 
-## ADR-0133 -- gap-closure task #106 continuation: UDR real UE's Location Information (Document)
+## ADR-0133 -- deferred-item closure task #106 continuation: UDR real UE's Location Information (Document)
 
 | Requirement | Test |
 |---|---|
@@ -2362,15 +2362,15 @@ group -- keyed by `ueId` alone, so backed by its own new `udr_location_data` tab
 shape as `time-sync-data` (ADR-0131). Its real sibling `nidd-authorization-data` was surveyed in
 the same pass and is genuinely blocked (not attempted): real required complex-object query
 parameters (`single-nssai` via `content: application/json`) this project has no parsing precedent
-for, the same class of gap already disclosed for `pdtq-data`. Takes UDR's real resource-type
+for, the same class of deferred item already disclosed for `pdtq-data`. Takes UDR's real resource-type
 coverage from 44 to 45 of free5GC's ~42+ real `Nudr_DataRepository` resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0133 in `docs/DECISIONS.md` for full disclosure -- task
 #106 remains open; the not-yet-surveyed remainder (`group-data/*`, `a2x-data`,
 `rangingsl-privacy-data`, `ranging-slpos-data`, `5mbs-data`, and others) and the genuinely deferred
 subsystems (`ee-subscriptions`/`sdm-subscriptions`, `subs-to-notify`, `pdtq-data`,
-`mbs-session-pol-data`, `nidd-authorization-data`) remain real, disclosed gaps.
+`mbs-session-pol-data`, `nidd-authorization-data`) remain real, disclosed deferred items.
 
-## ADR-0134 -- gap-closure task #106 continuation: UDR real A2X Subscription Data
+## ADR-0134 -- deferred-item closure task #106 continuation: UDR real A2X Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -2389,9 +2389,9 @@ table/store. Takes UDR's real resource-type coverage from 45 to 46 of free5GC's 
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open; the not-yet-surveyed remainder
 (`group-data/*`, `rangingsl-privacy-data`, `ranging-slpos-data`, `5mbs-data`, and others) and the
 genuinely deferred subsystems (`ee-subscriptions`/`sdm-subscriptions`, `subs-to-notify`,
-`pdtq-data`, `mbs-session-pol-data`, `nidd-authorization-data`) remain real, disclosed gaps.
+`pdtq-data`, `mbs-session-pol-data`, `nidd-authorization-data`) remain real, disclosed deferred items.
 
-## ADR-0135 -- gap-closure task #106 continuation: UDR real Ranging and Sidelink Positioning Privacy Subscription Data
+## ADR-0135 -- deferred-item closure task #106 continuation: UDR real Ranging and Sidelink Positioning Privacy Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -2412,9 +2412,9 @@ alone, so backed by its own new `udr_rangingsl_privacy_data` table/store, same s
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open; the not-yet-surveyed remainder
 (`group-data/*`, `ranging-slpos-data`, `5mbs-data`, and others) and the genuinely deferred
 subsystems (`ee-subscriptions`/`sdm-subscriptions`, `subs-to-notify`, `pdtq-data`,
-`mbs-session-pol-data`, `nidd-authorization-data`) remain real, disclosed gaps.
+`mbs-session-pol-data`, `nidd-authorization-data`) remain real, disclosed deferred items.
 
-## ADR-0136 -- gap-closure task #106 continuation: UDR real Ranging and Sidelink Positioning Service Subscription Data
+## ADR-0136 -- deferred-item closure task #106 continuation: UDR real Ranging and Sidelink Positioning Service Subscription Data
 
 | Requirement | Test |
 |---|---|
@@ -2434,9 +2434,9 @@ backed by its own new `udr_ranging_slpos_data` table/store, same shape as `rangi
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open; the not-yet-surveyed remainder
 (`group-data/*`, `5mbs-data`, and others) and the genuinely deferred subsystems
 (`ee-subscriptions`/`sdm-subscriptions`, `subs-to-notify`, `pdtq-data`, `mbs-session-pol-data`,
-`nidd-authorization-data`) remain real, disclosed gaps.
+`nidd-authorization-data`) remain real, disclosed deferred items.
 
-## ADR-0137 -- gap-closure task #106 continuation: UDR real 5MBS Subscription Data (Document)
+## ADR-0137 -- deferred-item closure task #106 continuation: UDR real 5MBS Subscription Data (Document)
 
 | Requirement | Test |
 |---|---|
@@ -2459,9 +2459,9 @@ disclosure -- task #106 remains open; the not-yet-surveyed remainder (`group-dat
 `ue-update-confirmation-data/subscribed-snssais`, `ue-update-confirmation-data/subscribed-cag`,
 and others) and the genuinely deferred subsystems (`ee-subscriptions`/`sdm-subscriptions`,
 `subs-to-notify`, `pdtq-data`, `mbs-session-pol-data`, `nidd-authorization-data`) remain real,
-disclosed gaps.
+disclosed deferred items.
 
-## ADR-0139 -- gap-closure task #106 continuation: UDR real Service Specific Authorization Info (Document)
+## ADR-0139 -- deferred-item closure task #106 continuation: UDR real Service Specific Authorization Info (Document)
 
 | Requirement | Test |
 |---|---|
@@ -2487,7 +2487,7 @@ response codes, real RFC 6902 `application/json-patch+json` PATCH, same shape as
 precedent as `PpDataEntryStore` (ADR-0109). Its real sibling GET-only resource at
 `service-specific-authorization-data/{serviceType}` was surveyed in the same pass and confirmed
 genuinely blocked (not attempted): real required complex-object query parameters this project has
-no parsing precedent for, the same class of gap already disclosed for `nidd-authorization-data`.
+no parsing precedent for, the same class of deferred item already disclosed for `nidd-authorization-data`.
 Takes UDR's real resource-type coverage from 49 to 50 of free5GC's ~42+ real
 `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0139 in
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open; the not-yet-surveyed remainder
@@ -2495,9 +2495,9 @@ Takes UDR's real resource-type coverage from 49 to 50 of free5GC's ~42+ real
 `ue-update-confirmation-data/subscribed-snssais`, `ue-update-confirmation-data/subscribed-cag`,
 and others) and the genuinely deferred subsystems (`ee-subscriptions`/`sdm-subscriptions`,
 `subs-to-notify`, `pdtq-data`, `mbs-session-pol-data`, `nidd-authorization-data`,
-`service-specific-authorization-data/{serviceType}`) remain real, disclosed gaps.
+`service-specific-authorization-data/{serviceType}`) remain real, disclosed deferred items.
 
-## ADR-0140 -- gap-closure task #106 continuation: UDR real Group Identifiers mapping resource
+## ADR-0140 -- deferred-item closure task #106 continuation: UDR real Group Identifiers mapping resource
 
 | Requirement | Test |
 |---|---|
@@ -2519,9 +2519,9 @@ coverage from 50 to 51 of free5GC's ~42+ real `Nudr_DataRepository` resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0140 in `docs/DECISIONS.md` for full disclosure --
 task #106 remains open; the remainder of `group-data`, bare `/subscription-data/{ueId}`,
 `ue-update-confirmation-data/subscribed-snssais`, `ue-update-confirmation-data/subscribed-cag`,
-and the genuinely deferred subsystems remain real, disclosed gaps.
+and the genuinely deferred subsystems remain real, disclosed deferred items.
 
-## ADR-0141 -- gap-closure task #106 continuation: UDR real NSSAI update ack (Document) resource
+## ADR-0141 -- deferred-item closure task #106 continuation: UDR real NSSAI update ack (Document) resource
 
 | Requirement | Test |
 |---|---|
@@ -2541,14 +2541,14 @@ already-generated `sbi_gen::NssaiAckData` DTO directly. First real
 `ue-update-confirmation-data` sub-resource closed -- its siblings (`sor-data`, `upu-data`,
 `subscribed-cag`) remain genuinely deferred. Also confirmed bare `/subscription-data/{ueId}`
 genuinely blocked in the same pass: combines both the array-query-param (`dataset-names`) and
-complex-object-query-param (`single-nssai`) gaps already disclosed elsewhere. Takes UDR's real
+complex-object-query-param (`single-nssai`) deferred items already disclosed elsewhere. Takes UDR's real
 resource-type coverage from 51 to 52 of free5GC's ~42+ real `Nudr_DataRepository` resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0141 in `docs/DECISIONS.md` for full disclosure --
 task #106 remains open; the remainder of `group-data`, `ue-update-confirmation-data`'s own
 `sor-data`/`upu-data`/`subscribed-cag` siblings, bare `/subscription-data/{ueId}` (now confirmed
-blocked), and the genuinely deferred subsystems remain real, disclosed gaps.
+blocked), and the genuinely deferred subsystems remain real, disclosed deferred items.
 
-## ADR-0142 -- gap-closure task #106 continuation: UDR real CAG update ack (Document) resource
+## ADR-0142 -- deferred-item closure task #106 continuation: UDR real CAG update ack (Document) resource
 
 | Requirement | Test |
 |---|---|
@@ -2567,9 +2567,9 @@ resource-type coverage from 52 to 53 of free5GC's ~42+ real `Nudr_DataRepository
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0142 in `docs/DECISIONS.md` for full disclosure --
 task #106 remains open; the remainder of `group-data`, `ue-update-confirmation-data`'s own
 `sor-data`/`upu-data` siblings, bare `/subscription-data/{ueId}`, and the genuinely deferred
-subsystems remain real, disclosed gaps.
+subsystems remain real, disclosed deferred items.
 
-## ADR-0143 -- gap-closure task #106 continuation: UDR real Authentication SoR + Authentication UPU (Document) resources
+## ADR-0143 -- deferred-item closure task #106 continuation: UDR real Authentication SoR + Authentication UPU (Document) resources
 
 | Requirement | Test |
 |---|---|
@@ -2599,9 +2599,9 @@ distinct `UpuData` also exists under `TS29509_Nausf_UPUProtection.yaml`). This c
 coverage from 53 to 54 of free5GC's ~42+ real `Nudr_DataRepository` resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0143 in `docs/DECISIONS.md` for full disclosure --
 task #106 remains open; the remainder of `group-data`, bare `/subscription-data/{ueId}`, and the
-genuinely deferred subsystems remain real, disclosed gaps.
+genuinely deferred subsystems remain real, disclosed deferred items.
 
-## ADR-0144 -- gap-closure task #106 continuation: UDR real group-data individual 5G VN Group Configuration resource
+## ADR-0144 -- deferred-item closure task #106 continuation: UDR real group-data individual 5G VN Group Configuration resource
 
 | Requirement | Test |
 |---|---|
@@ -2630,9 +2630,9 @@ explode: false` array query parameter, same class already disclosed for `pdtq-da
 free5GC's ~42+ real `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md). See
 ADR-0144 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open; the remainder of
 `group-data`, bare `/subscription-data/{ueId}`, and the genuinely deferred subsystems remain
-real, disclosed gaps.
+real, disclosed deferred items.
 
-## ADR-0145 -- gap-closure task #106 continuation: UDR real group-data individual 5G MBS Group Membership resource
+## ADR-0145 -- deferred-item closure task #106 continuation: UDR real group-data individual 5G MBS Group Membership resource
 
 | Requirement | Test |
 |---|---|
@@ -2662,9 +2662,9 @@ real resource-type coverage from 55 to 56 of free5GC's ~42+ real `Nudr_DataRepos
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0145 in `docs/DECISIONS.md` for full disclosure --
 task #106 remains open; both bare collection GETs, the `/internal`/`/pp-profile-data` variants,
 bare `/subscription-data/{ueId}`, and the genuinely deferred subsystems remain real, disclosed
-gaps.
+deferred items.
 
-## ADR-0146 -- gap-closure task #106 continuation: UDR real group-data Event Exposure Data for a group resource
+## ADR-0146 -- deferred-item closure task #106 continuation: UDR real group-data Event Exposure Data for a group resource
 
 | Requirement | Test |
 |---|---|
@@ -2686,9 +2686,9 @@ from 56 to 57 of free5GC's ~42+ real `Nudr_DataRepository` resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0146 in `docs/DECISIONS.md` for full disclosure --
 task #106 remains open; both bare collection GETs, the `/internal`/`/pp-profile-data` variants,
 bare `/subscription-data/{ueId}`, and the genuinely deferred subsystems remain real, disclosed
-gaps.
+deferred items.
 
-## ADR-0147 -- gap-closure task #106 continuation: UDR real aggregate UE Update Confirmation Data resource
+## ADR-0147 -- deferred-item closure task #106 continuation: UDR real aggregate UE Update Confirmation Data resource
 
 | Requirement | Test |
 |---|---|
@@ -2712,9 +2712,9 @@ every other bare-`{ueId}`-scoped aggregate surveyed so far (`context-data`'s own
 ADR-0147 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open; `group-data`'s
 remaining genuinely-blocked resources, bare `/subscription-data/{ueId}`/`{ueId}/context-data`
 (both confirmed blocked on their own array-query-param requirements), and the other genuinely
-deferred subsystems remain real, disclosed gaps.
+deferred subsystems remain real, disclosed deferred items.
 
-## ADR-0148 -- gap-closure task #106 continuation: UDR real Event Exposure Subscriptions collection + individual document resource
+## ADR-0148 -- deferred-item closure task #106 continuation: UDR real Event Exposure Subscriptions collection + individual document resource
 
 | Requirement | Test |
 |---|---|
@@ -2747,9 +2747,9 @@ disclosed scope narrowing: only the collection + individual document, NOT the de
 ADR-0148 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open; `group-data`'s
 remaining genuinely-blocked resources, bare `/subscription-data/{ueId}`/`{ueId}/context-data`,
 `ee-subscriptions`'s own nested sub-collections, `sdm-subscriptions`, and the other genuinely
-deferred subsystems remain real, disclosed gaps.
+deferred subsystems remain real, disclosed deferred items.
 
-## ADR-0149 -- gap-closure task #106 continuation: UDR real Subs To Notify collection + individual document resource
+## ADR-0149 -- deferred-item closure task #106 continuation: UDR real Subs To Notify collection + individual document resource
 
 | Requirement | Test |
 |---|---|
@@ -2780,7 +2780,7 @@ webhook-delivery mechanism and no data-change-detection to trigger one. This clo
 ADR-0149 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open; `group-data`'s
 remaining genuinely-blocked resources, bare `/subscription-data/{ueId}`/`{ueId}/context-data`,
 `ee-subscriptions`'s own nested sub-collections, `sdm-subscriptions`, and the other genuinely
-deferred subsystems remain real, disclosed gaps.
+deferred subsystems remain real, disclosed deferred items.
 
 ## ADR-0150 -- CHF: raise AiQuotaSizer's hardcoded inference latency budget after a real, observed CI failure
 
@@ -2804,7 +2804,7 @@ explicit caveat that this is a best-effort mitigation from one data point, not a
 statistically-derived value. **Real, live CI verification**: the very next CI run confirmed the
 target test passes in real CI (0.16s), `100% tests passed, 0 tests failed out of 325`.
 
-## ADR-0151 -- gap-closure task #106 continuation: UDR real SDM Subscriptions collection + individual document resource
+## ADR-0151 -- deferred-item closure task #106 continuation: UDR real SDM Subscriptions collection + individual document resource
 
 | Requirement | Test |
 |---|---|
@@ -2833,9 +2833,9 @@ genuinely deferred. This closes UDR resource #61 of free5GC's ~42+ real `Nudr_Da
 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0151 in `docs/DECISIONS.md` for full
 disclosure -- task #106 remains open; `group-data`'s remaining genuinely-blocked resources, bare
 `/subscription-data/{ueId}`/`{ueId}/context-data`, both subscription resources' own nested
-sub-collections, and the other genuinely deferred subsystems remain real, disclosed gaps.
+sub-collections, and the other genuinely deferred subsystems remain real, disclosed deferred items.
 
-## ADR-0152 -- gap-closure task #106 continuation: UDR real AMF Subscription Info (Document) nested under an individual ee-subscription
+## ADR-0152 -- deferred-item closure task #106 continuation: UDR real AMF Subscription Info (Document) nested under an individual ee-subscription
 
 | Requirement | Test |
 |---|---|
@@ -2861,9 +2861,9 @@ resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0152 in `docs/DECISIONS.md`
 disclosure -- task #106 remains open; `ee-subscriptions`' own `smf-subscriptions`/
 `hss-subscriptions` sibling sub-collections, `sdm-subscriptions`' own `hss-sdm-subscriptions`,
 `group-data`'s own parallel tree, and the other genuinely deferred subsystems remain real,
-disclosed gaps.
+disclosed deferred items.
 
-## ADR-0153 -- gap-closure task #106 continuation: UDR real SMF Event Subscription Info (Document) nested under an individual ee-subscription
+## ADR-0153 -- deferred-item closure task #106 continuation: UDR real SMF Event Subscription Info (Document) nested under an individual ee-subscription
 
 | Requirement | Test |
 |---|---|
@@ -2888,9 +2888,9 @@ silently fixed. This closes UDR resource #63 of free5GC's ~42+ real `Nudr_DataRe
 resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0153 in `docs/DECISIONS.md` for full
 disclosure -- task #106 remains open; `ee-subscriptions`' own remaining `hss-subscriptions`
 sibling, `sdm-subscriptions`' own `hss-sdm-subscriptions`, `group-data`'s own parallel tree, and
-the other genuinely deferred subsystems remain real, disclosed gaps.
+the other genuinely deferred subsystems remain real, disclosed deferred items.
 
-## ADR-0154 -- gap-closure task #106 continuation: UDR real HSS Subscription Info (Document) nested under an individual ee-subscription
+## ADR-0154 -- deferred-item closure task #106 continuation: UDR real HSS Subscription Info (Document) nested under an individual ee-subscription
 
 | Requirement | Test |
 |---|---|
@@ -2918,9 +2918,9 @@ HssSubscriptionInfo (Recommended)". This closes UDR resource #64 of free5GC's ~4
 `ee-subscriptions`' own nested sub-collections. See ADR-0154 in `docs/DECISIONS.md` for full
 disclosure -- task #106 remains open; `sdm-subscriptions`' own `hss-sdm-subscriptions`,
 `group-data`'s own parallel tree, and the other genuinely deferred subsystems remain real,
-disclosed gaps.
+disclosed deferred items.
 
-## ADR-0155 -- gap-closure task #106 continuation: UDR real HSS SDM Subscription Info (Document) nested under an individual sdm-subscription
+## ADR-0155 -- deferred-item closure task #106 continuation: UDR real HSS SDM Subscription Info (Document) nested under an individual sdm-subscription
 
 | Requirement | Test |
 |---|---|
@@ -2947,9 +2947,9 @@ user-confirmed) in ADR-0154 for the sibling resource -- applied here without re-
 closes UDR resource #65 of free5GC's ~42+ real `Nudr_DataRepository` resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0155 in `docs/DECISIONS.md` for full disclosure --
 task #106 remains open; `group-data`'s own parallel tree and the other genuinely deferred
-subsystems remain real, disclosed gaps.
+subsystems remain real, disclosed deferred items.
 
-## ADR-0156 -- gap-closure task #106 continuation: UDR real Event Exposure Group Subscriptions (group-data-scoped) collection + individual document, plus a real Location-header bug fix
+## ADR-0156 -- deferred-item closure task #106 continuation: UDR real Event Exposure Group Subscriptions (group-data-scoped) collection + individual document, plus a real Location-header bug fix
 
 | Requirement | Test |
 |---|---|
@@ -2978,9 +2978,9 @@ same ADR. This closes UDR resource #66 of free5GC's ~42+ real `Nudr_DataReposito
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0156 in `docs/DECISIONS.md` for full disclosure --
 task #106 remains open; the group-data-scoped `amf-subscriptions`/`smf-subscriptions`/
 `hss-subscriptions` nested sub-collections and the other genuinely deferred subsystems remain
-real, disclosed gaps.
+real, disclosed deferred items.
 
-## ADR-0157 -- gap-closure task #106 continuation: UDR real AMF Group Subscription Info (Document), plus a project-wide fix for a real RFC 9110 Location-header conformance defect
+## ADR-0157 -- deferred-item closure task #106 continuation: UDR real AMF Group Subscription Info (Document), plus a project-wide fix for a real RFC 9110 Location-header conformance defect
 
 | Requirement | Test |
 |---|---|
@@ -3001,14 +3001,14 @@ Real GET+PUT+PATCH+DELETE resource (`CreateAmfGroupSubscriptions`/`GetAmfGroupSu
 `ee-subscriptions/{subsId}/amf-subscriptions` (ADR-0152), keyed by `ueGroupId` instead of `ueId`.
 Also fixes a real, disclosed, project-wide RFC 9110 Location-header conformance defect spanning
 ~20 of UDR's own `PUT`-with-`201`-create routes, including foundational Tier 1a resources
-predating any gap-closure ADR -- user explicitly confirmed fixing all of them in this same turn
+predating any deferred-item closure ADR -- user explicitly confirmed fixing all of them in this same turn
 rather than deferring. This closes UDR resource #67 of free5GC's ~42+ real
 `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0157 in
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open; the group-data-scoped
 `smf-subscriptions`/`hss-subscriptions` nested sub-collections and the other genuinely deferred
-subsystems remain real, disclosed gaps.
+subsystems remain real, disclosed deferred items.
 
-## ADR-0158 -- gap-closure task #106 continuation: UDR real SMF Event Group Subscription Info (Document)
+## ADR-0158 -- deferred-item closure task #106 continuation: UDR real SMF Event Group Subscription Info (Document)
 
 | Requirement | Test |
 |---|---|
@@ -3030,9 +3030,9 @@ Second of `group-data`'s own `ee-subscriptions/{subsId}/...` nested sub-collecti
 `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0158 in
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open; `group-data`'s own
 `hss-subscriptions` nested sub-collection (the third and final sibling) and the other genuinely
-deferred subsystems remain real, disclosed gaps.
+deferred subsystems remain real, disclosed deferred items.
 
-## ADR-0159 -- gap-closure task #106 continuation: UDR real HSS Event Group Subscription Info (Document), completing group-data's own nested-subscription tree
+## ADR-0159 -- deferred-item closure task #106 continuation: UDR real HSS Event Group Subscription Info (Document), completing group-data's own nested-subscription tree
 
 | Requirement | Test |
 |---|---|
@@ -3057,7 +3057,7 @@ closed -- completes the whole group-data nested-subscription tree
 #69 of free5GC's ~42+ real `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md).
 See ADR-0159 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open; `group-data`'s
 remaining genuinely-blocked resources and the other genuinely deferred subsystems remain real,
-disclosed gaps.
+disclosed deferred items.
 
 ## ADR-0161 -- real `style: form, explode: false` array-query-param parsing infra in sbi-core, plus its first real consumer: UDR's `QueryContextData`
 
@@ -3086,9 +3086,9 @@ over 11 already-existing UDR sub-resource stores, the same design as `ue-update-
 (ADR-0147). This closes UDR resource #70 of free5GC's ~42+ real `Nudr_DataRepository` resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0161 in `docs/DECISIONS.md` for full disclosure --
 task #106 remains open; the newly-unblocked resources above and the other genuinely deferred
-subsystems remain real, disclosed gaps, now unblocked rather than blocked.
+subsystems remain real, disclosed deferred items, now unblocked rather than blocked.
 
-## ADR-0162 -- gap-closure task #106 continuation: UDR real PDTQ Data collection + individual document, the first resource genuinely unblocked by ADR-0161's array-parsing infra
+## ADR-0162 -- deferred-item closure task #106 continuation: UDR real PDTQ Data collection + individual document, the first resource genuinely unblocked by ADR-0161's array-parsing infra
 
 | Requirement | Test |
 |---|---|
@@ -3114,9 +3114,9 @@ established "optional filter not honored" precedent for consistency. This closes
 ADR-0162 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open;
 `nidd-authorization-data`, `Nudr_GroupIDmap`'s `/nf-group-ids`, bare `/subscription-data/{ueId}`,
 `group-data`'s own bare collection GETs, and `GetSSAuData` (deliberately deferred, ADR-0160)
-remain real, disclosed gaps.
+remain real, disclosed deferred items.
 
-## ADR-0164 -- gap-closure task #106 continuation: UDR real GetNfGroupIDs (Nudr_GroupIDmap, a distinct Nudr API), the second resource genuinely unblocked by ADR-0161's array-parsing infra
+## ADR-0164 -- deferred-item closure task #106 continuation: UDR real GetNfGroupIDs (Nudr_GroupIDmap, a distinct Nudr API), the second resource genuinely unblocked by ADR-0161's array-parsing infra
 
 | Requirement | Test |
 |---|---|
@@ -3142,14 +3142,14 @@ resources (`ue-update-confirmation-data`/`QueryContextData`, always `200`), this
 response schema requires `minProperties: 1` and documents a real `404`, so an empty composed
 result returns a real `404` -- honoring the spec literally, not a deviation. The sibling
 `/nf-group-ids/subscriptions` change-notification family (real `onGroupIdMapChange` webhook
-callback) was surveyed but deliberately deferred to its own future turn, same disclosed gap class
+callback) was surveyed but deliberately deferred to its own future turn, same disclosed deferred item class
 as `subs-to-notify`'s own lack of real webhook delivery. See ADR-0164 in `docs/DECISIONS.md` for
 full disclosure -- task #106 remains open; `nidd-authorization-data`, bare
 `/subscription-data/{ueId}`, `group-data`'s own bare collection GETs, `GetSSAuData` (deliberately
 deferred, ADR-0160), and `Nudr_GroupIDmap`'s own subscription-management family remain real,
-disclosed gaps.
+disclosed deferred items.
 
-## ADR-0165 -- gap-closure task #106 continuation: UDR real GetNiddAuData, whose real blocker turned out to be a different query-param shape than ADR-0161's array-parsing infra
+## ADR-0165 -- deferred-item closure task #106 continuation: UDR real GetNiddAuData, whose real blocker turned out to be a different query-param shape than ADR-0161's array-parsing infra
 
 | Requirement | Test |
 |---|---|
@@ -3165,7 +3165,7 @@ disclosed gaps.
 
 Real `GET`-only resource (`GetNiddAuData`, `TS29505_Subscription_Data.yaml`), genuinely distinct
 from the already-implemented `context-data/nidd-authorizations` CRUD resource (ADR-0121). Real
-finding: this resource's actual blocker was **not** ADR-0161's array-query-param gap -- its real
+finding: this resource's actual blocker was **not** ADR-0161's array-query-param deferred item -- its real
 REQUIRED `single-nssai` query param uses `content: application/json` (a JSON-encoded value,
 decomposed to `sst`/`sd`), a genuinely different OpenAPI shape, handled with a direct
 `json::parse()` of the already-percent-decoded query value rather than new shared infra (narrow
@@ -3180,9 +3180,9 @@ confirms `AuthorizationData`'s real, unambiguous home is here, not there (does n
 ~42+ real `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0165 in
 `docs/DECISIONS.md` for full disclosure -- task #106 remains open; bare `/subscription-data/{ueId}`,
 `group-data`'s own bare collection GETs, `GetSSAuData` (deliberately deferred, ADR-0160), and
-`Nudr_GroupIDmap`'s own subscription-management family remain real, disclosed gaps.
+`Nudr_GroupIDmap`'s own subscription-management family remain real, disclosed deferred items.
 
-## ADR-0166 -- gap-closure task #106 continuation: UDR real bare QueryUeSubscribedData, a 32-field aggregate composed entirely from already-closed sub-resources
+## ADR-0166 -- deferred-item closure task #106 continuation: UDR real bare QueryUeSubscribedData, a 32-field aggregate composed entirely from already-closed sub-resources
 
 | Requirement | Test |
 |---|---|
@@ -3190,8 +3190,8 @@ confirms `AuthorizationData`'s real, unambiguous home is here, not there (does n
 | `GET` with `serving-plmn=99970` added | Live curl, real `200` with all 7 previously-gated `ProvisionedDataStore` fields now also present |
 | `GET` with `dataset-names=LCS_PRIVACY,V2X` | Live curl, real `200` with exactly those 2 fields |
 | `GET` with `dataset-names=UE_UPD_CONF` | Live curl, real `200` with 3 of 4 `UeUpdConfData` sub-fields (the unseeded 4th correctly absent), confirming one-name-expands-to-four-fields |
-| `GET` with `dataset-names=AM` and no `serving-plmn` | Live curl, real `200 {}`, confirming the gap is real |
-| Same request with `serving-plmn=99970` added | Live curl, real `200` with `amData` populated, confirming the gap is recoverable |
+| `GET` with `dataset-names=AM` and no `serving-plmn` | Live curl, real `200 {}`, confirming the deferred item is real |
+| Same request with `serving-plmn=99970` added | Live curl, real `200` with `amData` populated, confirming the deferred item is recoverable |
 | `GET` with an unrecognized `dataset-names` value | Live curl, real `200 {}`, no error (forward-compatible) |
 | `GET` against a nonexistent UE, no filter | Live curl, real `200 {}`, not `404` |
 | No regression | Full `conformance_tests` (excluding the two disclosed pre-existing flaky tests): 331/331 pass, zero regressions; `udr` built clean (zero warnings) before and after `clang-format-18` |
@@ -3205,16 +3205,16 @@ REQUIRED filter, every one of this resource's own query params is genuinely opti
 `dataset-names` means "attempt everything." Real, disclosed: `serving-plmn` is optional here but
 required by the underlying `ProvisionedDataStore`'s own composite key -- its 7 backed fields are
 skipped (not fabricated) when absent, recoverable once supplied. `niddAuthData` is never composed
-(a real, permanent gap: its own composite key needs `mtc-provider-information`, a param this
+(a real, permanent deferred item: its own composite key needs `mtc-provider-information`, a param this
 resource doesn't expose at all). `adjacent-plmns`/`single-nssai`/`dnn`/`ext-group-ids`/
 `uc-purpose` accepted but not honored. Same `200`-always live-view design as `QueryContextData`/
 `ue-update-confirmation-data`. Does **NOT** increment the `Nudr_DataRepository` count -- still 72,
 unchanged from ADR-0165, since every composed field is already individually counted. See ADR-0166
 in `docs/DECISIONS.md` for full disclosure -- task #106 remains open; `group-data`'s own bare
 collection GETs remain a real, unblocked candidate; `GetSSAuData` (deliberately deferred,
-ADR-0160) and `Nudr_GroupIDmap`'s own subscription-management family remain real, disclosed gaps.
+ADR-0160) and `Nudr_GroupIDmap`'s own subscription-management family remain real, disclosed deferred items.
 
-## ADR-0167 -- gap-closure task #106 continuation: UDR real `group-data` bare `5g-vn-groups`/`mbs-group-membership` collection GETs, closing the last real array-parsing-infra-unblocked candidate
+## ADR-0167 -- deferred-item closure task #106 continuation: UDR real `group-data` bare `5g-vn-groups`/`mbs-group-membership` collection GETs, closing the last real array-parsing-infra-unblocked candidate
 
 | Requirement | Test |
 |---|---|
@@ -3238,13 +3238,13 @@ own bare-collection-GET precedent (ADR-0162) -- a literal listing of persisted r
 composed live view. This closes UDR resources #73 and #74 of free5GC's ~42+ real
 `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md), and fully closes out this
 series' own array-parsing-infra-unblocked candidate list from ADR-0161. See ADR-0167 in
-`docs/DECISIONS.md` for full disclosure -- remaining real, disclosed gaps: `gpsis` filtering on
+`docs/DECISIONS.md` for full disclosure -- remaining real, disclosed deferred items: `gpsis` filtering on
 both collections; the `/internal`/`/pp-profile-data` variants under both paths (not surveyed);
 `policy-data`'s `mbs-session-pol-data` (deferred, key-encoding ambiguity); `GetSSAuData`
 (deliberately deferred, ADR-0160); `Nudr_GroupIDmap`'s own subscription-management family
 (ADR-0164); real webhook delivery for `subs-to-notify`/`nf-group-ids/subscriptions`.
 
-## ADR-0168 -- gap-closure task #106 continuation: UDR real `group-data` `5g-vn-groups/internal` + `mbs-group-membership/internal`, and a real router-ordering hazard found and fixed before it could ship a bug
+## ADR-0168 -- deferred-item closure task #106 continuation: UDR real `group-data` `5g-vn-groups/internal` + `mbs-group-membership/internal`, and a real router-ordering hazard found and fixed before it could ship a bug
 
 | Requirement | Test |
 |---|---|
@@ -3274,13 +3274,13 @@ GET routes, with an explicit `CRITICAL ROUTE-ORDERING REQUIREMENT` comment at ea
 live (not just reasoned about) that the correct route is actually reached. This closes UDR
 resources #75 and #76 of free5GC's ~42+ real `Nudr_DataRepository` resources
 (docs/CAPABILITY_GAP_ANALYSIS.md). See ADR-0168 in `docs/DECISIONS.md` for full disclosure --
-remaining real, disclosed gaps: `5g-vn-groups`/`mbs-group-membership`'s own `/pp-profile-data`
+remaining real, disclosed deferred items: `5g-vn-groups`/`mbs-group-membership`'s own `/pp-profile-data`
 variants (need a genuinely new store/schema, not surveyed); `gpsis` filtering on the bare
 collections; `policy-data`'s `mbs-session-pol-data`; `GetSSAuData` (deliberately deferred,
 ADR-0160); `Nudr_GroupIDmap`'s own subscription-management family; real webhook delivery for
 `subs-to-notify`/`nf-group-ids/subscriptions`.
 
-## ADR-0169 -- gap-closure task #106 continuation: UDR real `group-data` `5g-vn-groups/pp-profile-data` + `mbs-group-membership/pp-profile-data`, this project's first genuinely keyless singleton resources
+## ADR-0169 -- deferred-item closure task #106 continuation: UDR real `group-data` `5g-vn-groups/pp-profile-data` + `mbs-group-membership/pp-profile-data`, this project's first genuinely keyless singleton resources
 
 | Requirement | Test |
 |---|---|
@@ -3305,12 +3305,12 @@ filters accepted but not honored. Same critical route-ordering requirement as AD
 `/internal` routes (re-applied, verified live). This closes UDR resources #77 and #78 of free5GC's
 ~42+ real `Nudr_DataRepository` resources (docs/CAPABILITY_GAP_ANALYSIS.md) -- closes out the
 entirety of `5g-vn-groups`/`mbs-group-membership`'s own real, in-scope resource set. See ADR-0169
-in `docs/DECISIONS.md` for full disclosure -- remaining real, disclosed gaps: filtering on these
+in `docs/DECISIONS.md` for full disclosure -- remaining real, disclosed deferred items: filtering on these
 two singletons; `policy-data`'s `mbs-session-pol-data`; `GetSSAuData` (deliberately deferred,
 ADR-0160); `Nudr_GroupIDmap`'s own subscription-management family; real webhook delivery for
 `subs-to-notify`/`nf-group-ids/subscriptions`.
 
-## ADR-0170 -- gap-closure task #106 continuation: UDR real Nudr_GroupIDmap subscription-management family (nf-group-ids/subscriptions)
+## ADR-0170 -- deferred-item closure task #106 continuation: UDR real Nudr_GroupIDmap subscription-management family (nf-group-ids/subscriptions)
 
 | Requirement | Test |
 |---|---|
@@ -3330,13 +3330,13 @@ Real `Nudr_GroupIDmap` subscription-management family (`CreateGroupIdSubscriptio
 `TS29504_Nudr_GroupIDmap.yaml`). Real, disclosed: structurally the same shape as `ee-subscriptions`/
 `subs-to-notify` -- a real CRUD collection+individual pair, server-generated `subscriptionId`, a
 real spec-documented `onGroupIdMapChange` webhook callback that is **not implemented** (no real
-outbound HTTP delivery to the caller's `notificationUri`), same disclosed gap class as
+outbound HTTP delivery to the caller's `notificationUri`), same disclosed deferred item class as
 `subs-to-notify`'s own lack of real webhook delivery. Real, disclosed: `ModifyGroupIdSubscription`'s
 own real dual `200`/`204` PATCH response ambiguity resolved identically to `group_control_data`'s
 own prior resolution (ADR-0118/ADR-0119) -- always `200` with the patched body. Does **NOT**
 increment the `Nudr_DataRepository` count -- still 78, same non-counting precedent as
 `GetRoutingIDs`/`GetNfGroupIDs`. See ADR-0170 in `docs/DECISIONS.md` for full disclosure -- task
-#106's real, disclosed remaining gaps: `policy-data`'s `mbs-session-pol-data`; `GetSSAuData`
+#106's real, disclosed remaining deferred items: `policy-data`'s `mbs-session-pol-data`; `GetSSAuData`
 (deliberately deferred, ADR-0160); real webhook delivery infrastructure (spans this resource and
 `subs-to-notify`); `ext-group-ids`/`gpsis`/`supported-features` filtering retrofits.
 
@@ -3352,7 +3352,7 @@ increment the `Nudr_DataRepository` count -- still 78, same non-counting precede
 | No regression | Full `conformance_tests` (excluding the two disclosed pre-existing flaky tests): 331/331 pass, zero regressions; `udr` built clean (zero warnings) before and after `clang-format-18` |
 
 Real `onDataChange` webhook delivery for `subs-to-notify`'s own `SubscriptionDataSubscriptions`
-(`TS29505_Subscription_Data.yaml`) -- the real gap disclosed since ADR-0149. New shared, real,
+(`TS29505_Subscription_Data.yaml`) -- the real deferred item disclosed since ADR-0149. New shared, real,
 independently-testable infrastructure: `notify_client` (one shared, mutex-guarded
 `sbi_core::http2::Client`), `notify_subscribers()` (URI-substring match against
 `monitoredResourceUris`, real `DataChangeNotify` delivery to `callbackReference`), and
@@ -3523,7 +3523,7 @@ structural twins of the already-wired per-UE `ee-subscriptions` family (ADR-0175
 `ueGroupId`. This closes ADR-0176's own disclosed non-per-UE candidate list in full. Combined
 total: **61 real per-UE call sites + 26 real non-per-UE call sites = 87 real write-route call
 sites**, 41 distinct resource types now wired (31 per-UE + 10 non-per-UE). See ADR-0178 in
-`docs/DECISIONS.md` for full disclosure -- the only remaining real gap is `Nudr_GroupIDmap`'s own
+`docs/DECISIONS.md` for full disclosure -- the only remaining real deferred item is `Nudr_GroupIDmap`'s own
 separate `onGroupIdMapChange` callback, a different API, currently unfireable regardless since
 `nf-group-ids` itself has no write path.
 
@@ -3535,7 +3535,7 @@ separate `onGroupIdMapChange` callback, a different API, currently unfireable re
 | `POST subs-to-notify` + `PUT`/`PATCH`/`DELETE` `smf-registrations` | `UdrIntegration.OnDataChangeWebhookDeliveredOnPutPatchDelete`, asserts a correctly-shaped `DataChangeNotify` after each of the 3 writes |
 | No regression | Full `conformance_tests`+`integration_tests` (excluding the two disclosed pre-existing flaky tests): 332/332 pass |
 
-Closes the real, previously-disclosed testing gap named in every ADR from 0171 through 0178:
+Closes the real, previously-disclosed testing deferred item named in every ADR from 0171 through 0178:
 `onDataChange` delivery had only ever been verified manually (curl + a standalone Python HTTPS
 receiver script). New test file `tests/integration/test_udr_ondatachange_webhook.cpp` drives the
 same flow inside `ctest`, using a real in-process `sbi_core::http2::Server` as the receiver -- the
@@ -3562,7 +3562,7 @@ each of the 41 wired resource types, and covers only the per-UE `notify_subscrib
 | Pre-seeded `udr_nf_group_id_subscriptions` row (`nfType=AMF`, `nfGroupId=amf-group-01`) + real HTTPS receiver, then start `udr` | Receiver logs a correct `GroupIdMapNotify` during `udr`'s own startup sequence, zero warnings |
 | No regression | Full `conformance_tests`+`integration_tests` (excluding the two disclosed pre-existing flaky tests): 332/332 pass |
 
-The last remaining gap disclosed at the end of ADR-0178: `onGroupIdMapChange` had never fired,
+The last remaining deferred item disclosed at the end of ADR-0178: `onGroupIdMapChange` had never fired,
 because `/nf-group-ids` genuinely has no write operation in the real spec to trigger it from
 (confirmed by direct YAML read, matching this project's own pre-existing `NfGroupIdStore` code
 comment). Rather than inventing a non-spec write endpoint, new `notify_group_id_map_change()`
@@ -3650,7 +3650,7 @@ convey it); availability "authorization" echoes submissions unchanged (no restri
 logic); the notification callback fires from `Put`/`Patch` only, not `Delete` (the real
 notification schema has no field shaped for "an NF instance deregistered"). See ADR-0183 in
 `docs/DECISIONS.md` for full disclosure, including why no Helm chart was added (matches a
-pre-existing gap shared by 6 other NFs, not unique to this one).
+pre-existing deferred item shared by 6 other NFs, not unique to this one).
 
 ## ADR-0184 -- continuous move-to-next-NF process decision + BSF, `Nbsf_Management`
 
@@ -3705,7 +3705,7 @@ genuinely out of 3GPP's own SBI framework scope. Two consequences: `PfdCatalogSt
 seed()-only, and the real `PfdChangeNotification`/`NotificationPush` callback delivery
 `CreateSubscr` declares has no real trigger this project can ever fire (PFD content never changes
 after startup) -- deliberately not built as unreachable dead code, disclosed as a real structural
-gap instead. 13 of NEF's 14 real YAML files remain entirely unbuilt. See ADR-0185 in
+deferred item instead. 13 of NEF's 14 real YAML files remain entirely unbuilt. See ADR-0185 in
 `docs/DECISIONS.md` for full disclosure.
 
 ## ADR-0186 -- SCP: real architectural-scope decision + `Nscp_EventExposure`
@@ -3725,7 +3725,7 @@ architecturally different from every other NF built so far -- a real, explicit s
 presented to the user via `AskUserQuestion` (build `Nscp_EventExposure` only / design the real
 proxy first / skip SCP), not silently assumed. User chose `Nscp_EventExposure` only. All 3 real
 operations implemented and live-verified: `CreateSubscription`/`ModifySubscription`/
-`DeleteSubscription`. Real, disclosed gap (same shape as NEF's ADR-0185 finding): the real
+`DeleteSubscription`. Real, disclosed deferred item (same shape as NEF's ADR-0185 finding): the real
 `onScpEventExposureNotification` callback never fires, since this SCP performs no real forwarding
 and so has no genuine `ScpSignallingInfo` activity to report. The real SCP proxy/forwarding role
 itself remains entirely undesigned and unbuilt. See ADR-0186 in `docs/DECISIONS.md` for full
@@ -3751,7 +3751,7 @@ Real bug found and fixed during live verification: `kNfType` was initially writt
 (hyphen), which NRF's own real `NFProfile` validation (ADR-0102) correctly rejected with a live
 `400`; direct read of `TS29510_Nnrf_NFManagement.yaml` confirmed the real enum value is `5G_EIR`
 (underscore) -- fixed, and exactly the class of bug a DTO round-trip test alone would never catch.
-Real, disclosed structural gap (same shape as NEF's ADR-0185/SCP's ADR-0186 findings): no write
+Real, disclosed structural deferred item (same shape as NEF's ADR-0185/SCP's ADR-0186 findings): no write
 path exists anywhere in the YAML for provisioning equipment status (real OAM/GSMA scope), so
 `EquipmentStatusStore` is seed()-only; AMF does not yet call this NF during Registration (TS
 23.502 §4.2.2.2.2), a real, disclosed, deferred wiring opportunity. See ADR-0187 in
@@ -3776,7 +3776,7 @@ second Tier 2 NF. All 5 real operations implemented, including real `multipart/r
 `$ref` into `TS29577_Nipsmgw_SMService.yaml` for `SendMtSMS`'s own schemas. Real, disclosed
 simplification: no real downstream SMS-GMSC/IWMSC or TS 24.011 SMS-over-NAS CP-DATA relay exists
 in this project (genuinely out of this session's spec material, same class as ADR-0104's ProSe-auth
-gap) -- `SendSMS` always reports `SMS_DELIVERY_SMSF_ACCEPTED` (real enum value, not a fabricated
+deferred item) -- `SendSMS` always reports `SMS_DELIVERY_SMSF_ACCEPTED` (real enum value, not a fabricated
 "delivered" claim), and `SendMtSMS`'s response carries an honest empty binary placeholder instead
 of a real SMS-DELIVER-REPORT PDU. AMF does not yet call `SMServiceActivation` during Registration.
 See ADR-0188 in `docs/DECISIONS.md` for full disclosure.
@@ -3801,7 +3801,7 @@ TS 29.572), a separate, unbuilt Tier 2 NF -- resolved by never fabricating posit
 (CLAUDE.md's single worst failure mode): `RequestLocation` returns the real, documented `501` after
 real input validation; `CancelLocation` honestly `404`s since no real `ldrReference` was ever
 issued. The other 3 operations (`UpdateLocation`/`LocationUpdateSubcribe`/`PrivacyCheckIdMapping`)
-have no LMF dependency and are real, complete implementations. Real, disclosed structural gap:
+have no LMF dependency and are real, complete implementations. Real, disclosed structural deferred item:
 `loc-update-subs` has no GET/DELETE in the real spec itself, and its own `LocationUpdateNotify`
 callback never fires (same shape as NEF's/SCP's own unfireable callbacks). Real codegen mechanic:
 GMLC's own DTOs landed in the shared `TS29122_CommonData_grp.hpp` rather than a standalone header,
@@ -3845,9 +3845,9 @@ fourth Tier 2 NF, the direct continuation of GMLC's own disclosed dependency (AD
 (`UpSubscriptions`/`DeleteSubscription`/`LocationContextTransfer`/`UpConfig`) vs. 3 that honestly
 report `501`/`404` (`DetermineLocation`/`LocationMeasure`/`CancelLocation`) rather than fabricate
 LPP/GNSS/PRU data -- CLAUDE.md's single worst failure mode, deliberately avoided. `UpSubscriptions`
-has a real, full create+delete lifecycle (unlike GMLC's own create-only gap); its own real `201`
+has a real, full create+delete lifecycle (unlike GMLC's own create-only deferred item); its own real `201`
 response declares no id-bearing header/field, so a `Location` header is added at the HTTP layer for
-real usability, disclosed as filling a genuine spec gap, not fabricated content. See ADR-0191 in
+real usability, disclosed as filling a genuine spec deferred item, not fabricated content. See ADR-0191 in
 `docs/DECISIONS.md` for full disclosure.
 
 ## ADR-0192 -- CHF CDR storage: ClickHouse -> Apache Doris
@@ -3879,14 +3879,14 @@ in `docs/DECISIONS.md` for full disclosure.
 
 ## ADR-0193 -- systematic full-project YAML coverage audit (mandatory, user-directed)
 
-Not itself a code-closure ADR -- records the decision and process for the project-wide gap audit
+Not itself a code-closure ADR -- records the decision and process for the project-wide deferred item audit
 that ADR-0194 (and its own successors) close items from. Real, evidence-based cross-reference of
 every 3GPP-assigned YAML per already-implemented NF against `libs/sbi-generated/CMakeLists.txt`'s
 pilot set (Tier-A: whole API never wired) and, for wired files, every real `operationId` against
 actual routed handlers (Tier-B: stub/missing). Full findings tracked in
 `docs/CAPABILITY_GAP_ANALYSIS.md`, not duplicated here. See ADR-0193 in `docs/DECISIONS.md`.
 
-## ADR-0194 -- NRF `Nnrf_Bootstrapping` (first ADR-0193 gap-closure)
+## ADR-0194 -- NRF `Nnrf_Bootstrapping` (first ADR-0193 deferred-item closure)
 
 | Requirement | Test |
 |---|---|
@@ -3894,14 +3894,14 @@ actual routed handlers (Tier-B: stub/missing). Full findings tracked in
 | Real generated DTO round-trip | `NrfBootstrappingDtos.StatusRoundTrips` / `NrfBootstrappingDtos.BootstrappingInfoRoundTrips`, both pass |
 | No regression | Full project rebuild clean; full `ctest` (excluding the two known-flaky tests): 363/363 pass |
 
-The literal Tier-A gap that triggered ADR-0193's audit. Real path exactly as the vendored YAML
+The literal Tier-A deferred item that triggered ADR-0193's audit. Real path exactly as the vendored YAML
 declares it (`servers: url: '{nrfApiRoot}'`, bare `/bootstrapping`, no service-prefix invented).
 Every response field grounded in real project state (real `nrfInstanceId`, honest
 `oauth2Required=false` matching this NRF's actual anonymous-access-permitted routes) or explicitly
 disclosed where the real spec text (TS 29.510 clause 6.4.6.3.3's link-relation vocabulary) isn't
 vendored. See ADR-0194 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0195 -- AUSF `Nausf_UPUProtection` (second ADR-0193 gap-closure)
+## ADR-0195 -- AUSF `Nausf_UPUProtection` (second ADR-0193 deferred-item closure)
 
 | Requirement | Test |
 |---|---|
@@ -3924,7 +3924,7 @@ nrf+udm+ausf processes, real 5G-AKA authentication to establish a real KAUSF, th
 the test's own spawned trio, and was re-run cleanly after killing it. See ADR-0195 in
 `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0196 -- LMF `Nlmf_Broadcast` + `Nlmf_DataExposure` (third ADR-0193 gap-closure)
+## ADR-0196 -- LMF `Nlmf_Broadcast` + `Nlmf_DataExposure` (third ADR-0193 deferred-item closure)
 
 | Requirement | Test |
 |---|---|
@@ -3940,7 +3940,7 @@ ciphering key data available, since its own YAML declares no provisioning operat
 project has no real O&M path to populate one. Real, full create+modify+delete subscription
 lifecycle for `Nlmf_DataExposure` (`lmf::DataExposureSubscriptionStore`, same real RFC 6902
 `.patch()` mechanism as `nfs/nrf`'s own `NfRegistry::apply_patch`) -- the real notification path
-itself shares `LocationMeasure`'s own disclosed LPP/PRU capability gap (ADR-0191), so no
+itself shares `LocationMeasure`'s own disclosed LPP/PRU capability deferred item (ADR-0191), so no
 notification ever fires with real content, even though the subscription management around it is
 fully real. See ADR-0196 in `docs/DECISIONS.md` for full disclosure.
 
@@ -3978,29 +3978,29 @@ so `CreateGroupIdSubscription`'s own handler hand-rolled `.contains()` field che
 services' own same-named schemas, disambiguated by the real codegen to
 `SubscriptionData_Nudr_GroupIDmap`. See ADR-0198 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0199 -- AMF `Namf_Location` + `Namf_EventExposure` (fourth ADR-0193 gap-closure)
+## ADR-0199 -- AMF `Namf_Location` + `Namf_EventExposure` (fourth ADR-0193 deferred-item closure)
 
 | Requirement | Test |
 |---|---|
-| TS 23.502 -- `ProvidePositioningInfo` structural validation then honest capability gap | `AmfLocationIntegration.ProvidePositioningInfoIs501`: real `400` on missing `lcsLocation`, real `501` on a structurally valid body |
+| TS 23.502 -- `ProvidePositioningInfo` structural validation then honest capability deferred item | `AmfLocationIntegration.ProvidePositioningInfoIs501`: real `400` on missing `lcsLocation`, real `501` on a structurally valid body |
 | `ProvideLocationInfo` -- no UE context vs. found | `AmfLocationIntegration.ProvideLocationInfo404ThenHonestlyEmpty200`: real `404` before `CreateUEContext`, real `200` with a verified-empty `ProvideLocInfo` after |
 | `CancelLocation` -- no matching `ldrReference` | `AmfLocationIntegration.CancelLocationIs404`: real `404` |
 | `Namf_EventExposure` individual family: create/modify/delete | `AmfEventExposureIntegration.IndividualSubscriptionCreateModifyDelete`: real `201`, real RFC 6902 `PATCH` `200` with verified field change, `PATCH` on unknown id `404`, `DELETE` `204` then `404` |
 | `Namf_EventExposure` AMF-Set-level family + id-space isolation | `AmfEventExposureIntegration.AmfSetLevelBulkSubscriptionCreateModifyDelete`: same lifecycle plus a cross-family `DELETE` correctly `404`ing |
 | No regression | Full project rebuild clean (`EXIT=0` verified directly from the build log); all 10 `Amf*Integration` tests pass |
 
-Real Tier-A gap-closure: both YAMLs were already in the sbi-codegen pilot set (types compiled into
+Real Tier-A deferred-item closure: both YAMLs were already in the sbi-codegen pilot set (types compiled into
 `sbi_gen` all along) but had zero routes wired in `nfs/amf/src/main.cpp`. Real, separate api roots
 (`/namf-loc/v1`, `/namf-evts/v1`) confirmed from each YAML's own `servers:` block, not assumed to
 share `Namf_Communication`'s `kApiRoot`. `ProvidePositioningInfo` and `CancelLocation` carry
-forward the same disclosed capability gaps already established elsewhere (no real LPP/GNSS/PRU
+forward the same disclosed capability deferred items already established elsewhere (no real LPP/GNSS/PRU
 positioning anywhere in this build, same class as GMLC ADR-0189/LMF ADR-0191); `EventExposure`'s
-subscription CRUD is real, but notification delivery is not (same disclosed gap class as this
+subscription CRUD is real, but notification delivery is not (same disclosed deferred item class as this
 file's other 3 subscription types). See ADR-0199 in `docs/DECISIONS.md` for full disclosure,
 including a real, reproduced-but-unfixed pre-existing test hang found in an unrelated UDR test
 while running a broad `ctest -R` during this pass.
 
-## ADR-0200 -- AMF `Namf_AIoT` + `Namf_MBSBroadcast` + `Namf_MBSCommunication` + `Namf_MT` (fifth ADR-0193 gap-closure)
+## ADR-0200 -- AMF `Namf_AIoT` + `Namf_MBSBroadcast` + `Namf_MBSCommunication` + `Namf_MT` (fifth ADR-0193 deferred-item closure)
 
 | Requirement | Test |
 |---|---|
@@ -4012,17 +4012,17 @@ while running a broad `ctest -R` during this pass.
 | MT group reachability + validation | `AmfMtIntegration.EnableGroupReachabilityReturnsHonestlyEmptyList`: real `200` with a verified-absent `ueConnectedList`, real `400` on missing `tmgi` |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean (`EXIT=0` verified from the build log); all 16 `Amf*Integration` tests pass |
 
-Real Tier-A gap-closure: none of these 4 YAMLs were in the sbi-codegen pilot set at all before
+Real Tier-A deferred-item closure: none of these 4 YAMLs were in the sbi-codegen pilot set at all before
 this pass (unlike ADR-0199's `Namf_Location`/`Namf_EventExposure`, which were wired but unrouted).
 Real, separate api roots (`/namf-aiot/v1`, `/namf-mbs-bc/v1`, `/namf-mbs-comm/v1`, `/namf-mt/v1`)
 confirmed from each YAML's own `servers:` block. Real name collision found and resolved by the
 codegen itself: `N2MbsSmInfo`, declared independently by both MBSBroadcast and MBSCommunication,
 disambiguated to `N2MbsSmInfo_Namf_MBSBroadcast`/`N2MbsSmInfo_Namf_MBSCommunication`. All 4 carry
-forward disclosed capability gaps already established elsewhere in this AMF (no real N2/device
+forward disclosed capability deferred items already established elsewhere in this AMF (no real N2/device
 delivery pipeline, no real UE reachability state machine, no real merge of `ContextUpdate`'s
 fields into stored state). See ADR-0200 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0201 -- SMF `Nsmf_EventExposure` + `Nsmf_NIDD` (sixth ADR-0193 gap-closure)
+## ADR-0201 -- SMF `Nsmf_EventExposure` + `Nsmf_NIDD` (sixth ADR-0193 deferred-item closure)
 
 | Requirement | Test |
 |---|---|
@@ -4031,7 +4031,7 @@ fields into stored state). See ADR-0200 in `docs/DECISIONS.md` for full disclosu
 | `Nsmf_NIDD` `Deliver` -- no PDU session vs. real one | `SmfNiddIntegration.DeliverMissingContextIs404ThenRealContextIs204`: real `404` against a nonexistent `pduSessionRef`, real `204` against a real, PCF-backed `smContextRef` |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean (`EXIT=0` verified from the build log); all 7 SMF integration tests pass |
 
-Real Tier-A gap-closure: both YAMLs were explicitly named and deferred in `nfs/smf/src/main.cpp`'s
+Real Tier-A deferred-item closure: both YAMLs were explicitly named and deferred in `nfs/smf/src/main.cpp`'s
 own file header since this project's original SMF turn, never in the sbi-codegen pilot set. Real
 cross-file dependency resolution confirmed by reading `tools/sbi-codegen/sbi_codegen/loader.py`:
 external `$ref`s resolve lazily against any file in `specs_dir` regardless of pilot-set
@@ -4041,22 +4041,22 @@ files did. Real collision (`EventSubscription`/`EventNotification`/`Notification
 independently declared elsewhere) disambiguated by the codegen to `*_Nsmf_EventExposure`.
 `Nsmf_NIDD`'s `pduSessionRef` is deliberately mapped onto the existing `SmContextStore`'s
 `smContextRef` id space (disclosed, not a literal separate `/pdu-sessions` resource). Both
-services carry forward the same disclosed no-real-delivery-pipeline gap class already established
+services carry forward the same disclosed no-real-delivery-pipeline deferred item class already established
 elsewhere in this project. See ADR-0201 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0202 -- UDM `Nudm_MT` + `Nudm_NIDDAU` + `Nudm_RSDS` + `Nudm_SSAU` + `Nudm_UEID` (seventh ADR-0193 gap-closure)
+## ADR-0202 -- UDM `Nudm_MT` + `Nudm_NIDDAU` + `Nudm_RSDS` + `Nudm_SSAU` + `Nudm_UEID` (seventh ADR-0193 deferred-item closure)
 
 | Requirement | Test |
 |---|---|
 | `Nudm_MT` existence check + honest response | `UdmMtIntegration.QueryUeInfo404ThenHonestlyEmpty200`: real `404` for an unseeded SUPI, real `200` with a verified-empty `UeInfo` for a real seeded one |
 | `Nudm_MT` `ProvideLocationInfo` | `UdmMtIntegration.ProvideLocationInfoReturnsHonestlyEmptyResult`: real `200` with a verified-empty `LocationInfoResult` |
-| `Nudm_NIDDAU` disclosed gap + validation | `UdmNiddauIntegration.AuthorizeNiddDataIs501`: real `501`, real `400` on a body missing `dnn` |
+| `Nudm_NIDDAU` disclosed deferred item + validation | `UdmNiddauIntegration.AuthorizeNiddDataIs501`: real `501`, real `400` on a body missing `dnn` |
 | `Nudm_RSDS` ack | `UdmRsdsIntegration.ReportSMDeliveryStatusIs204`: real `204` |
-| `Nudm_SSAU` disclosed gap + no-target removal | `UdmSsauIntegration.AuthorizeIs501AndRemovalIs404`: real `501`, real `404`, real `400` on a body missing `authId` |
+| `Nudm_SSAU` disclosed deferred item + no-target removal | `UdmSsauIntegration.AuthorizeIs501AndRemovalIs404`: real `501`, real `404`, real `400` on a body missing `authId` |
 | `Nudm_UEID` real, working SUCI de-concealment | `UdmUeidIntegration.DeconcealRealSuciWorksAndTamperedMacIs400`: real `200` decrypting the exact TS 33.501 Annex C.4.3.1 ECIES Profile A implementers' test vector to the correct real SUPI, over the wire against the live process; real `400` on a tampered MAC |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean (`EXIT=0` verified from the build log); all 6 new tests pass; UDR's own 3 pre-existing tests still pass after the real collision fix |
 
-Real Tier-A gap-closure: all 5 YAMLs were explicitly named and deferred in `nfs/udm/src/main.cpp`'s
+Real Tier-A deferred-item closure: all 5 YAMLs were explicitly named and deferred in `nfs/udm/src/main.cpp`'s
 own file header since UDM's original turn, never in the sbi-codegen pilot set. `Nudm_UEID`'s
 `Deconceal` is real, not a stub -- it reuses this file's own existing, already-tested
 `deconceal_suci_if_needed()` (TS 33.501 Annex C ECIES Profile A/B). Real name collision found and
@@ -4071,7 +4071,7 @@ exact same bug was also found, live, in the pre-existing `UdmIntegration.SdmData
 test under the same system load; disclosed and tracked as task #166, not fixed in this pass since
 it's outside this ADR's own scope. See ADR-0202 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0203 -- UPF `Nupf_EventExposure` + `Nupf_GetUEPrivateIPaddrAndIdentifiers` (eighth ADR-0193 gap-closure)
+## ADR-0203 -- UPF `Nupf_EventExposure` + `Nupf_GetUEPrivateIPaddrAndIdentifiers` (eighth ADR-0193 deferred-item closure)
 
 | Requirement | Test |
 |---|---|
@@ -4080,7 +4080,7 @@ it's outside this ADR's own scope. See ADR-0202 in `docs/DECISIONS.md` for full 
 | `Nupf_GetUEPrivateIPaddrAndIdentifiers` honest response | `UpfGetUeIpInfoIntegration.SearchUeIpInfoReturnsHonestlyEmptyResult`: real `200` with a verified-empty `UeIpInfo` (no fabricated fields) |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean (`EXIT=0` verified from the build log); 392/392 tests pass (`ctest --timeout 120 -E "UdrIntegration.AmfContextLifecycle\|UdmIntegration.SdmDataRetrievalAndSubscriptions"`, matching CI's own exclusion) |
 
-Real Tier-A gap-closure, and a real documentation-bug fix: `nfs/upf/src/main.cpp`'s own file header
+Real Tier-A deferred-item closure, and a real documentation-bug fix: `nfs/upf/src/main.cpp`'s own file header
 previously claimed no `Nupf_*` API exists in the OpenAPI corpus -- false, both YAMLs are real and
 present in this project's own vendored R19 archive, now corrected. UPF's real primary control
 interface (N4/PFCP, TS 23.501) is unchanged; these are a real, optional, additive R17+
@@ -4091,7 +4091,7 @@ thread and NRF-registration client thread. Both real, separate OAuth2 scopes (`n
 ADR-0203 in `docs/DECISIONS.md` for full disclosure, including what this pass does NOT include (no
 real event notification delivery pipeline, no real NAT/private-IP tracking).
 
-## ADR-0204 -- PCF `Npcf_UEPolicyControl` + `Npcf_EventExposure` (ninth ADR-0193 gap-closure, first PCF slice)
+## ADR-0204 -- PCF `Npcf_UEPolicyControl` + `Npcf_EventExposure` (ninth ADR-0193 deferred-item closure, first PCF slice)
 
 | Requirement | Test |
 |---|---|
@@ -4101,7 +4101,7 @@ real event notification delivery pipeline, no real NAT/private-IP tracking).
 | `Npcf_EventExposure` required-field validation | `PcfEventExposureIntegration.CreateWithMissingRequiredFieldIs400`: real `400` on a body missing `notifUri` |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean (`EXIT=0` verified from the build log); all 4 new tests pass, all 4 pre-existing `test_pcf_policy_control.cpp` tests still pass after the real collision fix; full suite 396/396 |
 
-Real Tier-A gap-closure (first of two PCF slices, task #163 -- 5 more YAML files remain). Real name
+Real Tier-A deferred-item closure (first of two PCF slices, task #163 -- 5 more YAML files remain). Real name
 collision found and fixed wiring `Npcf_UEPolicyControl`: `PolicyAssociationRequest`/
 `PolicyAssociation`/`PolicyAssociationUpdateRequest`/`PolicyUpdate`/`RequestTrigger` all
 independently declared by the already-wired `TS29507_Npcf_AMPolicyControl.yaml` too --
@@ -4116,7 +4116,7 @@ unexpected `400` -- same class of bug as ADR-0202's own finding, reproduced here
 pattern; fixed with the same `EXPECT_*`-plus-guarded-body pattern. See ADR-0204 in
 `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0205 -- PCF `Npcf_AMPolicyAuthorization` + `Npcf_MBSPolicyAuthorization` + `Npcf_MBSPolicyControl` (tenth ADR-0193 gap-closure, second PCF slice)
+## ADR-0205 -- PCF `Npcf_AMPolicyAuthorization` + `Npcf_MBSPolicyAuthorization` + `Npcf_MBSPolicyControl` (tenth ADR-0193 deferred-item closure, second PCF slice)
 
 | Requirement | Test |
 |---|---|
@@ -4128,7 +4128,7 @@ pattern; fixed with the same `EXPECT_*`-plus-guarded-body pattern. See ADR-0204 
 | `Npcf_MBSPolicyControl` required-field validation | `MbsPolicyControlIntegration.CreateWithMissingRequiredFieldIs400`: real `400` on a body missing `mbsSessionId` |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean (`EXIT=0` verified from the build log); all 6 new tests pass, all 10 pre-existing PCF tests still pass after the real BSF collision fix; full suite 402/402 |
 
-Real Tier-A gap-closure (second of three PCF slices, task #163 -- 2 more YAML files remain:
+Real Tier-A deferred-item closure (second of three PCF slices, task #163 -- 2 more YAML files remain:
 `Npcf_PDTQPolicyControl`, `Npcf_BDTPolicyControl`). Real, honest codegen limitation confirmed, not
 a bug: `AppAmContextRespData`/`AmEventsSubscRespData` are real `anyOf`-of-two-full-objects response
 shapes that `tools/sbi-codegen` falls back to a plain `nlohmann::json` typedef for (its own
@@ -4140,7 +4140,7 @@ disambiguated by the codegen; `nfs/bsf/src/main.cpp`'s own pre-existing bare-nam
 updated, a real necessary fix with no functional change to BSF's own behavior. See ADR-0205 in
 `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0206 -- PCF `Npcf_PDTQPolicyControl` + `Npcf_BDTPolicyControl` (eleventh ADR-0193 gap-closure, third and final PCF slice)
+## ADR-0206 -- PCF `Npcf_PDTQPolicyControl` + `Npcf_BDTPolicyControl` (eleventh ADR-0193 deferred-item closure, third and final PCF slice)
 
 | Requirement | Test |
 |---|---|
@@ -4150,14 +4150,14 @@ updated, a real necessary fix with no functional change to BSF's own behavior. S
 | `Npcf_BDTPolicyControl` required-field validation | `BdtPolicyControlIntegration.CreateWithMissingRequiredFieldIs400`: real `400` on a body missing `volPerUe` |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean (`EXIT=0` verified from the build log); all 4 new tests pass, all 10 pre-existing PCF tests still pass; full suite 406/406 |
 
-Real Tier-A gap-closure (third and final PCF slice, task #163 -- now fully closed, all 7 PCF
+Real Tier-A deferred-item closure (third and final PCF slice, task #163 -- now fully closed, all 7 PCF
 Tier-A files wired and implemented). No new name collisions found wiring either file. Real, honest
 disclosed constraint: `Npcf_BDTPolicyControl`'s `CreateBDTPolicy` never populates a real
 `bdtPolData` (no real BDT decision engine exists in this build to produce one), so
 `UpdateBDTPolicy`'s own transfer-policy-selection path always real-`400`s -- there is nothing
 valid to select. See ADR-0206 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0207 -- NEF `Nnef_SMService` + `Nnef_UEId` + `Nnef_DNAIMapping` + `Nnef_EASDeployment` (twelfth ADR-0193 gap-closure, first NEF slice)
+## ADR-0207 -- NEF `Nnef_SMService` + `Nnef_UEId` + `Nnef_DNAIMapping` + `Nnef_EASDeployment` (twelfth ADR-0193 deferred-item closure, first NEF slice)
 
 | Requirement | Test |
 |---|---|
@@ -4169,10 +4169,10 @@ valid to select. See ADR-0206 in `docs/DECISIONS.md` for full disclosure.
 | `Nnef_EASDeployment` required-field validation | `NefEASDeploymentIntegration.CreateWithMissingRequiredFieldIs400`: real `400` on a body missing `notifId` |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean (`EXIT=0` verified from the build log); all 6 new tests pass; full suite 412/412 |
 
-Real Tier-A gap-closure (first of NEF's own remaining slices, task #164 -- 9 of 13 files remain).
+Real Tier-A deferred-item closure (first of NEF's own remaining slices, task #164 -- 9 of 13 files remain).
 NEF's own first-ever live integration test (`NEF_PATH` newly added to
 `tests/integration/CMakeLists.txt`; the pre-existing `Nnef_PFDmanagement`, ADR-0185, had only DTO
-conformance tests, disclosed as a real, pre-existing gap not introduced by this ADR). Real codegen
+conformance tests, disclosed as a real, pre-existing deferred item not introduced by this ADR). Real codegen
 limitation found and worked around: `TS29591_Nnef_DNAIMapping.yaml` owns zero schemas of its own
 (both request/response types are `$ref`'d entirely from the separate `TS29522_DNAIMapping.yaml`) --
 `tools/sbi-codegen` only emits an output file for a pilot-set YAML that owns at least one schema,
@@ -4181,7 +4181,7 @@ so `TS29522_DNAIMapping.yaml` needed its own additional pilot-set entry. Real, p
 `nnef-smcontext`, not `nnef-smservice`, a genuine mismatch in the vendored 3GPP spec text itself.
 See ADR-0207 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0208 -- NEF `Nnef_SMContext` + `Nnef_Authentication` + `Nnef_ECSAddress` (thirteenth ADR-0193 gap-closure, second NEF slice)
+## ADR-0208 -- NEF `Nnef_SMContext` + `Nnef_Authentication` + `Nnef_ECSAddress` (thirteenth ADR-0193 deferred-item closure, second NEF slice)
 
 | Requirement | Test |
 |---|---|
@@ -4193,9 +4193,9 @@ See ADR-0207 in `docs/DECISIONS.md` for full disclosure.
 | No regression -- new work | Full reconfigure+rebuild against the complete pilot set clean; all 5 new tests pass |
 | No regression -- cross-NF collision fixes | `SmfIntegration` (9), `SmfNiddIntegration` (1), `AmfIntegration` (5), `AusfIntegration`+`AusfUpuProtectionIntegration` (7) explicitly re-run to confirm the `SmContext*`/`DeliverReqData`/`AuthResult` rename fixes below didn't regress SMF/AMF/AUSF; full suite 417/417 |
 
-Real Tier-A gap-closure (second of NEF's own remaining slices, task #164 -- 6 of 13 files remain).
+Real Tier-A deferred-item closure (second of NEF's own remaining slices, task #164 -- 6 of 13 files remain).
 Real cross-NF codegen name collisions found and fixed, a new consequence class not seen in this
-project's prior 12 gap-closure ADRs: adding `Nnef_SMContext`/`Nnef_Authentication` to the pilot set
+project's prior 12 deferred-item closure ADRs: adding `Nnef_SMContext`/`Nnef_Authentication` to the pilot set
 collided with **other NFs'** own already-shipping types, not just NEF's own. `SmContextCreateData`/
 `SmContextCreatedData`/`SmContextUpdateData`/`SmContextReleaseData`/`SmContextStatusNotification`
 (real `Nsmf_PDUSession` schemas) and `DeliverReqData` (already-suffixed `_Nsmf_NIDD`) both picked
@@ -4207,7 +4207,7 @@ up a third/new real same-named collision from `Nnef_SMContext`'s own schemas; `A
 generated suffixed names -- pure renames, no behavioral change, confirmed by the explicit
 SMF/AMF/AUSF re-runs above. See ADR-0208 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0209 -- NEF `Nnef_EventExposure` (fourteenth ADR-0193 gap-closure, third NEF slice); real codegen allOf-narrowing fix; real project-wide common-data group rename
+## ADR-0209 -- NEF `Nnef_EventExposure` (fourteenth ADR-0193 deferred-item closure, third NEF slice); real codegen allOf-narrowing fix; real project-wide common-data group rename
 
 | Requirement | Test |
 |---|---|
@@ -4216,8 +4216,8 @@ SMF/AMF/AUSF re-runs above. See ADR-0208 in `docs/DECISIONS.md` for full disclos
 | No regression -- new work | Full reconfigure+rebuild against the complete pilot set clean; both new tests pass |
 | No regression -- codegen fix + group rename | Full suite re-run clean: 419/419 (`ctest --timeout 120 -E "UdrIntegration.AmfContextLifecycle\|UdmIntegration.SdmDataRetrievalAndSubscriptions"`) |
 
-Real Tier-A gap-closure (third of NEF's own remaining slices, task #164 -- 5 of 13 files remain).
-Two real findings beyond the gap-closure itself, both fully disclosed in ADR-0208's own successor
+Real Tier-A deferred-item closure (third of NEF's own remaining slices, task #164 -- 5 of 13 files remain).
+Two real findings beyond the deferred-item closure itself, both fully disclosed in ADR-0208's own successor
 entry (ADR-0209) in `docs/DECISIONS.md`: (1) a real `tools/sbi-codegen` limitation -- the generator
 couldn't distinguish a genuine allOf field conflict from `TS26512_EventExposure.yaml`'s own real
 "abstract base (`items: {}`, deliberately unconstrained) narrowed by a concrete allOf subtype
@@ -4230,7 +4230,7 @@ deterministic per `render.py`'s own `sorted(file_stems)[0]` naming rule), breaki
 `#include` lines across `nfs/`/`tests/` until fixed as a mechanical rename (plus 15 stale
 comment-only mentions kept accurate). See ADR-0209 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0210 -- NEF `Nnef_TrafficInfluenceData` + `Nnef_Inference` + `Nnef_Training` + `Nnef_VFLInference` + `Nnef_VFLTraining` (fifteenth ADR-0193 gap-closure, fourth NEF slice) -- task #164 complete
+## ADR-0210 -- NEF `Nnef_TrafficInfluenceData` + `Nnef_Inference` + `Nnef_Training` + `Nnef_VFLInference` + `Nnef_VFLTraining` (fifteenth ADR-0193 deferred-item closure, fourth NEF slice) -- task #164 complete
 
 | Requirement | Test |
 |---|---|
@@ -4241,7 +4241,7 @@ comment-only mentions kept accurate). See ADR-0209 in `docs/DECISIONS.md` for fu
 | `Nnef_VFLTraining` full lifecycle, optional notifUri/notifCorrId | `NefVFLTrainingIntegration.CreateReadPutDeleteLifecycleOnlyVflTrainSubsRequired`, `NefVFLTrainingIntegration.CreateWithoutVflTrainSubsIs400` (real `400`) |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean; `nef`/`integration_tests`/`conformance_tests` all rebuild clean; full suite 426/426 |
 
-Real Tier-A gap-closure -- **fourth and final NEF slice, closing all 13 of NEF's own real Tier-A
+Real Tier-A deferred-item closure -- **fourth and final NEF slice, closing all 13 of NEF's own real Tier-A
 YAML files (task #164 complete)**. Six additional real dependency files
 (`TS29519_Application_Data.yaml`, `TS29530_Naf_Inference.yaml`,
 `TS29520_Nnwdaf_EventsSubscription.yaml`, `TS29530_Naf_Training.yaml`,
@@ -4259,7 +4259,7 @@ A separate tooling mistake (accidentally running `clang-format-18` against a Pyt
 `schema_to_ir.py`) was caught and reverted via `git checkout --` before ever being committed. See
 ADR-0210 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0211 -- NRF `OptionsNFInstances` + `RetrieveStoredSearch`/`RetrieveCompleteSearch` + `RetrieveKeyRequest` (first Tier-B gap-closure since ADR-0193's Tier-A backlog closed)
+## ADR-0211 -- NRF `OptionsNFInstances` + `RetrieveStoredSearch`/`RetrieveCompleteSearch` + `RetrieveKeyRequest` (first Tier-B deferred-item closure since ADR-0193's Tier-A backlog closed)
 
 | Requirement | Test |
 |---|---|
@@ -4269,8 +4269,8 @@ ADR-0210 in `docs/DECISIONS.md` for full disclosure.
 | `RetrieveStoredSearch`/`RetrieveCompleteSearch` real cached result | `NrfGapClosureIntegration.RetrieveStoredSearchAndCompleteSearchReturnCachedResult`: real `searchId` from a live `SearchNFInstances` call, both follow-up `GET`s return the same real cached `nfInstances`, real `404` on an unknown `searchId` |
 | No regression | Full reconfigure+rebuild against the complete pilot set clean; all 4 new tests pass; full suite 430/430 |
 
-Real Tier-B gap-closure -- the first item off ADR-0193's own remaining backlog now that every NF's
-Tier-A gaps are closed (ADR-0194 through ADR-0210). NRF's 4 undisclosed missing operations were the
+Real Tier-B deferred-item closure -- the first item off ADR-0193's own remaining backlog now that every NF's
+Tier-A deferred items are closed (ADR-0194 through ADR-0210). NRF's 4 undisclosed missing operations were the
 smallest/clearest remaining item, matching this project's own established "smallest/clearest first"
 prioritization (ADR-0194/ADR-0195/ADR-0196). New `StoredSearchStore`
 (`nfs/nrf/src/registry.hpp/.cpp`) caches each real `SearchNFInstances` result under a real
@@ -4284,7 +4284,7 @@ separately-flagged "stale SCP disclosure" comment was already accurately worded 
 operations) and UDM (~58+ undisclosed operations) -- see
 `docs/CAPABILITY_GAP_ANALYSIS.md`. See ADR-0211 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0212 -- UDR Individual Authentication Status (Document) + `QueryProvisionedData` (second Tier-B gap-closure) + stale-claim correction
+## ADR-0212 -- UDR Individual Authentication Status (Document) + `QueryProvisionedData` (second Tier-B deferred-item closure) + stale-claim correction
 
 | Requirement | Test |
 |---|---|
@@ -4302,13 +4302,13 @@ per-field store/getter calls `QueryUeSubscribedData` (ADR-0166) already uses for
 improvement since `servingPlmnId` is a REQUIRED path parameter here, so all 7 PLMN-keyed fields are
 always composed (never gated on an optional query param). Also corrected a stale claim in
 `docs/CAPABILITY_GAP_ANALYSIS.md` itself: the previously-recorded "`subs-to-notify` bulk-DELETE"
-Tier-B gap does not correspond to any real operation in `TS29505_Subscription_Data.yaml` (the
+Tier-B deferred item does not correspond to any real operation in `TS29505_Subscription_Data.yaml` (the
 collection is `POST`-only) and that resource is already fully implemented (task #122) --
 documentation-only correction, no code change. UDR's `Subscription_Data.yaml` Tier-B item is now
 fully closed; `Policy_Data.yaml`'s own ~12 undisclosed operations and UDM's ~58+ remain the two
 largest real Tier-B items still open. See ADR-0212 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0213 -- UDR `Policy_Data.yaml` Tier-B gap-closure (all ~12 undisclosed operations closed)
+## ADR-0213 -- UDR `Policy_Data.yaml` Tier-B deferred-item closure (all ~12 undisclosed operations closed)
 
 | Requirement | Test |
 |---|---|
@@ -4318,7 +4318,7 @@ largest real Tier-B items still open. See ADR-0212 in `docs/DECISIONS.md` for fu
 | `CreateIndividualPolicyDataSubscription`/`ReadPolicyDataSubscriptions`/`ReadIndividualPolicySubscriptionData`/`ReplaceIndividualPolicyDataSubscription`/`DeleteIndividualPolicyDataSubscription` | `UdrPolicyDataGapClosureIntegration.PolicyDataSubsToNotifyLifecycle`: real `201`+`Location` on POST, collection GET lists it, individual GET `200`, PUT replace returns the real replaced body, DELETE `204`, GET after `404` |
 | No regression | Full reconfigure+rebuild clean; all 4 new tests pass; full suite 436/436 |
 
-Closes UDR's own remaining Tier-B backlog in full -- **UDR now has zero known Tier-B gaps.** New
+Closes UDR's own remaining Tier-B backlog in full -- **UDR now has zero known Tier-B deferred items.** New
 `UsageMonDataStore` and `PolicyDataSubsToNotifyStore` (`nfs/udr/src/stores.hpp`/`.cpp`,
 `udr_usage_mon_data`/`udr_policy_data_subs_to_notify` tables) back two real new resources; the
 bare `{ueId}` aggregate (`ReadPolicyData`) and bare `bdt-data` collection GET (`ReadBdtData`)
@@ -4333,7 +4333,7 @@ absent `smPolicyDataSet` failed against real leftover state from an unrelated, e
 undisclosed operations (`Nudm_UECM`/`Nudm_SDM`/`UEAU`/`PP`) are now the only remaining real Tier-B
 item project-wide. See ADR-0213 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0214 -- UDM `Nudm_UEAU` Tier-B gap-closure (first slice: `GetRgAuthData`/`GenerateAv`/`GenerateGbaAv`)
+## ADR-0214 -- UDM `Nudm_UEAU` Tier-B deferred-item closure (first slice: `GetRgAuthData`/`GenerateAv`/`GenerateGbaAv`)
 
 | Requirement | Test |
 |---|---|
@@ -4348,7 +4348,7 @@ smallest/clearest, done here), `Nudm_UECM` (~24), `Nudm_SDM` (~33, likely needs 
 pattern confirmed first), `Nudm_PP` (11, already flagged deferred in ADR-0082). All 3 `Nudm_UEAU`
 ops reuse the exact same real Milenage `aka_crypto::f1`/`f2345` primitives + `auth_subscriptions`
 SQN-advance already proven by `GenerateAuthData`/`GenerateProseAV` -- real vectors, not stubs, for
-4 of `GenerateAv`'s 5 real `hssAuthType` branches. Real, disclosed gap: `eps-aka` needs TS 33.401
+4 of `GenerateAv`'s 5 real `hssAuthType` branches. Real, disclosed deferred item: `eps-aka` needs TS 33.401
 Annex A.2 KASME derivation, not yet in `libs/aka-crypto` -- real spec-documented `501`, not a
 fabricated value. `GetRgAuthData`'s own `authInd` is backed by a new
 `AuthEventStore::has_successful_event()`, reusing `ConfirmAuth`'s own real stored state rather
@@ -4356,7 +4356,7 @@ than echoing the caller's unverified claim. One real bug of my own caught and fi
 (not the implementation): asserted the wrong JSON key (`n3gAkaAv`, the C++ member name) instead of
 the real schema key (`"3gAkaAv"`). See ADR-0214 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0215 -- UDM `Nudm_UECM` Tier-B gap-closure (second slice: `PeiUpdate`/`UpdateRoamingInformation`)
+## ADR-0215 -- UDM `Nudm_UECM` Tier-B deferred-item closure (second slice: `PeiUpdate`/`UpdateRoamingInformation`)
 
 | Requirement | Test |
 |---|---|
@@ -4373,7 +4373,7 @@ real resource, own real `201`-with-`Location`-vs-`204` response pair, confirmed 
 AMF registration document by its own real response schema). See ADR-0215 in `docs/DECISIONS.md`
 for full disclosure.
 
-## ADR-0216 -- UDM `Nudm_UECM` Tier-B gap-closure (third slice: AMF non-3GPP-access registration group)
+## ADR-0216 -- UDM `Nudm_UECM` Tier-B deferred-item closure (third slice: AMF non-3GPP-access registration group)
 
 | Requirement | Test |
 |---|---|
@@ -4391,7 +4391,7 @@ successful merge returns the real, also-documented `204` instead of a fabricated
 `smsf3Gpp`/`smsfNon3Gpp`/`ipSmGw`/`nwdafRegistration`, none built here). See ADR-0216 in
 `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0217 -- UDM `Nudm_UECM` Tier-B gap-closure (fourth slice: SMSF registration groups)
+## ADR-0217 -- UDM `Nudm_UECM` Tier-B deferred-item closure (fourth slice: SMSF registration groups)
 
 | Requirement | Test |
 |---|---|
@@ -4409,7 +4409,7 @@ meaningful -- its own `smsf3Gpp`/`smsfNon3Gpp` fields are now backed by real dat
 `ipSmGw`/`nwdafRegistration` remain missing. See ADR-0217 in `docs/DECISIONS.md` for full
 disclosure.
 
-## ADR-0218 -- UDM `Nudm_UECM` Tier-B gap-closure (fifth slice: IP-SM-GW registration resource)
+## ADR-0218 -- UDM `Nudm_UECM` Tier-B deferred-item closure (fifth slice: IP-SM-GW registration resource)
 
 | Requirement | Test |
 |---|---|
@@ -4423,7 +4423,7 @@ simplification as every other registration group in this file. Closes the second
 dependency of `GetRegistrations` -- only `nwdafRegistration` remains missing after this ADR. See
 ADR-0218 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0219 -- UDM `Nudm_UECM` Tier-B gap-closure (sixth slice: NWDAF registration group)
+## ADR-0219 -- UDM `Nudm_UECM` Tier-B deferred-item closure (sixth slice: NWDAF registration group)
 
 | Requirement | Test |
 |---|---|
@@ -4442,7 +4442,7 @@ dependency of `GetRegistrations` -- every `RegistrationDataSets` field now has r
 though `GetRegistrations`/`SendRoutingInfoSm` themselves remain unimplemented. See ADR-0219 in
 `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0220 -- UDM `Nudm_UECM` Tier-B gap-closure (seventh slice: `GetRegistrations` bare aggregate)
+## ADR-0220 -- UDM `Nudm_UECM` Tier-B deferred-item closure (seventh slice: `GetRegistrations` bare aggregate)
 
 | Requirement | Test |
 |---|---|
@@ -4458,7 +4458,7 @@ always returns every PDU session unfiltered, since per-session S-NSSAI/DNN inspe
 `SendRoutingInfoSm` remains the next open item. See ADR-0220 in `docs/DECISIONS.md` for full
 disclosure.
 
-## ADR-0221 -- UDM `Nudm_UECM` Tier-B gap-closure (eighth slice: `SendRoutingInfoSm`)
+## ADR-0221 -- UDM `Nudm_UECM` Tier-B deferred-item closure (eighth slice: `SendRoutingInfoSm`)
 
 | Requirement | Test |
 |---|---|
@@ -4473,7 +4473,7 @@ P-CSCF Restoration`, `GetLocationInfo`, and `authTrigger` remain as `Nudm_UECM`'
 independent single ops. See ADR-0221 in `docs/DECISIONS.md` for full disclosure, including a real
 CI `lint` failure caught and fixed in this same window.
 
-## ADR-0227 -- UDM `Nudm_UECM` Tier-B gap-closure (ninth and final slice: `Trigger P-CSCF
+## ADR-0227 -- UDM `Nudm_UECM` Tier-B deferred-item closure (ninth and final slice: `Trigger P-CSCF
 Restoration`, `GetLocationInfo`, `authTrigger`)
 
 | Requirement | Test |
@@ -4492,7 +4492,7 @@ serving AMF/AUSF, same class as ADR-0207's own SendSMS disclosure. This closes `
 Tier-B backlog -- `Nudm_SDM` (37) and `Nudm_PP` (11, already flagged deferred in ADR-0082) are
 UDM's only remaining Tier-B items. See ADR-0227 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0228 -- UDM `Nudm_SDM` Tier-B gap-closure (group A+B: 13 individual-resource GET ops)
+## ADR-0228 -- UDM `Nudm_SDM` Tier-B deferred-item closure (group A+B: 13 individual-resource GET ops)
 
 | Requirement | Test |
 |---|---|
@@ -4520,7 +4520,7 @@ unhonored optional filters). Leaves `Nudm_SDM`'s ~7-op group C (real data source
 `Subscribe`/`Unsubscribe`/`Modify` completion, 5 SOR/UPU/ack write ops, a 6-op shared-data family,
 and 2 identifier-lookup ops open. See ADR-0228 in `docs/DECISIONS.md` for full disclosure.
 
-## ADR-0230 -- UDM `Nudm_SDM` Tier-B gap-closure (group C1: 5 ops, local composition + existing UDR routes)
+## ADR-0230 -- UDM `Nudm_SDM` Tier-B deferred-item closure (group C1: 5 ops, local composition + existing UDR routes)
 
 | Requirement | Test |
 |---|---|
@@ -4531,9 +4531,9 @@ and 2 identifier-lookup ops open. See ADR-0228 in `docs/DECISIONS.md` for full d
 Closes group C1 (5 of `Nudm_SDM`'s remaining 7 group-C ops): `GetNSSAI` (a real subset view into
 already-fetched am-data's own `nssai` field, same schema), `GetUeCtxInAmfData`/`GetUeCtxInSmfData`
 (real, near-complete local composition from the already-stored AMF/SMF registration records, same
-pattern ADR-0227's `GetLocationInfo` established -- each has one real, disclosed gap:
+pattern ADR-0227's `GetLocationInfo` established -- each has one real, disclosed deferred item:
 `epsInterworkingInfo`/`pgwInfo`+`emergencyInfo` have no data source), `GetUeCtxInSmsfData` (real,
-COMPLETE local composition from the already-stored SMSF registration records, no gap),
+COMPLETE local composition from the already-stored SMSF registration records, no deferred item),
 `GetEcrData` (UDR's own existing `coverage-restriction-data` route, under a nested
 `/{supi}/am-data/ecr-data` path). Real, disclosed narrowing found during implementation:
 `PduSession.dnn` is required while the source `SmfRegistration.dnn` is optional -- a stored
@@ -4611,7 +4611,7 @@ not exist anywhere in this build; fabricating either was rejected. See ADR-0234 
 
 `GetIndividualSharedData`/`GetGroupIdentifiers` are real, direct proxies to UDR's own already-live
 routes (`SharedDataStore`/`GroupIdentifiersStore`, ADR-0110/ADR-0140, checked first per this
-project's own re-learned lesson from ADR-0233). `GetSharedData` -- UDR's own disclosed gap
+project's own re-learned lesson from ADR-0233). `GetSharedData` -- UDR's own disclosed deferred item
 (ADR-0110) -- is composed at the UDM layer via N real UDR calls, one per `shared-data-ids` entry.
 `SubscribeToSharedData`/`UnsubscribeForSharedData`/`ModifySharedDataSubs` are backed by a new
 UDM-local `SharedDataSubscriptionStore`, genuinely global (no `ue_id` ownership), unlike every
@@ -4626,7 +4626,7 @@ process (all 6 routes correct), fixed in the test, not the server. See ADR-0235 
 | Requirement | Test |
 |---|---|
 | `GetSupiOrGpsi` real 200 with the real seeded gpsi for a SUPI-shaped, known ueId | `UdmSdmGapClosure236Integration.IdentifierLookupOpsReturnRealGpsiDataAndDiscloseReverseGap`: real 200, `IdTranslationResult.gpsi` == the exact seeded `msisdn-...` value |
-| `GetSupiOrGpsi` real 404 for an unknown SUPI-shaped ueId, and real 404 (disclosed gap) for a GPSI-shaped ueId | same test: both real 404 |
+| `GetSupiOrGpsi` real 404 for an unknown SUPI-shaped ueId, and real 404 (disclosed deferred item) for a GPSI-shaped ueId | same test: both real 404 |
 | `GetMultipleIdentifiers` real `ueIdGpsiList` populated with real seeded gpsis for a `supi-list` covering both seeded SUPIs | same test: real 200, both SUPIs' `gpsiList` entries match the exact seeded values |
 | `GetMultipleIdentifiers` real honest-empty result with no params | same test: real 200, both `ueIdList`/`ueIdGpsiList` absent |
 | No regression | Full reconfigure+rebuild clean (udm+udr); new test passes standalone; full suite green at `-j1` |
@@ -4635,11 +4635,11 @@ Asked the user how to handle the missing SUPI<->GPSI mapping before building any
 (`AskUserQuestion`) rather than guessing; chose to add real minimal GPSI seed data. UDR's am-data
 seed (ADR-0069) now sets a real `gpsis` array (real field on `AccessAndMobilitySubscriptionData`,
 no schema change needed -- `am_data` is already `JSONB`). Forward direction (SUPI->GPSI) is real
-and complete for both ops. Reverse direction (GPSI->SUPI) is a real, disclosed architectural gap:
+and complete for both ops. Reverse direction (GPSI->SUPI) is a real, disclosed architectural deferred item:
 no query-by-gpsi capability exists anywhere in the real Nudr_DR API (checked directly, not
 assumed), and this project's NFs talk only over SBI, so it cannot be built without inventing an API
 or duplicating UDR's data in UDM -- both rejected. This closes `Nudm_SDM` entirely except
-`Update SOR Info` (ADR-0234's own disclosed gap). See ADR-0236 in `docs/DECISIONS.md` for full
+`Update SOR Info` (ADR-0234's own disclosed deferred item). See ADR-0236 in `docs/DECISIONS.md` for full
 disclosure.
 
 ## ADR-0237 -- UDM `Nudm_PP`: the 11 ops ADR-0082 disclosed but did not implement
@@ -4661,8 +4661,8 @@ the new test file during development (not the server): a wrong `PpDataEntry` fie
 leaked-process pipe-hang pattern, and a wrong JSON wire key for `N5GVnGroupConfiguration`'s nested
 group data (`5gVnGroupData`, numeric-leading per the real spec, not the C++-safe `n5gVnGroupData`
 field name) -- isolated by testing UDR directly before concluding it was a test bug, not a server
-bug. This closes `Nudm_PP` in full (13/13 ops) and, with it, UDM's entire Tier-B gap-closure
-backlog except `Update SOR Info` (`Nudm_SDM`, ADR-0234's own disclosed gap). See ADR-0237 in
+bug. This closes `Nudm_PP` in full (13/13 ops) and, with it, UDM's entire Tier-B deferred-item closure
+backlog except `Update SOR Info` (`Nudm_SDM`, ADR-0234's own disclosed deferred item). See ADR-0237 in
 `docs/DECISIONS.md` for full disclosure.
 
 ## ADR-0239 -- Real server-side request concurrency (Phase 1 of the synchronous-HTTP debt, ADR-0009)
@@ -4820,7 +4820,7 @@ deferred. See ADR-0245 in `docs/DECISIONS.md`, including two deliberate behaviou
 malformed enable flag now fails fast rather than silently disabling AI; `kDefaultAiQuotaLatencyBudget`
 stays a library default but is no longer the binary's deployment default).
 
-## ADR-0246 -- `sbi-loadgen` open-loop mode (closes ADR-0244's disclosed gap)
+## ADR-0246 -- `sbi-loadgen` open-loop mode (closes ADR-0244's disclosed deferred item)
 
 | Requirement | Test |
 |---|---|
@@ -4840,8 +4840,8 @@ ADR-0238 step (1) stays blocked on unvendored TS 28.552/28.554.
 | Real, current spec material | TS 28.552 **v19.8.0 (2026-08)**, TS 28.554 **v19.7.0 (2026-04)**, both Release 19, vendored in `specs/` |
 | Reviewable mapping deliverable | `docs/PERFORMANCE_MAPPING.md` -- 663 measurement names across 13 clause families, applicability triage per family |
 | One NF mapped exhaustively, not sampled | NRF clause 5.10 `NFS.*`, all 13 measurements: **0 conformant, 2 partial** (`nrf_registrations_total` conflates `NFS.RegReq` with `NFS.RegSucc`) |
-| Framework gap found: CHF uncovered | No "Performance measurements for CHF" clause exists in TS 28.552; nor AUSF/BSF/SCP/5G-EIR/GMLC/SEPP. Charging performance is TS 32.4xx |
-| Framework gap found: 5.7 needs a VNFM | 5.7.1 VR.* measurements are sourced from ETSI GS IFA 027 "from VNFM" -- the NFV-MANO layer ADR-0238 established this project lacks. Only 5.7.2 is implementable |
+| Framework deferred item found: CHF uncovered | No "Performance measurements for CHF" clause exists in TS 28.552; nor AUSF/BSF/SCP/5G-EIR/GMLC/SEPP. Charging performance is TS 32.4xx |
+| Framework deferred item found: 5.7 needs a VNFM | 5.7.1 VR.* measurements are sourced from ETSI GS IFA 027 "from VNFM" -- the NFV-MANO layer ADR-0238 established this project lacks. Only 5.7.2 is implementable |
 | Highest-leverage instrumentation finding | 28.552 splits every operation into request/success/per-cause-failure; every 5GC-reachable 28.554 KPI is a ratio of those, so the split is the prerequisite for step (4) |
 
 See ADR-0247 and `docs/PERFORMANCE_MAPPING.md`. No conformance or free5GC claim is made.
@@ -4912,7 +4912,7 @@ See ADR-0251 in `docs/DECISIONS.md`.
 | Result | 12 of 16 NFs at 100%; **32 unrouted of 328 paths (90%)** |
 | False-negative mode found before publishing | UDM's 4 ack routes are loop-registered so their literals never appear in the binary; excluded from the 32. 15 likely-dynamic paths reported as unconfirmed, not counted either way |
 | Every finding source-verified | Zero-occurrence greps for UDR `application-data`, SMF `send-mo-data`, UDM `update-sor`; NRF/AUSF strings present only inside deferral comments |
-| Largest real gap | UDR: 23 paths across `/application-data/*` (12), `/exposure-data/*` (4), `/aiot-data/*` (3) + 4 singles -- previously undisclosed |
+| Largest real deferred item | UDR: 23 paths across `/application-data/*` (12), `/exposure-data/*` (4), `/aiot-data/*` (3) + 4 singles -- previously undisclosed |
 
 See `docs/NF_API_COVERAGE_AUDIT.md` and ADR-0252.
 
@@ -4959,9 +4959,9 @@ See ADR-0254 in `docs/DECISIONS.md`.
 | Verified by exact-literal match, not the heuristic | 4/4 ROUTED in `build/nfs/udr/udr` |
 | Coverage | UDR 9 -> 5 unrouted |
 | Behaviour tested, not just routing | `tests/integration/test_udr_exposure_data.cpp` -- 3 tests, real nrf+udr processes, TLS 1.3 + mTLS, signed OAuth2, real PostgreSQL: 201-vs-200 PUT, RFC 7396 merge preserves untouched fields, PATCH 204 and 404-not-upsert, two PDU sessions stay distinct, PATCH not routed on session-management-data, subscription PUT 404 on unknown subId |
-| Live-verification gap of ADR-0253/0254 closed (schema half) | `schema.postgres.sql` applied to the lab DB; all tables from ADR-0253/0254/0255 present; exposure-data routes exercised end to end. ADR-0253/0254's own routes still lack dedicated integration tests -- narrowed, not closed |
+| Live-verification deferred item of ADR-0253/0254 closed (schema half) | `schema.postgres.sql` applied to the lab DB; all tables from ADR-0253/0254/0255 present; exposure-data routes exercised end to end. ADR-0253/0254's own routes still lack dedicated integration tests -- narrowed, not closed |
 | No regression | conformance 333/333, `ctest` 474/474 (3 new) |
-| Disclosed: no notification delivery | subscriptions stored/returned but no `ExposureDataChangeNotification` is pushed; same gap class as ADR-0253/0254 subscriptions |
+| Disclosed: no notification delivery | subscriptions stored/returned but no `ExposureDataChangeNotification` is pushed; same deferred item class as ADR-0253/0254 subscriptions |
 | Disclosed: Location is a path, not an absolute URI | pre-existing project-wide limitation (UDR has no configured external base URL); asserted in the test rather than worked around |
 | Noted: pre-existing unrelated test defect | `UdrIntegration.AmfContextLifecycle` passes only once per DB reset (resource has no DELETE in the spec, so it cannot clean up); unrelated to this change, left as-is |
 
@@ -4978,7 +4978,7 @@ See ADR-0255 in `docs/DECISIONS.md`.
 | YAML defects read as-is | item PATCH `$ref`s a bare `PatchItem` under json-patch+json (array reading implemented, one contract); bundled PATCH labelled merge-patch+json but carries a PatchItem array |
 | PATCH returns 204, no fabricated PatchResult | matches the file's existing AmfContext3gpp/UpdateSmfContext precedent |
 | data-restoration 204 not 201 | YAML defines no 2xx and no individual-subscription resource, so a 201's `Location` would resolve to nothing; asserted in test that no Location is sent |
-| **ADR-0252 audit row corrected** | `service-specific-authorization-data` was listed as an undisclosed gap; it is an ADR-0160 deferral the **user confirmed twice**. Implemented in the working tree, then **backed out** before commit -- what was written was exactly the option the user rejected |
+| **ADR-0252 audit row corrected** | `service-specific-authorization-data` was listed as an undisclosed deferred item; it is an ADR-0160 deferral the **user confirmed twice**. Implemented in the working tree, then **backed out** before commit -- what was written was exactly the option the user rejected |
 | Stale deferral reason fixed, deferral kept | 3 sites said "complex-object query parameter, no parsing precedent" -- stale since ADR-0165's GetNiddAuData; corrected to ADR-0160's still-valid schema/write-path reason |
 | Verified by exact-literal match | 4/4 new paths ROUTED; SSAu path confirmed ABSENT from the binary after back-out |
 | Tests caught 2 real defects in the first draft | an invented `aiotfInstanceId` field (generated `from_json` rejected it), and a handler that dropped the connection instead of answering -- now a 500 ProblemDetails |
@@ -5000,7 +5000,7 @@ See ADR-0256 in `docs/DECISIONS.md`.
 | ADR-0234's blocker #2 disproved | "missing steering list content" is not blocking -- `steeringContainer` optional in `SorInfo` and in the `Nausf_SoRProtection` request; `SorInfo` requires only `ackInd`+`provisioningTime`; TS 33.501 A.17 makes the Steering Info List an optional P2 |
 | Real blocker identified | UDM->AUSF relay needs `sorHeader`; its construction is TS 24.501 9.11.3.51 (NAS bit encoding). TS 24.501 absent from `specs/`, no SOR transparent container in the NAS codec -- checked, not assumed |
 | Stale comment corrected, decision preserved | `nfs/udm/src/main.cpp` now records the accurate reason; the ack-relay half of that comment was deliberately left unchanged because it is still true |
-| Audit discharged | all 328 paths implemented or explicitly deferred; 22 deferred, 0 undisclosed gaps, 0 genuinely-absent |
+| Audit discharged | all 328 paths implemented or explicitly deferred; 22 deferred, 0 undisclosed deferred items, 0 genuinely-absent |
 | Verified by exact-literal match | both new paths ROUTED in `build/nfs/smf/smf` |
 
 See ADR-0257 in `docs/DECISIONS.md`.
@@ -5154,7 +5154,7 @@ See ADR-0266 in `docs/DECISIONS.md`.
 | **Content encoded by a separate process** | N1 SM container is SMF's own 5GSM Accept: EPD 0x2E, pduSessionId and PTI echoed back, message type 0xC2 (§8.3.5), built from PCF's real policy decision. AMF is opaque to it |
 | NF span | NRF, UDR, UDM, AUSF, AMF, PCF, SMF as real processes; NGAP/SCTP for N1/N2, TLS 1.3 + mTLS HTTP/2 for every SBI hop |
 | Handover prerequisite met | AMF now holds a real `smContextRef` for this UE -- the key `fetch_ho_request_transfer_from_smf` needs, without which every session is skipped and the relay ends in HandoverPreparationFailure |
-| **Disclosed gaps** | No UPF (SMF: `no UPF Sx Association established yet, skipping N4 Session Establishment`), so no real N3 F-TEID yet; no CHF; SQN freshness still unchecked (ADR-0265) |
+| **Disclosed deferred items** | No UPF (SMF: `no UPF Sx Association established yet, skipping N4 Session Establishment`), so no real N3 F-TEID yet; no CHF; SQN freshness still unchecked (ADR-0265) |
 | Stale comments corrected | `nas_codec.hpp`: `decode_registration_complete` was not "unreachable" (ADR-0075's 5G-GUTI made it owed); `decode_ul_nas_transport`'s "callers pass 1" contradicted its only caller, which passes 2 |
 | Test | `AmfNgapTestGnb.RegisteredUeEstablishesARealPduSession` |
 

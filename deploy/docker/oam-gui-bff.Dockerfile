@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Multi-stage build for gui/bff (oam-gui-bff), the Phase 7 operator GUI's backend-for-frontend
-# (ADR-0420..0425, ADR-0441). Closes the gap ADR-0441 explicitly disclosed and deferred: this NF
+# (ADR-0420..0425, ADR-0441). Closes the deferred item ADR-0441 explicitly disclosed and deferred: this NF
 # had no Dockerfile, compose entry, or Helm chart at all -- Phase 7 built and tested it as a CMake
 # binary only.
 #

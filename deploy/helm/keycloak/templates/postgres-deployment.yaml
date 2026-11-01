@@ -9,7 +9,7 @@ spec:
   # Single replica, single PVC: this chart's own dedicated PostgreSQL for Keycloak (ADR-0441 --
   # unlike the compose deployment, which reuses the shared postgres-chf instance's `keycloak`
   # database, there is no shared PostgreSQL release to attach to here yet). No HA/replication;
-  # disclosed gap, same category as every other lab-grade chart in deploy/helm/.
+  # disclosed deferred item, same category as every other lab-grade chart in deploy/helm/.
   replicas: 1
   selector:
     matchLabels:

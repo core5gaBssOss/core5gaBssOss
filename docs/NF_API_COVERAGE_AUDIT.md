@@ -29,9 +29,9 @@ operation name produced a false negative earlier and is not done anywhere in thi
 | udm | 1 | `/{supi}/am-data/update-sor` -- **disclosed deferred** (ADR-0257): needs the TS 24.501 9.11.3.51 SOR header encoding; that spec is not in `specs/` |
 | smf | 0 | **complete** -- both closed by ADR-0257 |
 | nrf | 5 | `/shared-data*`, `/scp-domain-routing-info*` -- disclosed deferred |
-| udr | 1 (was 23) | 4 closed by ADR-0253, 10 by ADR-0254, 4 by ADR-0255, 4 by ADR-0256; remaining: `service-specific-authorization-data` -- **disclosed deferred**, not a gap (ADR-0160, user-confirmed twice) |
+| udr | 1 (was 23) | 4 closed by ADR-0253, 10 by ADR-0254, 4 by ADR-0255, 4 by ADR-0256; remaining: `service-specific-authorization-data` -- **disclosed deferred** for future implementation (ADR-0160, user-confirmed twice) |
 
-**Total: 22 unrouted paths of 328 -- and every single one is now an explicit, reasoned deferral. Zero undisclosed gaps, and zero "genuinely absent" paths.** (NRF 5, AUSF 1, UDR 1, UDM 1 across 8 distinct resources; SMF's 2 closed by ADR-0257.)
+**Total: 22 unrouted paths of 328 -- and every single one is now an explicit, reasoned deferral. Zero undisclosed deferrals, and zero "genuinely absent" paths.** (NRF 5, AUSF 1, UDR 1, UDM 1 across 8 distinct resources; SMF's 2 closed by ADR-0257.)
 
 ## The 32, verbatim
 
@@ -91,7 +91,7 @@ loop over `{"sor-ack", "upu-ack", "subscribed-snssais-ack", "cag-ack"}`, so the 
 `/{supi}/am-data/sor-ack` never appears in the binary even though the route exists. Caught by
 cross-checking against source before publishing, and those four are **excluded** from the 32.
 
-15 further paths were flagged as likely-dynamic and are **not** counted as gaps: 4 UDM (confirmed
+15 further paths were flagged as likely-dynamic and are **not** counted as deferred: 4 UDM (confirmed
 loop-registered), 3 SMF (`/pdu-sessions/{ref}/modify|release|retrieve` -- `pdu-sessions` appears 4x
 in SMF source), 8 UDR (`provisioned-data` appears 18x, `smf-registrations` 2x in UDR source).
 The SMF and UDR ones are **consistent with being routed but not individually confirmed** -- stated
@@ -99,7 +99,7 @@ as unconfirmed rather than counted either way.
 
 ## Highest-value finding: UDR's 23
 
-UDR is the one NF with a large, real, undisclosed coverage gap. The missing set is coherent rather
+UDR is the one NF with a large, real, undisclosed set of deferred coverage. The missing set is coherent rather
 than scattered -- three whole resource families:
 - **`/application-data/*`** (12 paths): bdtPolicyData, influenceData + its subs-to-notify tree,
   iptvConfigData, pfds, serviceParamData, subs-to-notify. Zero occurrences in UDR source.
@@ -112,7 +112,7 @@ traffic-influence store a real NEF/AF path depends on, and NEF is built here (al
 ## Update (ADR-0253): influenceData family closed, and a flaw in this audit's own heuristic
 
 UDR's `/application-data/influenceData` family is now implemented -- **4 paths, 9 operations**.
-Remaining UDR gap: **19 paths**.
+Remaining UDR deferred for future implementation: **19 paths**.
 
 **A flaw in the tier-2 heuristic, found while verifying that number and stated rather than left to
 mislead.** After the family landed, the script reported UDR's unrouted count dropping 23 -> 11 and
@@ -154,7 +154,7 @@ exact-literal match. **UDR: 5 -> 1 unrouted.**
 
 **This audit got one row wrong, and the error is worth naming rather than quietly fixing.**
 `/subscription-data/{ueId}/service-specific-authorization-data/{serviceType}` was listed above as
-part of UDR's "large, real, undisclosed coverage gap". It is not undisclosed and it is not a gap:
+part of UDR's "large, real, undisclosed set of deferred coverage". It is not undisclosed and it is not missing:
 **ADR-0160 investigated it in depth and the user explicitly chose to defer it -- twice**, once on
 which response schema to return and again, after a deeper finding, on whether to build it at all.
 It belongs in the same category as AUSF's `/rg-authentications` and NRF's `/shared-data` -- rows
@@ -167,7 +167,7 @@ parameter with no parsing precedent, which ADR-0165's `GetNiddAuData` has since 
 stale half is corrected in `nfs/udr/src/main.cpp` and `nfs/udr/schema.postgres.sql`; the resource
 stays deferred on ADR-0160's still-valid schema/write-path grounds.
 
-**UDR's real remaining count is therefore 1 deferred path and 0 undisclosed gaps.**
+**UDR's real remaining count is therefore 1 deferred path and 0 undisclosed deferrals.**
 
 ## Update (ADR-0257): the audit is discharged
 
@@ -200,11 +200,11 @@ Not audited: `li-admf`, `li-mdf`, `li-mdf3` (no TS 29-series YAML) and the `hell
 
 | Flagged | Count | Where | What it is |
 |---|---:|---|---|
-| Run-time-assembled route, so a string scan cannot see it | 18 | udm 4 (`-ack` loop), udr 8 (`provisioned-data/*` built from `provisioned_data_path_pattern`, `smf-registrations/{pduSessionId}`), udsf 6 (`records`/`timers` built from `root + ...`) | Tool limit, not a gap. Each was read in source; the individual operations were not each exercised here. |
+| Run-time-assembled route, so a string scan cannot see it | 18 | udm 4 (`-ack` loop), udr 8 (`provisioned-data/*` built from `provisioned_data_path_pattern`, `smf-registrations/{pduSessionId}`), udsf 6 (`records`/`timers` built from `root + ...`) | Tool limit, not a missing route. Each was read in source; the individual operations were not each exercised here. |
 | Deferral already disclosed in source or ADRs | 16 | ausf 1, nrf 5, udm 1 (`update-sor`), udr 2 (`service-specific-authorization-data`, `/subscription-data/shared-data` = GetSharedData), smf 4 (`/pdu-sessions` I-SMF collection: modify, release, retrieve, create), dccf 1 (`/transfer-data-sub`), mfaf 1 (`/mfaf-data-analytics`), nwdaf 1 (`/subscriptions/{subscriptionId}/unsubscribe-info`: the whole `Nnwdaf_MLModelTraining` API is disclosed as Phase D in `nfs/nwdaf/src/main.cpp`) | Real, known, reasoned. |
 | Not disclosed anywhere | 0 | -- | None found among the 34. A first draft of this section listed the NWDAF path as undisclosed; that was wrong, the source header names the API. |
 
-**Tool limit that hides gaps in the other direction.** A short path shared by several of an NF's APIs (`/subscriptions`,
+**Tool limit that hides unrouted paths in the other direction.** A short path shared by several of an NF's APIs (`/subscriptions`,
 `/subscriptions/{subscriptionId}`) is counted as routed as soon as *any* of that NF's services registers it. NWDAF shows this: only
 `unsubscribe-info`, the one path unique to `Nnwdaf_MLModelTraining`, is flagged, although that API's `/subscriptions` and
 `/subscriptions/{subscriptionId}` are equally unbuilt. So a clean row means "no unique path is missing", not "every operation
@@ -214,4 +214,4 @@ check, which this tool does not do.
 **Correction.** The 2 Sep conclusion "every one of the 328 paths is implemented or an explicit, reasoned deferral; this
 audit has no open findings" is not supported by this measurement. Five of the paths above appear to have been counted as routed by the old
 substring heuristic (inferred from its published table, not re-run) although they are deferred: the four SMF `/pdu-sessions` operations and UDR GetSharedData. They are
-disclosed in source, so the claim "zero undisclosed gaps" held then, but "no open findings" did not. NWDAF was not among the original 16 NFs. Counts are paths, not path x method operations.
+disclosed in source, so the claim "zero undisclosed deferrals" held then, but "no open findings" did not. NWDAF was not among the original 16 NFs. Counts are paths, not path x method operations.

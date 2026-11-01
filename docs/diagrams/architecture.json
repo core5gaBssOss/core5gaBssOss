@@ -2,14 +2,14 @@
  "_comment": "Source of truth for docs/diagrams/architecture{,-dark}.svg (rendered by tools/diagrams/render_architecture.py, checked in CI). Every tile is a directory under nfs/ or bss/, a service under deploy/docker/docker-compose.yml, or a documented planned item; every edge is a call that exists in code, named by its TS 23.501 clause 4.2.7 reference point. Services and TS numbers per tile come from the API roots each NF serves (servers[0].url of the YAML it was generated from). Change this file, re-render, commit all three -- ADR-0361.",
  "canvas": [
   1700,
-  1290
+  2010
  ],
  "title": "AI-Boosted 5G-Advanced Core, BSS and OSS \u2014 Release 19 \u00b7 architecture",
  "title_right": [
   "SBI: HTTP/2 + JSON \u00b7 TLS 1.3 mTLS \u00b7 OAuth2 from NRF \u00b7 TS 29.500",
   "APIs generated from 3GPP Forge 5G_APIs, REL-19 (bca84b6) \u2014 never hand-written"
  ],
- "subtitle": "Solid tiles exist in this repository and are tested; dashed tiles are in scope and not built. Every reference point drawn is a call wired in code (config/*.json), named per TS 23.501 clause 4.2.7. Chip = services served from generated YAML.",
+ "subtitle": "Solid tiles exist in this repository and are tested; dashed tiles are in scope and not built (bottom band: R19 completeness, ADR-0539). Every reference point drawn is a call wired in code (config/*.json), named per TS 23.501 clause 4.2.7. Chip = services served from generated YAML.",
  "legend": {
   "built": "built and tested",
   "planned": "in scope, not built",
@@ -138,6 +138,23 @@
    "color": "#047857",
    "note": [
     "inference in-process C++ (ONNX Runtime) \u00b7 training in a Python sidecar (MLflow)"
+   ]
+  },
+  {
+   "id": "r19",
+   "title": "R19 verticals \u00b7 IoT \u00b7 enablers \u2014 in pipeline (ADR-0539..0547)",
+   "x": 20,
+   "y": 1260,
+   "w": 1660,
+   "h": 680,
+   "pitch": [
+    148,
+    150
+   ],
+   "head": 56,
+   "color": "#0e7490",
+   "note": [
+    "every unused REL-19 YAML, with its owning ADR: docs/R19_COMPLETENESS.md"
    ]
   }
  ],
@@ -1178,6 +1195,823 @@
    "color": "#0f766e",
    "chip": "1 svc",
    "source": "nfs/tsctsf"
+  },
+  {
+   "id": "v2x-pcf",
+   "area": "r19",
+   "col": 0,
+   "row": 0,
+   "acronym": "PCF V2X",
+   "name": [
+    "V2X/A2X policy"
+   ],
+   "ts": [
+    "TS 29.525"
+   ],
+   "svc": [
+    "Npcf_UEPolicyControl"
+   ],
+   "glyph": "sliders",
+   "color": "#1d4ed8",
+   "planned": true
+  },
+  {
+   "id": "v2x-amf",
+   "area": "r19",
+   "col": 1,
+   "row": 0,
+   "acronym": "AMF V2X",
+   "name": [
+    "V2X/A2X UE context"
+   ],
+   "ts": [
+    "TS 29.518"
+   ],
+   "svc": [
+    "Namf (V2X/A2X parts)"
+   ],
+   "glyph": "antenna",
+   "color": "#1d4ed8",
+   "planned": true
+  },
+  {
+   "id": "v2x-nrf",
+   "area": "r19",
+   "col": 2,
+   "row": 0,
+   "acronym": "NRF V2X",
+   "name": [
+    "V2X/A2X NF profile"
+   ],
+   "ts": [
+    "TS 29.510"
+   ],
+   "svc": [
+    "Nnrf (V2X/A2X fields)"
+   ],
+   "glyph": "registry",
+   "color": "#1d4ed8",
+   "planned": true
+  },
+  {
+   "id": "v2x-chf",
+   "area": "r19",
+   "col": 3,
+   "row": 0,
+   "acronym": "CHF V2X",
+   "name": [
+    "V2X/A2X charging"
+   ],
+   "ts": [
+    "TS 32.291"
+   ],
+   "svc": [
+    "Nchf (V2X/A2X data)"
+   ],
+   "glyph": "coin",
+   "color": "#1d4ed8",
+   "planned": true
+  },
+  {
+   "id": "vae",
+   "area": "r19",
+   "col": 4,
+   "row": 0,
+   "acronym": "VAE",
+   "name": [
+    "V2X App Enabler"
+   ],
+   "ts": [
+    "TS 29.486"
+   ],
+   "svc": [
+    "VAE_* (12 APIs)"
+   ],
+   "glyph": "route",
+   "color": "#1d4ed8",
+   "planned": true
+  },
+  {
+   "id": "uss",
+   "area": "r19",
+   "col": 5,
+   "row": 0,
+   "acronym": "USS",
+   "name": [
+    "UAS Service Supplier"
+   ],
+   "ts": [
+    "TS 29.255"
+   ],
+   "svc": [
+    "Naf_Authentication"
+   ],
+   "glyph": "key",
+   "color": "#0369a1",
+   "planned": true
+  },
+  {
+   "id": "uae",
+   "area": "r19",
+   "col": 6,
+   "row": 0,
+   "acronym": "UAE",
+   "name": [
+    "UAS App Enabler"
+   ],
+   "ts": [
+    "TS 29.257"
+   ],
+   "svc": [
+    "UAE_* (8 APIs)"
+   ],
+   "glyph": "globe",
+   "color": "#0369a1",
+   "planned": true
+  },
+  {
+   "id": "uav-core",
+   "area": "r19",
+   "col": 7,
+   "row": 0,
+   "acronym": "UAV",
+   "name": [
+    "UAV in AMF / UDM"
+   ],
+   "ts": [
+    "TS 29.518 \u00b7 29.503"
+   ],
+   "svc": [
+    "events \u00b7 subscription"
+   ],
+   "glyph": "pin",
+   "color": "#0369a1",
+   "planned": true
+  },
+  {
+   "id": "aiotf",
+   "area": "r19",
+   "col": 8,
+   "row": 0,
+   "acronym": "AIOTF",
+   "name": [
+    "Ambient IoT"
+   ],
+   "ts": [
+    "TS 29.569"
+   ],
+   "svc": [
+    "Naiotf_AIoT"
+   ],
+   "glyph": "chip",
+   "color": "#65a30d",
+   "planned": true
+  },
+  {
+   "id": "adm-sec",
+   "area": "r19",
+   "col": 9,
+   "row": 0,
+   "acronym": "ADM",
+   "name": [
+    "AIoT data mgmt"
+   ],
+   "ts": [
+    "TS 29.369"
+   ],
+   "svc": [
+    "Nadm_Sec"
+   ],
+   "glyph": "lock",
+   "color": "#65a30d",
+   "planned": true
+  },
+  {
+   "id": "aiot-core",
+   "area": "r19",
+   "col": 10,
+   "row": 0,
+   "acronym": "AIoT",
+   "name": [
+    "AIoT in NRF/NSSF/CHF"
+   ],
+   "ts": [
+    "TS 29.510 \u00b7 29.531"
+   ],
+   "svc": [
+    "TS 32.291 fields"
+   ],
+   "glyph": "bolt",
+   "color": "#65a30d",
+   "planned": true
+  },
+  {
+   "id": "ees-ecs",
+   "area": "r19",
+   "col": 0,
+   "row": 1,
+   "acronym": "EES/ECS",
+   "name": [
+    "Edge enablement"
+   ],
+   "ts": [
+    "TS 29.558 \u00b7 24.558"
+   ],
+   "svc": [
+    "Eees_* \u00b7 Eecs_*"
+   ],
+   "glyph": "grid",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "easdf",
+   "area": "r19",
+   "col": 1,
+   "row": 1,
+   "acronym": "EASDF",
+   "name": [
+    "EAS DNS function"
+   ],
+   "ts": [
+    "TS 29.556"
+   ],
+   "svc": [
+    "Neasdf_DNSContext"
+   ],
+   "glyph": "route",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "nsce",
+   "area": "r19",
+   "col": 2,
+   "row": 1,
+   "acronym": "NSCE",
+   "name": [
+    "Slice capability exp."
+   ],
+   "ts": [
+    "TS 29.435"
+   ],
+   "svc": [
+    "NSCE_* (17 APIs)"
+   ],
+   "glyph": "api",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "sm-san",
+   "area": "r19",
+   "col": 3,
+   "row": 1,
+   "acronym": "SM/SAn",
+   "name": [
+    "Spatial map/anchors"
+   ],
+   "ts": [
+    "TS 29.437 \u00b7 24.550"
+   ],
+   "svc": [
+    "SS_Sm* \u00b7 SS_SAn*"
+   ],
+   "glyph": "pin",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "aimle",
+   "area": "r19",
+   "col": 4,
+   "row": 1,
+   "acronym": "AIMLE",
+   "name": [
+    "AI/ML enablement"
+   ],
+   "ts": [
+    "TS 29.482 \u00b7 24.560"
+   ],
+   "svc": [
+    "AIMLES_* \u00b7 MLR_*"
+   ],
+   "glyph": "robot",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "lms",
+   "area": "r19",
+   "col": 5,
+   "row": 1,
+   "acronym": "LMS",
+   "name": [
+    "Location mgmt"
+   ],
+   "ts": [
+    "TS 24.283"
+   ],
+   "svc": [
+    "Lms_Information"
+   ],
+   "glyph": "pin",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "etc",
+   "area": "r19",
+   "col": 6,
+   "row": 1,
+   "acronym": "ETC",
+   "name": [
+    "ETC configuration"
+   ],
+   "ts": [
+    "TS 24.549"
+   ],
+   "svc": [
+    "ETC_Configuration"
+   ],
+   "glyph": "sliders",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "seal",
+   "area": "r19",
+   "col": 7,
+   "row": 1,
+   "acronym": "SEAL",
+   "name": [
+    "Service enabler"
+   ],
+   "ts": [
+    "TS 29.549"
+   ],
+   "svc": [
+    "SS_* (SEAL servers)"
+   ],
+   "glyph": "hub",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "adaes",
+   "area": "r19",
+   "col": 8,
+   "row": 1,
+   "acronym": "ADAES",
+   "name": [
+    "App data analytics"
+   ],
+   "ts": [
+    "TS 29.549 \u00b7 24.559"
+   ],
+   "svc": [
+    "SS_ADAE_*"
+   ],
+   "glyph": "chart",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "aadrf",
+   "area": "r19",
+   "col": 9,
+   "row": 1,
+   "acronym": "AADRF",
+   "name": [
+    "SS AADRF"
+   ],
+   "ts": [
+    "TS 29.549"
+   ],
+   "svc": [
+    "SS_AADRF_DataMgmt"
+   ],
+   "glyph": "archive",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "sealdd",
+   "area": "r19",
+   "col": 10,
+   "row": 1,
+   "acronym": "SEALDD",
+   "name": [
+    "SEAL data delivery"
+   ],
+   "ts": [
+    "TS 29.548"
+   ],
+   "svc": [
+    "SDD_*"
+   ],
+   "glyph": "stream",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "vfl",
+   "area": "r19",
+   "col": 0,
+   "row": 2,
+   "acronym": "VFL",
+   "name": [
+    "Vertical FL inference"
+   ],
+   "ts": [
+    "TS 29.530"
+   ],
+   "svc": [
+    "Naf_VFLInference"
+   ],
+   "glyph": "flask",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "capif",
+   "area": "r19",
+   "col": 1,
+   "row": 2,
+   "acronym": "CAPIF",
+   "name": [
+    "Common API framework"
+   ],
+   "ts": [
+    "TS 29.222"
+   ],
+   "svc": [
+    "CAPIF_* \u00b7 AEF_Security"
+   ],
+   "glyph": "api",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "pin",
+   "area": "r19",
+   "col": 2,
+   "row": 2,
+   "acronym": "PIN",
+   "name": [
+    "PIN server"
+   ],
+   "ts": [
+    "TS 29.583"
+   ],
+   "svc": [
+    "PIN_AS*"
+   ],
+   "glyph": "users",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "hss",
+   "area": "r19",
+   "col": 3,
+   "row": 2,
+   "acronym": "HSS",
+   "name": [
+    "IMS / GBA HSS"
+   ],
+   "ts": [
+    "TS 29.562 \u00b7 29.563"
+   ],
+   "svc": [
+    "Nhss_*"
+   ],
+   "glyph": "idcard",
+   "color": "#be185d",
+   "planned": true
+  },
+  {
+   "id": "gba-bsf",
+   "area": "r19",
+   "col": 4,
+   "row": 2,
+   "acronym": "GBA BSF",
+   "name": [
+    "Bootstrapping server"
+   ],
+   "ts": [
+    "TS 29.309"
+   ],
+   "svc": [
+    "Nbsp_GBA"
+   ],
+   "glyph": "key",
+   "color": "#be185d",
+   "planned": true
+  },
+  {
+   "id": "imsas",
+   "area": "r19",
+   "col": 5,
+   "row": 2,
+   "acronym": "IMS AS",
+   "name": [
+    "IMS data channel AS"
+   ],
+   "ts": [
+    "TS 29.175"
+   ],
+   "svc": [
+    "Nimsas_*"
+   ],
+   "glyph": "phone",
+   "color": "#be185d",
+   "planned": true
+  },
+  {
+   "id": "mf",
+   "area": "r19",
+   "col": 6,
+   "row": 2,
+   "acronym": "MF",
+   "name": [
+    "Media function"
+   ],
+   "ts": [
+    "TS 29.176"
+   ],
+   "svc": [
+    "Nmf_MRM"
+   ],
+   "glyph": "monitor",
+   "color": "#be185d",
+   "planned": true
+  },
+  {
+   "id": "mmtel",
+   "area": "r19",
+   "col": 7,
+   "row": 2,
+   "acronym": "MMTel",
+   "name": [
+    "MMTel call control"
+   ],
+   "ts": [
+    "TS 29.392"
+   ],
+   "svc": [
+    "MMTel_*"
+   ],
+   "glyph": "handset",
+   "color": "#be185d",
+   "planned": true
+  },
+  {
+   "id": "smsrtr",
+   "area": "r19",
+   "col": 8,
+   "row": 2,
+   "acronym": "SMS-R",
+   "name": [
+    "SMS router \u00b7 IP-SM-GW"
+   ],
+   "ts": [
+    "TS 29.577"
+   ],
+   "svc": [
+    "Nrouter \u00b7 Nipsmgw"
+   ],
+   "glyph": "chat",
+   "color": "#be185d",
+   "planned": true
+  },
+  {
+   "id": "iwkmsc",
+   "area": "r19",
+   "col": 9,
+   "row": 2,
+   "acronym": "IWK-MSC",
+   "name": [
+    "SMS interworking MSC"
+   ],
+   "ts": [
+    "TS 29.579"
+   ],
+   "svc": [
+    "Niwmsc_SMService"
+   ],
+   "glyph": "swap",
+   "color": "#be185d",
+   "planned": true
+  },
+  {
+   "id": "msgin5g",
+   "area": "r19",
+   "col": 10,
+   "row": 2,
+   "acronym": "MSGin5G",
+   "name": [
+    "Messaging server/GW"
+   ],
+   "ts": [
+    "TS 29.538"
+   ],
+   "svc": [
+    "MSGS_* \u00b7 MSGG_*"
+   ],
+   "glyph": "chat",
+   "color": "#be185d",
+   "planned": true
+  },
+  {
+   "id": "ddnmf",
+   "area": "r19",
+   "col": 0,
+   "row": 3,
+   "acronym": "5G DDNMF",
+   "name": [
+    "ProSe discovery"
+   ],
+   "ts": [
+    "TS 29.555"
+   ],
+   "svc": [
+    "N5g-ddnmf_Discovery"
+   ],
+   "glyph": "eye",
+   "color": "#0891b2",
+   "planned": true
+  },
+  {
+   "id": "prose-af",
+   "area": "r19",
+   "col": 1,
+   "row": 3,
+   "acronym": "ProSe AF",
+   "name": [
+    "ProSe AF"
+   ],
+   "ts": [
+    "TS 29.557"
+   ],
+   "svc": [
+    "Naf_ProSe"
+   ],
+   "glyph": "link",
+   "color": "#0891b2",
+   "planned": true
+  },
+  {
+   "id": "pkmf",
+   "area": "r19",
+   "col": 2,
+   "row": 3,
+   "acronym": "PKMF",
+   "name": [
+    "ProSe key mgmt"
+   ],
+   "ts": [
+    "TS 29.559"
+   ],
+   "svc": [
+    "Npkmf_*"
+   ],
+   "glyph": "key",
+   "color": "#0891b2",
+   "planned": true
+  },
+  {
+   "id": "panf",
+   "area": "r19",
+   "col": 3,
+   "row": 3,
+   "acronym": "PAnF",
+   "name": [
+    "ProSe anchor"
+   ],
+   "ts": [
+    "TS 29.553"
+   ],
+   "svc": [
+    "Npanf_*"
+   ],
+   "glyph": "shield",
+   "color": "#0891b2",
+   "planned": true
+  },
+  {
+   "id": "slpkmf",
+   "area": "r19",
+   "col": 4,
+   "row": 3,
+   "acronym": "SLPKMF",
+   "name": [
+    "Sidelink pos. keys"
+   ],
+   "ts": [
+    "TS 29.586"
+   ],
+   "svc": [
+    "Nslpkmf_*"
+   ],
+   "glyph": "key",
+   "color": "#0891b2",
+   "planned": true
+  },
+  {
+   "id": "mbs",
+   "area": "r19",
+   "col": 5,
+   "row": 3,
+   "acronym": "MB-SMF/UPF",
+   "name": [
+    "5MBS session \u00b7 UP"
+   ],
+   "ts": [
+    "TS 29.532"
+   ],
+   "svc": [
+    "Nmbsmf_*"
+   ],
+   "glyph": "stream",
+   "color": "#9333ea",
+   "planned": true
+  },
+  {
+   "id": "mbsf",
+   "area": "r19",
+   "col": 6,
+   "row": 3,
+   "acronym": "MBSF/MBSTF",
+   "name": [
+    "5MBS service \u00b7 transport"
+   ],
+   "ts": [
+    "TS 29.580 \u00b7 29.581"
+   ],
+   "svc": [
+    "Nmbsf_* \u00b7 Nmbstf_*"
+   ],
+   "glyph": "bars",
+   "color": "#9333ea",
+   "planned": true
+  },
+  {
+   "id": "ucmf",
+   "area": "r19",
+   "col": 7,
+   "row": 3,
+   "acronym": "UCMF",
+   "name": [
+    "UE radio capability"
+   ],
+   "ts": [
+    "TS 29.673 \u00b7 29.675"
+   ],
+   "svc": [
+    "Nucmf_*"
+   ],
+   "glyph": "doc",
+   "color": "#0891b2",
+   "planned": true
+  },
+  {
+   "id": "misc5gc",
+   "area": "r19",
+   "col": 8,
+   "row": 3,
+   "acronym": "SoR\u00b7MNPF\u00b7EIF",
+   "name": [
+    "SoR AF \u00b7 MNPF \u00b7 EIF"
+   ],
+   "ts": [
+    "TS 29.550\u00b729.578\u00b729.566"
+   ],
+   "svc": [
+    "Nsoraf \u00b7 Nmnpf \u00b7 Neif"
+   ],
+   "glyph": "tag",
+   "color": "#475569",
+   "planned": true
+  },
+  {
+   "id": "oam",
+   "area": "r19",
+   "col": 9,
+   "row": 3,
+   "acronym": "OAM / media",
+   "name": [
+    "OAM MnS \u00b7 5G media"
+   ],
+   "ts": [
+    "TS 28.xxx \u00b7 TS 26.xxx"
+   ],
+   "svc": [
+    "39 + 99 REL-19 APIs"
+   ],
+   "glyph": "gauge",
+   "color": "#475569",
+   "planned": true
   }
  ],
  "edges": [

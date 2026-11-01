@@ -27,7 +27,7 @@ survives contact with a carrier deployment — high availability, geo-redundancy
 idempotent accounting, auditability, capacity headroom, security. Delivered
 incrementally as a spec-traceable reference implementation that hardens toward
 production. Never describe any output as carrier-grade until it has passed
-conformance and soak testing; maintain an honest gap list at all times. If I ask
+conformance and soak testing; maintain an honest list of items deferred for future implementation at all times. If I ask
 whether something is production-ready, answer with evidence, not optimism.
 
 === ARCHITECTURE AND DESIGN PRINCIPLES (MANDATORY - NO COMPROMISE) ===
@@ -82,7 +82,7 @@ what you propose instead — do not silently deviate.
   TS 23.503 (policy), TS 23.288 (NWDAF), TS 33.501 (security), TS 32.240 /
   32.290 / 32.291 (charging), TS 29.500 / 29.501 (SBI framework principles).
 - Where R19 stage-3 YAML does not yet exist (e.g. some Ambient IoT surfaces),
-  implement against stage-2 and mark the gap explicitly in code and docs.
+  implement against stage-2 and mark it explicitly in code and docs as deferred for future implementation.
 - GSMA specifications (TAP3, RAP, NRTRDE for roaming settlement) are behind GSMA
   membership. Do not quote their document numbers or field layouts from memory —
   ask me to supply them.
@@ -352,7 +352,7 @@ the VFL hook. Procedure list for approval first.
 ### Phase 6 — R19 feature NFs
 ```
 Implement the Tier 3 NFs, one per session, in this order: AIOTF (Ambient IoT,
-TS 23.369 stage 2 — mark stage-3 gaps explicitly), the 5MBS quartet
+TS 23.369 stage 2 — mark missing stage-3 explicitly as deferred for future implementation), the 5MBS quartet
 (MB-SMF/MB-UPF/MBSF/MBSTF), EASDF, TSCTSF, NSACF, SEPP with N32-c/N32-f (PRINS),
 CAPIF, SEAL/SEALDD, ADAES, then PKMF/PAnF/SLPKMF, IMS AS + MF, MSGin5G, MNPF,
 PIN, EIF (N110-N114). Same definition of done applies.

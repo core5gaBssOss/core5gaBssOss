@@ -186,7 +186,7 @@ field names are checked against the published swagger before any code uses them.
 
 ## Next steps (not started, awaiting direction)
 
-1. ~~Resolve the four API-list gaps~~ — **Resolved 2026-08-10**, see above. CLAUDE.md updated.
+1. ~~Resolve the four API-list open points~~ — **Resolved 2026-08-10**, see above. CLAUDE.md updated.
 2. ~~Resolve the two inline TODOs~~ — **Resolved 2026-08-10**, see above.
 3. **Done 2026-08-10**: `libs/bss-sid/` -- a new, CHF-independent library mapping
    `subscriberIdentifier` (the one field that's both real and unambiguous today) to a TMF632
