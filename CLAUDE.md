@@ -31,7 +31,7 @@ implementation (raised from the original lab-grade scope — see ADR-0009 in
   (procedures), TS 23.503 (policy), TS 23.288 (NWDAF), TS 33.501 (security),
   TS 32.240/32.290/32.291 (charging), TS 29.500/29.501 (SBI framework).
 - Where stage-3 YAML is genuinely missing for an R19 item (e.g. parts of
-  AIOTF), implement against stage-2 and mark the gap explicitly — never
+  AIOTF), implement against stage-2 and mark it explicitly as deferred for future implementation — never
   invent an API to fill it.
 
 ## Non-negotiable engineering rules

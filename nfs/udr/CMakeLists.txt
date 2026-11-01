@@ -1,4 +1,4 @@
-# libpqxx: real PostgreSQL persistence for UDR's context-data stores (ADR-0068, gap-closure Tier
+# libpqxx: real PostgreSQL persistence for UDR's context-data stores (ADR-0068, deferred-item closure Tier
 # 1a from the free5GC/open5gs source comparison -- see stores.hpp's own header).
 find_package(libpqxx CONFIG REQUIRED)
 

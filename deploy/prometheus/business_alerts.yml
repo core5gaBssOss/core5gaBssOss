@@ -6,7 +6,7 @@
 # conditions were documented, the alarms did not exist.
 #
 # Every rule below fires on a metric this project really exports today. Nothing here is aspirational:
-# if a metric does not exist yet, its rule is NOT in this file, and the gap is named in
+# if a metric does not exist yet, its rule is NOT in this file, and the deferred item is named in
 # docs/COMPLIANCE_P1_P15.md instead. Deliberate, because an alert on a metric nobody emits is worse
 # than no alert -- it looks like coverage and is silence.
 #

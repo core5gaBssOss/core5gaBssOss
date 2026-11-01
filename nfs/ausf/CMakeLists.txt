@@ -1,4 +1,4 @@
-# redis-plus-plus: real persistence for KausfStore (gap-closure, docs/CAPABILITY_GAP_ANALYSIS.md
+# redis-plus-plus: real persistence for KausfStore (deferred-item closure, docs/CAPABILITY_GAP_ANALYSIS.md
 # task #104/ADR-0081) -- same real dependency every other Redis-backed hot-path store in this
 # project already uses (AMF's UeSecurityContextStore, CHF's ChargingDataStore).
 find_package(redis++ CONFIG REQUIRED)

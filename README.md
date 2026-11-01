@@ -52,12 +52,15 @@ not implement it, and a title should not need a footnote to be true.
   catalog data, not code.
 - **OSS:** an operator console (React + JSON Forms) for NF configuration and approvals, TS 28.552
   performance counters and Prometheus business alarms.
+- **In the pipeline (R19 completeness, ADR-0539):** V2X/A2X, UAS (drones), the V2X application
+  enabler, Ambient IoT, edge and application enablers, IMS/HSS, ProSe, 5MBS, OAM and media. None of
+  it is built yet; see [R19 completeness](#r19-completeness).
 - **AI:** NWDAF analytics, and AI-assisted quota sizing in the CHF (off by default), run in-process
   with ONNX Runtime. The model advises; a deterministic engine decides.
 
 This is an open, Apache-2.0 reference implementation that aims at production grade. It is **not
 deployable in production yet**: [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md) lists what
-still blocks it, including Lawful Interception gaps.
+still blocks it, including Lawful Interception items deferred for future implementation.
 
 **Why this matters:**
 
@@ -111,7 +114,7 @@ Summary:
 | User plane: PFCP and an eBPF/XDP uplink GTP-U path (lab fixture, not a gNB-facing N3) | Done for what is stated |
 | Charging and TM Forum BSS | Verified end to end in the lab |
 | NWDAF and AI/ML pipelines | In progress |
-| Release 19 NFs (Tier 2/3) | In progress: 10 of 16 Tier 2 NFs built; Tier 3 not started |
+| Release 19 NFs (Tier 2/3) | In progress: 10 of 16 Tier 2 NFs built; Tier 3 not started. R19 completeness (V2X/A2X, UAS drones, VAE, Ambient IoT, edge and application enablers, IMS/HSS, ProSe, 5MBS, OAM, media): 305 REL-19 API files in the pipeline, none built yet ([register](docs/R19_COMPLETENESS.md), ADR-0539) |
 | Operator console | Started |
 | Lab packaging (Compose, Helm) | Partial |
 
@@ -125,7 +128,7 @@ By phase:
 | 3 | User plane: N4/PFCP, UPF datapath (an eBPF/XDP uplink GTP-U decapsulation path; lab veth/netns fixture, not a gNB-facing N3; no downlink and no LI hook) | Done for what is stated |
 | 4 | Charging + TM Forum SID/BSS layer | Live-verified end to end |
 | 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, predicted with the MTLF's model in-process via ONNX Runtime; ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE from the SMF QOS_MON feed aggregated per S-NSSAI, ADR-0358/0360/0368/0369/0379), MTLF (Nnwdaf_MLModelProvision, Python training sidecar + MLflow, models through the ADRF, ADR-0369), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) on the no-in-process-state architecture of ADR-0359; Nnwdaf_MLModelMonitor accuracy loop (ADR-0370); the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription surface (ADR-0380); Nnwdaf_MLModelTraining subscription CRUD and model notification (ADR-0471, FL round logic next); an optional LLM extension seam is specified but not built (ADR-0470); next roaming / HFL (ADR-0359 step 6) |
-| 6 | R19 feature NFs (Tier 2/3) | In progress — 10 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF, UDSF) the SEPP in part (N32 with TLS security or PRINS, telescopic FQDN, ADR-0491-0494; no roaming intermediaries) the AAnF in part (AKMA, ADR-0495-0497) and the TSCTSF in part (AF requested QoS, ADR-0498); Tier 3 not started |
+| 6 | R19 feature NFs (Tier 2/3) | In progress — 10 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF, UDSF) the SEPP in part (N32 with TLS security or PRINS, telescopic FQDN, ADR-0491-0494; no roaming intermediaries) the AAnF in part (AKMA, ADR-0495-0497) and the TSCTSF in part (AF requested QoS, ADR-0498); Tier 3 not started. R19 completeness entered the pipeline on 2026-11-01 (ADR-0539..0547): first V2X/A2X in the PCF, AMF, NRF and CHF, then the UAS NFs (TS 29.255, TS 29.257) and the VAE server (TS 29.486) |
 | 7 | GUI / operations console | **Started** — React + JSON Forms operator GUI behind a C++ backend-for-frontend (`gui/`, ADR-0420..0425): OIDC login against a real, self-hosted Keycloak realm (ADR-0441 — authorization-code + PKCE, real TOTP MFA gating a real `acr` claim via Keycloak step-up; back-channel logout and per-action step-up still deferred), shop-scoped RBAC + maker-checker + hash-chained audit in the `operator_iam` DB, customer onboarding, TMF620 catalog proposals, approvals, and NF configuration (schemas derived for all 34 components; four-eyes editing live for `product-catalog` only). `oam-gui-bff` is now containerized for compose (Dockerfile, `docker-compose.yml` service, ADR-0442) — the login proof runs a real, compiled `oam-gui-bff` binary in a real container against a real, containerized Keycloak, both sharing the lab CA; the Node/`gui/web` build stage ran and was verified inside Docker, but the C++ builder stage (`vcpkg`, `asn1c`, `cmake --build`) never completed inside Docker in this session — three attempts were all defeated by host network conditions before finishing, disclosed in full in ADR-0442, which also has the exact command for whoever next has a working link to build and reverify the real image. The Helm chart also lands with this ADR but is lint/template-verified only — it does not start in a real cluster yet (no chart in this repo provisions `operator_iam`'s PostgreSQL in-cluster). Dear ImGui engineering console: later track. Scope still fixed: **all** product/tariff/policy configuration must be GUI-editable (ADR-0289) |
 | 8 | Lab packaging (`make lab-up`) | Partial (counted 2026-10-08) — Compose builds 33 services from this repo's Dockerfiles: 27 NF services (including the UPF, added by ADR-0466, and the `nwdaf-mtlf` variant), `oam-gui-bff`, `postgres-chf`, and 4 BSS services; Helm charts exist for 9 NFs (amf, ausf, li-admf, nrf, pcf, smf, udm, udr, upf) plus keycloak and oam-gui-bff. **UPF packaging (ADR-0466): the image was built and the container run once on 2026-10-09 (it registers with the NRF over TLS 1.3 + mTLS and serves PFCP; that run found and fixed a missing `libli_core`/`libxml2` and a missing `pki-init` certificate), but the eBPF/XDP datapath does not start in the container (`mount --make-shared /run/netns: Permission denied`, cause not yet determined), no SMF PFCP association was tried, and the Helm chart was never applied to a cluster; the UPF now advertises its auto-detected address (`advertised_ipv4: auto`) instead of `127.0.0.1`, covered by unit tests but not yet exercised SMF-to-UPF in a container.** No `make lab-up` yet (there is no Makefile) |
 | P4.12 | Telco-grade hardening (TPS governance, chaos, business alarming, retention, autoscaling) | Done except P11, which is deferred — see [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md) |
@@ -224,7 +227,7 @@ Stated at the honest level of detail — what is really expressible today, and w
 | **Tiered / fair-use throttling** | **Supported** | an operator maps a spending-limit status to an `authSessAmbr` change in `policy_counter_actions`, which PCF pushes to SMF (ADR-0286); SMF installs it as a real PFCP `CreateQer` with an MBR at establishment (ADR-0308), and **re-authorises it mid-session** when a spending limit is later crossed -- a changed `authSessAmbr` becomes an N4 `UpdateQer` (or `CreateQer` if the session had none) that UPF accepts (ADR-0328), so hitting a quota throttles a session already in progress rather than only a new one. The rate the UE is told in the NAS Accept and the rate UPF enforces come from one read of PCF's decision, so they cannot drift. An `authSessAmbr` this build cannot parse sends **no** QER and logs loudly, leaving the session unthrottled rather than throttled by a guessed value |
 | **Voice + data bundle** | **Supported (monetary pooling)** | one offering price whose `ratingGroup` is an array covers several rating groups, so voice and data are a single product with one price, validity and lifecycle rather than two that drift apart (ADR-0309). Spend was always pooled — both debit the same balance bucket. **Not** pooled: a single *unit* allowance decremented by both ("10 GB usable as data or minutes"), which would need a minutes-to-octets conversion no specification defines. A CAP-charged call priced in SEC/MIN is billed for the seconds used (ADR-0304); one priced in GB still bills its whole grant |
 | **Roaming bundle** | **Partial — rating done, settlement not** | rating now distinguishes roaming from home traffic: a derived `roaming` attribute (`servingCNPlmnId != hPlmnId`) scopes an offering, so one roaming tariff covers every partner network rather than needing one offering per PLMN, and it composes with slice/DNN scopes (ADR-0305). Omitted rather than defaulted when the request carries no PLMN pair, so home traffic is never silently rated as roaming or the reverse. TMF651 `InterconnectAgreement` and `libs/tap3-core` (GSMA TD.57 TAP 3.12, 112 codec functions, both directions) exist; **TAP IN/OUT batch processing is not built yet** (C5 of ADR-0300), and RAP (TD.32) / NRTRDE (TD.35) would need those documents |
-| **Time-based bundle** (e.g. 24-hour pass, per-minute voice) | **Supported** | a `unitOfMeasure` of SEC/MIN/HOUR/DAY produces a real `GrantedUnit.time` (ADR-0304), finalized proportionally against elapsed seconds. This one change also closed two disclosed gaps it was the root cause of: CAP's `maxCallPeriodDuration` was always 0 because it derives from `grant->time`, and CAP could not charge proportionally because its report is in time while its grant was in volume |
+| **Time-based bundle** (e.g. 24-hour pass, per-minute voice) | **Supported** | a `unitOfMeasure` of SEC/MIN/HOUR/DAY produces a real `GrantedUnit.time` (ADR-0304), finalized proportionally against elapsed seconds. This one change also closed two disclosed deferred items it was the root cause of: CAP's `maxCallPeriodDuration` was always 0 because it derives from `grant->time`, and CAP could not charge proportionally because its report is in time while its grant was in volume |
 | **Shared / family / group bundle** | **Supported** | a TMF654 `Bucket` with `isShared: true` whose `relatedParty` names its members: every member's usage reserves and debits against that one bucket, so a family genuinely draws down a single allowance (ADR-0307). No new resource and no schema change were needed — `isShared` and `relatedParty` are the standard's own fields and both columns already existed. An expired or suspended shared bucket is refused in the store rather than at each call site, and a subscriber never resolves to a bucket they are not a member of |
 | **Postpaid billing / invoicing** | **Partial — bill generation done, delivery not** | real TS 32.298 BER-encoded CDRs land in Doris with retention and archival (ADR-0283), and `billing::run_bill` aggregates TMF678 `AppliedCustomerBillingRate` line items into a real `CustomerBill` with derived totals, marking items billed so a re-run cannot double-charge (ADR-0310). Line items are produced from real Release CDRs by `chf::cdrs_to_billing_items` and the chain is covered end to end by `test_cdr_billing_chain.cpp`. **Still absent**: a bill-cycle scheduler, delivery, dunning and payment. Mixed-currency accounts and zero-activity bills omit the amount rather than stating a wrong or fabricated one |
 
@@ -298,7 +301,7 @@ backs it.
 |---|---|---|
 | **Dynamic GSU / predictive quota sizing** (grant size adapts to the subscriber's own usage history) | **Built, default OFF** | real ONNX Runtime **in-process C++ inference** (`chf::AiQuotaSizer`) -- never a Python call at runtime. A Python sidecar (`nfs/chf/training/train_quota_sizing.py`) trains, MLflow tracks the run, and CHF loads only the exported `.onnx` artifact (ADR-0074) |
 | **Per-subscriber feature store** | **Built** | `chf::QuotaFeatureStore` in Valkey (Redis protocol) keeps a rolling usage window per `SUPI`+`ratingGroup`, updated when real `usedUnitContainer` figures are reported |
-| **Model governance / auditability** | **Built** | every AI-influenced rating decision records an `aiAdvisory`: model id, model version, the exact input feature vector, the model's output, and **which deterministic bound actually applied**. A decision the model did not influence records no advisory, which is a real state rather than a gap |
+| **Model governance / auditability** | **Built** | every AI-influenced rating decision records an `aiAdvisory`: model id, model version, the exact input feature vector, the model's output, and **which deterministic bound actually applied**. A decision the model did not influence records no advisory, which is a real state rather than a missing record |
 | **Deterministic guardrails** | **Built** | the model *suggests*; the rating engine *decides*. The grant is always the price-configured base multiplied by a clamp to **[0.5x, 2.0x]** -- never the raw prediction. Plus a kill switch (`CHF_AI_QUOTA_SIZING_ENABLED`, **default OFF**), a per-inference latency budget, model-version pinning, and a cold-start path that falls back to the plain deterministic grant |
 | **NWDAF (AnLF + MTLF)** | **Built** (in progress) | `nfs/nwdaf`, one binary with `role` anlf / mtlf / both (ADR-0359/0369). AnLF: `Nnwdaf_AnalyticsInfo`, `EventsSubscription`, `DataManagement`, data collected via DCCF/MFAF (ADR-0358/0360/0368). MTLF: `Nnwdaf_MLModelProvision`; `Nnwdaf_MLModelTraining` subscription CRUD, unsubscribe-info, model notification and `immReport` plus federated learning (a linear model trained by the Python sidecar): the CLIENT round (interim model, status report, delay notification) and a config-driven SERVER (client discovery, round loop, FedAvg, FL_FINISHED) -- both coded and unit-tested only, never run end-to-end; the server's callback is unauthenticated and its result is not used by the AnLF yet; no 403 causes or `termTrainReq` (ADR-0471); trains through `nfs/nwdaf/training/train_nf_load.py` (MLflow-tracked), stores models through the ADRF, the AnLF retrieves them and infers **in-process with ONNX Runtime** (ADR-0369). NEF's `AnalyticsExposure` / `ReportingNetworkStatus` routes still answer **501** -- not yet wired to it (ADR-0324) |
 | **The three mandated analytics** (NF load prediction, anomaly detection, slice SLA / service experience) | **All three built** | NF load: statistics over collected NRF observations and **predictions** from the MTLF's model for a future period, with confidence (ADR-0368/0369). Anomaly detection: `ABNORMAL_BEHAVIOUR` from real charging data, two of nine exception ids (ADR-0358). Slice SLA / service experience: `SERVICE_EXPERIENCE` aggregates the SMF's `QOS_MON` per-slice latency into a per-S-NSSAI `svcExprc` (ADR-0379, SMF producer -> NWDAF collect -> aggregate); the MOS is a disclosed lab mapping over synthesized SMF latency, not a calibrated model |
@@ -319,7 +322,7 @@ overstating a single clamped regressor behind a default-off switch.
 Assessed against the specifications fetched from the official 3GPP archive
 (`tools/specs/fetch_3gpp_specs.py`; versions in `specs/3gpp/MANIFEST.tsv`). Full findings with
 clause citations and code evidence: [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md).
-**Stated honestly: this is a partial-compliance picture with hard gaps, not a certification: Lawful Interception coverage (per-NF POIs and real packet capture) and the mandatory SNOW 3G NAS algorithms are the blocking ones.** Last cross-checked against `docs/SECURITY_COMPLIANCE.md` and the code on 2026-10-08; the 33.501, 33.210, 33.117 and 33.535 rows were updated on 2026-10-23 from ADR-0476–0478 and ADR-0491–0497.
+**Stated honestly: this is a partial-compliance picture with hard items still deferred for future implementation, not a certification: Lawful Interception coverage (per-NF POIs and real packet capture) and the mandatory SNOW 3G NAS algorithms are the blocking ones.** Last cross-checked against `docs/SECURITY_COMPLIANCE.md` and the code on 2026-10-08; the 33.501, 33.210, 33.117 and 33.535 rows were updated on 2026-10-23 from ADR-0476–0478 and ADR-0491–0497.
 
 | TS | Subject | Applies here | Status |
 |---|---|---|---|
@@ -337,15 +340,15 @@ clause citations and code evidence: [`docs/SECURITY_COMPLIANCE.md`](docs/SECURIT
 | 33.246 / 33.511 / 33.256 / 33.536 | MBMS, gNB SCAS, UAS, V2X | Out of scope | — |
 | 33.258 | *(requested)* | **Not a published 3GPP TS** — the archive has 33.250/256/259 only | — |
 
-<h2 align="center">Capability-completeness gap-closure</h2>
+<h2 align="center">Capability-completeness closure of deferred items</h2>
 
-Alongside the phase plan, an ongoing effort closes real gaps found by comparing this project
+Alongside the phase plan, an ongoing effort closes real deferred items found by comparing this project
 against free5GC's and open5GS's own actual source (not just their docs) — every change is real,
 live-verified, and tracked as its own ADR rather than just unit-tested. NRF, AMF, SMF, AUSF, PCF,
-UDM, CHF, and UPF have each closed multiple real procedure/resource gaps this way (N2 handover,
+UDM, CHF, and UPF have each closed multiple real procedure/resource items deferred for future implementation this way (N2 handover,
 5G ProSe authentication, TS 32.298 CDR encoding, the full PFCP Association lifecycle, and more).
 
-Full section (moved verbatim, links adjusted for the new location): [`docs/CAPABILITY_GAP_ANALYSIS.md`](docs/CAPABILITY_GAP_ANALYSIS.md#capability-completeness-gap-closure-moved-from-readmemd).
+Full section (moved verbatim, links adjusted for the new location): [`docs/CAPABILITY_GAP_ANALYSIS.md`](docs/CAPABILITY_GAP_ANALYSIS.md#capability-completeness-deferred-item-closure-moved-from-readmemd).
 
 <h2 align="center">Repository layout</h2>
 
@@ -427,15 +430,41 @@ Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`.
 | [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) | Procedure → TS clause → code → test |
 | [`docs/CHARGING_MAPPING.md`](docs/CHARGING_MAPPING.md) | 3GPP charging fields → TM Forum SID → TMF API |
 | [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md) | 3GPP 33-series assessment |
+| [`docs/R19_COMPLETENESS.md`](docs/R19_COMPLETENESS.md) | Every REL-19 OpenAPI file not used by code yet, with its owning ADR (generated, ADR-0539) |
 | [`specs/README.md`](specs/README.md) | Vendored spec inputs, and how to fetch the documents the code cites |
 | [`CHANGELOG.md`](CHANGELOG.md) | Releases and notable changes |
 
-<h2 align="center">3GPP specification gaps</h2>
+<h2 align="center">R19 completeness: V2X, UAS, Ambient IoT and enablers (in pipeline)</h2>
+
+<a id="r19-completeness"></a>
+Of the 472 REL-19 OpenAPI files in `specs/5G_APIs-REL-19/`, **305 are not used by any code yet**.
+[`docs/R19_COMPLETENESS.md`](docs/R19_COMPLETENESS.md) lists every one with its owning ADR. It is
+generated by `scripts/docs/gen_r19_deferred_register.py`, which fails on any REL-19 spec family that has
+no owner, so nothing from R19 drops out unnoticed. Everything below is a **placeholder: 🕒 Already in
+Pipeline, no code yet.** Each track is built one subsystem at a time, and its procedure list is
+approved before any code is written.
+
+| Track | What is missing | Stage-3 YAML | Files | ADR | Status |
+|---|---|---|---|---|---|
+| V2X / A2X in the core | PCF V2X/A2X policy, AMF V2X/A2X context, NRF capability fields, CHF charging data (UDM/UDR data is in) | TS 29.525, TS 29.518, TS 29.510, TS 32.291 | partial areas | [ADR-0540](docs/decisions/ADR-0540-v2x-and-a2x-in-the-core-nfs-pcf-policy-amf-context-nrf.md) | 🕒 Already in Pipeline (first) |
+| UAS (drones) | USS `Naf_Authentication`, the UAE server (C2 operation mode, USS change, DAA, flight path and route, no-transmit zones, real-time UAV status, UAV dynamic info), AMF/UDM UAV fields (the NEF's UUAA and flight assistance are in) | TS 29.255, TS 29.257 | 9 | [ADR-0541](docs/decisions/ADR-0541-uas-drones-naf-authentication-ts-29-255-and-the-uae-server.md) | 🕒 Already in Pipeline |
+| V2X application enabler (VAE) | 12 VAE services, from application requirement and V2V config to HD map dynamic info and VRU zone management | TS 29.486 | 12 | [ADR-0542](docs/decisions/ADR-0542-v2x-application-enabler-server-vae-ts-29-486.md) | 🕒 Already in Pipeline |
+| Ambient IoT | AIOTF (`Naiotf_AIoT`), `Nadm_Sec`, AIoT fields in NRF/NSSF/CHF (the AMF, NEF and UDR AIoT parts are in) | TS 29.569, TS 29.369 | 2 + partial areas | [ADR-0543](docs/decisions/ADR-0543-ambient-iot-completion-aiotf-ts-29-569-nadm-sec-ts-29-369.md) | 🕒 Already in Pipeline |
+| Edge computing and application enablers | CAPIF, EES/ECS, NSCE, spatial maps, AIMLE, LMS, ADAE, SEAL, SEALDD, VFL | TS 29.222, TS 29.558, TS 24.558, TS 29.435, TS 29.437, TS 29.482, TS 29.549, TS 29.548, TS 29.530, … | 140 | [ADR-0544](docs/decisions/ADR-0544-edge-computing-and-application-enablers-ees-ecs-nsce-sm-san.md) | 🕒 Already in Pipeline |
+| IMS, HSS, GBA and messaging | HSS, GBA BSF, SMS router, IWK-MSC, MMTel/data channel, IMS AS, MF, MSGin5G | TS 29.562, TS 29.563, TS 29.309, TS 29.577, TS 29.579, TS 29.392, TS 29.175, TS 29.176, TS 29.538 | 30 | [ADR-0545](docs/decisions/ADR-0545-ims-hss-gba-and-messaging-ts-29-562-29-563-29-309-29-577-29.md) | 🕒 Already in Pipeline |
+| ProSe, 5MBS, PIN and remaining 5GC services | 5G DDNMF, ProSe AF, PKMF, PAnF, SLPKMF, SoR AF, MNPF, PIN, MB-SMF, MBSF, MBSTF, EASDF, UCMF, NSSAAF, TSCTSF (rest), EIF | TS 29.555, 29.557, 29.559, 29.553, 29.586, 29.550, 29.578, 29.583, 29.532, 29.580, 29.581, 29.556, 29.673, 29.675, 29.526, 29.565, 29.566 | 28 | [ADR-0546](docs/decisions/ADR-0546-prose-5mbs-pin-and-remaining-5gc-services-ts-29-5xx-29-67x.md) | 🕒 Already in Pipeline |
+| OAM and media | Management services (provisioning, NRM, PM, fault, intent, energy, MDA, AI/ML NRM) and 5G media streaming / data collection | TS 28.xxx, TS 26.xxx | 84 | [ADR-0547](docs/decisions/ADR-0547-oam-ts-28-xxx-and-media-ts-26-xxx-rel-19-apis.md) | 🕒 Already in Pipeline |
+
+Order of work: V2X/A2X in the PCF, then the AMF, NRF and CHF; then TS 29.255, TS 29.257 and
+TS 29.486; then Ambient IoT; then the other tracks. Where stage-3 YAML is missing for an R19 item,
+the work follows stage 2 and the item is recorded as deferred for future implementation in the 3GPP specification section below.
+
+<h2 align="center">3GPP specification open points and deferred items</h2>
 
 Places where the specifications leave a choice open or do not say what an implementation must do.
 Each entry records what this project does instead and the ADR with the reasoning.
 
-| Gap | Specs read | What this project does | ADR |
+| Open point or deferred item | Specs read | What this project does | ADR |
 |---|---|---|---|
 | No mapping from a PCF SM Policy Association release cause (TS 29.512 `SmPolicyAssociationReleaseCause`) to the 5GSM cause of the PDU SESSION RELEASE COMMAND the SMF sends (TS 24.501 6.3.3.2) | TS 23.502 4.3.4.2, 4.16.6; TS 29.512 4.2.3.3, 5.6.3.23; TS 24.501 6.3.3.2 | `INSUFFICIENT_RES` -> #26 "insufficient resources"; every other value -> #36 "regular deactivation" | [ADR-0523](docs/decisions/ADR-0523-ue-and-pcf-requested-pdu-session-release-ts-23-502-4-3-4-2.md) |
 | The 5G loss-of-connectivity reasons (6-9) in `MonitoringEventReport.lossOfConnectReason` are conditioned on the "Loss_of_connectivity_notification" feature; values 0-5 are EPC-only | TS 29.522 4.4.2; TS 29.122 5.3.4 | The NEF always reports 6-9 (the only values that apply to 5GC), with or without the feature | [ADR-0527](docs/decisions/ADR-0527-nef-monitoring-notifications-as-ts-29-122.md) |

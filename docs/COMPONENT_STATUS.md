@@ -5,13 +5,13 @@ The complete component list for this project, in scope per `CLAUDE.md` and
 
 - ✅ **Built**: the component's code exists in this repo. It does not mean feature-complete; each
   component's ADRs and `docs/TRACEABILITY.md` record what it covers and what it does not.
-- ⚠️ **Partial**: some of the component exists; the gap is stated.
+- ⚠️ **Partial**: some of the component exists; what is deferred for future implementation is stated.
 - 🕒 **Already in Pipeline**: in scope, no code in the repo yet.
 
 **Keep this file current.** When a component is added or its status changes, update its row and the
 totals in the same commit.
 
-Last updated: 2026-10-24.
+Last updated: 2026-11-01.
 
 ## 5G Core, Tier 1: all 13 built
 
@@ -105,6 +105,41 @@ Last updated: 2026-10-24.
 | 60 | RAN simulator | ✅ Built |
 | 61 | hello-nf (test/demo) | ✅ Built |
 
+## R19 completeness (ADR-0539): all 25 in pipeline
+
+Added 2026-11-01. Every REL-19 OpenAPI file that no code uses yet is listed, with its owning ADR, in
+[`R19_COMPLETENESS.md`](R19_COMPLETENESS.md). The rows below are the components behind those files
+that rows 1–61 do not already cover (EASDF, UCMF, NSSAAF, 5MBS, AIOTF, ProSe keys, IMS data channel,
+MSGin5G, MNPF, PIN, SEAL, SEALDD, ADAES, CAPIF and EIF are rows 20–47).
+
+| # | Component | Status |
+|---|---|---|
+| 62 | V2X / A2X in the PCF, AMF, NRF and CHF (TS 29.525, 29.518, 29.510, 32.291) | 🕒 Already in Pipeline (first; the UDM/UDR V2X/A2X subscription data is in), ADR-0540 |
+| 63 | USS `Naf_Authentication` (UAS, TS 29.255) | 🕒 Already in Pipeline, ADR-0541 |
+| 64 | UAE server (UAS, TS 29.257) | 🕒 Already in Pipeline, ADR-0541 |
+| 65 | UAV fields in the AMF and UDM (UAS) | 🕒 Already in Pipeline (the NEF's UUAA and flight assistance are in), ADR-0541 |
+| 66 | VAE server (V2X application enabler, TS 29.486) | 🕒 Already in Pipeline, ADR-0542 |
+| 67 | `Nadm_Sec` (Ambient IoT, TS 29.369) | 🕒 Already in Pipeline, ADR-0543 |
+| 68 | Ambient IoT fields in the NRF, NSSF and CHF | 🕒 Already in Pipeline (the AMF, NEF and UDR AIoT parts are in), ADR-0543 |
+| 69 | EES / ECS (edge enablement, TS 29.558, TS 24.558) | 🕒 Already in Pipeline, ADR-0544 |
+| 70 | NSCE server (TS 29.435) | 🕒 Already in Pipeline, ADR-0544 |
+| 71 | SM and SAn servers (spatial map and anchors, TS 24.550, TS 29.437) | 🕒 Already in Pipeline, ADR-0544 |
+| 72 | AIMLE server (TS 29.482, TS 24.560) | 🕒 Already in Pipeline, ADR-0544 |
+| 73 | LMS (TS 24.283) | 🕒 Already in Pipeline, ADR-0544 |
+| 74 | ETC configuration (TS 24.549) | 🕒 Already in Pipeline, ADR-0544 |
+| 75 | SS AADRF (TS 29.549) | 🕒 Already in Pipeline, ADR-0544 |
+| 76 | VFL inference `Naf_VFLInference` (TS 29.530) | 🕒 Already in Pipeline, ADR-0544 |
+| 77 | HSS `Nhss` services (TS 29.562, TS 29.563) | 🕒 Already in Pipeline, ADR-0545 |
+| 78 | GBA BSF (TS 29.309) | 🕒 Already in Pipeline, ADR-0545 |
+| 79 | SMS router (TS 29.577) | 🕒 Already in Pipeline, ADR-0545 |
+| 80 | IWK-MSC `Niwmsc` (TS 29.579) | 🕒 Already in Pipeline, ADR-0545 |
+| 81 | MMTel call control (TS 29.392) | 🕒 Already in Pipeline, ADR-0545 |
+| 82 | 5G DDNMF (ProSe, TS 29.555) | 🕒 Already in Pipeline, ADR-0546 |
+| 83 | ProSe AF `Naf_ProSe` (TS 29.557) | 🕒 Already in Pipeline, ADR-0546 |
+| 84 | SoR AF (TS 29.550) | 🕒 Already in Pipeline, ADR-0546 |
+| 85 | OAM management services (TS 28.xxx REL-19 APIs) | 🕒 Already in Pipeline, ADR-0547 |
+| 86 | 5G media streaming and data collection (TS 26.xxx REL-19 APIs) | 🕒 Already in Pipeline, ADR-0547 |
+
 ## Totals
 
 | Group | Built | Already in pipeline |
@@ -112,6 +147,7 @@ Last updated: 2026-10-24.
 | Network functions, Tiers 1–3 | 23 of 47 (+ SEPP, AAnF, TSCTSF partial) | 21 |
 | LI functions | 3 complete, 2 partial | 1 (SIRF) |
 | Charging/BSS and platform | 9 of 9 | 0 |
+| R19 completeness (ADR-0539) | 0 of 25 | 25 |
 
 The SEPP now carries inter-PLMN SBI traffic over N32 with TLS security or PRINS (application-layer
 security). It is partial: the unbuilt N32 items are listed in its row above (REVIEW-5ae0ef1 DOC-01).

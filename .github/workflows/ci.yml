@@ -163,7 +163,7 @@ jobs:
     # created by deploy/db/init-domain-dbs.sh); the per-service product-catalog / balance /
     # subscriber / roaming instances were retired (ADR-0390). UDR and ADRF keep their own by design.
     services:
-      # Real PostgreSQL for tests/integration/test_udr_context_data.cpp (ADR-0068, gap-closure
+      # Real PostgreSQL for tests/integration/test_udr_context_data.cpp (ADR-0068, deferred-item closure
       # Tier 1a) -- this test spawns the real udr binary, which now hard-requires PostgreSQL to
       # start at all (see nfs/udr/src/main.cpp's own database_conninfo() comment).
       postgres-udr:
@@ -350,7 +350,7 @@ jobs:
       - name: Install Ninja
         if: runner.environment == 'github-hosted'
         # bison/flex: needed to build vcpkg's libpq port from source (ADR-0054 added libpqxx,
-        # transitively libpq) -- real gap hit locally first (this sandbox had neither and no sudo
+        # transitively libpq) -- real missing dependency hit locally first (this sandbox had neither and no sudo
         # password to self-install), fixed here so CI doesn't hit the same wall.
         # postgresql-client: psql, used below to apply schema.sql to the postgres service before
         # running ctest.
@@ -586,7 +586,7 @@ jobs:
         sanitizer: [asan-ubsan, tsan]
     # See the build job's identical services block comment (ADR-0054/P4.7).
     services:
-      # Real PostgreSQL for tests/integration/test_udr_context_data.cpp (ADR-0068, gap-closure
+      # Real PostgreSQL for tests/integration/test_udr_context_data.cpp (ADR-0068, deferred-item closure
       # Tier 1a) -- this test spawns the real udr binary, which now hard-requires PostgreSQL to
       # start at all (see nfs/udr/src/main.cpp's own database_conninfo() comment).
       postgres-udr:
@@ -764,7 +764,7 @@ jobs:
       - name: Install Ninja
         if: runner.environment == 'github-hosted'
         # bison/flex: needed to build vcpkg's libpq port from source (ADR-0054 added libpqxx,
-        # transitively libpq) -- real gap hit locally first (this sandbox had neither and no sudo
+        # transitively libpq) -- real missing dependency hit locally first (this sandbox had neither and no sudo
         # password to self-install), fixed here so CI doesn't hit the same wall.
         # postgresql-client: psql, used below to apply schema.sql to the postgres service before
         # running ctest. mariadb-client: the real `mysql` CLI, used below to apply

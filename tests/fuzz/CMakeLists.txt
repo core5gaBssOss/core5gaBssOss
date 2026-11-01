@@ -1,6 +1,6 @@
 # libFuzzer harnesses for this project's codec decode paths -- CLAUDE.md's own mandated tech stack
 # names "libFuzzer for codec fuzzing" explicitly; ADR-0059 (P4.5 Stage 3) flagged that zero such
-# targets existed anywhere in this repo as a real, disclosed gap. This directory closes that gap
+# targets existed anywhere in this repo as a real, disclosed deferred item. This directory closes that deferred item
 # for the decoders that parse genuinely untrusted, off-the-wire bytes: Diameter (Gy/Rf/Sy),
 # TCAP (Q.773 message/component/dialogue-portion), MAP, CAP, and the M3UA/SCCP transport codecs
 # underneath them (PFCP already has its own header-only fuzz-worthy surface, deferred -- not part
@@ -38,7 +38,7 @@ add_fuzz_target(fuzz_ss7_transport SOURCES fuzz_ss7_transport.cpp LIBS ss7_core)
 # ADR-0364: X2/X3 PDU framing + BER XIRIPayload -- what the MDF2 will parse off the wire.
 add_fuzz_target(fuzz_li_x2x3 SOURCES fuzz_li_x2x3.cpp LIBS li_core)
 
-# Not yet fuzzed, real disclosed gap: libs/pfcp-core (N4/Sx, Phase 3) and libs/ngap-generated
+# Not yet fuzzed, real disclosed deferred item: libs/pfcp-core (N4/Sx, Phase 3) and libs/ngap-generated
 # (asn1c-generated Aligned PER, Phase "AMF/NGAP") both also decode untrusted wire bytes but are
 # out of this pass's scope -- this pass targets exactly P4.5's own protocol-translator stack
 # (Diameter/TCAP/MAP/CAP/M3UA/SCCP), not a repo-wide fuzzing sweep.

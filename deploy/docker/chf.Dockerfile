@@ -2,7 +2,7 @@
 # Multi-stage build for nfs/chf. Mirrors deploy/docker/product-catalog.Dockerfile -- see
 # amf.Dockerfile's header comment for why this image does NOT generate its own lab PKI at start
 # (must share the same root CA as every other NF; see deploy/docker/docker-compose.yml's pki-init
-# service). Real, disclosed gap this Dockerfile fixes: CHF has been buildable (`ninja chf`) and
+# service). Real, disclosed deferred item this Dockerfile fixes: CHF has been buildable (`ninja chf`) and
 # live-verified manually since P4.3, but had no Dockerfile/compose entry until P4.5/ADR-0061's
 # docker-compose.yml fix -- the lab could not actually bring CHF up before this.
 

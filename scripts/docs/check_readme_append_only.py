@@ -7,7 +7,9 @@ usage: check_readme_append_only.py BASE [HEAD]
   for the staged version. HEAD defaults to README.md in the working tree.
 
 Fails when, from BASE to HEAD:
-  - a section heading (<h2>...</h2> or a Markdown heading) disappears,
+  - a section heading (<h2>...</h2> or a Markdown heading) disappears, unless the rename is listed
+    with the user's approval in docs/project-context/readme-approved-heading-renames.txt and the
+    new heading is present,
   - the number of non-blank lines goes down, or
   - the number of words goes down.
 Updating a line in place (a status that moves on, a corrected row) passes as long as nothing is cut.
@@ -16,6 +18,7 @@ import re
 import subprocess
 import sys
 
+RENAMES = "docs/project-context/readme-approved-heading-renames.txt"
 HEADING = re.compile(r"^\s*(?:<h[1-6][^>]*>(.*?)</h[1-6]>|#{1,6}\s+(.*?))\s*$")
 
 
@@ -35,13 +38,34 @@ def headings(text):
     return out
 
 
+def approved_renames():
+    out = {}
+    try:
+        lines = open(RENAMES).read().split("\n")
+    except FileNotFoundError:
+        return out
+    for line in lines:
+        if line.strip() and not line.startswith("#"):
+            old, rest = line.split(" => ", 1)
+            new, _date, approval = (x.strip() for x in rest.split(" | ", 2))
+            if not approval:
+                sys.exit(f"{RENAMES}: rename of {old!r} carries no quoted user approval")
+            out[old.strip()] = new
+    return out
+
+
 def main():
     if len(sys.argv) not in (2, 3):
         sys.exit(__doc__)
     base = git_show(sys.argv[1])
     head = git_show(sys.argv[2]) if len(sys.argv) == 3 else open("README.md").read()
     errs = []
-    gone = [h for h in headings(base) if h not in headings(head)]
+    head_h = headings(head)
+    renames = approved_renames()
+    gone = [h for h in headings(base) if h not in head_h and renames.get(h) not in head_h]
+    for h in headings(base):
+        if h not in head_h and renames.get(h) in head_h:
+            print(f"approved rename ({RENAMES}): {h!r} -> {renames[h]!r}")
     if gone:
         errs.append(f"section headings removed: {gone}")
     b_lines = [l for l in base.split("\n") if l.strip()]

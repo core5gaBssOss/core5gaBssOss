@@ -30,7 +30,7 @@ assessed* was not checked and should not be read as either.
 
 ### F1. Lawful Interception -- STALE as "entirely absent", corrected 2026-10-02 (docs-audit pass)
 
-**This finding is no longer accurate as originally written and the gap is now narrower, not
+**This finding is no longer accurate as originally written and the deferred scope is now narrower, not
 closed.** This document's "entirely absent" framing was true on 2026-09-13; a real LI programme
 has since landed (ADR-0364 through at least ADR-0440, `docs/DECISIONS.md`): `libs/li-core`,
 `libs/li-generated`, a real LI_X1 provisioning interface (libxml2 + runtime XSD), a real LI_X2/X3
@@ -52,7 +52,7 @@ deployment and no real user-plane content is intercepted.
 
 **Accurate status, replacing "entirely absent": partially built (X1/X2/X3/HI1/HI2/HI3 transport, ADMF, MDF2, MDF3,
 AMF and SMF IRI-POIs, a test-proven but not datapath-wired UPF CC-POI), not "no LI exists" and not "LI is done" -- the real
-remaining gap is per-NF POI coverage, CHF's most of all, plus real capture in the UPF.** This is still a production
+remaining deferred item is per-NF POI coverage, CHF's most of all, plus real capture in the UPF.** This is still a production
 blocker (same TS 33.126 §4 / commercialization-mandate reasoning the original F1 gave), just not for the reason
 originally stated.
 
@@ -149,7 +149,7 @@ offers only TLS 1.2 cannot connect. This is the one finding where the non-confor
 *"TLS clients shall include the SNI extension."* All 53 base URLs in `config/*.json` are
 `https://127.0.0.1:<port>`. SNI cannot carry an IP literal, so no lab client ever sends it. The
 client code would send SNI for a hostname; the lab never exercises that path. A lab-configuration
-gap, but one CI inherits, so nothing proves SNI works.
+item deferred for future implementation, but one CI inherits, so nothing proves SNI works.
 
 ### F7. SBA certificate profile not verified -- TS 33.501 §13.1.0 -> TS 33.310 §6.1.3c
 
