@@ -140,6 +140,30 @@ MSGin5G, MNPF, PIN, SEAL, SEALDD, ADAES, CAPIF and EIF are rows 20–47).
 | 85 | OAM management services (TS 28.xxx REL-19 APIs) | 🕒 Already in Pipeline, ADR-0547 |
 | 86 | 5G media streaming and data collection (TS 26.xxx REL-19 APIs) | 🕒 Already in Pipeline, ADR-0547 |
 
+Added 2026-11-01 from the mmt-studio-5g6g functionality survey (ADR-0550). Each row is a 3GPP
+feature the core does not implement yet; partial ones name what is already in on ADR-0550's table.
+
+| # | Component | Status |
+|---|---|---|
+| 87 | Non-3GPP access: N3IWF, TNGF, TWIF, W-AGF (TS 23.501 §4.2.8) | 🕒 Already in Pipeline, ADR-0550 |
+| 88 | EPC interworking with and without N26 (TS 23.501 §4.3) | 🕒 Already in Pipeline, ADR-0550 |
+| 89 | ATSSS multi-access PDU sessions (TS 23.501 §5.32) | 🕒 Already in Pipeline, ADR-0550 |
+| 90 | Public Warning System, AMF to CBCF (TS 23.501 §5.16.1) | 🕒 Already in Pipeline, ADR-0550 |
+| 91 | Disaster roaming / MINT (TS 23.501 §5.40) | 🕒 Already in Pipeline, ADR-0550 |
+| 92 | SNPN and AMF CAG enforcement (TS 23.501 §5.30) | 🕒 Already in Pipeline, ADR-0550 |
+| 93 | Network sharing (TS 23.501 §5.18) | 🕒 Already in Pipeline, ADR-0550 |
+| 94 | NR satellite access and satellite backhaul (TS 23.501 §5.4.10, §5.43) | 🕒 Already in Pipeline, ADR-0550 |
+| 95 | RedCap UEs (TS 23.501 §5.41) | 🕒 Already in Pipeline, ADR-0550 |
+| 96 | CIoT optimisations beyond NIDD (TS 23.501 §5.31) | 🕒 Already in Pipeline, ADR-0550 |
+| 97 | AMF RACS handling (TS 23.501 §5.4.4) | 🕒 Already in Pipeline, ADR-0550 |
+| 98 | Multi-USIM (TS 23.501 §5.38) | 🕒 Already in Pipeline, ADR-0550 |
+| 99 | TSN AF, 5G as a TSN bridge (TS 23.501 §5.27, §5.28) | 🕒 Already in Pipeline, ADR-0550 |
+| 100 | 5G LAN-type service forwarding in SMF/UPF (TS 23.501 §5.29) | 🕒 Already in Pipeline, ADR-0550 |
+| 101 | Emergency services and MPS (TS 23.501 §5.16.4, §5.16.5) | 🕒 Already in Pipeline, ADR-0550 |
+| 102 | Mission critical services over 5GS (TS 23.501 §5.16.6; TS 23.289) | 🕒 Already in Pipeline, ADR-0550 |
+| 103 | URLLC redundant transmission (TS 23.501 §5.33) | 🕒 Already in Pipeline, ADR-0550 |
+| 104 | AMF/SMF support for IAB, NCR, MWAB and femto nodes (TS 23.501 §5.35, §5.47, §5.49, §5.50) | 🕒 Already in Pipeline, ADR-0550 |
+
 ## Totals
 
 | Group | Built | Already in pipeline |
@@ -148,6 +172,7 @@ MSGin5G, MNPF, PIN, SEAL, SEALDD, ADAES, CAPIF and EIF are rows 20–47).
 | LI functions | 3 complete, 2 partial | 1 (SIRF) |
 | Charging/BSS and platform | 9 of 9 | 0 |
 | R19 completeness (ADR-0539) | 0 of 25 | 25 |
+| mmt-studio-5g6g survey (ADR-0550) | 0 of 18 | 18 |
 
 The SEPP now carries inter-PLMN SBI traffic over N32 with TLS security or PRINS (application-layer
 security). It is partial: the unbuilt N32 items are listed in its row above (REVIEW-5ae0ef1 DOC-01).
