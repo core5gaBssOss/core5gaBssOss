@@ -33,5 +33,9 @@
       "pqi": 55
     }
   ],
-  "pc5_link_aggregate_bit_rate_bps": 10000000
+  "pc5_link_aggregate_bit_rate_bps": 10000000,
+  "ue_policy_plmn": {
+    "mcc": "999",
+    "mnc": "70"
+  }
 }

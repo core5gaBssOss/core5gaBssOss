@@ -513,7 +513,8 @@
   "ADR-0548-readme-append-only-check-accepts-user-approved-heading.md",
   "ADR-0549-aanf-supi-path-encoding-and-atomic-akma-context-replace-sec.md",
   "ADR-0550-functionality-survey-against-mmt-studio-5g6g-items-deferred.md",
-  "ADR-0551-pcf-v2x-a2x-ue-policy-provisioning-p1-p7.md"
+  "ADR-0551-pcf-v2x-a2x-ue-policy-provisioning-p1-p7.md",
+  "ADR-0555-pcf-v2xp-a2xp-ue-policy-delivery-over-n1-adr-0551-increment.md"
  ],
  "split_commit": "0530e4f"
 }

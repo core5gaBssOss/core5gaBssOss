@@ -127,6 +127,7 @@
 #include "sbi_core/jwt.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
+#include "sbi_core/multipart.hpp"
 #include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
@@ -143,6 +144,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 
@@ -151,6 +153,7 @@
 #include "TS29537_Npcf_MBSPolicyControl.hpp"
 #include "bounded_worker.hpp"
 #include "stores.hpp"
+#include "ue_policy_delivery.hpp"
 #include "v2x.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
@@ -569,6 +572,13 @@ int main() {
     const std::string amf_base_url = config.value("amf_base_url", std::string{});
     const std::string udm_base_url = config.value("udm_base_url", std::string{});
     auto pc5_config = pcf::v2x::parse_pc5_config(config);
+    // ADR-0555 (P4): the PLMN the V2XP / A2XP section is sent for when the association request
+    // carries no servingPlmn (TS 29.525: optional). Absent and no servingPlmn = no N1 delivery.
+    std::optional<pcf::updp::Plmn> ue_policy_plmn;
+    if (const auto it = config.find("ue_policy_plmn"); it != config.end() && it->is_object()) {
+        ue_policy_plmn =
+            pcf::updp::Plmn{it->value("mcc", std::string{}), it->value("mnc", std::string{})};
+    }
 
     sbi_core::init_logging("pcf");
     sbi_core::init_tracing("pcf");
@@ -681,25 +691,59 @@ int main() {
     if (!v2x_enabled) {
         spdlog::info("pcf: udm_base_url or amf_base_url not set; V2X/A2X provisioning is off");
     }
+    // ADR-0555 (P3, P4): V2XP / A2XP UE policy delivery over N1 -- the UDR service parameters,
+    // the UDR change subscription and the AMF N1MessageNotify (UPDP) subscription per association.
+    pcf::updp::DeliveryStore updp_store;
+    pcf::updp::DeliveryDeps updp_deps{
+        .udr_client = udr_client,
+        .udr_oauth = udr_oauth,
+        .amf_client = v2x_amf_client,
+        .amf_oauth = v2x_amf_oauth,
+        .udr_base_url = udr_base_url,
+        .amf_base_url = amf_base_url,
+        .self_base_url = self_base_url,
+        .nf_instance_id = pcf_instance_id,
+    };
     pcf::BoundedWorker v2x_worker(1024);
-    // Queue the P5 provisioning for one UE; v2x / a2x say which of the two to determine.
-    const auto schedule_v2x =
-        [&](const std::string& supi, const std::string& supp_feat, bool v2x, bool a2x) {
-            if (!v2x_enabled || (!v2x && !a2x)) {
-                return;
-            }
-            const bool queued = v2x_worker.try_post([&v2x_deps, supi, supp_feat, v2x, a2x] {
+    // Queue the P5 provisioning for one UE; v2x / a2x say which of the two to determine. When the
+    // UDM authorizes it, P3 + P4 follow for the association: subscribe once, then deliver.
+    const auto schedule_v2x = [&](const std::string& pol_asso_id,
+                                  const std::string& supi,
+                                  const std::string& supp_feat,
+                                  bool v2x,
+                                  bool a2x) {
+        if (!v2x_enabled || (!v2x && !a2x)) {
+            return;
+        }
+        const bool queued = v2x_worker.try_post(
+            [&v2x_deps, &updp_deps, &updp_store, pol_asso_id, supi, supp_feat, v2x, a2x] {
+                using pcf::v2x::ProvisionResult;
+                bool v2x_ok = false;
+                bool a2x_ok = false;
                 if (v2x) {
-                    pcf::v2x::provision_v2x(v2x_deps, supi, supp_feat);
+                    const auto r = pcf::v2x::provision_v2x(v2x_deps, supi, supp_feat);
+                    v2x_ok = r == ProvisionResult::kSent || r == ProvisionResult::kNothingToSend;
                 }
                 if (a2x) {
-                    pcf::v2x::check_a2x(v2x_deps, supi);
+                    const auto r = pcf::v2x::check_a2x(v2x_deps, supi);
+                    a2x_ok = r == ProvisionResult::kSent || r == ProvisionResult::kNothingToSend;
                 }
+                auto a = updp_store.get(pol_asso_id);
+                if (!a.has_value() || (!v2x_ok && !a2x_ok)) {
+                    return; // association gone, or neither authorized (fail closed)
+                }
+                a->v2x = v2x_ok;
+                a->a2x = a2x_ok;
+                updp_store.put(pol_asso_id, *a);
+                if (a->udr_subscription.empty() || a->amf_subscription.empty()) {
+                    pcf::updp::subscribe(updp_deps, updp_store, pol_asso_id);
+                }
+                pcf::updp::deliver(updp_deps, updp_store, pol_asso_id);
             });
-            if (!queued) {
-                spdlog::warn("pcf: V2X provisioning queue full; UE {} not provisioned", supi);
-            }
-        };
+        if (!queued) {
+            spdlog::warn("pcf: V2X provisioning queue full; UE {} not provisioned", supi);
+        }
+    };
     std::mutex bindings_mutex;
     std::map<std::string, std::string> binding_by_sm_policy; // smPolicyId -> BSF bindingId
     const auto register_binding = [&](const std::string& sm_policy_id,
@@ -1447,7 +1491,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUePolicyApiRoot) + "/policies",
-        [&ue_policies, &ue_policy_create_counter, &schedule_v2x](
+        [&ue_policies, &ue_policy_create_counter, &schedule_v2x, &updp_store, &ue_policy_plmn](
             const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
@@ -1466,7 +1510,16 @@ int main() {
             ue_policy_create_counter->Add(1);
             // ADR-0551 P1: a UE that reports PC5 / A2X capability on a V2X / A2X association gets
             // its eligibility checked at the UDM, then (P5) the N2 PC5 policy.
-            schedule_v2x(body->supi,
+            // ADR-0555: the PLMN the V2XP / A2XP section is for -- the serving PLMN, else config.
+            std::optional<pcf::updp::Plmn> plmn = ue_policy_plmn;
+            if (body->servingPlmn.has_value()) {
+                plmn = pcf::updp::Plmn{body->servingPlmn->mcc, body->servingPlmn->mnc};
+            }
+            if (plmn.has_value()) {
+                updp_store.put(id, pcf::updp::Association{.supi = body->supi, .plmn = *plmn});
+            }
+            schedule_v2x(id,
+                         body->supi,
                          association.suppFeat,
                          pcf::v2x::has_feature(association.suppFeat, pcf::v2x::kFeatureV2x) &&
                              body->pc5Capab.has_value(),
@@ -1497,11 +1550,21 @@ int main() {
     server.add_route(
         "DELETE",
         std::string(kUePolicyApiRoot) + "/policies/{polAssoId}",
-        [&ue_policies, &ue_policy_delete_counter](const sbi_core::http2::Request& req) {
+        [&ue_policies, &ue_policy_delete_counter, &updp_store, &updp_deps, &v2x_worker](
+            const sbi_core::http2::Request& req) {
             const auto pol_asso_id = req.path_params.at("polAssoId");
             if (!ue_policies.remove(pol_asso_id)) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No UE policy association " + pol_asso_id, std::nullopt);
+            }
+            // ADR-0555: drop the UDR and AMF subscriptions of the association, off-thread.
+            if (auto a = updp_store.take(pol_asso_id);
+                a.has_value() && (!a->udr_subscription.empty() || !a->amf_subscription.empty())) {
+                if (!v2x_worker.try_post(
+                        [&updp_deps, a = *a] { pcf::updp::unsubscribe(updp_deps, a); })) {
+                    spdlog::warn("pcf: V2X queue full; subscriptions of {} not deleted",
+                                 pol_asso_id);
+                }
             }
             ue_policy_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1565,7 +1628,11 @@ int main() {
             }
             ue_policies.put(pol_asso_id, json(association));
             if (association.request.has_value()) {
-                schedule_v2x(association.request->supi, association.suppFeat, v2x_again, a2x_again);
+                schedule_v2x(pol_asso_id,
+                             association.request->supi,
+                             association.suppFeat,
+                             v2x_again,
+                             a2x_again);
             }
 
             // Disclosed simplification (ADR-0204): no real UE Route Selection Policy (URSP) or
@@ -1581,6 +1648,107 @@ int main() {
             json j = update;
             return sbi_core::http2::Response::json(200, j.dump());
         });
+
+    // ADR-0555 (P3): UDR application data change notification (TS 29.519
+    // ApplicationDataChangeNotif array). A change of a UE's service parameters re-delivers the
+    // V2XP / A2XP policy on each of its associations that already passed the UDM check.
+    server.add_route(
+        "POST",
+        pcf::updp::udr_notify_path(),
+        [&updp_store, &updp_deps, &v2x_worker](const sbi_core::http2::Request& req) {
+            json body;
+            try {
+                body = json::parse(req.body);
+            } catch (const json::exception& e) {
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+            }
+            if (!body.is_array()) {
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Malformed notification",
+                    "ApplicationDataChangeNotif array expected",
+                    "INVALID_MSG_FORMAT");
+            }
+            std::set<std::string> ids;
+            for (const auto& notif : body) {
+                const auto sp = notif.find("serParamData");
+                if (sp == notif.end() || !sp->is_object()) {
+                    continue;
+                }
+                const auto supi = sp->value("supi", std::string{});
+                for (const auto& id : updp_store.by_supi(supi)) {
+                    if (auto a = updp_store.get(id); a.has_value() && (a->v2x || a->a2x)) {
+                        ids.insert(id);
+                    }
+                }
+            }
+            for (const auto& id : ids) {
+                if (!v2x_worker.try_post([&updp_deps, &updp_store, id] {
+                        pcf::updp::deliver(updp_deps, updp_store, id);
+                    })) {
+                    spdlog::warn("pcf: V2X queue full; association {} not re-delivered", id);
+                }
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
+
+    // ADR-0555 (P4): AMF N1MessageNotify for N1 message class UPDP (TS 29.518): the UE's MANAGE
+    // UE POLICY COMPLETE or COMMAND REJECT (TS 24.501 D.5.2, D.5.3) for the association's PTI.
+    server.add_route(
+        "POST",
+        std::string(pcf::updp::kNotifyRoot) + "/n1-msg/{polAssoId}",
+        [&updp_store](const sbi_core::http2::Request& req) {
+            const auto pol_asso_id = req.path_params.at("polAssoId");
+            const auto ct = req.headers.find("content-type");
+            if (ct == req.headers.end() || !sbi_core::multipart::is_multipart_related(ct->second)) {
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Malformed notification",
+                    "multipart/related N1MessageNotification expected",
+                    "INVALID_MSG_FORMAT");
+            }
+            const auto parts = sbi_core::multipart::parse(ct->second, req.body);
+            if (!parts.has_value()) {
+                return sbi_core::http2::problem_response(
+                    400, "Malformed notification", parts.error(), "INVALID_MSG_FORMAT");
+            }
+            const auto nas = std::find_if(parts->begin(), parts->end(), [](const auto& p) {
+                return p.content_type == "application/vnd.3gpp.5gnas";
+            });
+            if (nas == parts->end()) {
+                return sbi_core::http2::problem_response(
+                    400, "Malformed notification", "no 5GS NAS part", "INVALID_MSG_FORMAT");
+            }
+            const auto msg = pcf::updp::parse_ue_policy_message(
+                pcf::updp::Bytes(nas->body.begin(), nas->body.end()));
+            if (!msg.has_value()) {
+                return sbi_core::http2::problem_response(
+                    400, "Malformed notification", msg.error(), "INVALID_MSG_FORMAT");
+            }
+            if (!updp_store.answer(pol_asso_id, *msg)) {
+                spdlog::warn(
+                    "pcf: UE policy answer type {} PTI {} for {} matches no pending command",
+                    msg->type,
+                    msg->pti,
+                    pol_asso_id);
+            } else if (msg->type == pcf::updp::kManageUePolicyComplete) {
+                spdlog::info("pcf: UE accepted the V2XP/A2XP policy of {}", pol_asso_id);
+            } else {
+                spdlog::warn("pcf: UE rejected the V2XP/A2XP policy of {} (message type {})",
+                             pol_asso_id,
+                             msg->type);
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
 
     // --- Npcf_EventExposure (ADR-0204, gap-closure task #163) ---
 
