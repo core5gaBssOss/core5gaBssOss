@@ -1,4 +1,4 @@
-add_executable(pcf src/main.cpp src/stores.cpp src/v2x.cpp)
+add_executable(pcf src/main.cpp src/stores.cpp src/v2x.cpp src/ue_policy_delivery.cpp)
 target_link_libraries(pcf PRIVATE sbi_core sbi_generated ngap_core ngap_generated nf_config)
 # See nfs/hello-nf/CMakeLists.txt for why this is a compile-time absolute path.
 # CONFIG_DIR: docs/DECISIONS.md ADR-0077 -- separate checked-in config/pcf.json.

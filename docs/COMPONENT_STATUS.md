@@ -114,7 +114,7 @@ MSGin5G, MNPF, PIN, SEAL, SEALDD, ADAES, CAPIF and EIF are rows 20–47).
 
 | # | Component | Status |
 |---|---|---|
-| 62 | V2X / A2X in the PCF, AMF, NRF and CHF (TS 29.525, 29.518, 29.510, 32.291) | 🕒 Already in Pipeline (first; the UDM/UDR V2X/A2X subscription data is in), ADR-0540; in progress: PCF increment 1 of 3 (V2X/A2X eligibility, N2 PC5 policy via N1N2MessageTransfer, PLMN change re-provisioning; the A2X N2 policy is deferred for future implementation), ADR-0551 |
+| 62 | V2X / A2X in the PCF, AMF, NRF and CHF (TS 29.525, 29.518, 29.510, 32.291) | 🕒 Already in Pipeline (first; the UDM/UDR V2X/A2X subscription data is in), ADR-0540; in progress: PCF increment 1 of 3 (V2X/A2X eligibility, N2 PC5 policy via N1N2MessageTransfer, PLMN change re-provisioning; the A2X N2 policy is deferred for future implementation), ADR-0551; increment 2 of 3 (UDR serviceParamData read and change subscription, V2XP/A2XP in MANAGE UE POLICY COMMAND over N1 UPDP, COMPLETE/REJECT via N1MessageNotify), ADR-0555 |
 | 63 | USS `Naf_Authentication` (UAS, TS 29.255) | 🕒 Already in Pipeline, ADR-0541 |
 | 64 | UAE server (UAS, TS 29.257) | 🕒 Already in Pipeline, ADR-0541 |
 | 65 | UAV fields in the AMF and UDM (UAS) | 🕒 Already in Pipeline (the NEF's UUAA and flight assistance are in), ADR-0541 |
