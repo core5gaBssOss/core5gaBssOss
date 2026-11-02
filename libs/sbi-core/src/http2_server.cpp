@@ -80,7 +80,8 @@ std::vector<std::string> split_path(const std::string& path) {
 // query strings even though RFC 3986 itself doesn't require it). A malformed "%" escape (not
 // followed by two real hex digits) is passed through literally rather than throwing -- a
 // malformed query string should degrade to an unmatched/odd value, not crash request parsing.
-std::string percent_decode(const std::string& value) {
+// plus_is_space=false is the path-segment form: RFC 3986 gives '+' no special meaning there.
+std::string percent_decode(const std::string& value, bool plus_is_space = true) {
     std::string out;
     out.reserve(value.size());
     for (std::size_t i = 0; i < value.size(); ++i) {
@@ -90,7 +91,7 @@ std::string percent_decode(const std::string& value) {
             const std::string hex = value.substr(i + 1, 2);
             out += static_cast<char>(std::stoi(hex, nullptr, 16));
             i += 2;
-        } else if (value[i] == '+') {
+        } else if (plus_is_space && value[i] == '+') {
             out += ' ';
         } else {
             out += value[i];
@@ -159,7 +160,9 @@ bool try_match(const Route& route,
     for (std::size_t i = 0; i < fixed; ++i) {
         const auto& pat = route.pattern_segments[i];
         if (pat.size() >= 2 && pat.front() == '{' && pat.back() == '}') {
-            params.emplace(pat.substr(1, pat.size() - 2), path_segments[i]);
+            // Decoded only after the split on '/' (RFC 3986 3.3), so an encoded "%2F" inside a
+            // value (a SUPI, TS 29.571 allows any characters) stays inside its one segment.
+            params.emplace(pat.substr(1, pat.size() - 2), percent_decode(path_segments[i], false));
         } else if (pat != path_segments[i]) {
             return false;
         }

@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <vector>
 
 #include "aka_crypto/hex.hpp"
 
@@ -26,16 +27,33 @@ bool AkmaStore::put(const AkmaContext& ctx) {
     if (!sealed) {
         return false;
     }
-    // Replace the SUPI's previous A-KID, if any, in one transaction.
-    const auto old = redis_->get(supi_key(ctx.supi));
-    auto tx = redis_->transaction();
-    if (old && *old != ctx.a_kid) {
-        tx.del(akid_key(*old));
-    }
-    tx.set(akid_key(ctx.a_kid),
-           nlohmann::json{{"supi", ctx.supi}, {"kakmaSealed", aka_crypto::to_hex(*sealed)}}.dump());
-    tx.set(supi_key(ctx.supi), ctx.a_kid);
-    tx.exec();
+    // SEC-15 (ADR-0549): the read of the SUPI's old A-KID and the writes run as one Lua script,
+    // so two registrations for one SUPI cannot each delete only the A-KID they read and leave the
+    // other's record orphaned (TS 33.535 6.1 NOTE 1a: the new context replaces the old one). An
+    // A-KID record that belonged to another SUPI is taken over, and that SUPI's index entry is
+    // dropped with it, so no index entry names a record it does not own. Every key the script
+    // touches is under "aanf:", the prefix the AAnF's Valkey ACL user is limited to.
+    static const std::string kPut = R"lua(
+local old = redis.call('GET', KEYS[1])
+if old and old ~= ARGV[1] then redis.call('DEL', 'aanf:akid:' .. old) end
+local prev = redis.call('GET', KEYS[2])
+if prev then
+  local ok, doc = pcall(cjson.decode, prev)
+  if ok and type(doc) == 'table' and type(doc.supi) == 'string' and doc.supi ~= ARGV[3] then
+    local other = 'aanf:supi:' .. doc.supi
+    if redis.call('GET', other) == ARGV[1] then redis.call('DEL', other) end
+  end
+end
+redis.call('SET', KEYS[2], ARGV[2])
+redis.call('SET', KEYS[1], ARGV[1])
+return 1
+)lua";
+    const std::vector<std::string> keys{supi_key(ctx.supi), akid_key(ctx.a_kid)};
+    const std::vector<std::string> args{
+        ctx.a_kid,
+        nlohmann::json{{"supi", ctx.supi}, {"kakmaSealed", aka_crypto::to_hex(*sealed)}}.dump(),
+        ctx.supi};
+    redis_->eval<long long>(kPut, keys.begin(), keys.end(), args.begin(), args.end());
     return true;
 }
 
@@ -63,13 +81,18 @@ std::optional<AkmaContext> AkmaStore::by_akid(const std::string& a_kid) {
 }
 
 bool AkmaStore::remove_supi(const std::string& supi) {
-    const auto a_kid = redis_->get(supi_key(supi));
-    if (!a_kid) {
-        return false;
-    }
-    redis_->del(akid_key(*a_kid));
-    redis_->del(supi_key(supi));
-    return true;
+    // One script, as in put(): a registration between the read and the deletes cannot leave its
+    // new A-KID record behind with no index entry.
+    static const std::string kRemove = R"lua(
+local a = redis.call('GET', KEYS[1])
+if not a then return 0 end
+redis.call('DEL', 'aanf:akid:' .. a, KEYS[1])
+return 1
+)lua";
+    const std::vector<std::string> keys{supi_key(supi)};
+    const std::vector<std::string> args;
+    return redis_->eval<long long>(kRemove, keys.begin(), keys.end(), args.begin(), args.end()) ==
+           1;
 }
 
 } // namespace aanf

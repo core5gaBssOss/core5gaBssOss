@@ -12,6 +12,7 @@
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
+#include "sbi_core/uri.hpp"
 
 #include <boost/asio/io_context.hpp>
 
@@ -114,4 +115,32 @@ TEST(Http2RoutePrecedence, LiteralSegmentIsShadowedWhenRegisteredAfterTheParamet
     // is read as a configuration id and the retrieve handler never runs. Pinned so that NEF's
     // deliberate registration order is understood as load-bearing rather than incidental.
     EXPECT_EQ(which_route_answers(false), R"({"route":"param","configId":"retrieve"})");
+}
+
+// REVIEW-5ae0ef1 SEC-15 (ADR-0549): a path parameter is percent-decoded after the path is split
+// on '/', so a value encoded with sbi_core::uri::encode_path_segment -- a SUPI with '/', '?', '%'
+// or '+' in it (TS 29.571 allows any characters) -- arrives whole, as one segment, byte for byte.
+TEST(Http2RoutePrecedence, AnEncodedPathParameterArrivesDecodedAsOneSegment) {
+    const std::string supi = "nai-a/b?c#d%e+f g@realm";
+    EXPECT_EQ(sbi_core::uri::encode_path_segment("imsi-999700000000001"), "imsi-999700000000001");
+    EXPECT_EQ(sbi_core::uri::encode_path_segment(supi), "nai-a%2Fb%3Fc%23d%25e+f%20g@realm");
+
+    boost::asio::io_context ioc;
+    sbi_core::http2::Server server(ioc, "127.0.0.1", 0, test_tls());
+    server.add_route("GET", "/api/{ueId}/item", [](const sbi_core::http2::Request& req) {
+        return sbi_core::http2::Response::json(200, req.path_params.at("ueId"));
+    });
+    server.start();
+    const auto port = server.local_port();
+    IoContextThread runner(ioc);
+
+    sbi_core::http2::Client client(test_tls());
+    sbi_core::http2::ClientRequest req;
+    req.method = "GET";
+    req.url = "https://127.0.0.1:" + std::to_string(port) + "/api/" +
+              sbi_core::uri::encode_path_segment(supi) + "/item";
+    const auto resp = client.send(req);
+    ASSERT_TRUE(resp.has_value());
+    EXPECT_EQ(resp->status, 200);
+    EXPECT_EQ(resp->body, supi);
 }
