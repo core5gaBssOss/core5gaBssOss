@@ -38,6 +38,13 @@ long post(sbi_core::http2::Client& c,
         .status;
 }
 
+// Value of a Valkey key, empty when absent. redis++ may be built with its own Optional (no
+// value_or), as on the CI runner, so this uses only operator bool and operator*.
+std::string get_or_empty(sw::redis::Redis& redis, const std::string& key) {
+    const auto v = redis.get(key);
+    return v ? *v : std::string{};
+}
+
 } // namespace
 
 TEST(AanfAuthorization, OnlyTheAusfRegistersOrRemovesAndAnAfGetsOnlyItsOwnKaf) {
@@ -155,7 +162,7 @@ TEST(AanfAuthorization, ReRegisteringASupiReplacesItsContextAtomically) {
         post(ausf, "/register-anchorkey", register_body(supi, "sec15-last@akma.example"), token),
         200);
     EXPECT_FALSE(redis.get("aanf:akid:" + *owner));
-    EXPECT_EQ(redis.get("aanf:supi:" + supi).value_or(""), "sec15-last@akma.example");
+    EXPECT_EQ(get_or_empty(redis, "aanf:supi:" + supi), "sec15-last@akma.example");
     EXPECT_EQ(post(ausf, "/remove-context", json{{"supi", supi}}.dump(), token), 204);
     EXPECT_FALSE(redis.get("aanf:supi:" + supi));
     EXPECT_FALSE(redis.get("aanf:akid:sec15-last@akma.example"));
@@ -194,7 +201,7 @@ TEST(AanfAuthorization, ReRegisteringASupiReplacesItsContextAtomically) {
         post(
             ausf, "/register-anchorkey", register_body(slashed, "sec15-slash@akma.example"), token),
         200);
-    EXPECT_EQ(redis.get("aanf:supi:" + slashed).value_or(""), "sec15-slash@akma.example");
+    EXPECT_EQ(get_or_empty(redis, "aanf:supi:" + slashed), "sec15-slash@akma.example");
     EXPECT_EQ(post(ausf, "/remove-context", json{{"supi", slashed}}.dump(), token), 204);
     EXPECT_FALSE(redis.get("aanf:akid:sec15-slash@akma.example"));
 }
