@@ -1,13 +1,12 @@
 ## ADR-0549: AAnF SUPI path encoding and atomic AKMA context replace (SEC-15)
 
-**Date:** 2026-11-01. **Status:** Proposed. The code lands in the SEC-15 PR (branch `sec/aanf-supi-atomic`); this file records the decision ahead of it so its number cannot collide.
-
+**Date:** 2026-11-01. **Status:** Proposed.
 **Context.** REVIEW-5ae0ef1 SEC-15 (Low) found two defects in the AAnF:
 
 - **SUPI used unvalidated in UDM URLs.** `Naanf_AKMA_AnchorKey_Register` accepted the SUPI as given and pasted it into the `nudm-ee` and `nudm-sdm` request paths (`nfs/aanf/src/main.cpp`). A SUPI containing `/`, `?` or `#` changed the path the AAnF called.
 - **Racy replace in `AkmaStore::put`.** `put` read the SUPI's old A-KID outside the MULTI. Two registrations for one SUPI could each delete only the A-KID they had read, leaving an orphaned A-KID record that still resolved to an old KAKMA. TS 33.535 §6.1 NOTE 1a says the new context replaces the old one. `remove_supi` had the same read-then-delete window.
 
-The review hinted at a format check (`imsi-<digits>` / `nai-…`). That check cannot be the fix: TS 29.571 `Supi` is `^(imsi-[0-9]{5,15}|nai-.+|gci-.+|gli-.+|.+)$`, and its last branch admits any non-empty string. Following the user's 2026-10-24 decision to apply 3GPP strictly, the AAnF may not reject what the spec pattern accepts. The URL problem therefore has to be solved by encoding, not by rejecting values.
+The review hinted at a format check (`imsi-<digits>` / `nai-…`). That check cannot be the fix: TS 29.571 `Supi` is `^(imsi-[0-9]{5,15}|nai-.+|gci-.+|gli-.+|.+)$`, and its last branch admits any non-empty string. Following the user's 2026-10-24 decision to apply 3GPP strictly (recorded in the SEC-06/CHG-01 review answers), the AAnF may not reject what the spec pattern accepts. The URL problem therefore has to be solved by encoding, not by rejecting values.
 
 **Decision:**
 

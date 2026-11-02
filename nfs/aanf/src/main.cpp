@@ -41,6 +41,7 @@
 #include "sbi_core/otel.hpp"
 #include "sbi_core/problem_details.hpp"
 #include "sbi_core/sbi_headers.hpp"
+#include "sbi_core/uri.hpp"
 #include "sbi_core/uuid.hpp"
 
 #include <boost/asio/io_context.hpp>
@@ -80,6 +81,16 @@ namespace http2 = sbi_core::http2;
 constexpr const char* kApiRoot = "/naanf-akma/v1";
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
+// SEC-15: TS 29.571 Supi is '^(imsi-[0-9]{5,15}|nai-.+|gci-.+|gli-.+|.+)$'. Its last branch admits
+// any non-empty value; ECMA-262 '.' excludes only the line terminators, so those (and emptiness)
+// are all the pattern rejects. Narrowing to imsi/nai would refuse SUPIs the spec allows. What makes
+// the value safe in a UDM URL is encoding it as one path segment (sbi_core/uri.hpp).
+bool supi_conforms(const std::string& supi) {
+    return !supi.empty() && supi.find_first_of("\r\n") == std::string::npos &&
+           supi.find("\xE2\x80\xA8") == std::string::npos &&
+           supi.find("\xE2\x80\xA9") == std::string::npos;
+}
+
 constexpr const char* kSupiScope = "naanf-akma:applicationkeyget:supi-access";
 
 http2::TlsConfig aanf_tls() {
@@ -310,6 +321,12 @@ int main() {
                                "the AKMA context is registered by SUPI",
                                "MANDATORY_IE_MISSING");
             }
+            if (!supi_conforms(*body.supi)) {
+                return problem(400,
+                               "Bad Request",
+                               "supi does not match the TS 29.571 Supi pattern",
+                               "MANDATORY_IE_INCORRECT");
+            }
             if (!store.put(aanf::AkmaContext{*body.supi, body.aKId, *kakma})) {
                 return problem(500,
                                "Internal Server Error",
@@ -365,7 +382,8 @@ int main() {
             if (deny_roaming && !udm_base.empty()) {
                 http2::ClientRequest sub;
                 sub.method = "POST";
-                sub.url = udm_base + "/nudm-ee/v1/" + ctx->supi + "/ee-subscriptions";
+                sub.url = udm_base + "/nudm-ee/v1/" +
+                          sbi_core::uri::encode_path_segment(ctx->supi) + "/ee-subscriptions";
                 sub.headers.emplace("content-type", "application/json");
                 sub.body =
                     json{{"callbackReference", self_base + "/aanf-ee-notify"},
@@ -455,7 +473,8 @@ int main() {
             if (!anonymous && wants_gpsi && !udm_base.empty()) {
                 http2::ClientRequest q;
                 q.method = "GET";
-                q.url = udm_base + "/nudm-sdm/v2/" + ctx->supi + "/id-translation-result";
+                q.url = udm_base + "/nudm-sdm/v2/" + sbi_core::uri::encode_path_segment(ctx->supi) +
+                        "/id-translation-result";
                 if (const auto r = udm_client.send(q); r && r->status == 200) {
                     const auto t = json::parse(r->body, nullptr, false);
                     if (t.is_object() && t.contains("gpsi") && t.at("gpsi").is_string()) {

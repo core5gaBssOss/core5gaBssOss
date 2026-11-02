@@ -11,6 +11,8 @@
 // The AAnF's AKMA contexts (TS 33.535 6.1 step 4, 6.6): SUPI, A-KID, KAKMA -- in Valkey so every
 // replica answers for every UE. Keys: "aanf:akid:<A-KID>" -> {supi, kakma}, "aanf:supi:<SUPI>" ->
 // A-KID. A new registration for a SUPI replaces the old A-KID (6.1 NOTE 1a).
+// The replace and the removal each run as one Valkey Lua script (REVIEW-5ae0ef1 SEC-15,
+// ADR-0549), so concurrent registrations for one SUPI leave exactly one A-KID record.
 //
 // KAKMA is never stored in the clear (TS 33.117 4.2.3.2.3; REVIEW-5ae0ef1 SEC-04, ADR-0514): the
 // value holds "kakmaSealed", AES-256-GCM under the AAnF's key-encryption key with the record's
