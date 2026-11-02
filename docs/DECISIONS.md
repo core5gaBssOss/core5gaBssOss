@@ -513,6 +513,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0546](decisions/ADR-0546-prose-5mbs-pin-and-remaining-5gc-services-ts-29-5xx-29-67x.md) ProSe, 5MBS, PIN and remaining 5GC services (TS 29.5xx/29.67x)
 - [0547](decisions/ADR-0547-oam-ts-28-xxx-and-media-ts-26-xxx-rel-19-apis.md) OAM (TS 28.xxx) and media (TS 26.xxx) REL-19 APIs
 - [0548](decisions/ADR-0548-readme-append-only-check-accepts-user-approved-heading.md) README append-only check accepts user-approved heading renames
+- [0553](decisions/ADR-0553-readme-r19-at-a-glance-area-table-and-architecture-diagram.md) README R19 at-a-glance area table and architecture diagram regrouping
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
