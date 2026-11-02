@@ -510,7 +510,9 @@
   "ADR-0545-ims-hss-gba-and-messaging-ts-29-562-29-563-29-309-29-577-29.md",
   "ADR-0546-prose-5mbs-pin-and-remaining-5gc-services-ts-29-5xx-29-67x.md",
   "ADR-0547-oam-ts-28-xxx-and-media-ts-26-xxx-rel-19-apis.md",
-  "ADR-0548-readme-append-only-check-accepts-user-approved-heading.md"
+  "ADR-0548-readme-append-only-check-accepts-user-approved-heading.md",
+  "ADR-0549-aanf-supi-path-encoding-and-atomic-akma-context-replace-sec.md",
+  "ADR-0550-functionality-survey-against-mmt-studio-5g6g-items-deferred.md"
  ],
  "split_commit": "0530e4f"
 }
