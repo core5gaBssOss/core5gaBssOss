@@ -17,6 +17,7 @@
 #include <boost/asio/io_context.hpp>
 
 #include <chrono>
+#include <latch>
 #include <thread>
 #include <vector>
 
@@ -64,6 +65,10 @@ TEST(SbiCoreConcurrencyIntegration, ConcurrentRequestsOnDifferentConnectionsRunI
         std::this_thread::sleep_for(kHandlerDelay);
         return sbi_core::http2::Response::json(200, R"({"ok":true})");
     });
+    // Instant route used only to open each client's TCP/TLS connection before the timer starts.
+    server.add_route("GET", "/warm", [](const sbi_core::http2::Request&) {
+        return sbi_core::http2::Response::json(200, R"({"ok":true})");
+    });
     server.start();
     const auto port = server.local_port();
 
@@ -76,23 +81,40 @@ TEST(SbiCoreConcurrencyIntegration, ConcurrentRequestsOnDifferentConnectionsRunI
     // during this ADR's own verification, not a theoretical concern. std::vector<char> has no
     // such trap; each element is its own byte.
     std::vector<char> results(static_cast<std::size_t>(kConcurrentRequests), 0);
-    const auto start = std::chrono::steady_clock::now();
+    // The timer must measure only the slow requests, not connection setup. Each thread first opens
+    // its connection with an instant /warm request (Client keeps the handle, and with it the live
+    // TLS connection, in its pool -- curl_easy_reset preserves it), then waits at `go`. Timing the
+    // TLS handshakes too made this test flaky under ThreadSanitizer: 1368ms against the 1260ms
+    // bound on main d09cdccd, with no race reported -- six handshakes under TSan, not lost
+    // parallelism.
+    std::latch connected(kConcurrentRequests);
+    std::latch go(1);
     for (int i = 0; i < kConcurrentRequests; ++i) {
-        clients.emplace_back([i, port, &results] {
+        clients.emplace_back([i, port, &results, &connected, &go] {
             sbi_core::http2::TlsConfig client_tls{
                 .cert_path = CERTS_DIR "/hello-nf/cert.pem",
                 .key_path = CERTS_DIR "/hello-nf/key.pem",
                 .ca_path = CERTS_DIR "/ca/ca.crt",
             };
             sbi_core::http2::Client client(std::move(client_tls));
+            sbi_core::http2::ClientRequest warm;
+            warm.method = "GET";
+            warm.url = "https://127.0.0.1:" + std::to_string(port) + "/warm";
+            const auto warm_resp = client.send(warm);
+            const bool warm_ok = warm_resp.has_value() && warm_resp->status == 200;
+            connected.count_down();
+            go.wait();
             sbi_core::http2::ClientRequest req;
             req.method = "GET";
             req.url = "https://127.0.0.1:" + std::to_string(port) + "/slow";
             auto resp = client.send(req);
             results[static_cast<std::size_t>(i)] =
-                (resp.has_value() && resp->status == 200) ? 1 : 0;
+                (warm_ok && resp.has_value() && resp->status == 200) ? 1 : 0;
         });
     }
+    connected.wait();
+    const auto start = std::chrono::steady_clock::now();
+    go.count_down();
     for (auto& t : clients) {
         t.join();
     }
