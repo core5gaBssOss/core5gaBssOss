@@ -514,6 +514,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0547](decisions/ADR-0547-oam-ts-28-xxx-and-media-ts-26-xxx-rel-19-apis.md) OAM (TS 28.xxx) and media (TS 26.xxx) REL-19 APIs
 - [0548](decisions/ADR-0548-readme-append-only-check-accepts-user-approved-heading.md) README append-only check accepts user-approved heading renames
 - [0549](decisions/ADR-0549-aanf-supi-path-encoding-and-atomic-akma-context-replace-sec.md) AAnF SUPI path encoding and atomic AKMA context replace (SEC-15)
+- [0550](decisions/ADR-0550-functionality-survey-against-mmt-studio-5g6g-items-deferred.md) Functionality survey against mmt-studio-5g6g: items deferred for future implementation
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
