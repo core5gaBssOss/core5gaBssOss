@@ -2,12 +2,14 @@
 
 #include "sbi_core/http2_client.hpp"
 
+#include <array>
 #include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tl/expected.hpp>
 
 // OAuth2 client-credentials flow against NRF's Nnrf_AccessToken service
@@ -28,6 +30,31 @@ struct OAuth2Token {
     std::string token_type;
     std::chrono::steady_clock::time_point expires_at;
 };
+
+// AccessTokenErr.error values, transcribed from TS29510_Nnrf_AccessToken.yaml (REL-19)
+// components.schemas.AccessTokenErr (lines 441-459); TS 29.510 Table 6.3.4.2.2-2 lists the same six
+// for a 400/401 refusal (from IETF RFC 6749 clause 5.2).
+inline constexpr std::array<std::string_view, 6> kAccessTokenErrCodes{
+    "invalid_request",
+    "invalid_client",
+    "invalid_grant",
+    "unauthorized_client",
+    "unsupported_grant_type",
+    "invalid_scope",
+};
+
+bool is_access_token_err_code(std::string_view error);
+
+// A readable account of a non-200 answer to POST /oauth2/token, per TS 29.510 Table 6.3.4.2.2-2:
+//  - 400/401 with AccessTokenErr: "AccessTokenErr <error>: <error_description> (<error_uri>)"; an
+//    `error` outside kAccessTokenErrCodes is shown and marked "(not a TS 29.510 AccessTokenErr
+//    value)".
+//  - 400 with ProblemDetails (SCP/SEPP-originated only) and 403 with ProblemDetails (cause
+//    MISSING_PARAMETER, invalidParams naming the missing requester information): "ProblemDetails
+//    <status> <cause>: <detail> [invalidParams: <param>, ...]".
+//  - Anything else, or a body neither shape parses as: the status and the raw body, marked
+//    non-conformant where the table names a body the answer did not carry.
+std::string describe_token_refusal(long status, const std::string& body);
 
 class OAuth2Client {
 public:

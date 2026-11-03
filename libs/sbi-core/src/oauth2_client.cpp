@@ -30,7 +30,77 @@ std::string form_urlencode(const std::string& value) {
     return out.str();
 }
 
+std::string problem_details_text(long status, const nlohmann::json& pd) {
+    std::string out = "ProblemDetails " + std::to_string(status);
+    if (const auto it = pd.find("cause"); it != pd.end() && it->is_string()) {
+        out += " " + it->get<std::string>();
+    }
+    if (const auto it = pd.find("detail"); it != pd.end() && it->is_string()) {
+        out += ": " + it->get<std::string>();
+    } else if (const auto t = pd.find("title"); t != pd.end() && t->is_string()) {
+        out += ": " + t->get<std::string>();
+    }
+    if (const auto it = pd.find("invalidParams"); it != pd.end() && it->is_array()) {
+        std::string params;
+        for (const auto& p : *it) {
+            if (p.is_object() && p.contains("param") && p["param"].is_string()) {
+                params += (params.empty() ? "" : ", ") + p["param"].get<std::string>();
+            }
+        }
+        if (!params.empty()) {
+            out += " [invalidParams: " + params + "]";
+        }
+    }
+    return out;
+}
+
+bool looks_like_problem_details(const nlohmann::json& j) {
+    return j.contains("cause") || j.contains("title") || j.contains("detail") ||
+           j.contains("status");
+}
+
 } // namespace
+
+bool is_access_token_err_code(std::string_view error) {
+    for (const auto code : kAccessTokenErrCodes) {
+        if (code == error) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string describe_token_refusal(long status, const std::string& body) {
+    const std::string raw = "status " + std::to_string(status) + ": " + body;
+    const auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
+    const bool object = j.is_object();
+    if (status == 400 || status == 401) {
+        if (object && j.contains("error") && j["error"].is_string()) {
+            const auto error = j["error"].get<std::string>();
+            std::string out = "AccessTokenErr " + error;
+            if (!is_access_token_err_code(error)) {
+                out += " (not a TS 29.510 AccessTokenErr value)";
+            }
+            if (const auto it = j.find("error_description"); it != j.end() && it->is_string()) {
+                out += ": " + it->get<std::string>();
+            }
+            if (const auto it = j.find("error_uri"); it != j.end() && it->is_string()) {
+                out += " (" + it->get<std::string>() + ")";
+            }
+            return out;
+        }
+        if (status == 400 && object && looks_like_problem_details(j)) {
+            return problem_details_text(status, j); // SCP/SEPP-originated (TS 29.510)
+        }
+        return "non-conformant token refusal, no AccessTokenErr body (TS 29.510 Table "
+               "6.3.4.2.2-2): " +
+               raw;
+    }
+    if (status == 403 && object && looks_like_problem_details(j)) {
+        return problem_details_text(status, j);
+    }
+    return raw;
+}
 
 OAuth2Client::OAuth2Client(http2::Client& http_client,
                            std::string nrf_token_endpoint,
@@ -76,8 +146,8 @@ tl::expected<OAuth2Token, std::string> OAuth2Client::fetch_token() {
         return tl::unexpected("oauth2 token request failed: " + resp.error());
     }
     if (resp->status != 200) {
-        return tl::unexpected("oauth2 token request returned status " +
-                              std::to_string(resp->status) + ": " + resp->body);
+        return tl::unexpected("oauth2 token request refused: " +
+                              describe_token_refusal(resp->status, resp->body));
     }
 
     OAuth2Token token;
