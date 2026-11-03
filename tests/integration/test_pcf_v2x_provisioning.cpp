@@ -208,6 +208,10 @@ TEST(PcfV2xProvisioning, CreateAndPlmnChangeSendTheN2Pc5PolicyOnlyForAnAuthorize
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_GT(nrf.pid(), 0);
     std::this_thread::sleep_for(200ms);
+    // ADR-0554: the NRF refuses a token towards an NF type with no registered instance
+    // (TS 33.501 13.4.1.1.2), so the stand-ins register like the real NFs would.
+    nf_test::register_test_nf("00000000-0000-4000-8000-0000000080d1", "UDM");
+    nf_test::register_test_nf("00000000-0000-4000-8000-0000000080a1", "AMF");
     nf_test::SpawnedProcess pcf(PCF_PATH);
     ASSERT_GT(pcf.pid(), 0);
 

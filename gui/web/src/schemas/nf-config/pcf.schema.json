@@ -4497,6 +4497,18 @@
     },
     "pc5_link_aggregate_bit_rate_bps": {
       "type": "integer"
+    },
+    "ue_policy_plmn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mcc": {
+          "type": "string"
+        },
+        "mnc": {
+          "type": "string"
+        }
+      }
     }
   },
   "required": [
@@ -4516,6 +4528,7 @@
   "x-apply": "restart",
   "x-review": [
     "policy_counter_actions[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
-    "v2x_pc5_qos_flows[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
+    "v2x_pc5_qos_flows[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "ue_policy_plmn: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }
