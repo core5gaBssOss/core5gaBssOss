@@ -552,7 +552,7 @@ int main() {
                           [&](const std::string& t) { return nf_registry->search_by_type(t); })
                     : nrf::check_token_request_form(form);
             if (!decision.error.empty()) {
-                spdlog::info(
+                spdlog::warn(
                     "nrf: access token refused ({}): {}", decision.error, decision.description);
                 return no_store(
                     sbi_core::http2::Response::json(400, nrf::access_token_err(decision).dump()));
