@@ -3,6 +3,14 @@
 // asks (the FQDN its certificate names; the NEF relays already-verified AF_IDs, TS 33.535 6.3).
 // Real nrf + aanf processes.
 
+#include <nlohmann/json.hpp>
+
+#include <cstdlib>
+#include <fstream>
+#include <sw/redis++/redis++.h>
+#include <thread>
+#include <vector>
+
 #include "oauth2_enforcement.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
@@ -28,6 +36,13 @@ long post(sbi_core::http2::Client& c,
     return nf_test::send_to(
                c, {.method = "POST", .url = std::string(kAanf) + op, .body = body}, token)
         .status;
+}
+
+// Value of a Valkey key, empty when absent. redis++ may be built with its own Optional (no
+// value_or), as on the CI runner, so this uses only operator bool and operator*.
+std::string get_or_empty(sw::redis::Redis& redis, const std::string& key) {
+    const auto v = redis.get(key);
+    return v ? *v : std::string{};
 }
 
 } // namespace
@@ -75,4 +90,118 @@ TEST(AanfAuthorization, OnlyTheAusfRegistersOrRemovesAndAnAfGetsOnlyItsOwnKaf) {
         token);
     EXPECT_EQ(own.status, 403) << own.body;
     EXPECT_NE(own.body.find("K_AKMA_NOT_PRESENT"), std::string::npos) << own.body;
+}
+
+// REVIEW-5ae0ef1 SEC-15 (ADR-0549): re-registering a SUPI replaces its AKMA context atomically --
+// concurrent registrations for one SUPI leave exactly one A-KID record, the one the SUPI index
+// names -- a SUPI that breaks the TS 29.571 Supi pattern is refused, and a SUPI the pattern
+// allows with '/' in it is stored and removed like any other.
+TEST(AanfAuthorization, ReRegisteringASupiReplacesItsContextAtomically) {
+    using nlohmann::json;
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    ASSERT_GT(nrf.pid(), 0) << "failed to fork nrf";
+    nf_test::SpawnedProcess aanf(AANF_PATH);
+    ASSERT_GT(aanf.pid(), 0) << "failed to fork aanf";
+
+    auto ausf = client_as("ausf");
+    long status = 0;
+    for (int i = 0; i < 100 && status == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        status = post(ausf, "/register-anchorkey", "{}", "");
+    }
+    ASSERT_EQ(status, 401);
+    auto af = client_as("af.example.com");
+    const auto token = nf_test::oauth2_test_token(af, "naanf-akma", "AANF");
+    ASSERT_FALSE(token.empty());
+
+    std::ifstream in(AANF_CONFIG_TEMPLATE);
+    const auto redis_url = std::getenv("AANF_REDIS_URL") != nullptr
+                               ? std::string(std::getenv("AANF_REDIS_URL"))
+                               : json::parse(in).at("redis_url").get<std::string>();
+    sw::redis::Redis redis(redis_url);
+
+    const std::string kKakma(64, 'a');
+    const auto register_body = [&](const std::string& supi, const std::string& a_kid) {
+        return json{{"supi", supi}, {"aKId", a_kid}, {"kAkma", kKakma}}.dump();
+    };
+
+    // Concurrent re-registrations of one SUPI, each with its own A-KID.
+    const std::string supi = "imsi-999700000015015";
+    constexpr int kThreads = 8;
+    std::vector<std::string> a_kids;
+    for (int i = 0; i < kThreads; ++i) {
+        a_kids.push_back("sec15-" + std::to_string(i) + "@akma.example");
+    }
+    std::vector<long> statuses(kThreads, 0);
+    {
+        std::vector<std::jthread> threads;
+        for (int i = 0; i < kThreads; ++i) {
+            threads.emplace_back([&, i] {
+                auto c = client_as("ausf");
+                statuses[i] = post(c, "/register-anchorkey", register_body(supi, a_kids[i]), token);
+            });
+        }
+    }
+    for (const auto s : statuses) {
+        EXPECT_EQ(s, 200);
+    }
+    const auto owner = redis.get("aanf:supi:" + supi);
+    ASSERT_TRUE(owner);
+    int live = 0;
+    for (const auto& a : a_kids) {
+        if (const auto rec = redis.get("aanf:akid:" + a)) {
+            ++live;
+            EXPECT_EQ(a, *owner);
+            EXPECT_EQ(json::parse(*rec).at("supi"), supi);
+        }
+    }
+    EXPECT_EQ(live, 1) << "concurrent re-registration left stale A-KID records";
+
+    // A sequential re-registration drops the previous A-KID.
+    EXPECT_EQ(
+        post(ausf, "/register-anchorkey", register_body(supi, "sec15-last@akma.example"), token),
+        200);
+    EXPECT_FALSE(redis.get("aanf:akid:" + *owner));
+    EXPECT_EQ(get_or_empty(redis, "aanf:supi:" + supi), "sec15-last@akma.example");
+    EXPECT_EQ(post(ausf, "/remove-context", json{{"supi", supi}}.dump(), token), 204);
+    EXPECT_FALSE(redis.get("aanf:supi:" + supi));
+    EXPECT_FALSE(redis.get("aanf:akid:sec15-last@akma.example"));
+
+    // An A-KID handed to a second SUPI is no longer reachable from the first.
+    EXPECT_EQ(post(ausf,
+                   "/register-anchorkey",
+                   register_body("imsi-999700000015016", "sec15-moved@akma.example"),
+                   token),
+              200);
+    EXPECT_EQ(post(ausf,
+                   "/register-anchorkey",
+                   register_body("imsi-999700000015017", "sec15-moved@akma.example"),
+                   token),
+              200);
+    EXPECT_FALSE(redis.get("aanf:supi:imsi-999700000015016"));
+    EXPECT_EQ(post(ausf, "/remove-context", R"({"supi":"imsi-999700000015016"})", token), 404);
+    EXPECT_EQ(post(ausf, "/remove-context", R"({"supi":"imsi-999700000015017"})", token), 204);
+
+    // The TS 29.571 Supi pattern refuses a line terminator (and the empty string).
+    const auto bad = nf_test::send_to(
+        ausf,
+        {.method = "POST",
+         .url = std::string(kAanf) + "/register-anchorkey",
+         .body = register_body("imsi-99970\n0000015018", "sec15-bad@akma.example")},
+        token);
+    EXPECT_EQ(bad.status, 400) << bad.body;
+    EXPECT_NE(bad.body.find("MANDATORY_IE_INCORRECT"), std::string::npos) << bad.body;
+    EXPECT_EQ(post(ausf, "/register-anchorkey", register_body("", "sec15-bad@akma.example"), token),
+              400);
+    EXPECT_FALSE(redis.get("aanf:akid:sec15-bad@akma.example"));
+
+    // ...but allows '/', which the AAnF keeps whole (and encodes as %2F on its UDM URLs).
+    const std::string slashed = "nai-sec15/a@realm.example";
+    EXPECT_EQ(
+        post(
+            ausf, "/register-anchorkey", register_body(slashed, "sec15-slash@akma.example"), token),
+        200);
+    EXPECT_EQ(get_or_empty(redis, "aanf:supi:" + slashed), "sec15-slash@akma.example");
+    EXPECT_EQ(post(ausf, "/remove-context", json{{"supi", slashed}}.dump(), token), 204);
+    EXPECT_FALSE(redis.get("aanf:akid:sec15-slash@akma.example"));
 }

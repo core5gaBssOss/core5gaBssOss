@@ -1,7 +1,10 @@
 // ADR-0499 phase 2: the NRF authorizes an access token request before issuing (TS 33.501
 // 13.4.1.1.2 step 2; TS 29.510 5.4.2.2.1 and Table 6.3.6.3-1).
+#include "sbi_core/oauth2_client.hpp"
+
 #include <map>
 #include <string>
+#include <vector>
 
 #include "token_authz.hpp"
 
@@ -129,6 +132,50 @@ TEST_F(NrfTokenAuthz, TheErrorBodyIsAnAccessTokenErr) {
     const auto body = nrf::access_token_err(ask({{"nfType", "UDM"}}));
     EXPECT_EQ(body.at("error"), "invalid_client");
     EXPECT_TRUE(body.at("error_description").is_string());
+}
+
+TEST_F(NrfTokenAuthz, EveryRefusalIsATs29510AccessTokenErrValue) {
+    const std::vector<nrf::TokenDecision> refusals{
+        ask({{"grant_type", "password"}}),
+        ask({{"scope", ""}}),
+        ask({{"nfInstanceId", "not-registered"}}),
+        ask({}, {.cert_cn = "pcf", .cert_dns_names = {"pcf"}}),
+        ask({{"scope", "npcf-policyauthorization"}}),
+        ask({{"targetNfType", "UDM"}, {"scope", "nudm-sdm"}}),
+    };
+    for (const auto& d : refusals) {
+        EXPECT_TRUE(sbi_core::is_access_token_err_code(d.error)) << d.error;
+    }
+}
+
+TEST_F(NrfTokenAuthz, TheConsumerShowsTheRefusalsErrorAndDescription) {
+    // No UDM registered: the NRF refuses with invalid_scope (TS 33.501 13.4.1.1.2); the consumer
+    // names that value and the NRF's description rather than dumping the raw body.
+    const auto d = ask({{"targetNfType", "UDM"}, {"scope", "nudm-sdm"}});
+    const auto shown = sbi_core::describe_token_refusal(400, nrf::access_token_err(d).dump());
+    EXPECT_EQ(shown, "AccessTokenErr invalid_scope: " + d.description);
+    EXPECT_EQ(sbi_core::describe_token_refusal(
+                  401, R"({"error":"invalid_client","error_uri":"https://nrf/e"})"),
+              "AccessTokenErr invalid_client (https://nrf/e)");
+}
+
+TEST_F(NrfTokenAuthz, TheConsumerFlagsANonConformantRefusal) {
+    EXPECT_EQ(sbi_core::describe_token_refusal(400, R"({"error":"access_denied"})"),
+              "AccessTokenErr access_denied (not a TS 29.510 AccessTokenErr value)");
+    EXPECT_EQ(sbi_core::describe_token_refusal(400, "nope"),
+              "non-conformant token refusal, no AccessTokenErr body (TS 29.510 Table "
+              "6.3.4.2.2-2): status 400: nope");
+    EXPECT_EQ(sbi_core::describe_token_refusal(500, "x"), "status 500: x");
+}
+
+TEST_F(NrfTokenAuthz, TheConsumerShowsA403ProblemDetails) {
+    const json pd{{"status", 403},
+                  {"cause", "MISSING_PARAMETER"},
+                  {"detail", "requester PLMN missing"},
+                  {"invalidParams", json::array({{{"param", "/requesterPlmn"}}})}};
+    EXPECT_EQ(sbi_core::describe_token_refusal(403, pd.dump()),
+              "ProblemDetails 403 MISSING_PARAMETER: requester PLMN missing "
+              "[invalidParams: /requesterPlmn]");
 }
 
 } // namespace
