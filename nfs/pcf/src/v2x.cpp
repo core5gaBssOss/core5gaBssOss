@@ -2,6 +2,7 @@
 #include "v2x.hpp"
 
 #include "sbi_core/multipart.hpp"
+#include "sbi_core/uri.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -229,7 +230,8 @@ get_udm(ProvisionDeps& d, const std::string& supi, const char* resource) {
     }
     sbi_core::http2::ClientRequest r;
     r.method = "GET";
-    r.url = d.udm_base_url + "/nudm-sdm/v2/" + encode_path_segment(supi) + "/" + resource;
+    r.url = d.udm_base_url + "/nudm-sdm/v2/" + sbi_core::uri::encode_path_segment(supi) + "/" +
+            resource;
     r.headers.emplace("authorization", "Bearer " + *token);
     const auto resp = d.udm_client.send(r);
     if (!resp.has_value()) {
@@ -249,27 +251,6 @@ get_udm(ProvisionDeps& d, const std::string& supi, const char* resource) {
 }
 
 } // namespace
-
-std::string encode_path_segment(const std::string& segment) {
-    static constexpr char kHex[] = "0123456789ABCDEF";
-    std::string out;
-    out.reserve(segment.size());
-    for (const char ch : segment) {
-        const auto c = static_cast<unsigned char>(ch);
-        const bool keep = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                          (c >= '0' && c <= '9') ||
-                          std::string_view("-._~!$&'()*+,;=:@").find(static_cast<char>(c)) !=
-                              std::string_view::npos;
-        if (keep) {
-            out.push_back(static_cast<char>(c));
-        } else {
-            out.push_back('%');
-            out.push_back(kHex[c >> 4]);
-            out.push_back(kHex[c & 0x0F]);
-        }
-    }
-    return out;
-}
 
 ProvisionResult
 provision_v2x(ProvisionDeps& d, const std::string& supi, const std::string& supp_feat) {
@@ -308,8 +289,8 @@ provision_v2x(ProvisionDeps& d, const std::string& supi, const std::string& supp
 
     sbi_core::http2::ClientRequest r;
     r.method = "POST";
-    r.url = d.amf_base_url + "/namf-comm/v1/ue-contexts/" + encode_path_segment(supi) +
-            "/n1-n2-messages";
+    r.url = d.amf_base_url + "/namf-comm/v1/ue-contexts/" +
+            sbi_core::uri::encode_path_segment(supi) + "/n1-n2-messages";
     r.headers.emplace("content-type", encoded.content_type_header);
     r.headers.emplace("authorization", "Bearer " + *token);
     r.body = encoded.body;

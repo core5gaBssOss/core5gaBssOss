@@ -2,6 +2,7 @@
 #include "ue_policy_delivery.hpp"
 
 #include "sbi_core/multipart.hpp"
+#include "sbi_core/uri.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -281,7 +282,7 @@ std::string udr_notify_path() {
 }
 
 std::string n1_notify_path(const std::string& pol_asso_id) {
-    return std::string(kNotifyRoot) + "/n1-msg/" + v2x::encode_path_segment(pol_asso_id);
+    return std::string(kNotifyRoot) + "/n1-msg/" + sbi_core::uri::encode_path_segment(pol_asso_id);
 }
 
 tl::expected<std::vector<nlohmann::json>, std::string>
@@ -291,8 +292,8 @@ fetch_service_params(DeliveryDeps& deps, const std::string& supi) {
         return tl::make_unexpected("no UDR token: " + token.error());
     sbi_core::http2::ClientRequest r;
     r.method = "GET";
-    r.url = deps.udr_base_url +
-            "/nudr-dr/v2/application-data/serviceParamData?supis=" + v2x::encode_path_segment(supi);
+    r.url = deps.udr_base_url + "/nudr-dr/v2/application-data/serviceParamData?supis=" +
+            sbi_core::uri::encode_path_segment(supi);
     r.headers.emplace("authorization", "Bearer " + *token);
     const auto resp = deps.udr_client.send(r);
     if (!resp.has_value())
@@ -359,7 +360,7 @@ void subscribe(DeliveryDeps& deps, DeliveryStore& store, const std::string& pol_
             sbi_core::http2::ClientRequest r;
             r.method = "POST";
             r.url = deps.amf_base_url + "/namf-comm/v1/ue-contexts/" +
-                    v2x::encode_path_segment(a->supi) + "/n1-n2-messages/subscriptions";
+                    sbi_core::uri::encode_path_segment(a->supi) + "/n1-n2-messages/subscriptions";
             r.headers.emplace("content-type", "application/json");
             r.headers.emplace("authorization", "Bearer " + *token);
             r.body = req.dump();
@@ -406,8 +407,8 @@ void unsubscribe(DeliveryDeps& deps, const Association& a) {
             sbi_core::http2::ClientRequest r;
             r.method = "DELETE";
             r.url = deps.amf_base_url + "/namf-comm/v1/ue-contexts/" +
-                    v2x::encode_path_segment(a.supi) + "/n1-n2-messages/subscriptions/" +
-                    v2x::encode_path_segment(a.amf_subscription);
+                    sbi_core::uri::encode_path_segment(a.supi) + "/n1-n2-messages/subscriptions/" +
+                    sbi_core::uri::encode_path_segment(a.amf_subscription);
             r.headers.emplace("authorization", "Bearer " + *token);
             const auto resp = deps.amf_client.send(r);
             if (!resp.has_value() || resp->status != 204)
@@ -467,8 +468,8 @@ DeliveryResult deliver(DeliveryDeps& deps, DeliveryStore& store, const std::stri
 
     sbi_core::http2::ClientRequest r;
     r.method = "POST";
-    r.url = deps.amf_base_url + "/namf-comm/v1/ue-contexts/" + v2x::encode_path_segment(a->supi) +
-            "/n1-n2-messages";
+    r.url = deps.amf_base_url + "/namf-comm/v1/ue-contexts/" +
+            sbi_core::uri::encode_path_segment(a->supi) + "/n1-n2-messages";
     r.headers.emplace("content-type", encoded.content_type_header);
     r.headers.emplace("authorization", "Bearer " + *token);
     r.body = encoded.body;

@@ -69,12 +69,6 @@ encode_pc5_qos_parameters(const Pc5Config& cfg);
 nlohmann::json n1n2_v2x_request(const std::string& content_id,
                                 const std::string& supported_features);
 
-// RFC 3986 §3.3 pchar percent-encoding of one path segment (TS 29.501 §5.2.3): unreserved,
-// sub-delims, ':' and '@' are kept, every other byte becomes %XX. Duplicates
-// sbi_core::uri::encode_path_segment from the SEC-15 branch (ADR-0549), which is not on main yet;
-// to be replaced by it once that lands.
-std::string encode_path_segment(const std::string& segment);
-
 // What P5 (V2X/A2X policy provisioning, ADR-0551) needs to reach the UDM and the AMF.
 struct ProvisionDeps {
     sbi_core::http2::Client& udm_client;
