@@ -513,8 +513,9 @@
   "ADR-0548-readme-append-only-check-accepts-user-approved-heading.md",
   "ADR-0549-aanf-supi-path-encoding-and-atomic-akma-context-replace-sec.md",
   "ADR-0550-functionality-survey-against-mmt-studio-5g6g-items-deferred.md",
-  "ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md",
+  "ADR-0553-readme-r19-at-a-glance-area-table-and-architecture-diagram.md",
   "ADR-0554-strict-nrf-token-refusal-per-ts-33-501-13-4-1-1-2-consumer.md",
+  "ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md",
   "ADR-0517-nwdaf-mtlf-helm-chart-the-nwdaf-certificate-names-nwdaf.md"
  ],
  "split_commit": "0530e4f"
