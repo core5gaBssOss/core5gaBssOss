@@ -27,6 +27,35 @@ When ADR-0551 was written, its P6 row cited TS 24.587 only. TS 24.588 is the V2X
    - **N2 PC5 policy:** the V2X N2 PC5 policy (increment 1, P5) is re-sent when the re-derived content changes.
 3. **Tests:** each step above gets a test derived from its call flow (ADR-0551 decision 1).
 
+**As implemented (P6a and the P7 delivery-failure path).**
+
+- **P6a** is in `nfs/pcf/src/ue_policy_delivery.cpp` and the N1MessageNotify route in `nfs/pcf/src/main.cpp`. It is tested in `tests/integration/test_pcf_ue_policy_delivery.cpp`.
+- **P7, delivery-failure path** (TS 23.502 §4.2.4.3, executed with the §4.16.12.2 modification):
+  - A UE policy delivery fails in one of two ways. Either the AMF sends an N1N2MessageTransfer failure notification to the new callback `POST {kNotifyRoot}/n1n2-failure/{polAssoId}`; the transfer request now carries `n1n2FailureTxfNotifURI` (TS 29.518). Or the AMF answers the transfer with 409 or 504.
+  - In either case the PCF frees the PTI and marks the association `delivery_failure_pending`. It then adds `CON_STATE_CH` to the association's triggers and sends Npcf_UEPolicyControl_UpdateNotify (`POST {notificationUri}/update`, `PolicyUpdate{resourceUri, triggers}`). The UpdateNotify is sent only when the trigger was not already provisioned.
+  - When an Npcf_UEPolicyControl_Update reports `CON_STATE_CH` with `connectState` CONNECTED and the flag is set, the PCF clears the flag and delivers again with a newly allocated PTI. If that delivery fails again, the flag is set again and no second UpdateNotify is sent.
+- **Why CON_STATE_CH:** TS 23.502 §4.2.4.3 has the PCF subscribe to the UE's connectivity state after a failed delivery, so that it can retry when the UE becomes reachable. In the TS 29.525 YAML, that subscription is the `RequestTrigger` value `CON_STATE_CH`, and the report is `PolicyAssociationUpdateRequest.connectState` (CmState).
+- **UpdateNotify responses** (TS 29.525 §4.2.4.2):
+  - **204/200:** success.
+  - **307/308:** the PCF resends once to the `Location` URI. Later notifications still go to the original `notificationUri`.
+  - **404:** the PCF resends once to the same URI, because the alternate-AMF addresses (`altNotif*`) are deferred for future implementation.
+- **Tests:** all derived from the §4.2.4.3 flow.
+  - A malformed failure notification gets 400, and one for an unknown association gets 404 ProblemDetails (TS 29.518 YAML callback responses).
+  - A valid one gets 204, followed by an UpdateNotify that the mock answers with 307 and that is then delivered at the redirected URI.
+  - A CONNECTED update while the AMF answers 504 produces a re-attempt and no second UpdateNotify.
+  - A CONNECTED update while the AMF answers 200 re-delivers the expected COMMAND with a network PTI (0x80-0xFE).
+  - A further CONNECTED update produces no delivery, because the flag has been cleared.
+
+**Simplified or non-conformant (disclosed).**
+
+- **A2XI handling (spec inconsistency):** TS 24.577 §5.3.2.2b and TS 24.587 §8.3.2 disagree on how the A2X indicator in the Requested UE policies IE is split between PC5 and Uu. The PCF reads A2XI=1 as a request for both, and sends both A2X PC5 and A2X Uu parameters. This is recorded in README.
+- **409 and 504 treated as "UE not reached":** the TS 29.518 YAML lists both codes, but no TS 29.518 prose is available offline, so the per-cause semantics were not verified. Both are treated as a delivery failure.
+- **Not atomic:** the association record is read, modified and written back without a compare-and-swap. A concurrent Npcf_UEPolicyControl_Update can therefore race the failure handling, and one of the two writes can be lost.
+- **No NRF token on the failure callback:** the `n1n2-failure` route is `RouteAuth::None`, as callback routes are across the project (TS 33.501 §13.4.1.0, ADR-0499).
+- **Pre-existing non-conformance, not fixed here:** the Update handler overwrites the association's provisioned triggers with the triggers the AMF reported (`association.triggers = body->triggers`). A later update that reports only PLMN_CH therefore drops CON_STATE_CH. Fixing it means keeping the provisioned and the reported triggers separate; this is deferred for future implementation.
+- **Not yet implemented** (still in increment 3): the remaining P7 branches, namely re-deriving and re-delivering V2XP/A2XP after a UDR notification, and re-sending the V2X N2 PC5 policy.
+- **Verification:** the code and the test pass a syntax-only compile and clang-format-18. They were not built or run locally, because a full worktree build takes about 2 hours and the CI runner shares this host. The PR's CI is the first execution.
+
 **Deferred for future implementation (disclosed).**
 
 - **P6b, UE-initiated UE STATE INDICATION** (TS 24.501 D.2.2). Deferred at the user's direction on 2026-11-04. It reaches the PCF in the UE policy container of the registration-time Create, not on the N1 callback, so it widens the scope of this increment. The UE policy classmark IE stays deferred with it.

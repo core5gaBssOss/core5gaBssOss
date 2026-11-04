@@ -16,6 +16,8 @@
 #include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -135,6 +137,8 @@ struct Recorder {
     };
     std::vector<Transfer> updp_transfers; // N1N2MessageTransfer with an n1MessageContainer
     std::size_t n2_transfers = 0;         // increment 1's N2 PC5 policy transfers
+    std::vector<json> update_notifies;    // PolicyUpdates that reached the moved notify URI (P7)
+    std::size_t original_update_hits = 0; // UpdateNotify POSTs to the original notificationUri
 
     template <class Pred> bool wait_for(Pred pred, std::chrono::milliseconds timeout) {
         std::unique_lock lock(mutex);
@@ -154,14 +158,17 @@ void append(Bytes& out, const Bytes& in) {
 // MANAGE UE POLICY COMMAND for PLMN 999/70, UPSC 0x0001 and one V2XP part (TS 24.501 D.6.1,
 // D.6.2: section management list -> sublist (PLMN ID) -> instruction (UPSC) -> UE policy part)
 // carrying paramOverPc5 = 01 02 03 as V2XP info type 1 and paramOverUu = 04 05 as type 2.
-Bytes expected_command(std::uint8_t pti) {
+// `uu == false` is the answer to a UE POLICY PROVISIONING REQUEST asking for PC5 only (P6a).
+Bytes expected_command(std::uint8_t pti, bool uu = true) {
     Bytes contents;
     contents.push_back(0x01); // V2XP info type: PC5
     be16(contents, 3);
     append(contents, {0x01, 0x02, 0x03});
-    contents.push_back(0x02); // V2XP info type: Uu
-    be16(contents, 2);
-    append(contents, {0x04, 0x05});
+    if (uu) {
+        contents.push_back(0x02); // V2XP info type: Uu
+        be16(contents, 2);
+        append(contents, {0x04, 0x05});
+    }
 
     Bytes part;
     be16(part, contents.size() + 1); // covers the part type octet (Table D.6.2.1 NOTE 2)
@@ -290,12 +297,14 @@ TEST(PcfUePolicyDelivery, CreateSendsTheV2xpCommandAndUdrChangesResendIt) {
     udr.start();
     IoContextThread udr_thread(udr_ioc);
 
+    // The AMF answers a UPDP transfer with this status; 504 = UE not reachable (P7).
+    std::atomic<int> amf_status{200};
     boost::asio::io_context amf_ioc;
     sbi_core::http2::Server amf(amf_ioc, "127.0.0.1", 7778, test_tls());
     amf.add_route(
         "POST",
         "/namf-comm/v1/ue-contexts/{ueContextId}/n1-n2-messages",
-        [&rec](const sbi_core::http2::Request& req) {
+        [&rec, &amf_status](const sbi_core::http2::Request& req) {
             const auto ct = header(req, "content-type");
             const auto parts = sbi_core::multipart::parse(ct, req.body);
             const bool updp =
@@ -310,6 +319,9 @@ TEST(PcfUePolicyDelivery, CreateSendsTheV2xpCommandAndUdrChangesResendIt) {
                 }
             }
             rec.cv.notify_all();
+            if (updp && amf_status.load() == 504) {
+                return json_response(504, json{{"status", 504}, {"cause", "UE_NOT_REACHABLE"}});
+            }
             return json_response(200, json{{"cause", "N1_N2_TRANSFER_INITIATED"}});
         });
     amf.add_route("POST",
@@ -335,6 +347,32 @@ TEST(PcfUePolicyDelivery, CreateSendsTheV2xpCommandAndUdrChangesResendIt) {
         });
     amf.start();
     IoContextThread amf_thread(amf_ioc);
+
+    // The AMF's UE policy notification endpoint (notificationUri of the association). The original
+    // URI redirects with 307 (TS 29.525 4.2.4.2); the moved one records the PolicyUpdate.
+    boost::asio::io_context notify_ioc;
+    sbi_core::http2::Server notify(notify_ioc, "127.0.0.1", 19551, test_tls());
+    notify.add_route(
+        "POST", "/pcf-ue-policy-notify/update", [&rec](const sbi_core::http2::Request&) {
+            {
+                std::lock_guard lock(rec.mutex);
+                ++rec.original_update_hits;
+            }
+            sbi_core::http2::Response r;
+            r.status = 307;
+            r.headers.emplace("location", "https://127.0.0.1:19551/moved/update");
+            return r;
+        });
+    notify.add_route("POST", "/moved/update", [&rec](const sbi_core::http2::Request& req) {
+        {
+            std::lock_guard lock(rec.mutex);
+            rec.update_notifies.push_back(json::parse(req.body));
+        }
+        rec.cv.notify_all();
+        return no_content();
+    });
+    notify.start();
+    IoContextThread notify_thread(notify_ioc);
 
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_GT(nrf.pid(), 0);
@@ -445,6 +483,123 @@ TEST(PcfUePolicyDelivery, CreateSendsTheV2xpCommandAndUdrChangesResendIt) {
         EXPECT_EQ(nas, expected_command(nas[0]));
         EXPECT_EQ(rec.udr_subscriptions.size(), 1u) << "re-delivery must not re-subscribe";
         EXPECT_EQ(rec.amf_subscriptions.size(), 1u);
+    }
+
+    // P6a (ADR-0563): UE-requested V2X policy provisioning, TS 24.587 5.3.2. Each answer is one
+    // more UPDP N1N2MessageTransfer; the PCF still has the command above pending, unanswered.
+    std::uint8_t pending_pti = 0;
+    {
+        std::lock_guard lock(rec.mutex);
+        pending_pti = check_updp_transfer(rec.updp_transfers[1]).at(0);
+    }
+    const auto request_answer = [&](const Bytes& request, std::size_t transfer_count) -> Bytes {
+        auto r = client.send(n1_notify(pol_id, request));
+        EXPECT_TRUE(r.has_value());
+        if (r.has_value()) {
+            EXPECT_EQ(r->status, 204) << r->body;
+        }
+        if (!rec.wait_for([&] { return rec.updp_transfers.size() == transfer_count; }, 5000ms)) {
+            ADD_FAILURE() << "no answer to UE POLICY PROVISIONING REQUEST " << transfer_count;
+            return {};
+        }
+        std::lock_guard lock(rec.mutex);
+        return check_updp_transfer(rec.updp_transfers[transfer_count - 1]);
+    };
+    // The PTI of the pending network command: PROVISIONING REJECT #35 (TS 24.587 5.3.2.4).
+    EXPECT_EQ(request_answer(Bytes{pending_pti, 0x05, 0x01, 0x01}, 3),
+              (Bytes{pending_pti, 0x06, 35}));
+    // V2XPC5I only (octet 3 bit 1): a COMMAND with the request's PTI and the PC5 info only.
+    EXPECT_EQ(request_answer(Bytes{0x10, 0x05, 0x01, 0x01}, 4), expected_command(0x10, false));
+    // A retransmission on T5040 expiry (5.3.2.6) is answered again with the same COMMAND.
+    EXPECT_EQ(request_answer(Bytes{0x10, 0x05, 0x01, 0x01}, 5), expected_command(0x10, false));
+    auto complete_req = client.send(n1_notify(pol_id, Bytes{0x10, 0x02}));
+    ASSERT_TRUE(complete_req.has_value());
+    EXPECT_EQ(complete_req->status, 204) << complete_req->body;
+    // A2XI (octet 4 bit 2) on an association without A2X: #32 service option not supported.
+    EXPECT_EQ(request_answer(Bytes{0x11, 0x05, 0x02, 0x00, 0x02}, 6), (Bytes{0x11, 0x06, 32}));
+    // Requested UE policies IE claims 3 octets, carries 1: #96 invalid mandatory information.
+    EXPECT_EQ(request_answer(Bytes{0x12, 0x05, 0x03, 0x01}, 7), (Bytes{0x12, 0x06, 96}));
+
+    // P7 (ADR-0563): PCF-initiated UE Policy Association Modification, TS 23.502 4.16.12.2.
+    // The AMF reports through n1n2FailureTxfNotifURI that the command was not delivered: the PCF
+    // provisions CON_STATE_CH (UpdateNotify, followed through the 307) ...
+    {
+        auto bad = client.send(
+            post_json(std::string(kCallbacks) + "/n1n2-failure/" + pol_id, R"({"cause":1})"));
+        ASSERT_TRUE(bad.has_value());
+        EXPECT_EQ(bad->status, 400) << "malformed N1N2MsgTxfrFailureNotification accepted";
+        auto unknown =
+            client.send(post_json(std::string(kCallbacks) + "/n1n2-failure/no-such-assoc",
+                                  R"({"cause":"UE_NOT_RESPONDING"})"));
+        ASSERT_TRUE(unknown.has_value());
+        EXPECT_EQ(unknown->status, 404) << "failure notification for an unknown association";
+    }
+    auto failure = client.send(post_json(std::string(kCallbacks) + "/n1n2-failure/" + pol_id,
+                                         json{{"cause", "UE_NOT_RESPONDING"},
+                                              {"n1n2MsgDataUri",
+                                               "https://127.0.0.1:7778/namf-comm/v1/ue-contexts/" +
+                                                   std::string(kSupi) + "/n1-n2-messages/1"}}
+                                             .dump()));
+    ASSERT_TRUE(failure.has_value());
+    EXPECT_EQ(failure->status, 204) << failure->body;
+    ASSERT_TRUE(rec.wait_for([&] { return rec.update_notifies.size() == 1; }, 5000ms))
+        << "no UpdateNotify (CON_STATE_CH) after the N1N2 transfer failure notification";
+    {
+        std::lock_guard lock(rec.mutex);
+        EXPECT_EQ(rec.original_update_hits, 1u);
+        const json& u = rec.update_notifies[0];
+        const auto uri = u.at("resourceUri").get<std::string>();
+        const std::string suffix = "/policies/" + pol_id;
+        EXPECT_EQ(uri.substr(uri.size() - std::min(uri.size(), suffix.size())), suffix);
+        EXPECT_NE(std::find(u.at("triggers").begin(), u.at("triggers").end(), "CON_STATE_CH"),
+                  u.at("triggers").end())
+            << u.dump();
+    }
+    // ... and re-delivers when the AMF reports the UE CONNECTED. The AMF still cannot reach it
+    // (504): the PCF keeps the failure pending, and CON_STATE_CH is already provisioned, so no
+    // second UpdateNotify.
+    const auto connected = [&] {
+        sbi_core::http2::ClientRequest u =
+            post_json(std::string(kPcfBase) + "/policies/" + pol_id + "/update",
+                      R"({"triggers":["CON_STATE_CH"],"connectState":"CONNECTED"})");
+        u.headers.emplace("authorization", "Bearer " + token);
+        return client.send(u);
+    };
+    amf_status = 504;
+    auto up1 = connected();
+    ASSERT_TRUE(up1.has_value());
+    EXPECT_EQ(up1->status, 200) << up1->body;
+    ASSERT_TRUE(rec.wait_for([&] { return rec.updp_transfers.size() == 8; }, 5000ms))
+        << "CON_STATE_CH CONNECTED did not re-send the undelivered UE policy";
+    std::this_thread::sleep_for(500ms);
+    {
+        std::lock_guard lock(rec.mutex);
+        EXPECT_EQ(rec.update_notifies.size(), 1u) << "CON_STATE_CH provisioned twice";
+        EXPECT_EQ(rec.original_update_hits, 1u);
+    }
+    // The UE is reachable now: a fresh MANAGE UE POLICY COMMAND goes out.
+    amf_status = 200;
+    auto up2 = connected();
+    ASSERT_TRUE(up2.has_value());
+    EXPECT_EQ(up2->status, 200) << up2->body;
+    ASSERT_TRUE(rec.wait_for([&] { return rec.updp_transfers.size() == 9; }, 5000ms))
+        << "the failure pending after the 504 was not re-delivered";
+    {
+        std::lock_guard lock(rec.mutex);
+        const Bytes nas = check_updp_transfer(rec.updp_transfers[8]);
+        ASSERT_FALSE(nas.empty());
+        EXPECT_GE(nas[0], 0x80);
+        EXPECT_LE(nas[0], 0xFE);
+        EXPECT_EQ(nas, expected_command(nas[0]));
+    }
+    // A delivered command clears the flag: one more CONNECTED report sends nothing.
+    auto up3 = connected();
+    ASSERT_TRUE(up3.has_value());
+    EXPECT_EQ(up3->status, 200) << up3->body;
+    std::this_thread::sleep_for(500ms);
+    {
+        std::lock_guard lock(rec.mutex);
+        EXPECT_EQ(rec.updp_transfers.size(), 9u) << "re-delivered without a pending failure";
     }
 
     // Delete: both subscriptions are removed.

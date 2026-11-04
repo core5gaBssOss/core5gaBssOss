@@ -32,6 +32,15 @@ using Bytes = std::vector<std::uint8_t>;
 inline constexpr std::uint8_t kManageUePolicyCommand = 0x01;
 inline constexpr std::uint8_t kManageUePolicyComplete = 0x02;
 inline constexpr std::uint8_t kManageUePolicyCommandReject = 0x03;
+inline constexpr std::uint8_t kUePolicyProvisioningRequest = 0x05;
+inline constexpr std::uint8_t kUePolicyProvisioningReject = 0x06;
+
+// UPDS cause values the PCF sends in a UE POLICY PROVISIONING REJECT (TS 24.587 §5.3.2.4).
+inline constexpr std::uint8_t kUpdsRequestRejectedUnspecified = 31;
+inline constexpr std::uint8_t kUpdsServiceOptionNotSupported = 32;
+inline constexpr std::uint8_t kUpdsServiceOptionTemporarilyOutOfOrder = 34;
+inline constexpr std::uint8_t kUpdsPtiAlreadyInUse = 35;
+inline constexpr std::uint8_t kUpdsInvalidMandatoryInformation = 96;
 
 // TS 24.501 D.6.2 UE policy part types (low nibble of the type octet).
 inline constexpr std::uint8_t kPartV2xp = 0x03;
@@ -83,8 +92,36 @@ struct UePolicyMessage {
 // The PTI and message type of a UE policy delivery service message; error when too short.
 tl::expected<UePolicyMessage, std::string> parse_ue_policy_message(const Bytes& msg);
 
+// P6a: UE POLICY PROVISIONING REQUEST (TS 24.587 §7.2.1): PTI, message type, Requested UE
+// policies (§8.3.2, LV, 2-4 octets). Only V2XPC5I, V2XUUI (octet 3 bits 1, 2) and A2XI (octet 4
+// bit 2) are read; the 5G ProSe and RSLPP indications are ignored (ADR-0563 simplification).
+struct ProvisioningRequest {
+    std::uint8_t pti = 0;
+    bool v2x_pc5 = false;
+    bool v2x_uu = false;
+    bool a2x = false;
+};
+// Error when the message is not a REQUEST, or the Requested UE policies IE is absent, out of its
+// 1-3 octet value range or truncated (answered with UPDS cause #96).
+tl::expected<ProvisioningRequest, std::string> parse_provisioning_request(const Bytes& msg);
+
+// UE POLICY PROVISIONING REJECT (TS 24.587 §7.2.2): PTI, message type, UPDS cause.
+Bytes build_provisioning_reject(std::uint8_t pti, std::uint8_t cause);
+
+// Which info types to send: everything the association is authorized for (P4), or what the UE
+// asked for (P6a: PC5 -> V2XP info 1, Uu -> V2XP info 2, A2XI -> both A2XP infos). TS 24.577
+// §5.3.2.2 has the UE ask for A2X over PC5, over Uu or both, but the IE it uses (TS 24.587
+// V19.3.0 §8.3.2) has the single A2XI bit, so both are sent (ADR-0563 spec inconsistency).
+struct PolicySelection {
+    bool v2x_pc5 = false;
+    bool v2x_uu = false;
+    bool a2x = false;
+};
+
 // V2XP and A2XP parts from TS 29.519 ServiceParameterData entries. Each base64 string becomes
 // one info; a string that is not base64 is skipped and logged. Empty when there is nothing.
+std::vector<Bytes> parts_from_service_params(const std::vector<nlohmann::json>& params,
+                                             const PolicySelection& sel);
 std::vector<Bytes>
 parts_from_service_params(const std::vector<nlohmann::json>& params, bool v2x, bool a2x);
 
@@ -97,7 +134,12 @@ struct Association {
     std::string udr_subscription; // Location of the UDR subs-to-notify resource
     std::string amf_subscription; // n1n2NotifySubscriptionId at the AMF
     std::optional<std::uint8_t> pending_pti;
+    bool pending_requested = false; // pending_pti came from a UE POLICY PROVISIONING REQUEST
     std::optional<std::uint8_t> last_result; // message type of the UE's last answer
+    // P7: the AMF reported the UE unreachable for a COMMAND (N1N2 transfer failure, or a 409 /
+    // 504 answer); re-delivered when the AMF reports CON_STATE_CH to CONNECTED (TS 23.502
+    // §4.2.4.3).
+    bool delivery_failure_pending = false;
 };
 
 // Thread-safe association table plus the PTI allocator over 0x80-0xFE (TS 24.501 D.2: values
@@ -113,6 +155,15 @@ public:
     // values are pending or the association is gone.
     std::optional<std::uint8_t> allocate_pti(const std::string& pol_asso_id);
     void release_pti(const std::string& pol_asso_id);
+    // P7: sets / clears delivery_failure_pending; false when the association is gone.
+    bool set_delivery_failure(const std::string& pol_asso_id, bool pending);
+    // P6a: true when the PTI is pending on a network-initiated COMMAND of the association
+    // (answered with #35). A PTI pending from an earlier request of the UE is a retransmission
+    // (TS 24.587 §5.3.2.6, T5040) and is not "in use".
+    bool pti_in_use(const std::string& pol_asso_id, std::uint8_t pti) const;
+    // P6a: records the request's PTI as the pending one (TS 24.501 D.1.2: the COMMAND carries
+    // it). Replaces any other pending PTI of the association; false when it is gone.
+    bool claim_requested_pti(const std::string& pol_asso_id, std::uint8_t pti);
     void set_subscriptions(const std::string& pol_asso_id,
                            std::optional<std::string> udr,
                            std::optional<std::string> amf);
@@ -138,9 +189,13 @@ struct DeliveryDeps {
 // Callback paths on the PCF (this project's choice of notification URIs).
 std::string udr_notify_path();                              // UDR application data changes
 std::string n1_notify_path(const std::string& pol_asso_id); // AMF N1MessageNotify (UPDP)
+// AMF N1N2MessageTransfer failure notification (TS 29.518 n1n2FailureTxfNotifURI), P7.
+std::string n1n2_failure_path(const std::string& pol_asso_id);
 inline constexpr std::string_view kNotifyRoot = "/npcf-ue-policy-control/v1/callbacks";
 
-enum class DeliveryResult { kSent, kNothingToSend, kFailed };
+// kNotDelivered: the AMF answered N1N2MessageTransfer with 409 or 504, read here as "UE not
+// reachable now" (simplification: the N1N2MessageTransferError cause is not inspected).
+enum class DeliveryResult { kSent, kNothingToSend, kFailed, kRejected, kNotDelivered };
 
 // P3: GET serviceParamData for the UE (supis query); entries for other SUPIs are dropped.
 tl::expected<std::vector<nlohmann::json>, std::string>
@@ -154,5 +209,22 @@ void unsubscribe(DeliveryDeps& deps, const Association& a);
 // P3 + P4: read the parameters, build the command and send it with N1N2MessageTransfer.
 // Blocking: run it on the PCF's bounded worker, never on an SBI server thread.
 DeliveryResult deliver(DeliveryDeps& deps, DeliveryStore& store, const std::string& pol_asso_id);
+
+// P6a: answers a UE POLICY PROVISIONING REQUEST with a MANAGE UE POLICY COMMAND carrying the
+// request's PTI and only the requested info types (TS 24.587 §5.3.2.3), or with a UE POLICY
+// PROVISIONING REJECT (§5.3.2.4): #35 PTI pending on a network-initiated COMMAND, #32 nothing
+// requested or not authorized (pc5Capab / a2xCapab), #34 the UDR read failed, #31 no parameters.
+// Blocking: run it on the PCF's bounded worker.
+DeliveryResult answer_provisioning_request(DeliveryDeps& deps,
+                                           DeliveryStore& store,
+                                           const std::string& pol_asso_id,
+                                           const ProvisioningRequest& req);
+
+// P6a: sends a UE POLICY PROVISIONING REJECT through N1N2MessageTransfer. A failed transfer
+// aborts the procedure (TS 24.587 §5.3.2.5): logged, no state kept. Blocking.
+DeliveryResult send_provisioning_reject(DeliveryDeps& deps,
+                                        const std::string& supi,
+                                        std::uint8_t pti,
+                                        std::uint8_t cause);
 
 } // namespace pcf::updp

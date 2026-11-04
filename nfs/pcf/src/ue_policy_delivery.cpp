@@ -165,18 +165,45 @@ tl::expected<UePolicyMessage, std::string> parse_ue_policy_message(const Bytes& 
     return UePolicyMessage{msg[0], msg[1]};
 }
 
-std::vector<Bytes>
-parts_from_service_params(const std::vector<nlohmann::json>& params, bool v2x, bool a2x) {
+tl::expected<ProvisioningRequest, std::string> parse_provisioning_request(const Bytes& msg) {
+    if (msg.size() < 2 || msg[1] != kUePolicyProvisioningRequest)
+        return tl::make_unexpected("not a UE POLICY PROVISIONING REQUEST");
+    // TS 24.007 Table 11.6: 00H is "no PTI assigned", FFH is reserved.
+    if (msg[0] == 0x00 || msg[0] == 0xFF)
+        return tl::make_unexpected("PTI 00H/FFH is not a valid request PTI");
+    if (msg.size() < 3)
+        return tl::make_unexpected("Requested UE policies IE is missing");
+    const std::size_t len = msg[2];
+    if (len < 1 || len > 3)
+        return tl::make_unexpected("Requested UE policies length " + std::to_string(len) +
+                                   " is outside 1-3");
+    if (msg.size() < 3 + len)
+        return tl::make_unexpected("Requested UE policies IE is truncated");
+    ProvisioningRequest req;
+    req.pti = msg[0];
+    req.v2x_pc5 = (msg[3] & 0x01) != 0;
+    req.v2x_uu = (msg[3] & 0x02) != 0;
+    if (len >= 2)
+        req.a2x = (msg[4] & 0x02) != 0;
+    return req;
+}
+
+Bytes build_provisioning_reject(std::uint8_t pti, std::uint8_t cause) {
+    return Bytes{pti, kUePolicyProvisioningReject, cause};
+}
+
+std::vector<Bytes> parts_from_service_params(const std::vector<nlohmann::json>& params,
+                                             const PolicySelection& sel) {
     std::vector<PolicyInfo> v2x_infos;
     std::vector<PolicyInfo> a2x_infos;
     for (const auto& entry : params) {
         if (!entry.is_object())
             continue;
-        if (v2x) {
+        if (sel.v2x_pc5)
             collect(entry, "paramOverPc5", kV2xpInfoPc5, v2x_infos);
+        if (sel.v2x_uu)
             collect(entry, "paramOverUu", kV2xpInfoUu, v2x_infos);
-        }
-        if (a2x) {
+        if (sel.a2x) {
             collect(entry, "a2xParamsPc5", kA2xpInfoPc5, a2x_infos);
             collect(entry, "a2xParamsUu", kA2xpInfoUu, a2x_infos);
         }
@@ -194,6 +221,11 @@ parts_from_service_params(const std::vector<nlohmann::json>& params, bool v2x, b
         parts.push_back(std::move(*part));
     }
     return parts;
+}
+
+std::vector<Bytes>
+parts_from_service_params(const std::vector<nlohmann::json>& params, bool v2x, bool a2x) {
+    return parts_from_service_params(params, PolicySelection{v2x, v2x, a2x});
 }
 
 void DeliveryStore::put(const std::string& pol_asso_id, Association a) {
@@ -240,6 +272,7 @@ std::optional<std::uint8_t> DeliveryStore::allocate_pti(const std::string& pol_a
     for (unsigned v = 0x80; v <= 0xFE; ++v) {
         if (!used[v]) {
             self->second.pending_pti = static_cast<std::uint8_t>(v);
+            self->second.pending_requested = false;
             return static_cast<std::uint8_t>(v);
         }
     }
@@ -249,8 +282,43 @@ std::optional<std::uint8_t> DeliveryStore::allocate_pti(const std::string& pol_a
 void DeliveryStore::release_pti(const std::string& pol_asso_id) {
     std::lock_guard lock(mutex_);
     const auto it = by_id_.find(pol_asso_id);
-    if (it != by_id_.end())
+    if (it != by_id_.end()) {
         it->second.pending_pti.reset();
+        it->second.pending_requested = false;
+    }
+}
+
+bool DeliveryStore::set_delivery_failure(const std::string& pol_asso_id, bool pending) {
+    std::lock_guard lock(mutex_);
+    const auto it = by_id_.find(pol_asso_id);
+    if (it == by_id_.end())
+        return false;
+    it->second.delivery_failure_pending = pending;
+    return true;
+}
+
+bool DeliveryStore::pti_in_use(const std::string& pol_asso_id, std::uint8_t pti) const {
+    std::lock_guard lock(mutex_);
+    const auto it = by_id_.find(pol_asso_id);
+    if (it == by_id_.end() || !it->second.pending_pti.has_value())
+        return false;
+    return *it->second.pending_pti == pti && !it->second.pending_requested;
+}
+
+bool DeliveryStore::claim_requested_pti(const std::string& pol_asso_id, std::uint8_t pti) {
+    std::lock_guard lock(mutex_);
+    const auto it = by_id_.find(pol_asso_id);
+    if (it == by_id_.end())
+        return false;
+    if (it->second.pending_pti.has_value() && *it->second.pending_pti != pti)
+        spdlog::info("pcf: PTI {:#04x} of {} replaced by the UE's request PTI {:#04x}; a later "
+                     "answer for it is ignored (ADR-0563, single pending slot)",
+                     *it->second.pending_pti,
+                     pol_asso_id,
+                     pti);
+    it->second.pending_pti = pti;
+    it->second.pending_requested = true;
+    return true;
 }
 
 void DeliveryStore::set_subscriptions(const std::string& pol_asso_id,
@@ -273,12 +341,18 @@ bool DeliveryStore::answer(const std::string& pol_asso_id, const UePolicyMessage
         *it->second.pending_pti != msg.pti)
         return false;
     it->second.pending_pti.reset();
+    it->second.pending_requested = false;
     it->second.last_result = msg.type;
     return true;
 }
 
 std::string udr_notify_path() {
     return std::string(kNotifyRoot) + "/udr-app-data";
+}
+
+std::string n1n2_failure_path(const std::string& pol_asso_id) {
+    return std::string(kNotifyRoot) + "/n1n2-failure/" +
+           sbi_core::uri::encode_path_segment(pol_asso_id);
 }
 
 std::string n1_notify_path(const std::string& pol_asso_id) {
@@ -420,6 +494,69 @@ void unsubscribe(DeliveryDeps& deps, const Association& a) {
     }
 }
 
+namespace {
+
+enum class N1Send { kOk, kNotDelivered, kError };
+
+// N1N2MessageTransfer of one UPDP message (TS 29.518 N1MessageContainer, class UPDP). kOk on
+// 200 / 202; kNotDelivered on 409 / 504 (the UE could not be reached now); kError otherwise.
+// With a pol_asso_id the request carries n1n2FailureTxfNotifURI so that the AMF reports a
+// later delivery failure (P7). Failures are logged.
+N1Send send_n1(DeliveryDeps& deps,
+               const std::string& supi,
+               const std::string& pol_asso_id,
+               const Bytes& nas) {
+    auto token = deps.amf_oauth.get_bearer_token();
+    if (!token.has_value()) {
+        spdlog::warn("pcf: no AMF token for N1N2MessageTransfer: {}", token.error());
+        return N1Send::kError;
+    }
+    static constexpr const char* kContentId = "n1UePol";
+    nlohmann::json req = {
+        {"n1MessageContainer",
+         {{"n1MessageClass", "UPDP"}, {"n1MessageContent", {{"contentId", kContentId}}}}}};
+    if (!pol_asso_id.empty())
+        req["n1n2FailureTxfNotifURI"] = deps.self_base_url + n1n2_failure_path(pol_asso_id);
+    sbi_core::multipart::Part json_part;
+    json_part.content_type = "application/json";
+    json_part.body = req.dump();
+    sbi_core::multipart::Part bin_part;
+    bin_part.content_type = "application/vnd.3gpp.5gnas";
+    bin_part.content_id = kContentId;
+    bin_part.body.assign(nas.begin(), nas.end());
+    const auto encoded = sbi_core::multipart::encode({json_part, bin_part});
+
+    sbi_core::http2::ClientRequest r;
+    r.method = "POST";
+    r.url = deps.amf_base_url + "/namf-comm/v1/ue-contexts/" +
+            sbi_core::uri::encode_path_segment(supi) + "/n1-n2-messages";
+    r.headers.emplace("content-type", encoded.content_type_header);
+    r.headers.emplace("authorization", "Bearer " + *token);
+    r.body = encoded.body;
+    const auto resp = deps.amf_client.send(r);
+    if (!resp.has_value()) {
+        spdlog::warn("pcf: UPDP N1N2MessageTransfer for {} failed: {}", supi, resp.error());
+        return N1Send::kError;
+    }
+    if (resp->status == 200 || resp->status == 202)
+        return N1Send::kOk;
+    spdlog::warn("pcf: UPDP N1N2MessageTransfer for {} answered {}", supi, resp->status);
+    if (resp->status == 409 || resp->status == 504)
+        return N1Send::kNotDelivered;
+    return N1Send::kError;
+}
+
+DeliveryResult failed_send(DeliveryStore& store, const std::string& pol_asso_id, N1Send sent) {
+    store.release_pti(pol_asso_id);
+    if (sent == N1Send::kNotDelivered) {
+        store.set_delivery_failure(pol_asso_id, true);
+        return DeliveryResult::kNotDelivered;
+    }
+    return DeliveryResult::kFailed;
+}
+
+} // namespace
+
 DeliveryResult deliver(DeliveryDeps& deps, DeliveryStore& store, const std::string& pol_asso_id) {
     const auto a = store.get(pol_asso_id);
     if (!a.has_value())
@@ -447,45 +584,71 @@ DeliveryResult deliver(DeliveryDeps& deps, DeliveryStore& store, const std::stri
         store.release_pti(pol_asso_id);
         return DeliveryResult::kFailed;
     }
-    auto token = deps.amf_oauth.get_bearer_token();
-    if (!token.has_value()) {
-        spdlog::warn("pcf: no AMF token for N1N2MessageTransfer: {}", token.error());
-        store.release_pti(pol_asso_id);
-        return DeliveryResult::kFailed;
-    }
-    static constexpr const char* kContentId = "n1UePol";
-    nlohmann::json req = {
-        {"n1MessageContainer",
-         {{"n1MessageClass", "UPDP"}, {"n1MessageContent", {{"contentId", kContentId}}}}}};
-    sbi_core::multipart::Part json_part;
-    json_part.content_type = "application/json";
-    json_part.body = req.dump();
-    sbi_core::multipart::Part bin_part;
-    bin_part.content_type = "application/vnd.3gpp.5gnas";
-    bin_part.content_id = kContentId;
-    bin_part.body.assign(command->begin(), command->end());
-    const auto encoded = sbi_core::multipart::encode({json_part, bin_part});
-
-    sbi_core::http2::ClientRequest r;
-    r.method = "POST";
-    r.url = deps.amf_base_url + "/namf-comm/v1/ue-contexts/" +
-            sbi_core::uri::encode_path_segment(a->supi) + "/n1-n2-messages";
-    r.headers.emplace("content-type", encoded.content_type_header);
-    r.headers.emplace("authorization", "Bearer " + *token);
-    r.body = encoded.body;
-    const auto resp = deps.amf_client.send(r);
-    if (!resp.has_value()) {
-        spdlog::warn("pcf: UPDP N1N2MessageTransfer for {} failed: {}", a->supi, resp.error());
-        store.release_pti(pol_asso_id);
-        return DeliveryResult::kFailed;
-    }
-    if (resp->status != 200 && resp->status != 202) {
-        spdlog::warn("pcf: UPDP N1N2MessageTransfer for {} answered {}", a->supi, resp->status);
-        store.release_pti(pol_asso_id);
-        return DeliveryResult::kFailed;
-    }
+    if (const auto sent = send_n1(deps, a->supi, pol_asso_id, *command); sent != N1Send::kOk)
+        return failed_send(store, pol_asso_id, sent);
     spdlog::info("pcf: MANAGE UE POLICY COMMAND (PTI {:#04x}, {} part(s)) sent for {}",
                  *pti,
+                 parts.size(),
+                 a->supi);
+    return DeliveryResult::kSent;
+}
+
+DeliveryResult send_provisioning_reject(DeliveryDeps& deps,
+                                        const std::string& supi,
+                                        std::uint8_t pti,
+                                        std::uint8_t cause) {
+    if (send_n1(deps, supi, {}, build_provisioning_reject(pti, cause)) != N1Send::kOk) {
+        // TS 24.587 §5.3.2.5: the procedure is aborted; nothing is kept.
+        spdlog::warn("pcf: UE POLICY PROVISIONING REJECT (PTI {:#04x}, #{}) for {} not "
+                     "transferred; procedure aborted",
+                     pti,
+                     cause,
+                     supi);
+        return DeliveryResult::kFailed;
+    }
+    spdlog::info(
+        "pcf: UE POLICY PROVISIONING REJECT (PTI {:#04x}, #{}) sent for {}", pti, cause, supi);
+    return DeliveryResult::kRejected;
+}
+
+DeliveryResult answer_provisioning_request(DeliveryDeps& deps,
+                                           DeliveryStore& store,
+                                           const std::string& pol_asso_id,
+                                           const ProvisioningRequest& req) {
+    const auto a = store.get(pol_asso_id);
+    if (!a.has_value())
+        return DeliveryResult::kNothingToSend;
+    // §5.3.2.4 #35: the PTI is pending on a network-initiated COMMAND. A PTI pending from the
+    // UE's own earlier request is its T5040 retransmission (§5.3.2.6): answered again below.
+    if (store.pti_in_use(pol_asso_id, req.pti))
+        return send_provisioning_reject(deps, a->supi, req.pti, kUpdsPtiAlreadyInUse);
+    const PolicySelection sel{req.v2x_pc5 && a->v2x, req.v2x_uu && a->v2x, req.a2x && a->a2x};
+    if (!sel.v2x_pc5 && !sel.v2x_uu && !sel.a2x) {
+        spdlog::info("pcf: UE policy request of {} asks for nothing it is authorized for", a->supi);
+        return send_provisioning_reject(deps, a->supi, req.pti, kUpdsServiceOptionNotSupported);
+    }
+    const auto params = fetch_service_params(deps, a->supi);
+    if (!params.has_value()) {
+        spdlog::warn("pcf: V2X/A2X service parameters for {}: {}", a->supi, params.error());
+        return send_provisioning_reject(
+            deps, a->supi, req.pti, kUpdsServiceOptionTemporarilyOutOfOrder);
+    }
+    const auto parts = parts_from_service_params(*params, sel);
+    if (parts.empty()) {
+        spdlog::info("pcf: no requested V2XP/A2XP service parameters for {}", a->supi);
+        return send_provisioning_reject(deps, a->supi, req.pti, kUpdsRequestRejectedUnspecified);
+    }
+    const auto command = build_manage_ue_policy_command(req.pti, a->plmn, kV2xSectionCode, parts);
+    if (!command.has_value()) {
+        spdlog::error("pcf: MANAGE UE POLICY COMMAND not built: {}", command.error());
+        return send_provisioning_reject(deps, a->supi, req.pti, kUpdsRequestRejectedUnspecified);
+    }
+    if (!store.claim_requested_pti(pol_asso_id, req.pti))
+        return DeliveryResult::kNothingToSend;
+    if (const auto sent = send_n1(deps, a->supi, pol_asso_id, *command); sent != N1Send::kOk)
+        return failed_send(store, pol_asso_id, sent);
+    spdlog::info("pcf: MANAGE UE POLICY COMMAND (requested, PTI {:#04x}, {} part(s)) sent for {}",
+                 req.pti,
                  parts.size(),
                  a->supi);
     return DeliveryResult::kSent;
