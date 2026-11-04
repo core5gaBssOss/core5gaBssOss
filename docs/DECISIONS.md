@@ -516,7 +516,9 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0549](decisions/ADR-0549-aanf-supi-path-encoding-and-atomic-akma-context-replace-sec.md) AAnF SUPI path encoding and atomic AKMA context replace (SEC-15)
 - [0550](decisions/ADR-0550-functionality-survey-against-mmt-studio-5g6g-items-deferred.md) Functionality survey against mmt-studio-5g6g: items deferred for future implementation
 - [0553](decisions/ADR-0553-readme-r19-at-a-glance-area-table-and-architecture-diagram.md) README R19 at-a-glance area table and architecture diagram regrouping
+- [0552](decisions/ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md) Adopt SBI TLS and OAuth2 review skills adapted from Anthropic-Cybersecurity-Skills (Apache-2.0)
 - [0554](decisions/ADR-0554-strict-nrf-token-refusal-per-ts-33-501-13-4-1-1-2-consumer.md) Strict NRF token refusal per TS 33.501 13.4.1.1.2; consumer shows the AccessTokenErr value
+- [0517](decisions/ADR-0517-nwdaf-mtlf-helm-chart-the-nwdaf-certificate-names-nwdaf.md) NWDAF MTLF Helm chart; the NWDAF certificate names nwdaf-mtlf (DEP-03 follow-up)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
