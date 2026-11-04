@@ -705,6 +705,71 @@ int main() {
         .nf_instance_id = pcf_instance_id,
     };
     pcf::BoundedWorker v2x_worker(1024);
+    // ADR-0563 (P7): TS 23.502 §4.2.4.3 -- after a UE Policy delivery failure the PCF adds the
+    // "Connectivity state changes" trigger (CON_STATE_CH) to the UE policy association with the
+    // PCF-initiated modification of §4.16.12.2: Npcf_UEPolicyControl_UpdateNotify, POST
+    // "{notificationUri}/update" with a PolicyUpdate (TS 29.525 §4.2.4.2). Runs on the V2X worker.
+    // Nothing is sent when the trigger is already provisioned. Disclosed simplification: the
+    // read-modify-write of the stored association is not atomic against a concurrent Update.
+    const auto notify_delivery_failure = [&ue_policies, &sm_policy_notify_client](
+                                             const std::string& pol_asso_id) {
+        using Trigger = sbi_gen::RequestTrigger_Npcf_UEPolicyControl;
+        auto stored = ue_policies.get(pol_asso_id);
+        if (!stored.has_value()) {
+            return;
+        }
+        auto association = stored->get<sbi_gen::PolicyAssociation_Npcf_UEPolicyControl>();
+        auto triggers = association.triggers.value_or(std::vector<Trigger>{});
+        if (std::any_of(triggers.begin(), triggers.end(), [](const Trigger& t) {
+                return t.value == Trigger::CON_STATE_CH;
+            })) {
+            return;
+        }
+        triggers.push_back(Trigger{Trigger::CON_STATE_CH});
+        association.triggers = triggers;
+        ue_policies.put(pol_asso_id, json(association));
+        if (!association.request.has_value()) {
+            return;
+        }
+        sbi_gen::PolicyUpdate_Npcf_UEPolicyControl update{};
+        update.resourceUri = std::string(kUePolicyApiRoot) + "/policies/" + pol_asso_id;
+        update.triggers = triggers;
+        sbi_core::http2::ClientRequest req;
+        req.method = "POST";
+        req.url = association.request->notificationUri + "/update";
+        req.headers.emplace("content-type", "application/json");
+        req.body = json(update).dump();
+        auto resp = sm_policy_notify_client.send(req);
+        if (resp.has_value() && (resp->status == 307 || resp->status == 308)) {
+            // §4.2.4.2 (307/308 per the TS 29.525 YAML callback responses): resend the failed
+            // notification to the Location URI; later ones still go to the notificationUri of the
+            // association.
+            const auto loc = resp->headers.find("location");
+            if (loc != resp->headers.end() && !loc->second.empty()) {
+                req.url = loc->second;
+                resp = sm_policy_notify_client.send(req);
+            }
+        } else if (resp.has_value() && resp->status == 404) {
+            // §4.2.4.2: "should resend the failed policy update notification request to that
+            // URI". No alternate AMF address is kept (altNotif* deferred), so the same URI, once.
+            resp = sm_policy_notify_client.send(req);
+        }
+        if (resp.has_value() && (resp->status == 204 || resp->status == 200)) {
+            spdlog::info("pcf: CON_STATE_CH provisioned on UE policy association {}", pol_asso_id);
+        } else {
+            spdlog::warn(
+                "pcf: UpdateNotify (CON_STATE_CH) for {} to {} failed", pol_asso_id, req.url);
+        }
+    };
+    // Deliver the V2XP / A2XP of an association; a UE that cannot be reached now (P7) makes the
+    // PCF ask the AMF for its connectivity state changes.
+    const auto deliver_updp =
+        [&updp_deps, &updp_store, &notify_delivery_failure](const std::string& pol_asso_id) {
+            if (pcf::updp::deliver(updp_deps, updp_store, pol_asso_id) ==
+                pcf::updp::DeliveryResult::kNotDelivered) {
+                notify_delivery_failure(pol_asso_id);
+            }
+        };
     // Queue the P5 provisioning for one UE; v2x / a2x say which of the two to determine. When the
     // UDM authorizes it, P3 + P4 follow for the association: subscribe once, then deliver.
     const auto schedule_v2x = [&](const std::string& pol_asso_id,
@@ -715,31 +780,38 @@ int main() {
         if (!v2x_enabled || (!v2x && !a2x)) {
             return;
         }
-        const bool queued = v2x_worker.try_post(
-            [&v2x_deps, &updp_deps, &updp_store, pol_asso_id, supi, supp_feat, v2x, a2x] {
-                using pcf::v2x::ProvisionResult;
-                bool v2x_ok = false;
-                bool a2x_ok = false;
-                if (v2x) {
-                    const auto r = pcf::v2x::provision_v2x(v2x_deps, supi, supp_feat);
-                    v2x_ok = r == ProvisionResult::kSent || r == ProvisionResult::kNothingToSend;
-                }
-                if (a2x) {
-                    const auto r = pcf::v2x::check_a2x(v2x_deps, supi);
-                    a2x_ok = r == ProvisionResult::kSent || r == ProvisionResult::kNothingToSend;
-                }
-                auto a = updp_store.get(pol_asso_id);
-                if (!a.has_value() || (!v2x_ok && !a2x_ok)) {
-                    return; // association gone, or neither authorized (fail closed)
-                }
-                a->v2x = v2x_ok;
-                a->a2x = a2x_ok;
-                updp_store.put(pol_asso_id, *a);
-                if (a->udr_subscription.empty() || a->amf_subscription.empty()) {
-                    pcf::updp::subscribe(updp_deps, updp_store, pol_asso_id);
-                }
-                pcf::updp::deliver(updp_deps, updp_store, pol_asso_id);
-            });
+        const bool queued = v2x_worker.try_post([&v2x_deps,
+                                                 &updp_deps,
+                                                 &updp_store,
+                                                 &deliver_updp,
+                                                 pol_asso_id,
+                                                 supi,
+                                                 supp_feat,
+                                                 v2x,
+                                                 a2x] {
+            using pcf::v2x::ProvisionResult;
+            bool v2x_ok = false;
+            bool a2x_ok = false;
+            if (v2x) {
+                const auto r = pcf::v2x::provision_v2x(v2x_deps, supi, supp_feat);
+                v2x_ok = r == ProvisionResult::kSent || r == ProvisionResult::kNothingToSend;
+            }
+            if (a2x) {
+                const auto r = pcf::v2x::check_a2x(v2x_deps, supi);
+                a2x_ok = r == ProvisionResult::kSent || r == ProvisionResult::kNothingToSend;
+            }
+            auto a = updp_store.get(pol_asso_id);
+            if (!a.has_value() || (!v2x_ok && !a2x_ok)) {
+                return; // association gone, or neither authorized (fail closed)
+            }
+            a->v2x = v2x_ok;
+            a->a2x = a2x_ok;
+            updp_store.put(pol_asso_id, *a);
+            if (a->udr_subscription.empty() || a->amf_subscription.empty()) {
+                pcf::updp::subscribe(updp_deps, updp_store, pol_asso_id);
+            }
+            deliver_updp(pol_asso_id);
+        });
         if (!queued) {
             spdlog::warn("pcf: V2X provisioning queue full; UE {} not provisioned", supi);
         }
@@ -1575,8 +1647,12 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUePolicyApiRoot) + "/policies/{polAssoId}/update",
-        [&ue_policies, &ue_policy_update_counter, &schedule_v2x](
-            const sbi_core::http2::Request& req) {
+        [&ue_policies,
+         &ue_policy_update_counter,
+         &schedule_v2x,
+         &updp_store,
+         &v2x_worker,
+         &deliver_updp](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
                 sbi_gen::PolicyAssociationUpdateRequest_Npcf_UEPolicyControl>(req, err);
@@ -1627,6 +1703,25 @@ int main() {
                             stored_req.a2xCapab.has_value() && !stored_req.a2xCapab->empty();
             }
             ue_policies.put(pol_asso_id, json(association));
+            // ADR-0563 (P7): TS 23.502 §4.2.4.3 -- the AMF reports CON_STATE_CH with the UE
+            // CONNECTED after a delivery failure: the PCF re-initiates the delivery (new PTI).
+            const bool con_state_reported =
+                body->triggers.has_value() &&
+                std::any_of(body->triggers->begin(), body->triggers->end(), [](const auto& t) {
+                    return t.value == sbi_gen::RequestTrigger_Npcf_UEPolicyControl::CON_STATE_CH;
+                });
+            if (con_state_reported && body->connectState.has_value() &&
+                body->connectState->value == sbi_gen::CmState::CONNECTED) {
+                const auto a = updp_store.get(pol_asso_id);
+                if (a.has_value() && a->delivery_failure_pending) {
+                    updp_store.set_delivery_failure(pol_asso_id, false);
+                    if (!v2x_worker.try_post(
+                            [&deliver_updp, pol_asso_id] { deliver_updp(pol_asso_id); })) {
+                        updp_store.set_delivery_failure(pol_asso_id, true);
+                        spdlog::warn("pcf: V2X queue full; {} not re-delivered", pol_asso_id);
+                    }
+                }
+            }
             if (association.request.has_value()) {
                 schedule_v2x(pol_asso_id,
                              association.request->supi,
@@ -1655,7 +1750,7 @@ int main() {
     server.add_route(
         "POST",
         pcf::updp::udr_notify_path(),
-        [&updp_store, &updp_deps, &v2x_worker](const sbi_core::http2::Request& req) {
+        [&updp_store, &v2x_worker, &deliver_updp](const sbi_core::http2::Request& req) {
             json body;
             try {
                 body = json::parse(req.body);
@@ -1684,9 +1779,7 @@ int main() {
                 }
             }
             for (const auto& id : ids) {
-                if (!v2x_worker.try_post([&updp_deps, &updp_store, id] {
-                        pcf::updp::deliver(updp_deps, updp_store, id);
-                    })) {
+                if (!v2x_worker.try_post([&deliver_updp, id] { deliver_updp(id); })) {
                     spdlog::warn("pcf: V2X queue full; association {} not re-delivered", id);
                 }
             }
@@ -1697,12 +1790,54 @@ int main() {
         // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
         sbi_core::http2::RouteAuth::None);
 
+    // ADR-0563 (P7): AMF N1N2MessageTransfer failure notification (TS 29.518, callback
+    // n1n2FailureTxfNotifURI): the UE was not reached for an asynchronous UE policy delivery. The
+    // PCF frees the PTI, marks the association and, on the V2X worker, provisions CON_STATE_CH
+    // (TS 23.502 §4.2.4.3). Callback routes carry no NRF token (TS 33.501 13.4.1.0, ADR-0499).
+    server.add_route(
+        "POST",
+        std::string(pcf::updp::kNotifyRoot) + "/n1n2-failure/{polAssoId}",
+        [&updp_store, &v2x_worker, &notify_delivery_failure](const sbi_core::http2::Request& req) {
+            const auto pol_asso_id = req.path_params.at("polAssoId");
+            sbi_core::http2::Response err;
+            auto body =
+                sbi_core::http2::parse_json_body<sbi_gen::N1N2MsgTxfrFailureNotification>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            if (updp_store.get(pol_asso_id).has_value()) {
+                spdlog::info("pcf: N1N2 transfer failure for {} (cause {})",
+                             pol_asso_id,
+                             json(body->cause).dump());
+                updp_store.release_pti(pol_asso_id);
+                updp_store.set_delivery_failure(pol_asso_id, true);
+                if (!v2x_worker.try_post([&notify_delivery_failure, pol_asso_id] {
+                        notify_delivery_failure(pol_asso_id);
+                    })) {
+                    spdlog::warn("pcf: V2X queue full; CON_STATE_CH for {} not provisioned",
+                                 pol_asso_id);
+                }
+            } else {
+                // TS 29.518 YAML lists 404 on the n1n2FailureTxfNotifURI callback.
+                spdlog::warn("pcf: N1N2 failure for unknown association {}", pol_asso_id);
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No UE policy association " + pol_asso_id, std::nullopt);
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        },
+        sbi_core::http2::RouteAuth::None);
+
     // ADR-0555 (P4): AMF N1MessageNotify for N1 message class UPDP (TS 29.518): the UE's MANAGE
     // UE POLICY COMPLETE or COMMAND REJECT (TS 24.501 D.5.2, D.5.3) for the association's PTI.
+    // ADR-0563 (P6a): a UE POLICY PROVISIONING REQUEST (TS 24.587 §5.3.2) is answered on the V2X
+    // worker with a COMMAND or a PROVISIONING REJECT; the notification itself is answered 204.
     server.add_route(
         "POST",
         std::string(pcf::updp::kNotifyRoot) + "/n1-msg/{polAssoId}",
-        [&updp_store](const sbi_core::http2::Request& req) {
+        [&updp_store, &updp_deps, &v2x_worker, &notify_delivery_failure](
+            const sbi_core::http2::Request& req) {
             const auto pol_asso_id = req.path_params.at("polAssoId");
             const auto ct = req.headers.find("content-type");
             if (ct == req.headers.end() || !sbi_core::multipart::is_multipart_related(ct->second)) {
@@ -1724,8 +1859,44 @@ int main() {
                 return sbi_core::http2::problem_response(
                     400, "Malformed notification", "no 5GS NAS part", "INVALID_MSG_FORMAT");
             }
-            const auto msg = pcf::updp::parse_ue_policy_message(
-                pcf::updp::Bytes(nas->body.begin(), nas->body.end()));
+            const pcf::updp::Bytes nas_bytes(nas->body.begin(), nas->body.end());
+            if (nas_bytes.size() >= 2 && nas_bytes[1] == pcf::updp::kUePolicyProvisioningRequest) {
+                const auto a = updp_store.get(pol_asso_id);
+                if (!a.has_value()) {
+                    spdlog::warn("pcf: UE policy request for unknown association {}", pol_asso_id);
+                } else {
+                    auto preq = pcf::updp::parse_provisioning_request(nas_bytes);
+                    const bool queued = v2x_worker.try_post([&updp_deps,
+                                                             &updp_store,
+                                                             &notify_delivery_failure,
+                                                             pol_asso_id,
+                                                             supi = a->supi,
+                                                             pti = nas_bytes[0],
+                                                             preq = std::move(preq)] {
+                        if (!preq.has_value()) {
+                            // TS 24.587 §5.3.2.4: #96 invalid mandatory information.
+                            spdlog::warn("pcf: UE policy request of {}: {}", supi, preq.error());
+                            pcf::updp::send_provisioning_reject(
+                                updp_deps, supi, pti, pcf::updp::kUpdsInvalidMandatoryInformation);
+                            return;
+                        }
+                        if (pcf::updp::answer_provisioning_request(
+                                updp_deps, updp_store, pol_asso_id, *preq) ==
+                            pcf::updp::DeliveryResult::kNotDelivered) {
+                            notify_delivery_failure(pol_asso_id);
+                        }
+                    });
+                    if (!queued) {
+                        // The UE retransmits on T5040 expiry (TS 24.587 §5.3.2.6).
+                        spdlog::warn("pcf: V2X queue full; UE policy request of {} dropped",
+                                     pol_asso_id);
+                    }
+                }
+                sbi_core::http2::Response resp;
+                resp.status = 204;
+                return resp;
+            }
+            const auto msg = pcf::updp::parse_ue_policy_message(nas_bytes);
             if (!msg.has_value()) {
                 return sbi_core::http2::problem_response(
                     400, "Malformed notification", msg.error(), "INVALID_MSG_FORMAT");

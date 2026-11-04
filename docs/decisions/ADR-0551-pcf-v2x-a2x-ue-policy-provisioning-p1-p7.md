@@ -15,7 +15,7 @@ Stage-3 sources, all in hand: TS 29.525 j70, TS29525_Npcf_UEPolicyControl.yaml a
 | P3 | Read UDR application data `paramOverPc5`, `paramOverUu`, `a2xParamsPc5`, `a2xParamsUu`, and subscribe to changes | TS 29.519 §6.2.15 |
 | P4 | Manage UE policy command with a V2XP / A2XP part, via N1N2MessageTransfer, N1 class `UPDP` | TS 29.525 §4.2.2.2.4, §4.2.2.2.6; TS 24.587; TS 24.588 §5.3 |
 | P5 | V2X N2 PC5 policy via Namf_Communication_N1N2MessageTransfer | TS 29.525 §4.2.2.3, §4.2.2.5 |
-| P6 | UE-triggered V2X policy provisioning via N1MessageNotify | TS 24.587 |
+| P6 | UE-triggered V2X/A2X policy provisioning via N1MessageNotify | TS 24.587 §5.3.2 (V2X), TS 24.577 §5.3.2 (A2X); see ADR-0563 |
 | P7 | PCF-initiated Modification and re-delivery | TS 23.502 §4.16.12.2, TS 29.525 §4.2.4.5 (V2X), §4.2.4.8 (A2X) |
 
 **Decision:**
