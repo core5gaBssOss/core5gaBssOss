@@ -63,11 +63,16 @@ TokenDecision authorize_token_request(
     if (const auto t = field("nfType"); t && *t != consumer_type) {
         return refuse("invalid_client", "nfType does not match the registered NF profile");
     }
-    const auto cert_name = lower(consumer_type);
+    // The certificate names the type as the NF itself is named: `5G_EIR` (TS 29.510 NFType) is the
+    // `eir` of CN=eir / DNS:eir (ADR-0505); the full lower-cased type is accepted as well.
+    const auto type_name = lower(consumer_type);
+    const auto short_name = type_name.starts_with("5g_") ? type_name.substr(3) : type_name;
+    const auto names_type = [&](const std::string& n) {
+        const auto l = lower(n);
+        return l == type_name || l == short_name;
+    };
     const bool cert_names_type =
-        lower(requester.cert_cn) == cert_name ||
-        std::ranges::any_of(requester.cert_dns_names,
-                            [&](const std::string& n) { return lower(n) == cert_name; });
+        names_type(requester.cert_cn) || std::ranges::any_of(requester.cert_dns_names, names_type);
     if (!cert_names_type) {
         return refuse("invalid_client", "the client certificate does not name the NF type");
     }
