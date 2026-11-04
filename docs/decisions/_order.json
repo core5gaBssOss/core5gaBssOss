@@ -520,7 +520,10 @@
   "ADR-0559-debezium-change-data-capture-from-postgresql-to-kafka-for.md",
   "ADR-0560-openbao-for-secrets-instead-of-file-mounted-passwords.md",
   "ADR-0561-feast-feature-store-shared-by-the-nwdaf-and-chf-training.md",
-  "ADR-0562-mcp-server-over-streamable-http-with-keycloak-issued-tokens.md"
+  "ADR-0562-mcp-server-over-streamable-http-with-keycloak-issued-tokens.md",
+  "ADR-0553-readme-r19-at-a-glance-area-table-and-architecture-diagram.md",
+  "ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md",
+  "ADR-0517-nwdaf-mtlf-helm-chart-the-nwdaf-certificate-names-nwdaf.md"
  ],
  "split_commit": "0530e4f"
 }
