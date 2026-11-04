@@ -518,6 +518,13 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0553](decisions/ADR-0553-readme-r19-at-a-glance-area-table-and-architecture-diagram.md) README R19 at-a-glance area table and architecture diagram regrouping
 - [0552](decisions/ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md) Adopt SBI TLS and OAuth2 review skills adapted from Anthropic-Cybersecurity-Skills (Apache-2.0)
 - [0554](decisions/ADR-0554-strict-nrf-token-refusal-per-ts-33-501-13-4-1-1-2-consumer.md) Strict NRF token refusal per TS 33.501 13.4.1.1.2; consumer shows the AccessTokenErr value
+- [0556](decisions/ADR-0556-kafka-event-contracts-in-a-schema-registry-apicurio-schemas.md) Kafka event contracts in a schema registry (Apicurio), schemas derived from the 3GPP and TMF sources
+- [0557](decisions/ADR-0557-open-policy-agent-as-the-policy-decision-point-for.md) Open Policy Agent as the policy decision point for northbound and MCP tool authorisation
+- [0558](decisions/ADR-0558-tmf640-service-activation-and-tmf664-resource-function.md) TMF640 Service Activation and TMF664 Resource Function Activation for BSS-to-network provisioning
+- [0559](decisions/ADR-0559-debezium-change-data-capture-from-postgresql-to-kafka-for.md) Debezium change data capture from PostgreSQL to Kafka for BSS and analytics consumers only
+- [0560](decisions/ADR-0560-openbao-for-secrets-instead-of-file-mounted-passwords.md) OpenBao for secrets instead of file-mounted passwords; HashiCorp Vault rejected on licence
+- [0561](decisions/ADR-0561-feast-feature-store-shared-by-the-nwdaf-and-chf-training.md) Feast feature store shared by the NWDAF and CHF training sidecars, training only
+- [0562](decisions/ADR-0562-mcp-server-over-streamable-http-with-keycloak-issued-tokens.md) MCP server over Streamable HTTP with Keycloak-issued tokens, in addition to stdio
 - [0517](decisions/ADR-0517-nwdaf-mtlf-helm-chart-the-nwdaf-certificate-names-nwdaf.md) NWDAF MTLF Helm chart; the NWDAF certificate names nwdaf-mtlf (DEP-03 follow-up)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
