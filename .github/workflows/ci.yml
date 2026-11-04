@@ -1058,6 +1058,9 @@ jobs:
 
       - name: architecture diagram in sync with README
         run: python3 tools/diagrams/check_readme_sync.py
+      # ADR-0553: the README 'R19 at a glance' table is generated from architecture.json.
+      - name: README R19 area table in sync with the architecture diagram
+        run: python3 tools/diagrams/gen_readme_areas.py --check
       # ADR-0503: deploy/docker/lab/ is generated from config/ -- a config/ change without
       # `make lab-config` would leave the compose lab running the old values.
       - name: compose lab config set in sync with config/
