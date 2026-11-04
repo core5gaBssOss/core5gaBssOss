@@ -518,6 +518,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0551](decisions/ADR-0551-pcf-v2x-a2x-ue-policy-provisioning-p1-p7.md) PCF V2X/A2X UE policy provisioning (P1-P7)
 - [0554](decisions/ADR-0554-strict-nrf-token-refusal-per-ts-33-501-13-4-1-1-2-consumer.md) Strict NRF token refusal per TS 33.501 13.4.1.1.2; consumer shows the AccessTokenErr value
 - [0555](decisions/ADR-0555-pcf-v2xp-a2xp-ue-policy-delivery-over-n1-adr-0551-increment.md) PCF V2XP/A2XP UE policy delivery over N1 (ADR-0551 increment 2: P3, P4)
+- [0563](decisions/ADR-0563-pcf-v2x-a2x-ue-requested-policy-provisioning-and-pcf.md) PCF V2X/A2X UE-requested policy provisioning and PCF-initiated modification (ADR-0551 increment 3)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
