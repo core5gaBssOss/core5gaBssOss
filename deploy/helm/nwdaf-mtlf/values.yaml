@@ -1,0 +1,30 @@
+image:
+  repository: 5gc-nwdaf
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# Overrides merged over the generated files/nwdaf-mtlf.json (tools/lab/gen_helm_config.py), e.g.
+#   configOverrides: {training: {timeout_seconds: 1200}}
+configOverrides: {}
+
+certs:
+  # Secret holding ca.crt, cert.pem, key.pem and nrf-jwt-public.pem; default "nwdaf-certs", the
+  # NWDAF's own (the MTLF is the same NF and identity).
+  secretName: ""
+
+# The training workdir (training.workdir): trained models and the MLflow SQLite store.
+persistence:
+  size: 1Gi
+  # Empty: the cluster's default StorageClass.
+  storageClassName: ""

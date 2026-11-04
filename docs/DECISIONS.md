@@ -519,6 +519,9 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0554](decisions/ADR-0554-strict-nrf-token-refusal-per-ts-33-501-13-4-1-1-2-consumer.md) Strict NRF token refusal per TS 33.501 13.4.1.1.2; consumer shows the AccessTokenErr value
 - [0555](decisions/ADR-0555-pcf-v2xp-a2xp-ue-policy-delivery-over-n1-adr-0551-increment.md) PCF V2XP/A2XP UE policy delivery over N1 (ADR-0551 increment 2: P3, P4)
 - [0563](decisions/ADR-0563-pcf-v2x-a2x-ue-requested-policy-provisioning-and-pcf.md) PCF V2X/A2X UE-requested policy provisioning and PCF-initiated modification (ADR-0551 increment 3)
+- [0553](decisions/ADR-0553-readme-r19-at-a-glance-area-table-and-architecture-diagram.md) README R19 at-a-glance area table and architecture diagram regrouping
+- [0552](decisions/ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md) Adopt SBI TLS and OAuth2 review skills adapted from Anthropic-Cybersecurity-Skills (Apache-2.0)
+- [0517](decisions/ADR-0517-nwdaf-mtlf-helm-chart-the-nwdaf-certificate-names-nwdaf.md) NWDAF MTLF Helm chart; the NWDAF certificate names nwdaf-mtlf (DEP-03 follow-up)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

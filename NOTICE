@@ -14,4 +14,10 @@ terms:
 
 - ETSI forge schemas and ASN.1 (specs/etsi/): Copyright ETSI, BSD-3-Clause (specs/etsi/LICENSE).
 
+- Two Claude Code skills (.claude/skills/sbi-tls-hardening/, .claude/skills/sbi-oauth2-review/) are
+  adapted from mukul975/Anthropic-Cybersecurity-Skills at commit
+  54a798831d2266a3ca61ce68a7acb80b81160d57: Copyright 2026 mukul975, Apache-2.0
+  (LICENSES/Apache-2.0.txt). They were rewritten against 3GPP TS 33.501, TS 33.210 and TS 29.510;
+  see ADR-0552.
+
 3GPP and ETSI specification documents are not included; see specs/README.md.
