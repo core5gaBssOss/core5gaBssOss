@@ -29,6 +29,7 @@
 #include "TS26510_CommonData_grp.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
+#include "udr_test_provisioning.hpp"
 
 #include <gtest/gtest.h>
 
@@ -152,6 +153,10 @@ TEST(UdrIntegration, OnDataChangeWebhookDeliveredOnPutPatchDelete) {
 
     const std::string token = fetch_token(client);
     ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
+
+    // ADR-0565: the UDR refuses writes for a user it has not provisioned.
+    const auto provisioned = nf_test::provision_subscriber(ue_id, "");
+    ASSERT_TRUE(provisioned.has_value()) << provisioned.error();
 
     // Real POST subs-to-notify subscription. monitoredResourceUris' own real match semantics
     // (nfs/udr/src/main.cpp's notify_subscribers()) require the subscription's own URI to CONTAIN

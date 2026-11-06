@@ -524,7 +524,8 @@
   "ADR-0553-readme-r19-at-a-glance-area-table-and-architecture-diagram.md",
   "ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md",
   "ADR-0517-nwdaf-mtlf-helm-chart-the-nwdaf-certificate-names-nwdaf.md",
-  "ADR-0564-udr-subscription-tables-bounded-per-table-and-per-token-sub.md"
+  "ADR-0564-udr-subscription-tables-bounded-per-table-and-per-token-sub.md",
+  "ADR-0565-udr-refuses-writes-under-subscription-data-ueid-for-an.md"
  ],
  "split_commit": "0530e4f"
 }

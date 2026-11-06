@@ -527,6 +527,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0562](decisions/ADR-0562-mcp-server-over-streamable-http-with-keycloak-issued-tokens.md) MCP server over Streamable HTTP with Keycloak-issued tokens, in addition to stdio
 - [0517](decisions/ADR-0517-nwdaf-mtlf-helm-chart-the-nwdaf-certificate-names-nwdaf.md) NWDAF MTLF Helm chart; the NWDAF certificate names nwdaf-mtlf (DEP-03 follow-up)
 - [0564](decisions/ADR-0564-udr-subscription-tables-bounded-per-table-and-per-token-sub.md) UDR subscription tables bounded per table and per token sub; confirmed subscription expiry (SUS-02)
+- [0565](decisions/ADR-0565-udr-refuses-writes-under-subscription-data-ueid-for-an.md) UDR refuses writes under subscription-data/{ueId} for an unprovisioned user
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
