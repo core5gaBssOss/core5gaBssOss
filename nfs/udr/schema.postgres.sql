@@ -1324,3 +1324,72 @@ CREATE TABLE IF NOT EXISTS udr_data_restoration_subscriptions (
     subscription_id TEXT PRIMARY KEY,
     data            JSONB NOT NULL
 );
+
+-- ADR-0564 (REVIEW-5ae0ef1 SUS-02): bounds on the subscription tables, per table and per creating
+-- consumer (the access-token sub; '' for a request without a token). Every bounded table gets a
+-- `consumer` column, and udr_store_quota_count() keeps udr_store_quota in step on every INSERT and
+-- DELETE -- whichever code path, the expiry sweep included -- so the counts survive a restart and
+-- a store reads two rows instead of counting a table. A replace never fires the trigger (ON
+-- CONFLICT DO UPDATE is an update) and keeps the creator. '*' is a table's total.
+CREATE TABLE IF NOT EXISTS udr_store_quota (
+    store    TEXT   NOT NULL,
+    consumer TEXT   NOT NULL,
+    entries  BIGINT NOT NULL,
+    PRIMARY KEY (store, consumer)
+);
+
+CREATE OR REPLACE FUNCTION udr_store_quota_count() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO udr_store_quota VALUES (TG_TABLE_NAME, '*', 1)
+            ON CONFLICT (store, consumer) DO UPDATE SET entries = udr_store_quota.entries + 1;
+        IF NEW.consumer NOT IN ('', '*') THEN
+            INSERT INTO udr_store_quota VALUES (TG_TABLE_NAME, NEW.consumer, 1)
+                ON CONFLICT (store, consumer) DO UPDATE SET entries = udr_store_quota.entries + 1;
+        END IF;
+        RETURN NEW;
+    END IF;
+    UPDATE udr_store_quota SET entries = entries - 1
+        WHERE store = TG_TABLE_NAME
+          AND (consumer = '*' OR (consumer = OLD.consumer AND OLD.consumer NOT IN ('', '*')));
+    RETURN OLD;
+END
+$$;
+
+-- The six subscription collections the UDR owns (TS 29.504 5.2.2.6.2 / 5.3.2.4.2, TS 29.519)
+-- also keep the expiry the UDR confirmed; the UDR deletes a row once it has passed. The UDM's own
+-- subscriptions stored here (ee-/sdm-subscriptions and their subscription-info documents) are
+-- bounded but not expired: their expiry is the UDM's (TS 29.503), not a Nudr attribute.
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'udr_subs_to_notify', 'udr_policy_data_subs_to_notify', 'udr_traffic_influence_sub',
+        'udr_application_data_subs', 'udr_exposure_data_subs', 'udr_nf_group_id_subscriptions',
+        'udr_ee_subscriptions', 'udr_sdm_subscriptions', 'udr_group_ee_subscriptions',
+        'udr_ee_amf_subscription_info', 'udr_ee_smf_subscription_info',
+        'udr_ee_hss_subscription_info', 'udr_sdm_hss_subscription_info',
+        'udr_group_amf_subscription_info', 'udr_group_smf_subscription_info',
+        'udr_group_hss_subscription_info'
+    ] LOOP
+        EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS consumer TEXT NOT NULL DEFAULT %L',
+                       t, '');
+        EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER INSERT OR DELETE ON %I '
+                       'FOR EACH ROW EXECUTE FUNCTION udr_store_quota_count()', t || '_quota', t);
+        -- Recounted whenever this file is applied, so rows written before the trigger existed
+        -- are counted too.
+        DELETE FROM udr_store_quota WHERE store = t;
+        EXECUTE format('INSERT INTO udr_store_quota SELECT %L, %L, count(*) FROM %I', t, '*', t);
+        EXECUTE format('INSERT INTO udr_store_quota SELECT %L, consumer, count(*) FROM %I '
+                       'WHERE consumer NOT IN (%L, %L) GROUP BY consumer', t, t, '', '*');
+    END LOOP;
+    FOREACH t IN ARRAY ARRAY[
+        'udr_subs_to_notify', 'udr_policy_data_subs_to_notify', 'udr_traffic_influence_sub',
+        'udr_application_data_subs', 'udr_exposure_data_subs', 'udr_nf_group_id_subscriptions'
+    ] LOOP
+        EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ', t);
+        EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I (expires_at)', t || '_expires_at', t);
+    END LOOP;
+END
+$$;
