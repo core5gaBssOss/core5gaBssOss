@@ -528,9 +528,14 @@ TEST(PcfUePolicyDelivery, CreateSendsTheV2xpCommandAndUdrChangesResendIt) {
             post_json(std::string(kCallbacks) + "/n1n2-failure/" + pol_id, R"({"cause":1})"));
         ASSERT_TRUE(bad.has_value());
         EXPECT_EQ(bad->status, 400) << "malformed N1N2MsgTxfrFailureNotification accepted";
+        // Both properties are required by the TS 29.518 YAML; without n1n2MsgDataUri this is a 400.
         auto unknown =
             client.send(post_json(std::string(kCallbacks) + "/n1n2-failure/no-such-assoc",
-                                  R"({"cause":"UE_NOT_RESPONDING"})"));
+                                  json{{"cause", "UE_NOT_RESPONDING"},
+                                       {"n1n2MsgDataUri",
+                                        "https://127.0.0.1:7778/namf-comm/v1/ue-contexts/" +
+                                            std::string(kSupi) + "/n1-n2-messages/1"}}
+                                      .dump()));
         ASSERT_TRUE(unknown.has_value());
         EXPECT_EQ(unknown->status, 404) << "failure notification for an unknown association";
     }
