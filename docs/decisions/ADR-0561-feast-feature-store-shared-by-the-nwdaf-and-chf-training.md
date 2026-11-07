@@ -1,6 +1,6 @@
 ## ADR-0561: Feast feature store shared by the NWDAF and CHF training sidecars, training only
 
-**Date:** 2026-11-03. **Status:** Proposed.
+**Date:** 2026-11-03. **Status:** Accepted.
 
 **Origin.** From the reference-diagram review (data layer: Feast). Implemented after ADR-0556
 to ADR-0558. See ADR-0556 "Origin".
