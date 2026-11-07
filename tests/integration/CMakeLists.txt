@@ -149,7 +149,7 @@ add_executable(integration_tests
 target_include_directories(integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf/src
                                                     ${CMAKE_SOURCE_DIR}/nfs/udr/src
                                                     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src)
-target_link_libraries(integration_tests PRIVATE libpqxx::pqxx unofficial::libmariadb RdKafka::rdkafka++ ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store provisioning_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
+target_link_libraries(integration_tests PRIVATE libpqxx::pqxx redis++::redis++_static unofficial::libmariadb RdKafka::rdkafka++ ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store provisioning_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
 add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf product-catalog balance-management nwdaf mfaf dccf adrf eir gmlc lmf nssf bsf smsf tsctsf scp)
 target_compile_definitions(integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"
