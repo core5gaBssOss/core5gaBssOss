@@ -532,6 +532,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0564](decisions/ADR-0564-udr-subscription-tables-bounded-per-table-and-per-token-sub.md) UDR subscription tables bounded per table and per token sub; confirmed subscription expiry (SUS-02)
 - [0565](decisions/ADR-0565-udr-refuses-writes-under-subscription-data-ueid-for-an.md) UDR refuses writes under subscription-data/{ueId} for an unprovisioned user
 - [0566](decisions/ADR-0566-dependabot-no-longer-opens-prs-vulnerability-alerts-stay.md) Dependabot no longer opens PRs; vulnerability alerts stay
+- [0567](decisions/ADR-0567-dccf-repairs-stale-collection-records-instead-of-trusting.md) DCCF repairs stale collection records instead of trusting them
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

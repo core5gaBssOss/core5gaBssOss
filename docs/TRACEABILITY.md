@@ -5235,6 +5235,7 @@ commit `bca84b60a37773133bcae97e5c6c0d10a93b47b6`. Stage 2: TS 23.288 V19.7.0 §
 | Ndccf_ContextManagement Register/Update/Deregister (`/data-collection-profiles`) | TS 29.574 4.3.2.2-4 | `nfs/dccf/src/main.cpp`, store | not exercised end to end this increment -- disclosed |
 | Notify / Fetch (served by the MFAF), Transfer (`/transfer-data-sub`) | TS 29.574 4.2.2.4-6 | -- | **not built** (ADR-0366) |
 | NRF registration `nfType=DCCF` | TS 29.510 6.1.6.2.2 | `run_nrf_lifecycle` | live in the same test |
+| Stale collection record (ADR-0567): MFAF configuration lost → collection rebuilt for every carried consumer; NSACF source subscription gone (RFC 6902 `test` PATCH answers 404/400) → source subscribed again; teardown does not DELETE a gone/reused id. AMF/NRF liveness deferred for future implementation | TS 23.288 5A.2, 6.2.6.3.4 steps 4-6, 12-14; TS 29.536 PATCH (PatchItem); TS 29.576 4.2.2.2 | `source_state`, `subscribe`, `leave_collection` | `test_dccf.cpp` RecoversACollectionWhoseSourceOrMfafRecordIsStale (not yet run: pending CI) |
 
 ## ADRF (ADR-0367)
 
