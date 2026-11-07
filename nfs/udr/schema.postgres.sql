@@ -90,6 +90,9 @@ ALTER TABLE udr_provisioned_data ADD COLUMN IF NOT EXISTS lcs_bca_data JSONB;
 ALTER TABLE udr_provisioned_data ADD COLUMN IF NOT EXISTS sms_mng_data JSONB;
 ALTER TABLE udr_provisioned_data ADD COLUMN IF NOT EXISTS sms_data JSONB;
 ALTER TABLE udr_provisioned_data ADD COLUMN IF NOT EXISTS trace_data JSONB;
+-- ADR-0565: the write guard resolves a GPSI ueId through the gpsis list of am_data.
+CREATE INDEX IF NOT EXISTS udr_provisioned_data_gpsis_idx
+    ON udr_provisioned_data USING GIN ((am_data -> 'gpsis'));
 
 -- ADR-0072 (gap-closure: real N28 end-to-end): the real Nudr_DataRepository `policy-data` group's
 -- SM policy resource (TS29519_Policy_Data.yaml's /policy-data/ues/{ueId}/sm-data, real schema

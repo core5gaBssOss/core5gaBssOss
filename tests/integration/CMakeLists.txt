@@ -38,6 +38,7 @@ add_executable(integration_tests
     test_upf_event_exposure_gueip.cpp
     test_udr_context_data.cpp
     test_udr_store_bounds.cpp
+    test_udr_unprovisioned_writes.cpp
     test_udr_ondatachange_webhook.cpp
     test_sbi_core_concurrency.cpp
     test_http2_route_precedence.cpp
@@ -529,7 +530,7 @@ gtest_discover_tests(akma_e2e_integration_tests PROPERTIES TIMEOUT 120)
 
 # ADR-0498: AF requested QoS through the TSCTSF -- real NRF, UDR, UDM, BSF, PCF, TSCTSF, NEF.
 add_executable(tsctsf_e2e_integration_tests test_tsctsf_e2e.cpp)
-target_link_libraries(tsctsf_e2e_integration_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+target_link_libraries(tsctsf_e2e_integration_tests PRIVATE sbi_core provisioning_store GTest::gtest GTest::gtest_main)
 add_dependencies(tsctsf_e2e_integration_tests nrf udr udm bsf pcf tsctsf nef)
 target_compile_definitions(tsctsf_e2e_integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"

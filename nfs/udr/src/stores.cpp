@@ -293,6 +293,17 @@ ProvisionedDataStore::get_trace_data(const std::string& ue_id, const std::string
     return get_provisioned_column(conn_, mutex_, "trace_data", ue_id, serving_plmn_id);
 }
 
+bool ProvisionedDataStore::exists(const std::string& ue_id) {
+    const bool gpsi = ue_id.starts_with("msisdn-") || ue_id.starts_with("extid-");
+    std::lock_guard<std::mutex> lock(mutex_);
+    pqxx::work txn(conn_);
+    const auto result =
+        txn.exec(gpsi ? "SELECT 1 FROM udr_provisioned_data WHERE am_data->'gpsis' ? $1 LIMIT 1"
+                      : "SELECT 1 FROM udr_provisioned_data WHERE ue_id = $1 LIMIT 1",
+                 pqxx::params{ue_id});
+    return !result.empty();
+}
+
 std::vector<nlohmann::json> SmfRegistrationStore::list_for_ue(const std::string& ue_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);

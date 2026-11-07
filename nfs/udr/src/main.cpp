@@ -693,6 +693,7 @@
 #include "aka_crypto/hex.hpp"
 #include "aka_crypto/milenage.hpp"
 #include "oam_provisioning.hpp"
+#include "provisioned_guard.hpp"
 #include "stores.hpp"
 
 namespace {
@@ -2040,6 +2041,9 @@ int main() {
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as NRF's bind -- see docs/DECISIONS.md ADR-0014.
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0565: every data route registers through this, so a write under
+    // subscription-data/{ueId} for an unprovisioned user is refused in one place.
+    udr::ProvisionedWriteRoutes routes(server, provisioned_data, kApiRoot);
     // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service
     // (scopes nudr-dr, nudr-group-id-map) unless `oauth2_required` is false -- the UDR serves no
     // notification route; the OAM provisioning route is exempt (oam_provisioning.cpp).
@@ -2089,7 +2093,7 @@ int main() {
     const std::string amf_ctx_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/amf-3gpp-access";
 
-    server.add_route(
+    routes.add_route(
         "GET", amf_ctx_path_pattern, [&amf_contexts](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             auto context = amf_contexts.get(ue_id);
@@ -2100,7 +2104,7 @@ int main() {
             return sbi_core::http2::Response::json(200, context->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         amf_ctx_path_pattern,
         [&amf_contexts,
@@ -2138,7 +2142,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         amf_ctx_path_pattern,
         [&amf_contexts,
@@ -2183,7 +2187,7 @@ int main() {
     const std::string amf_non3gpp_ctx_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/amf-non-3gpp-access";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      amf_non3gpp_ctx_path_pattern,
                      [&amf_non3gpp_contexts](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -2198,7 +2202,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, context->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         amf_non3gpp_ctx_path_pattern,
         [&amf_non3gpp_contexts,
@@ -2240,7 +2244,7 @@ int main() {
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/smf-registrations";
     const std::string smf_reg_path_pattern = smf_reg_list_path_pattern + "/{pduSessionId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      smf_reg_list_path_pattern,
                      [&smf_registrations](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -2252,7 +2256,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, j.dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "GET", smf_reg_path_pattern, [&smf_registrations](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto pdu_session_id = req.path_params.at("pduSessionId");
@@ -2267,7 +2271,7 @@ int main() {
             return sbi_core::http2::Response::json(200, registration->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         smf_reg_path_pattern,
         [&smf_registrations,
@@ -2307,7 +2311,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         smf_reg_path_pattern,
         [&smf_registrations,
@@ -2349,7 +2353,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         smf_reg_path_pattern,
         [&smf_registrations,
@@ -2385,7 +2389,7 @@ int main() {
     const std::string provisioned_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/{servingPlmnId}/provisioned-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         provisioned_data_path_pattern + "/am-data",
         [&provisioned_data, &provisioned_data_get_counter](const sbi_core::http2::Request& req) {
@@ -2400,7 +2404,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         provisioned_data_path_pattern + "/smf-selection-subscription-data",
         [&provisioned_data, &provisioned_data_get_counter](const sbi_core::http2::Request& req) {
@@ -2418,7 +2422,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         provisioned_data_path_pattern + "/sm-data",
         [&provisioned_data, &provisioned_data_get_counter](const sbi_core::http2::Request& req) {
@@ -2435,7 +2439,7 @@ int main() {
 
     // ADR-0106, gap-closure task #106: real LCS Broadcast Assistance Subscription Data
     // (QueryLcsBcaData), same real GET-only (ueId, servingPlmnId) shape as the three routes above.
-    server.add_route(
+    routes.add_route(
         "GET",
         provisioned_data_path_pattern + "/lcs-bca-data",
         [&provisioned_data, &provisioned_data_get_counter](const sbi_core::http2::Request& req) {
@@ -2455,7 +2459,7 @@ int main() {
 
     // ADR-0125, gap-closure task #106: real SMS Management Subscription Data
     // (QuerySmsMngData), same real GET-only (ueId, servingPlmnId) shape as the routes above.
-    server.add_route(
+    routes.add_route(
         "GET",
         provisioned_data_path_pattern + "/sms-mng-data",
         [&provisioned_data, &provisioned_data_get_counter](const sbi_core::http2::Request& req) {
@@ -2476,7 +2480,7 @@ int main() {
     // ADR-0126, gap-closure task #106: real SMS Subscription Data (QuerySmsData), same real
     // GET-only (ueId, servingPlmnId) shape as the routes above -- genuinely distinct from
     // sms-mng-data above, not a duplicate.
-    server.add_route(
+    routes.add_route(
         "GET",
         provisioned_data_path_pattern + "/sms-data",
         [&provisioned_data, &provisioned_data_get_counter](const sbi_core::http2::Request& req) {
@@ -2494,7 +2498,7 @@ int main() {
     // ADR-0127, gap-closure task #106: real Trace Data (QueryTraceData), same real GET-only
     // (ueId, servingPlmnId) shape as the routes above. Real response schema is a `oneOf` (full
     // `TraceData` object or a bare `SharedDataId` string) -- returned as opaque JSON.
-    server.add_route(
+    routes.add_route(
         "GET",
         provisioned_data_path_pattern + "/trace-data",
         [&provisioned_data, &provisioned_data_get_counter](const sbi_core::http2::Request& req) {
@@ -2533,7 +2537,7 @@ int main() {
     const std::string provisioned_data_sets_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/{servingPlmnId}/provisioned-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         provisioned_data_sets_path_pattern,
         [&provisioned_data,
@@ -2682,7 +2686,7 @@ int main() {
     const std::string sm_policy_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/ues/{ueId}/sm-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         sm_policy_data_path_pattern,
         [&sm_policy_data, &sm_policy_data_get_counter](const sbi_core::http2::Request& req) {
@@ -2696,7 +2700,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      sm_policy_data_path_pattern,
                      [&sm_policy_data,
                       &sm_policy_data_patch_counter,
@@ -2736,7 +2740,7 @@ int main() {
     const std::string usage_mon_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/ues/{ueId}/sm-data/{usageMonId}";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         usage_mon_data_path_pattern,
         [&usage_mon_data, &usage_mon_data_get_counter](const sbi_core::http2::Request& req) {
@@ -2754,7 +2758,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         usage_mon_data_path_pattern,
         [&usage_mon_data, &usage_mon_data_put_counter, usage_mon_data_path_pattern](
@@ -2778,7 +2782,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         usage_mon_data_path_pattern,
         [&usage_mon_data, &usage_mon_data_delete_counter](const sbi_core::http2::Request& req) {
@@ -2813,7 +2817,7 @@ int main() {
     const std::string policy_data_for_ue_path_pattern =
         std::string(kApiRoot) + "/policy-data/ues/{ueId}";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         policy_data_for_ue_path_pattern,
         [&ue_policy_set,
@@ -2874,7 +2878,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/{ueId}/authentication-data/authentication-subscription";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      auth_subscription_path_pattern,
                      [&auth_subscription_data,
                       &auth_subscription_get_counter](const sbi_core::http2::Request& req) {
@@ -2891,7 +2895,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      auth_subscription_path_pattern,
                      [&auth_subscription_data,
                       &auth_subscription_patch_counter,
@@ -2929,7 +2933,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/{ueId}/authentication-data/authentication-status";
 
-    server.add_route("PUT",
+    routes.add_route("PUT",
                      auth_status_path_pattern,
                      [&auth_status,
                       &auth_status_put_counter,
@@ -2956,7 +2960,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         auth_status_path_pattern,
         [&auth_status, &auth_status_get_counter](const sbi_core::http2::Request& req) {
@@ -2970,7 +2974,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         auth_status_path_pattern,
         [&auth_status,
@@ -3009,7 +3013,7 @@ int main() {
         "/subscription-data/{ueId}/authentication-data/authentication-status/"
         "{servingNetworkName}";
 
-    server.add_route("PUT",
+    routes.add_route("PUT",
                      individual_auth_status_path_pattern,
                      [&individual_auth_status,
                       &individual_auth_status_put_counter,
@@ -3037,7 +3041,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      individual_auth_status_path_pattern,
                      [&individual_auth_status,
                       &individual_auth_status_get_counter](const sbi_core::http2::Request& req) {
@@ -3056,7 +3060,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      individual_auth_status_path_pattern,
                      [&individual_auth_status,
                       &individual_auth_status_delete_counter,
@@ -3093,7 +3097,7 @@ int main() {
     const std::string am_policy_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/ues/{ueId}/am-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         am_policy_data_path_pattern,
         [&am_policy_data, &am_policy_data_get_counter](const sbi_core::http2::Request& req) {
@@ -3107,7 +3111,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      am_policy_data_path_pattern,
                      [&am_policy_data,
                       &am_policy_data_patch_counter,
@@ -3142,7 +3146,7 @@ int main() {
     const std::string smsf_3gpp_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/smsf-3gpp-access";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         smsf_3gpp_path_pattern,
         [&smsf_3gpp_context,
@@ -3169,7 +3173,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET", smsf_3gpp_path_pattern, [&smsf_3gpp_context](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             auto data = smsf_3gpp_context.get(ue_id);
@@ -3183,7 +3187,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         smsf_3gpp_path_pattern,
         [&smsf_3gpp_context,
@@ -3213,7 +3217,7 @@ int main() {
     const std::string smsf_non3gpp_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/smsf-non-3gpp-access";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         smsf_non3gpp_path_pattern,
         [&smsf_non3gpp_context,
@@ -3240,7 +3244,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      smsf_non3gpp_path_pattern,
                      [&smsf_non3gpp_context](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -3255,7 +3259,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      smsf_non3gpp_path_pattern,
                      [&smsf_non3gpp_context,
                       &smsf_non3gpp_delete_counter,
@@ -3289,7 +3293,7 @@ int main() {
     const std::string ip_sm_gw_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/ip-sm-gw";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         ip_sm_gw_path_pattern,
         [&ip_sm_gw_context,
@@ -3316,7 +3320,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET", ip_sm_gw_path_pattern, [&ip_sm_gw_context](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             auto data = ip_sm_gw_context.get(ue_id);
@@ -3327,7 +3331,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         ip_sm_gw_path_pattern,
         [&ip_sm_gw_context,
@@ -3365,7 +3369,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         ip_sm_gw_path_pattern,
         [&ip_sm_gw_context,
@@ -3395,7 +3399,7 @@ int main() {
     const std::string mwd_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/mwd";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         mwd_path_pattern,
         [&mwd, &mwd_write_counter, &subs_to_notify, &notify_client, mwd_path_pattern](
@@ -3428,7 +3432,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET", mwd_path_pattern, [&mwd](const sbi_core::http2::Request& req) {
+    routes.add_route("GET", mwd_path_pattern, [&mwd](const sbi_core::http2::Request& req) {
         const auto ue_id = req.path_params.at("ueId");
         auto data = mwd.get(ue_id);
         if (!data.has_value()) {
@@ -3438,7 +3442,7 @@ int main() {
         return sbi_core::http2::Response::json(200, data->dump());
     });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         mwd_path_pattern,
         [&mwd, &mwd_write_counter, &subs_to_notify, &notify_client, mwd_path_pattern](
@@ -3473,7 +3477,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         mwd_path_pattern,
         [&mwd, &mwd_delete_counter, &subs_to_notify, &notify_client, mwd_path_pattern](
@@ -3500,7 +3504,7 @@ int main() {
     const std::string roaming_information_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/roaming-information";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         roaming_information_path_pattern,
         [&roaming_information,
@@ -3537,7 +3541,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         roaming_information_path_pattern,
         [&roaming_information](const sbi_core::http2::Request& req) {
@@ -3556,7 +3560,7 @@ int main() {
     const std::string pei_info_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/pei-info";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         pei_info_path_pattern,
         [&pei_info,
@@ -3594,7 +3598,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET", pei_info_path_pattern, [&pei_info](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             auto data = pei_info.get(ue_id);
@@ -3612,7 +3616,7 @@ int main() {
     const std::string coverage_restriction_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/coverage-restriction-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      coverage_restriction_data_path_pattern,
                      [&coverage_restriction_data,
                       &coverage_restriction_data_get_counter](const sbi_core::http2::Request& req) {
@@ -3635,7 +3639,7 @@ int main() {
     const std::string lcs_privacy_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/lcs-privacy-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         lcs_privacy_data_path_pattern,
         [&lcs_privacy_data, &lcs_privacy_data_get_counter](const sbi_core::http2::Request& req) {
@@ -3655,7 +3659,7 @@ int main() {
     const std::string lcs_subscription_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/lcs-subscription-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         lcs_subscription_data_path_pattern,
         [&lcs_subscription_data,
@@ -3677,7 +3681,7 @@ int main() {
     const std::string lcs_mo_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/lcs-mo-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      lcs_mo_data_path_pattern,
                      [&lcs_mo_data, &lcs_mo_data_get_counter](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -3699,7 +3703,7 @@ int main() {
     const std::string pp_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/pp-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      pp_data_path_pattern,
                      [&pp_data, &pp_data_get_counter](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -3712,7 +3716,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         pp_data_path_pattern,
         [&pp_data, &pp_data_patch_counter, &subs_to_notify, &notify_client, pp_data_path_pattern](
@@ -3748,7 +3752,7 @@ int main() {
     const std::string pp_profile_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/pp-profile-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         pp_profile_data_path_pattern,
         [&pp_profile_data, &pp_profile_data_get_counter](const sbi_core::http2::Request& req) {
@@ -3771,7 +3775,7 @@ int main() {
     const std::string pp_data_store_path_pattern =
         pp_data_store_list_path_pattern + "/{afInstanceId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      pp_data_store_list_path_pattern,
                      [&pp_data_entry](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -3784,7 +3788,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, j.dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "GET", pp_data_store_path_pattern, [&pp_data_entry](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto af_instance_id = req.path_params.at("afInstanceId");
@@ -3799,7 +3803,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         pp_data_store_path_pattern,
         [&pp_data_entry,
@@ -3840,7 +3844,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         pp_data_store_path_pattern,
         [&pp_data_entry,
@@ -3875,7 +3879,7 @@ int main() {
     const std::string shared_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/shared-data/{sharedDataId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      shared_data_path_pattern,
                      [&shared_data, &shared_data_get_counter](const sbi_core::http2::Request& req) {
                          const auto shared_data_id = req.path_params.at("sharedDataId");
@@ -3899,7 +3903,7 @@ int main() {
     const std::string operator_specific_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/operator-specific-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         operator_specific_data_path_pattern,
         [&operator_specific_data,
@@ -3914,7 +3918,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      operator_specific_data_path_pattern,
                      [&operator_specific_data,
                       &operator_specific_data_patch_counter,
@@ -3949,7 +3953,7 @@ int main() {
     // ADR-0197: real PUT/DELETE, correcting ADR-0111's own documentation error (a direct re-read
     // of TS29505_Subscription_Data.yaml found CreateOperSpecData/DeleteOperSpecData both real and
     // declared, contrary to that ADR's own "no PUT/DELETE exists" claim).
-    server.add_route("PUT",
+    routes.add_route("PUT",
                      operator_specific_data_path_pattern,
                      [&operator_specific_data,
                       &operator_specific_data_put_counter,
@@ -3988,7 +3992,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         operator_specific_data_path_pattern,
         [&operator_specific_data,
@@ -4019,7 +4023,7 @@ int main() {
     const std::string ee_profile_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/ee-profile-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         ee_profile_data_path_pattern,
         [&ee_profile_data, &ee_profile_data_get_counter](const sbi_core::http2::Request& req) {
@@ -4039,7 +4043,7 @@ int main() {
     const std::string ue_policy_set_path_pattern =
         std::string(kApiRoot) + "/policy-data/ues/{ueId}/ue-policy-set";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         ue_policy_set_path_pattern,
         [&ue_policy_set, &ue_policy_set_get_counter](const sbi_core::http2::Request& req) {
@@ -4053,7 +4057,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         ue_policy_set_path_pattern,
         [&ue_policy_set,
@@ -4091,7 +4095,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      ue_policy_set_path_pattern,
                      [&ue_policy_set,
                       &ue_policy_set_patch_counter,
@@ -4129,7 +4133,7 @@ int main() {
     const std::string policy_operator_specific_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/ues/{ueId}/operator-specific-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      policy_operator_specific_data_path_pattern,
                      [&policy_operator_specific_data, &policy_operator_specific_data_get_counter](
                          const sbi_core::http2::Request& req) {
@@ -4146,7 +4150,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         policy_operator_specific_data_path_pattern,
         [&policy_operator_specific_data,
@@ -4179,7 +4183,7 @@ int main() {
             return sbi_core::http2::Response::json(200, patched.dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         policy_operator_specific_data_path_pattern,
         [&policy_operator_specific_data,
@@ -4219,7 +4223,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         policy_operator_specific_data_path_pattern,
         [&policy_operator_specific_data,
@@ -4254,7 +4258,7 @@ int main() {
     const std::string sponsor_connectivity_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/sponsor-connectivity-data/{sponsorId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      sponsor_connectivity_data_path_pattern,
                      [&sponsor_connectivity_data,
                       &sponsor_connectivity_data_get_counter](const sbi_core::http2::Request& req) {
@@ -4286,7 +4290,7 @@ int main() {
     const std::string mbs_session_pol_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/mbs-session-pol-data/{polSessionId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      mbs_session_pol_data_path_pattern,
                      [&mbs_session_pol_data,
                       &mbs_session_pol_data_get_counter](const sbi_core::http2::Request& req) {
@@ -4313,7 +4317,7 @@ int main() {
     const std::string bdt_data_collection_path_pattern =
         std::string(kApiRoot) + "/policy-data/bdt-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      bdt_data_collection_path_pattern,
                      [&bdt_data, &bdt_data_list_counter](const sbi_core::http2::Request& req) {
                          std::vector<std::string> ref_ids;
@@ -4347,7 +4351,7 @@ int main() {
     const std::string bdt_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/bdt-data/{bdtReferenceId}";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         bdt_data_path_pattern,
         [&bdt_data, &bdt_data_get_counter](const sbi_core::http2::Request& req) {
@@ -4361,7 +4365,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         bdt_data_path_pattern,
         [&bdt_data,
@@ -4395,7 +4399,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         bdt_data_path_pattern,
         [&bdt_data,
@@ -4424,7 +4428,7 @@ int main() {
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         bdt_data_path_pattern,
         [&bdt_data,
@@ -4454,7 +4458,7 @@ int main() {
     const std::string plmn_ue_policy_set_path_pattern =
         std::string(kApiRoot) + "/policy-data/plmns/{plmnId}/ue-policy-set";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         plmn_ue_policy_set_path_pattern,
         [&plmn_ue_policy_set,
@@ -4477,7 +4481,7 @@ int main() {
     const std::string slice_control_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/slice-control-data/{snssai}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      slice_control_data_path_pattern,
                      [&slice_control_data,
                       &slice_control_data_get_counter](const sbi_core::http2::Request& req) {
@@ -4494,7 +4498,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      slice_control_data_path_pattern,
                      [&slice_control_data,
                       &slice_control_data_patch_counter,
@@ -4527,7 +4531,7 @@ int main() {
     const std::string group_control_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/group-control-data/{intGroupId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      group_control_data_path_pattern,
                      [&group_control_data,
                       &group_control_data_get_counter](const sbi_core::http2::Request& req) {
@@ -4544,7 +4548,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      group_control_data_path_pattern,
                      [&group_control_data,
                       &group_control_data_patch_counter,
@@ -4576,7 +4580,7 @@ int main() {
 
     const std::string routing_ids_path_pattern = std::string(kGroupIdMapApiRoot) + "/routing-ids";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         routing_ids_path_pattern,
         [&routing_ids, &routing_ids_get_counter](const sbi_core::http2::Request& req) {
@@ -4621,7 +4625,7 @@ int main() {
 
     const std::string nf_group_ids_path_pattern = std::string(kGroupIdMapApiRoot) + "/nf-group-ids";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         nf_group_ids_path_pattern,
         [&nf_group_ids, &nf_group_ids_get_counter](const sbi_core::http2::Request& req) {
@@ -4678,7 +4682,7 @@ int main() {
     const std::string nf_group_id_subscriptions_individual_path_pattern =
         std::string(kGroupIdMapApiRoot) + "/nf-group-ids/subscriptions/{subscriptionId}";
 
-    server.add_route(
+    routes.add_route(
         "POST",
         nf_group_id_subscriptions_collection_path_pattern,
         [&nf_group_id_subscriptions,
@@ -4720,7 +4724,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      nf_group_id_subscriptions_individual_path_pattern,
                      [&nf_group_id_subscriptions,
                       &nf_group_id_subscriptions_get_counter](const sbi_core::http2::Request& req) {
@@ -4737,7 +4741,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         nf_group_id_subscriptions_individual_path_pattern,
         [&nf_group_id_subscriptions,
@@ -4775,7 +4779,7 @@ int main() {
             return sbi_core::http2::Response::json(200, patched->dump());
         });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      nf_group_id_subscriptions_individual_path_pattern,
                      [&nf_group_id_subscriptions, &nf_group_id_subscriptions_delete_counter](
                          const sbi_core::http2::Request& req) {
@@ -4806,7 +4810,7 @@ int main() {
     const std::string nidd_authorization_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/nidd-authorization-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         nidd_authorization_data_path_pattern,
         [&nidd_authorization_data,
@@ -4861,7 +4865,7 @@ int main() {
     const std::string nidd_authorization_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/nidd-authorizations";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         nidd_authorization_path_pattern,
         [&nidd_authorization_info,
@@ -4898,7 +4902,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         nidd_authorization_path_pattern,
         [&nidd_authorization_info](const sbi_core::http2::Request& req) {
@@ -4911,7 +4915,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         nidd_authorization_path_pattern,
         [&nidd_authorization_info,
@@ -4949,7 +4953,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         nidd_authorization_path_pattern,
         [&nidd_authorization_info,
@@ -4980,7 +4984,7 @@ int main() {
     const std::string identity_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/identity-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         identity_data_path_pattern,
         [&identity_data, &identity_data_get_counter](const sbi_core::http2::Request& req) {
@@ -4994,7 +4998,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      identity_data_path_pattern,
                      [&identity_data,
                       &identity_data_patch_counter,
@@ -5033,7 +5037,7 @@ int main() {
     const std::string odb_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/operator-determined-barring-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      odb_data_path_pattern,
                      [&odb_data, &odb_data_get_counter](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -5054,7 +5058,7 @@ int main() {
     const std::string v2x_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/v2x-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         v2x_data_path_pattern,
         [&v2x_data, &v2x_data_get_counter](const sbi_core::http2::Request& req) {
@@ -5076,7 +5080,7 @@ int main() {
     const std::string prose_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/prose-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      prose_data_path_pattern,
                      [&prose_data, &prose_data_get_counter](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -5100,7 +5104,7 @@ int main() {
     const std::string uc_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/uc-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      uc_data_path_pattern,
                      [&uc_data, &uc_data_get_counter](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -5124,7 +5128,7 @@ int main() {
     const std::string time_sync_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/time-sync-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         time_sync_data_path_pattern,
         [&time_sync_data, &time_sync_data_get_counter](const sbi_core::http2::Request& req) {
@@ -5149,7 +5153,7 @@ int main() {
     const std::string location_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/location";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         location_data_path_pattern,
         [&location_data, &location_data_get_counter](const sbi_core::http2::Request& req) {
@@ -5170,7 +5174,7 @@ int main() {
     const std::string a2x_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/a2x-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         a2x_data_path_pattern,
         [&a2x_data, &a2x_data_get_counter](const sbi_core::http2::Request& req) {
@@ -5194,7 +5198,7 @@ int main() {
     const std::string rangingsl_privacy_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/rangingsl-privacy-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         rangingsl_privacy_data_path_pattern,
         [&rangingsl_privacy_data,
@@ -5221,7 +5225,7 @@ int main() {
     const std::string ranging_slpos_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/ranging-slpos-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         ranging_slpos_data_path_pattern,
         [&ranging_slpos_data,
@@ -5247,7 +5251,7 @@ int main() {
     const std::string mbs_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/5mbs-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         mbs_data_path_pattern,
         [&mbs_data, &mbs_data_get_counter](const sbi_core::http2::Request& req) {
@@ -5279,7 +5283,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/{ueId}/context-data/service-specific-authorizations/{serviceType}";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         service_specific_auth_path_pattern,
         [&service_specific_authorization_info,
@@ -5323,7 +5327,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      service_specific_auth_path_pattern,
                      [&service_specific_authorization_info](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -5340,7 +5344,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      service_specific_auth_path_pattern,
                      [&service_specific_authorization_info,
                       &service_specific_auth_write_counter,
@@ -5384,7 +5388,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      service_specific_auth_path_pattern,
                      [&service_specific_authorization_info,
                       &service_specific_auth_delete_counter,
@@ -5425,7 +5429,7 @@ int main() {
     const std::string group_identifiers_path_pattern =
         std::string(kApiRoot) + "/subscription-data/group-data/group-identifiers";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         group_identifiers_path_pattern,
         [&group_identifiers, &group_identifiers_get_counter](const sbi_core::http2::Request& req) {
@@ -5464,7 +5468,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/{ueId}/ue-update-confirmation-data/subscribed-snssais";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         nssai_ack_data_path_pattern,
         [&nssai_ack_data,
@@ -5491,7 +5495,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         nssai_ack_data_path_pattern,
         [&nssai_ack_data, &nssai_ack_data_get_counter](const sbi_core::http2::Request& req) {
@@ -5515,7 +5519,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/{ueId}/ue-update-confirmation-data/subscribed-cag";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         cag_ack_data_path_pattern,
         [&cag_ack_data,
@@ -5542,7 +5546,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         cag_ack_data_path_pattern,
         [&cag_ack_data, &cag_ack_data_get_counter](const sbi_core::http2::Request& req) {
@@ -5567,7 +5571,7 @@ int main() {
     const std::string sor_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/ue-update-confirmation-data/sor-data";
 
-    server.add_route("PUT",
+    routes.add_route("PUT",
                      sor_data_path_pattern,
                      [&sor_data,
                       &sor_data_write_counter,
@@ -5594,7 +5598,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      sor_data_path_pattern,
                      [&sor_data, &sor_data_get_counter](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -5607,7 +5611,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      sor_data_path_pattern,
                      [&sor_data,
                       &sor_data_write_counter,
@@ -5654,7 +5658,7 @@ int main() {
     const std::string upu_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/ue-update-confirmation-data/upu-data";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         upu_data_path_pattern,
         [&upu_data,
@@ -5682,7 +5686,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      upu_data_path_pattern,
                      [&upu_data, &upu_data_get_counter](const sbi_core::http2::Request& req) {
                          const auto ue_id = req.path_params.at("ueId");
@@ -5710,7 +5714,7 @@ int main() {
     const std::string ue_upd_conf_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/ue-update-confirmation-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         ue_upd_conf_data_path_pattern,
         [&sor_data, &upu_data, &nssai_ack_data, &cag_ack_data, &ue_upd_conf_data_get_counter](
@@ -5749,7 +5753,7 @@ int main() {
     const std::string context_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         context_data_path_pattern,
         [&amf_contexts,
@@ -5859,7 +5863,7 @@ int main() {
     const std::string ue_subscribed_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         ue_subscribed_data_path_pattern,
         [&provisioned_data,
@@ -6109,7 +6113,7 @@ int main() {
     const std::string ee_subscriptions_individual_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/ee-subscriptions/{subsId}";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         ee_subscriptions_collection_path_pattern,
         [&ee_subscriptions, &ee_subscriptions_list_counter](const sbi_core::http2::Request& req) {
@@ -6123,7 +6127,7 @@ int main() {
             return sbi_core::http2::Response::json(200, arr.dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "POST",
         ee_subscriptions_collection_path_pattern,
         [&ee_subscriptions,
@@ -6155,7 +6159,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         ee_subscriptions_individual_path_pattern,
         [&ee_subscriptions, &ee_subscriptions_get_counter](const sbi_core::http2::Request& req) {
@@ -6170,7 +6174,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         ee_subscriptions_individual_path_pattern,
         [&ee_subscriptions,
@@ -6204,7 +6208,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         ee_subscriptions_individual_path_pattern,
         [&ee_subscriptions,
@@ -6244,7 +6248,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         ee_subscriptions_individual_path_pattern,
         [&ee_subscriptions,
@@ -6284,7 +6288,7 @@ int main() {
     const std::string sdm_subscriptions_individual_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/context-data/sdm-subscriptions/{subsId}";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         sdm_subscriptions_collection_path_pattern,
         [&sdm_subscriptions, &sdm_subscriptions_list_counter](const sbi_core::http2::Request& req) {
@@ -6298,7 +6302,7 @@ int main() {
             return sbi_core::http2::Response::json(200, arr.dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "POST",
         sdm_subscriptions_collection_path_pattern,
         [&sdm_subscriptions,
@@ -6330,7 +6334,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         sdm_subscriptions_individual_path_pattern,
         [&sdm_subscriptions, &sdm_subscriptions_get_counter](const sbi_core::http2::Request& req) {
@@ -6345,7 +6349,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         sdm_subscriptions_individual_path_pattern,
         [&sdm_subscriptions,
@@ -6379,7 +6383,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         sdm_subscriptions_individual_path_pattern,
         [&sdm_subscriptions,
@@ -6419,7 +6423,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         sdm_subscriptions_individual_path_pattern,
         [&sdm_subscriptions,
@@ -6456,7 +6460,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/{ueId}/context-data/ee-subscriptions/{subsId}/amf-subscriptions";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      ee_amf_subscription_info_path_pattern,
                      [&ee_amf_subscription_info,
                       &ee_amf_subscription_info_get_counter](const sbi_core::http2::Request& req) {
@@ -6474,7 +6478,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         ee_amf_subscription_info_path_pattern,
         [&ee_amf_subscription_info,
@@ -6519,7 +6523,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      ee_amf_subscription_info_path_pattern,
                      [&ee_amf_subscription_info,
                       &ee_amf_subscription_info_write_counter,
@@ -6562,7 +6566,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      ee_amf_subscription_info_path_pattern,
                      [&ee_amf_subscription_info,
                       &ee_amf_subscription_info_delete_counter,
@@ -6600,7 +6604,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/{ueId}/context-data/ee-subscriptions/{subsId}/smf-subscriptions";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      ee_smf_subscription_info_path_pattern,
                      [&ee_smf_subscription_info,
                       &ee_smf_subscription_info_get_counter](const sbi_core::http2::Request& req) {
@@ -6618,7 +6622,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         ee_smf_subscription_info_path_pattern,
         [&ee_smf_subscription_info,
@@ -6662,7 +6666,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      ee_smf_subscription_info_path_pattern,
                      [&ee_smf_subscription_info,
                       &ee_smf_subscription_info_write_counter,
@@ -6705,7 +6709,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      ee_smf_subscription_info_path_pattern,
                      [&ee_smf_subscription_info,
                       &ee_smf_subscription_info_delete_counter,
@@ -6746,7 +6750,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/{ueId}/context-data/ee-subscriptions/{subsId}/hss-subscriptions";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      ee_hss_subscription_info_path_pattern,
                      [&ee_hss_subscription_info,
                       &ee_hss_subscription_info_get_counter](const sbi_core::http2::Request& req) {
@@ -6764,7 +6768,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         ee_hss_subscription_info_path_pattern,
         [&ee_hss_subscription_info,
@@ -6808,7 +6812,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      ee_hss_subscription_info_path_pattern,
                      [&ee_hss_subscription_info,
                       &ee_hss_subscription_info_write_counter,
@@ -6851,7 +6855,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      ee_hss_subscription_info_path_pattern,
                      [&ee_hss_subscription_info,
                       &ee_hss_subscription_info_delete_counter,
@@ -6897,7 +6901,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/{ueId}/context-data/sdm-subscriptions/{subsId}/hss-sdm-subscriptions";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      sdm_hss_subscription_info_path_pattern,
                      [&sdm_hss_subscription_info,
                       &sdm_hss_subscription_info_get_counter](const sbi_core::http2::Request& req) {
@@ -6915,7 +6919,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         sdm_hss_subscription_info_path_pattern,
         [&sdm_hss_subscription_info,
@@ -6947,7 +6951,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         sdm_hss_subscription_info_path_pattern,
         [&sdm_hss_subscription_info,
@@ -6990,7 +6994,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         sdm_hss_subscription_info_path_pattern,
         [&sdm_hss_subscription_info,
@@ -7039,7 +7043,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/group-data/{ueGroupId}/ee-subscriptions/{subsId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      group_ee_subscriptions_collection_path_pattern,
                      [&group_ee_subscriptions,
                       &group_ee_subscriptions_list_counter](const sbi_core::http2::Request& req) {
@@ -7053,7 +7057,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, arr.dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "POST",
         group_ee_subscriptions_collection_path_pattern,
         [&group_ee_subscriptions,
@@ -7086,7 +7090,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      group_ee_subscriptions_individual_path_pattern,
                      [&group_ee_subscriptions,
                       &group_ee_subscriptions_get_counter](const sbi_core::http2::Request& req) {
@@ -7104,7 +7108,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         group_ee_subscriptions_individual_path_pattern,
         [&group_ee_subscriptions,
@@ -7140,7 +7144,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         group_ee_subscriptions_individual_path_pattern,
         [&group_ee_subscriptions,
@@ -7182,7 +7186,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         group_ee_subscriptions_individual_path_pattern,
         [&group_ee_subscriptions,
@@ -7221,7 +7225,7 @@ int main() {
         std::string(kApiRoot) + "/subscription-data/group-data/{ueGroupId}/ee-subscriptions/"
                                 "{subsId}/amf-subscriptions";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      group_amf_subscription_info_path_pattern,
                      [&group_amf_subscription_info, &group_amf_subscription_info_get_counter](
                          const sbi_core::http2::Request& req) {
@@ -7239,7 +7243,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         group_amf_subscription_info_path_pattern,
         [&group_amf_subscription_info,
@@ -7284,7 +7288,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         group_amf_subscription_info_path_pattern,
         [&group_amf_subscription_info,
@@ -7326,7 +7330,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         group_amf_subscription_info_path_pattern,
         [&group_amf_subscription_info,
@@ -7365,7 +7369,7 @@ int main() {
         std::string(kApiRoot) + "/subscription-data/group-data/{ueGroupId}/ee-subscriptions/"
                                 "{subsId}/smf-subscriptions";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      group_smf_subscription_info_path_pattern,
                      [&group_smf_subscription_info, &group_smf_subscription_info_get_counter](
                          const sbi_core::http2::Request& req) {
@@ -7383,7 +7387,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         group_smf_subscription_info_path_pattern,
         [&group_smf_subscription_info,
@@ -7427,7 +7431,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         group_smf_subscription_info_path_pattern,
         [&group_smf_subscription_info,
@@ -7469,7 +7473,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         group_smf_subscription_info_path_pattern,
         [&group_smf_subscription_info,
@@ -7516,7 +7520,7 @@ int main() {
         std::string(kApiRoot) + "/subscription-data/group-data/{ueGroupId}/ee-subscriptions/"
                                 "{subsId}/hss-subscriptions";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      group_hss_subscription_info_path_pattern,
                      [&group_hss_subscription_info, &group_hss_subscription_info_get_counter](
                          const sbi_core::http2::Request& req) {
@@ -7534,7 +7538,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         group_hss_subscription_info_path_pattern,
         [&group_hss_subscription_info,
@@ -7578,7 +7582,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         group_hss_subscription_info_path_pattern,
         [&group_hss_subscription_info,
@@ -7620,7 +7624,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         group_hss_subscription_info_path_pattern,
         [&group_hss_subscription_info,
@@ -7670,7 +7674,7 @@ int main() {
     const std::string pdtq_data_individual_path_pattern =
         std::string(kApiRoot) + "/policy-data/pdtq-data/{pdtqReferenceId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      pdtq_data_collection_path_pattern,
                      [&pdtq_data, &pdtq_data_list_counter](const sbi_core::http2::Request& req) {
                          auto items = pdtq_data.list();
@@ -7682,7 +7686,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, arr.dump());
                      });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      pdtq_data_individual_path_pattern,
                      [&pdtq_data, &pdtq_data_get_counter](const sbi_core::http2::Request& req) {
                          const auto pdtq_ref_id = req.path_params.at("pdtqReferenceId");
@@ -7698,7 +7702,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route("PUT",
+    routes.add_route("PUT",
                      pdtq_data_individual_path_pattern,
                      [&pdtq_data,
                       &pdtq_data_write_counter,
@@ -7733,7 +7737,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      pdtq_data_individual_path_pattern,
                      [&pdtq_data,
                       &pdtq_data_write_counter,
@@ -7771,7 +7775,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, patched->dump());
                      });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      pdtq_data_individual_path_pattern,
                      [&pdtq_data,
                       &pdtq_data_delete_counter,
@@ -7809,7 +7813,7 @@ int main() {
     const std::string subs_to_notify_individual_path_pattern =
         std::string(kApiRoot) + "/subscription-data/subs-to-notify/{subsId}";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         subs_to_notify_collection_path_pattern,
         [&subs_to_notify, &subs_to_notify_list_counter](const sbi_core::http2::Request& req) {
@@ -7830,7 +7834,7 @@ int main() {
             return sbi_core::http2::Response::json(200, arr.dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "POST",
         subs_to_notify_collection_path_pattern,
         [&subs_to_notify,
@@ -7867,7 +7871,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         subs_to_notify_individual_path_pattern,
         [&subs_to_notify, &subs_to_notify_get_counter](const sbi_core::http2::Request& req) {
@@ -7881,7 +7885,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         subs_to_notify_individual_path_pattern,
         [&subs_to_notify, &subs_to_notify_write_counter, subscription_max_lifetime](
@@ -7916,7 +7920,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         subs_to_notify_individual_path_pattern,
         [&subs_to_notify, &subs_to_notify_delete_counter](const sbi_core::http2::Request& req) {
@@ -7948,7 +7952,7 @@ int main() {
     const std::string policy_subs_to_notify_individual_path_pattern =
         std::string(kApiRoot) + "/policy-data/subs-to-notify/{subsId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      policy_subs_to_notify_collection_path_pattern,
                      [&policy_data_subs_to_notify, &policy_data_subs_to_notify_list_counter](
                          const sbi_core::http2::Request& req) {
@@ -7966,7 +7970,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, arr.dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "POST",
         policy_subs_to_notify_collection_path_pattern,
         [&policy_data_subs_to_notify,
@@ -8002,7 +8006,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      policy_subs_to_notify_individual_path_pattern,
                      [&policy_data_subs_to_notify, &policy_data_subs_to_notify_get_counter](
                          const sbi_core::http2::Request& req) {
@@ -8019,7 +8023,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         policy_subs_to_notify_individual_path_pattern,
         [&policy_data_subs_to_notify,
@@ -8051,7 +8055,7 @@ int main() {
             return sbi_core::http2::Response::json(200, replaced->dump());
         });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      policy_subs_to_notify_individual_path_pattern,
                      [&policy_data_subs_to_notify, &policy_data_subs_to_notify_delete_counter](
                          const sbi_core::http2::Request& req) {
@@ -8089,7 +8093,7 @@ int main() {
     const std::string five_g_vn_groups_collection_path_pattern =
         std::string(kApiRoot) + "/subscription-data/group-data/5g-vn-groups";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         five_g_vn_groups_collection_path_pattern,
         [&five_g_vn_groups, &five_g_vn_groups_list_counter](const sbi_core::http2::Request& req) {
@@ -8147,7 +8151,7 @@ int main() {
     const std::string five_g_vn_groups_internal_path_pattern =
         std::string(kApiRoot) + "/subscription-data/group-data/5g-vn-groups/internal";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      five_g_vn_groups_internal_path_pattern,
                      [&five_g_vn_groups,
                       &five_g_vn_groups_internal_get_counter](const sbi_core::http2::Request& req) {
@@ -8204,7 +8208,7 @@ int main() {
     const std::string five_g_vn_group_pp_profile_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/group-data/5g-vn-groups/pp-profile-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         five_g_vn_group_pp_profile_data_path_pattern,
         [&five_g_vn_group_pp_profile_data,
@@ -8244,7 +8248,7 @@ int main() {
     const std::string five_g_vn_groups_path_pattern =
         std::string(kApiRoot) + "/subscription-data/group-data/5g-vn-groups/{externalGroupId}";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         five_g_vn_groups_path_pattern,
         [&five_g_vn_groups, &five_g_vn_groups_get_counter](const sbi_core::http2::Request& req) {
@@ -8261,7 +8265,7 @@ int main() {
             return sbi_core::http2::Response::json(200, data->dump());
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         five_g_vn_groups_path_pattern,
         [&five_g_vn_groups,
@@ -8295,7 +8299,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      five_g_vn_groups_path_pattern,
                      [&five_g_vn_groups,
                       &five_g_vn_groups_write_counter,
@@ -8335,7 +8339,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      five_g_vn_groups_path_pattern,
                      [&five_g_vn_groups,
                       &five_g_vn_groups_delete_counter,
@@ -8377,7 +8381,7 @@ int main() {
     const std::string mbs_group_membership_collection_path_pattern =
         std::string(kApiRoot) + "/subscription-data/group-data/mbs-group-membership";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      mbs_group_membership_collection_path_pattern,
                      [&mbs_group_membership,
                       &mbs_group_membership_list_counter](const sbi_core::http2::Request& req) {
@@ -8425,7 +8429,7 @@ int main() {
     const std::string mbs_group_membership_internal_path_pattern =
         std::string(kApiRoot) + "/subscription-data/group-data/mbs-group-membership/internal";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         mbs_group_membership_internal_path_pattern,
         [&mbs_group_membership,
@@ -8477,7 +8481,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/group-data/mbs-group-membership/pp-profile-data";
 
-    server.add_route(
+    routes.add_route(
         "GET",
         mbs_group_pp_profile_data_path_pattern,
         [&mbs_group_pp_profile_data,
@@ -8516,7 +8520,7 @@ int main() {
         std::string(kApiRoot) +
         "/subscription-data/group-data/mbs-group-membership/{externalGroupId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      mbs_group_membership_path_pattern,
                      [&mbs_group_membership,
                       &mbs_group_membership_get_counter](const sbi_core::http2::Request& req) {
@@ -8533,7 +8537,7 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         mbs_group_membership_path_pattern,
         [&mbs_group_membership,
@@ -8566,7 +8570,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      mbs_group_membership_path_pattern,
                      [&mbs_group_membership,
                       &mbs_group_membership_write_counter,
@@ -8606,7 +8610,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      mbs_group_membership_path_pattern,
                      [&mbs_group_membership,
                       &mbs_group_membership_delete_counter,
@@ -8640,7 +8644,7 @@ int main() {
     const std::string group_ee_profile_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/group-data/{ueGroupId}/ee-profile-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      group_ee_profile_data_path_pattern,
                      [&group_ee_profile_data,
                       &group_ee_profile_data_get_counter](const sbi_core::http2::Request& req) {
@@ -8678,7 +8682,7 @@ int main() {
     // the stored TrafficInfluData document that this build does not index; applying them by
     // scanning would be possible but is NOT done, and an unhonoured filter returns the unfiltered
     // set rather than silently pretending to have filtered. Stated here rather than discovered.
-    server.add_route("GET",
+    routes.add_route("GET",
                      influence_collection_path,
                      [&traffic_influence_data](const sbi_core::http2::Request& req) {
                          // ADR-0302 fix: filter on the resource KEY, not on a document field.
@@ -8726,7 +8730,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         influence_item_path,
         [&traffic_influence_data, influence_item_path](const sbi_core::http2::Request& req) {
@@ -8749,7 +8753,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PATCH",
         influence_item_path,
         [&traffic_influence_data](const sbi_core::http2::Request& req) {
@@ -8776,7 +8780,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         influence_item_path,
         [&traffic_influence_data](const sbi_core::http2::Request& req) {
@@ -8790,7 +8794,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      influence_subs_collection_path,
                      [&traffic_influence_subs](const sbi_core::http2::Request& req) {
                          sbi_core::http2::Response resp;
@@ -8803,7 +8807,7 @@ int main() {
     // POST creates a subscription. Real, disclosed: the spec's own resource id is server-assigned
     // and this build derives it from a UUID, the same convention this file's other
     // server-assigned-id resources already use.
-    server.add_route(
+    routes.add_route(
         "POST",
         influence_subs_collection_path,
         [&traffic_influence_subs, influence_subs_item_path, subscription_max_lifetime](
@@ -8837,7 +8841,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET",
         influence_subs_item_path,
         [&traffic_influence_subs](const sbi_core::http2::Request& req) {
@@ -8854,7 +8858,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         influence_subs_item_path,
         [&traffic_influence_subs, subscription_max_lifetime](const sbi_core::http2::Request& req) {
@@ -8885,7 +8889,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      influence_subs_item_path,
                      [&traffic_influence_subs](const sbi_core::http2::Request& req) {
                          const auto subscription_id = req.path_params.at("subscriptionId");
@@ -8909,7 +8913,7 @@ int main() {
     const std::string pfd_data_coll_path = std::string(kApiRoot) + "/application-data/pfds";
     const std::string pfd_data_item_path = std::string(kApiRoot) + "/application-data/pfds/{appId}";
 
-    server.add_route("GET", pfd_data_coll_path, [&pfd_data](const sbi_core::http2::Request& req) {
+    routes.add_route("GET", pfd_data_coll_path, [&pfd_data](const sbi_core::http2::Request& req) {
         sbi_core::http2::Response resp;
         resp.status = 200;
         resp.headers.emplace("content-type", "application/json");
@@ -8917,7 +8921,7 @@ int main() {
         return resp;
     });
 
-    server.add_route("GET", pfd_data_item_path, [&pfd_data](const sbi_core::http2::Request& req) {
+    routes.add_route("GET", pfd_data_item_path, [&pfd_data](const sbi_core::http2::Request& req) {
         const auto id = req.path_params.at("appId");
         auto doc = pfd_data.get(id);
         if (!doc.has_value()) {
@@ -8931,7 +8935,7 @@ int main() {
         return resp;
     });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         pfd_data_item_path,
         [&pfd_data, pfd_data_item_path](const sbi_core::http2::Request& req) {
@@ -8954,7 +8958,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE", pfd_data_item_path, [&pfd_data](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("appId");
             if (!pfd_data.remove(id)) {
@@ -8971,7 +8975,7 @@ int main() {
     const std::string bdt_policy_data_item_path =
         std::string(kApiRoot) + "/application-data/bdtPolicyData/{bdtPolicyId}";
 
-    server.add_route(
+    routes.add_route(
         "GET", bdt_policy_data_coll_path, [&bdt_policy_data](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response resp;
             resp.status = 200;
@@ -8980,7 +8984,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         bdt_policy_data_item_path,
         [&bdt_policy_data, bdt_policy_data_item_path](const sbi_core::http2::Request& req) {
@@ -9004,7 +9008,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      bdt_policy_data_item_path,
                      [&bdt_policy_data](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("bdtPolicyId");
@@ -9018,7 +9022,7 @@ int main() {
                      });
 
     // Real RFC 7396 merge patch (application/merge-patch+json per the YAML for this resource).
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      bdt_policy_data_item_path,
                      [&bdt_policy_data](const sbi_core::http2::Request& req) {
                          nlohmann::json patch;
@@ -9046,7 +9050,7 @@ int main() {
     const std::string iptv_config_data_item_path =
         std::string(kApiRoot) + "/application-data/iptvConfigData/{configurationId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      iptv_config_data_coll_path,
                      [&iptv_config_data](const sbi_core::http2::Request& req) {
                          sbi_core::http2::Response resp;
@@ -9056,7 +9060,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         iptv_config_data_item_path,
         [&iptv_config_data, iptv_config_data_item_path](const sbi_core::http2::Request& req) {
@@ -9080,7 +9084,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      iptv_config_data_item_path,
                      [&iptv_config_data](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("configurationId");
@@ -9094,7 +9098,7 @@ int main() {
                      });
 
     // Real RFC 7396 merge patch (application/merge-patch+json per the YAML for this resource).
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      iptv_config_data_item_path,
                      [&iptv_config_data](const sbi_core::http2::Request& req) {
                          nlohmann::json patch;
@@ -9122,7 +9126,7 @@ int main() {
     const std::string service_param_data_item_path =
         std::string(kApiRoot) + "/application-data/serviceParamData/{serviceParamId}";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      service_param_data_coll_path,
                      [&service_param_data](const sbi_core::http2::Request& req) {
                          sbi_core::http2::Response resp;
@@ -9132,7 +9136,7 @@ int main() {
                          return resp;
                      });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         service_param_data_item_path,
         [&service_param_data, service_param_data_item_path](const sbi_core::http2::Request& req) {
@@ -9157,7 +9161,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      service_param_data_item_path,
                      [&service_param_data](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("serviceParamId");
@@ -9171,7 +9175,7 @@ int main() {
                      });
 
     // Real RFC 7396 merge patch (application/merge-patch+json per the YAML for this resource).
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      service_param_data_item_path,
                      [&service_param_data](const sbi_core::http2::Request& req) {
                          nlohmann::json patch;
@@ -9199,7 +9203,7 @@ int main() {
     const std::string app_subs_item_path =
         std::string(kApiRoot) + "/application-data/subs-to-notify/{subsId}";
 
-    server.add_route(
+    routes.add_route(
         "GET", app_subs_coll_path, [&application_data_subs](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response resp;
             resp.status = 200;
@@ -9208,7 +9212,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "POST",
         app_subs_coll_path,
         [&application_data_subs, app_subs_item_path, subscription_max_lifetime](
@@ -9241,7 +9245,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET", app_subs_item_path, [&application_data_subs](const sbi_core::http2::Request& req) {
             const auto id = req.path_params.at("subsId");
             auto doc = application_data_subs.get(id);
@@ -9256,7 +9260,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         app_subs_item_path,
         [&application_data_subs, subscription_max_lifetime](const sbi_core::http2::Request& req) {
@@ -9285,7 +9289,7 @@ int main() {
             return resp;
         });
 
-    server.add_route("DELETE",
+    routes.add_route("DELETE",
                      app_subs_item_path,
                      [&application_data_subs](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("subsId");
@@ -9316,7 +9320,7 @@ int main() {
     const std::string exposure_am_data_path =
         std::string(kApiRoot) + "/exposure-data/{ueId}/access-and-mobility-data";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         exposure_am_data_path,
         [&exposure_am_data, exposure_am_data_path](const sbi_core::http2::Request& req) {
@@ -9339,7 +9343,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET", exposure_am_data_path, [&exposure_am_data](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             auto doc = exposure_am_data.get(ue_id);
@@ -9361,7 +9365,7 @@ int main() {
     // `application/merge-patch+json` request content type. The real spec documents ONLY 204 for
     // success on this operation (no 200-with-body alternative), and documents 404, so this does
     // not upsert.
-    server.add_route(
+    routes.add_route(
         "PATCH", exposure_am_data_path, [&exposure_am_data](const sbi_core::http2::Request& req) {
             nlohmann::json patch;
             try {
@@ -9386,7 +9390,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE", exposure_am_data_path, [&exposure_am_data](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             if (!exposure_am_data.remove(ue_id)) {
@@ -9404,7 +9408,7 @@ int main() {
     const std::string exposure_sm_data_path =
         std::string(kApiRoot) + "/exposure-data/{ueId}/session-management-data/{pduSessionId}";
 
-    server.add_route(
+    routes.add_route(
         "PUT",
         exposure_sm_data_path,
         [&exposure_sm_data, exposure_sm_data_path](const sbi_core::http2::Request& req) {
@@ -9429,7 +9433,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "GET", exposure_sm_data_path, [&exposure_sm_data](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto pdu_session_id = req.path_params.at("pduSessionId");
@@ -9450,7 +9454,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE", exposure_sm_data_path, [&exposure_sm_data](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             const auto pdu_session_id = req.path_params.at("pduSessionId");
@@ -9474,7 +9478,7 @@ int main() {
         std::string(kApiRoot) + "/exposure-data/subs-to-notify/{subId}";
 
     // POST only -- the real spec defines no GET list on this collection.
-    server.add_route(
+    routes.add_route(
         "POST",
         exposure_subs_coll_path,
         [&exposure_data_subs, exposure_subs_item_path, subscription_max_lifetime](
@@ -9511,7 +9515,7 @@ int main() {
     // so an unknown subId is a 404 rather than a create. That is deliberately different from
     // ADR-0254's application-data subs-to-notify PUT, which upserts -- the difference is read
     // from each path's own response set, not carried across.
-    server.add_route(
+    routes.add_route(
         "PUT",
         exposure_subs_item_path,
         [&exposure_data_subs, subscription_max_lifetime](const sbi_core::http2::Request& req) {
@@ -9545,7 +9549,7 @@ int main() {
             return resp;
         });
 
-    server.add_route(
+    routes.add_route(
         "DELETE",
         exposure_subs_item_path,
         [&exposure_data_subs](const sbi_core::http2::Request& req) {
@@ -9574,7 +9578,7 @@ int main() {
     const std::string aiot_af_auth_path =
         std::string(kApiRoot) + "/aiot-data/af-authorization-data";
 
-    server.add_route("GET",
+    routes.add_route("GET",
                      aiot_profile_item_path,
                      [&aiot_device_profile_data](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("aiotDevPermId");
@@ -9598,7 +9602,7 @@ int main() {
     // already makes for AmfContext3gpp and UpdateSmfContext (see this file's header comment) --
     // the spec permits either, and fabricating report items with no real per-op tracking behind
     // them would be inventing content.
-    server.add_route("PATCH",
+    routes.add_route("PATCH",
                      aiot_profile_item_path,
                      [&aiot_device_profile_data](const sbi_core::http2::Request& req) {
                          nlohmann::json patch_ops;
@@ -9643,7 +9647,7 @@ int main() {
     // deliberately no unfiltered "list every profile" behaviour: its absence is a 400, not an
     // empty or full list. Split with split_form_array (OpenAPI `style: form, explode: false`,
     // ADR-0161) rather than an ad-hoc comma split.
-    server.add_route("GET",
+    routes.add_route("GET",
                      aiot_profile_coll_path,
                      [&aiot_device_profile_data](const sbi_core::http2::Request& req) {
                          const auto ids_it = req.query_params.find("requester-aiot-devices-id");
@@ -9709,7 +9713,7 @@ int main() {
     // malformed request is answered as a malformed request. See ADR-0256; this is the one
     // operation in UDR's whole API surface left deliberately unimplemented on spec-ambiguity
     // grounds, and it is an open question for the user rather than a closed decision.
-    server.add_route("PATCH", aiot_profile_coll_path, [](const sbi_core::http2::Request& req) {
+    routes.add_route("PATCH", aiot_profile_coll_path, [](const sbi_core::http2::Request& req) {
         nlohmann::json patch_ops;
         try {
             patch_ops = nlohmann::json::parse(req.body);
@@ -9747,7 +9751,7 @@ int main() {
     // GET-only. `af-id` is an OPTIONAL filter and IS honoured here: it selects one entry from the
     // `afAuthData` map, which is exactly the field this document is keyed on, and the response
     // keeps the AfAuthorizationData envelope rather than returning a bare entry.
-    server.add_route("GET",
+    routes.add_route("GET",
                      aiot_af_auth_path,
                      [&aiot_af_authorization_data](const sbi_core::http2::Request& req) {
                          auto doc = aiot_af_authorization_data.get();
