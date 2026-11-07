@@ -54,3 +54,12 @@ APIs for that step are TMF640 and TMF664.
   mapping is asked and approved.
 - TMF640 v4.0.0 is the latest version in the public `tmforum-apis` repo; whether a v5 exists
   elsewhere on TM Forum's site has not been checked.
+
+**Update 2026-11-07.**
+- The user approved the mapping direction: TMF640 → the UDR subscriber path, and TMF664 → TS 28.532
+  ProvMnS on the TS 28.541 NRM. No field-level table existed at the time, so the approval covers
+  the direction only. Decision 4's table is now `docs/PROVISIONING_MAPPING.md`, a DRAFT with
+  TODO rows. Mapping code waits for those rows to be answered.
+- The two v4.0.0 files were diffed. The TMF640 pair is identical. The TMF664 pair differs in 46
+  flattened definitions, including `TaskStateType` (`acknowledged` vs `accepted`) and
+  `ResourceFunction_Update.usageState`. The choice of file is TODO-F1 in the table.
