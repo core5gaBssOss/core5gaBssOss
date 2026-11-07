@@ -2,7 +2,7 @@
 
 #include "{{ stem }}.hpp"
 
-namespace sbi_gen {
+namespace {{ namespace }} {
 
 {% for t in alias_types %}
 {% if t.patterns %}
@@ -46,4 +46,4 @@ void from_json(const nlohmann::json& j, {{ t.name }}& v) {
 }
 {% endfor %}
 
-}  // namespace sbi_gen
+}  // namespace {{ namespace }}
