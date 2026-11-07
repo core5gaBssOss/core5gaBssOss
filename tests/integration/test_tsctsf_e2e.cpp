@@ -21,6 +21,7 @@
 #include "location_path.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
+#include "udr_test_provisioning.hpp"
 
 #include <gtest/gtest.h>
 
@@ -29,7 +30,7 @@ namespace {
 using nlohmann::json;
 using namespace std::chrono_literals;
 
-constexpr const char* kSupi = "imsi-999700000000001";
+constexpr const char* kSupi = "imsi-999700000009931";
 constexpr const char* kGpsi = "msisdn-491701239901";
 constexpr const char* kUeIp = "10.45.0.9";
 constexpr const char* kPcf = "https://127.0.0.1:7783";
@@ -144,7 +145,9 @@ TEST(TsctsfEndToEnd, GpsiOnlyQosRequestReachesThePcfOfThePduSessionThroughTheTsc
     auto c = make_client();
     nf_test::attach_test_tokens(c); // ADR-0499: the TSCTSF enforces tokens
 
-    // Provisioning: the GPSI's identity data (GPSI -> SUPI) at the UDR.
+    // ADR-0565: the subscriber, then the GPSI's identity data (GPSI -> SUPI) at the UDR.
+    const auto provisioned = nf_test::provision_subscriber(kSupi, "491701239901");
+    ASSERT_TRUE(provisioned.has_value()) << provisioned.error();
     const auto udr_token = token(c, "nudr-dr", "UDR");
     const auto ident = send(
         c,

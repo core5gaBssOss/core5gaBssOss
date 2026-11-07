@@ -176,6 +176,10 @@ public:
     // sub-resource in this store.
     std::optional<nlohmann::json> get_trace_data(const std::string& ue_id,
                                                  const std::string& serving_plmn_id);
+    // ADR-0565: whether `ue_id` is a user this UDR has provisioned, on any serving PLMN. A GPSI
+    // (`msisdn-`, `extid-`) is provisioned when a subscriber's amData.gpsis lists it, any other id
+    // when it is the row's own key.
+    bool exists(const std::string& ue_id);
 
 private:
     std::mutex mutex_;
