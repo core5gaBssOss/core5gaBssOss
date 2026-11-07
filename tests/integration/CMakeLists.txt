@@ -123,6 +123,8 @@ add_executable(integration_tests
     test_ausf_upu_protection.cpp
     test_pcf_policy_control.cpp
     test_pcf_ue_policy_event_exposure.cpp
+    test_pcf_v2x_provisioning.cpp
+    test_pcf_ue_policy_delivery.cpp
     test_pcf_am_mbs_policy_auth_control.cpp
     test_pcf_pdtq_bdt_policy_control.cpp
     test_nef_sms_ueid_dnaimapping_easdeployment.cpp
