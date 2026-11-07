@@ -78,10 +78,10 @@ records, and passed 2 of 2 on a fresh one (2026-11-07).
 - **Connection reuse after a peer restart** relies on libcurl's dead-connection detection. Nothing in
   the repo retries, and only the integration test exercises it.
 
-**Verified.** `nfs/dccf/src/main.cpp` and `tests/integration/test_dccf.cpp` pass a syntax-only
-compile against the build's compile commands (2026-11-07). The new test
-`Dccf.RecoversACollectionWhoseSourceOrMfafRecordIsStale` has **not been run yet**. The self-hosted
-runner was busy, and local integration runs wait for it to be idle. Its result comes from CI on the
-PR, and this line is updated with it. Without the fix, phase 1 is expected to fail at the
-`sourceResourceUri` check and phase 3 at the foreign-subscription count. That is reasoned from the
-code, not observed.
+**Verified.** CI run 42364767780 (2026-11-07, this change on the pre-rewrite main) built the
+code, and its build job passed all 1230 ctest tests. Two of them are
+`Dccf.RecoversACollectionWhoseSourceOrMfafRecordIsStale` (24.12 s) and
+`Dccf.CoordinatesCollectionThroughTheMfafDedupsAndTearsDown` (20.11 s). `sanitize (asan-ubsan)`
+passed. `sanitize (tsan)` was cancelled when the run was superseded after main's history rewrite
+(ADR-0566). The code is unchanged in #94, whose CI repeats the run. A failure of the test without
+the fix was not observed; it is reasoned from the code.
