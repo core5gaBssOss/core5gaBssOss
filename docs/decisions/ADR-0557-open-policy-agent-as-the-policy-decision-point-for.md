@@ -1,6 +1,6 @@
 ## ADR-0557: Open Policy Agent as the policy decision point for northbound and MCP tool authorisation
 
-**Date:** 2026-11-03. **Status:** Proposed.
+**Date:** 2026-11-03. **Status:** Accepted.
 
 **Origin.** From the reference-diagram review (security row: mTLS + OIDC + OPA + Vault).
 Second in the user-directed implementation order (after ADR-0556). See ADR-0556 "Origin".

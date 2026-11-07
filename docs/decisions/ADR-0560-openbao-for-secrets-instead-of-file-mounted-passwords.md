@@ -1,6 +1,6 @@
 ## ADR-0560: OpenBao for secrets instead of file-mounted passwords; HashiCorp Vault rejected on licence
 
-**Date:** 2026-11-03. **Status:** Proposed.
+**Date:** 2026-11-03. **Status:** Accepted.
 
 **Origin.** From the reference-diagram review (HashiCorp Vault in the inference/RAG and
 security boxes). Implemented after ADR-0556 to ADR-0558. See ADR-0556 "Origin".

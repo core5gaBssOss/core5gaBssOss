@@ -1,6 +1,6 @@
 ## ADR-0562: MCP server over Streamable HTTP with Keycloak-issued tokens, in addition to stdio
 
-**Date:** 2026-11-03. **Status:** Proposed.
+**Date:** 2026-11-03. **Status:** Accepted.
 
 **Origin.** From the reference-diagram review (MCP box reached over HTTPS with OAuth2).
 Implemented after ADR-0556 to ADR-0558, and after ADR-0557 (it needs OPA for scopes). See

@@ -343,6 +343,9 @@ TEST(SmfHandoverCancel, HoStateCancelledIsRecordedAndEchoed) {
     const std::string token = fetch_token(client);
     ASSERT_FALSE(token.empty());
 
+    // The SMF answering says nothing about the PCF, which starts last: until the PCF has registered
+    // the NRF refuses the SMF a token for it and the create answers 500. Retry for that window, and
+    // only for that refusal, so any other answer still fails the assertion below.
     const auto encoded = encode_create_sm_context_body("imsi-999700000000088", 61);
     sbi_core::http2::ClientRequest create_req;
     create_req.method = "POST";
@@ -351,15 +354,22 @@ TEST(SmfHandoverCancel, HoStateCancelledIsRecordedAndEchoed) {
     create_req.headers.emplace("authorization", "Bearer " + token);
     create_req.body = encoded.body;
     auto create_resp = client.send(create_req);
+    for (int attempt = 0;
+         attempt < 80 && create_resp.has_value() && create_resp->status == 500 &&
+         create_resp->body.find("could not obtain a token for PCF") != std::string::npos;
+         ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        create_resp = client.send(create_req);
+    }
     ASSERT_TRUE(create_resp.has_value());
     ASSERT_EQ(create_resp->status, 201) << create_resp->body;
     const auto location_it = create_resp->headers.find("location");
     ASSERT_NE(location_it, create_resp->headers.end());
     const std::string ref = location_it->second.substr(location_it->second.rfind('/') + 1);
 
-    // No UPF is spawned in this test on purpose: cancelling a handover must not depend on an N4
-    // session, precisely because SMF releases nothing here (ADR-0261 -- the target-side
-    // reservation a production SMF would tear down does not exist in this build).
+    // This test does not wait for the UPF association, on purpose: cancelling a handover must not
+    // depend on an N4 session, precisely because SMF releases nothing here (ADR-0261 -- the
+    // target-side reservation a production SMF would tear down does not exist in this build).
     sbi_core::http2::ClientRequest cancel_req;
     cancel_req.method = "POST";
     cancel_req.url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/" + ref + "/modify";

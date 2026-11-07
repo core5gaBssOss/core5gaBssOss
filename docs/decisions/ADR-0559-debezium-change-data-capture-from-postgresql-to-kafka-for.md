@@ -1,6 +1,6 @@
 ## ADR-0559: Debezium change data capture from PostgreSQL to Kafka for BSS and analytics consumers only
 
-**Date:** 2026-11-03. **Status:** Proposed.
+**Date:** 2026-11-03. **Status:** Accepted.
 
 **Origin.** From the reference-diagram review (data layer: Debezium). Implemented after
 ADR-0556 to ADR-0558. See ADR-0556 "Origin".

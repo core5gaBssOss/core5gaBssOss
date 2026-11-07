@@ -1,6 +1,6 @@
 ## ADR-0556: Kafka event contracts in a schema registry (Apicurio), schemas derived from the 3GPP and TMF sources
 
-**Date:** 2026-11-03. **Status:** Proposed.
+**Date:** 2026-11-03. **Status:** Accepted.
 
 **Origin.** One of seven items taken from a review of the reference diagram
 `Digital_arch-tecture_Tmforum_AI_integration.jpeg` (data layer: Kafka, Avro). User-directed on
