@@ -50,7 +50,7 @@ TMF640 `Service` has no required properties in the swagger. `ServiceStateType` i
 | SIM credentials K, OPc, SQN | `AuthenticationSubscription` (TS29505) | Today they come from the order, are used once, and are never persisted. A TMF640 `serviceCharacteristic` is readable back with `GET /service/{id}` | **TODO-A3**: credentials must not be stored in or readable from a `Service`. Proposed: they keep travelling on the order/saga path, outside TMF640 |
 | `state` → `active` | `PUT /oam-provisioning/v1/subscribers/{ueId}` succeeds | The saga's existing UDR step; a failure leaves the state unchanged and fails the TMF641 item | Proposed |
 | `state` → `feasibilityChecked` / `designed` / `reserved` | none | No network write | Proposed |
-| `state` → `inactive` | No barring field chosen. 3GPP options (e.g. operator-determined barring) not yet looked up | | **TODO-A4**: what does "inactive" mean in the network? |
+| `state` → `inactive` | `AccessAndMobilitySubscriptionData.odbPacketServices` = `ALL_PACKET_SERVICES` (TS29503_Nudm_SDM.yaml; type `OdbPacketServices`, TS29571_CommonData.yaml: `ALL_PACKET_SERVICES`, `ROAMER_ACCESS_HPLMN_AP`, `ROAMER_ACCESS_VPLMN_AP`, or `NullValue`; semantics TS 23.015) | Back to `active` clears it (`null`). `OdbData` in TS29505 has only `roamingOdb` (`OUTSIDE_HOME_PLMN`, `OUTSIDE_HOME_PLMN_COUNTRY`), so it cannot bar a subscriber at home. **No NF here reads `odbPacketServices` today**: the field is written, but enforcement (AMF/SMF) is deferred for future implementation | **TODO-A4**: see proposed answer |
 | `state` → `terminated` | none today: the UDR OAM API has only `PUT` | Deprovisioning is deferred for future implementation | **TODO-A5**: deprovisioning is out of scope for increment 1? |
 | `startDate`, `endDate` | none | Kept by TMF640 only | **TODO-A6**: should they schedule activation? Proposed: no |
 | `category` | none | TMF640 activates resource-facing services | **TODO-A7**: accept `category` only as `RFS`? |
@@ -81,7 +81,7 @@ implements ProvMnS today (ADR-0558 "Disclosed").
 | TMF664 field | 3GPP target | Rule | Status |
 |---|---|---|---|
 | `id` | MOI `id` in `/{className}={id}` | One-to-one | Proposed |
-| `functionType` | IOC className: one of the TS28541 `*Function` IOCs (schemas `AmfFunction-Single` … `AnLFFunction-Single`, 39 in `TS28541_5GcNrm.yaml`) or `NetworkSlice` / `NetworkSliceSubnet` (`TS28541_SliceNrm.yaml`) | The className *string* in the ProvMnS path is not yet confirmed against the TS 28.541 text (the YAML gives schema names) | **TODO-B2**: confirm the exact className strings |
+| `functionType` | IOC className = the name-containment key in the R19 YAML: `ManagedElement-ncO-5GcNrm` in `TS28541_5GcNrm.yaml` (e.g. `AmfFunction`, `SmfFunction`, `UpfFunction`, `PcfFunction`, `UdmFunction`, `UdrFunction`, `NrfFunction`, `NwdafFunction`, `ChfFunction`, `DCCFFunction`, `MFAFFunction`, `BSFFunction`, `AANFFunction`, `TSCTSFFunction`; casing as in the YAML), and `SubNetwork-ncO-SliceNrm` in `TS28541_SliceNrm.yaml` (`NetworkSlice`, `NetworkSliceSubnet`) | ProvMnS path `/{className}={id}` under the server's `{URI-LDN-first-part}` (TS28532_ProvMnS.yaml `servers`; TS 32.158 4.4.2). The TS 28.541 prose was not consulted; the YAML is the source here | **TODO-B2**: see proposed answer |
 | `name` | `userLabel` (`ManagedFunction-Attr`, TS28623_GenericNrm) | | Proposed |
 | `priority` | `priorityLabel` (`ManagedFunction-Attr`, integer) | Both are integers; the semantics differ (contention vs. label) | **TODO-B3** |
 | `administrativeState` `locked` / `unlocked` | `AdministrativeState` `LOCKED` / `UNLOCKED` (TS28623_ComDefs) | Case mapping. Present on `NetworkSlice`, `NetworkSliceSubnet`, the `NFService` entries and `SnssaiInfo`. **Not** on the `*Function` IOCs themselves | **TODO-B4**: for an NF, which attribute does `administrativeState` drive, if any? |
@@ -96,9 +96,35 @@ implements ProvMnS today (ADR-0558 "Disclosed").
 | `resourceVersion` | `swVersion` is on `ManagedElement`, not on `ManagedFunction` | | **TODO-B10** |
 | `category`, `description`, `value`, `role`, `startOperatingDate`, `endOperatingDate`, `place`, `relatedParty`, `note`, `attachment`, `activationFeature`, `autoModification`, `schedule` | none | Kept by TMF664 only | Proposed |
 
+## Proposed answers (for approval, 2026-11-07)
+
+Each answer is a proposal. Approve the list, or name the rows to change. No code is written before
+that.
+
+| Row | Proposed answer | Basis |
+|---|---|---|
+| F1 | `TMF664-ResourceFunctionActivation-v4.0.0.swagger.json` is normative | ADR-0558 cites it; it is the counterpart of the TMF640 file |
+| A1 | Key the network profile by `ServiceSpecification.id`. The product offering points to the specification in the catalog config (ADR-0382) | TMF640 activates a service, not an offering; one spec can back several offerings |
+| A2 | Characteristic names = 3GPP attribute names: `supi`, `msisdn` | No TMF-defined names exist; 3GPP names need no translation table |
+| A3 | Credentials (K, OPc, SQN) never enter a TMF640 `Service`. They keep travelling on the order/saga path and are written once to `AuthenticationSubscription` | `GET /service/{id}` returns every `serviceCharacteristic`; storing keys there exposes them |
+| A4 | `inactive` → `odbPacketServices: ALL_PACKET_SERVICES` in AM data; `active` → `null`. Enforcement in AMF/SMF is disclosed as deferred for future implementation | The only R19 barring field that bars a subscriber at home (row above) |
+| A5 | Increment 1 refuses `terminated` (400, the UDR OAM API cannot delete). Deprovisioning is deferred for future implementation | A `terminated` Service whose subscriber is still in the UDR would be a false state |
+| A6 | No scheduling: `startDate`/`endDate` are stored only | Scheduling is order-management (TMF641) behaviour, not activation |
+| A7 | Accept only `category: "RFS"`; anything else → 400 | TMF640 here drives network resources only |
+| B1 | Create→`notifyMOICreation`, AttributeValueChange→`notifyMOIAttributeValueChanges`, StateChange→`notifyMOIAttributeValueChanges` on `administrativeState`/`operationalState`/`usageState`, Delete→`notifyMOIDeletion` | The state attributes are ordinary IOC attributes in TS 28.623 |
+| B2 | className strings exactly as the YAML containment keys (row above) | Source-of-truth rule: the YAML, not recalled names |
+| B3 | `priority` is not mapped; kept by TMF664 only | `priorityLabel` has different semantics; a silent mapping would mislead |
+| B4 | On `*Function` IOCs, a write to `administrativeState` is refused (400); on `NetworkSlice`/`NetworkSliceSubnet` it maps directly | The `*Function` IOCs have no `administrativeState` in R19 |
+| B5 | `shutdown` → 400 | No R19 enum value exists |
+| B6 | `resourceStatus` is not mapped | The enums do not correspond; any table would be invented |
+| B7 | A structured attribute (e.g. `serviceProfileList`) is one `resourceCharacteristic` with `name` = attribute name, `valueType: "object"`/`"array"`, and `value` = the 3GPP JSON unchanged | TMF664 `Characteristic.value` is typed `Any` |
+| B8 | `connectionPoint` (`EP_*` IOCs) deferred for future implementation | Not needed to provision NFs or slices |
+| B9 | `resourceSpecification.id` = the className (e.g. `AmfFunction`); `version` = the NRM YAML version | Gives TMF664 a 3GPP-defined, fixed specification set |
+| B10 | `resourceVersion` not mapped (`swVersion` is on `ManagedElement`) | No `ManagedFunction` attribute carries it |
+
 ## Not done in this pass
 
 - No code and no generated DTOs.
 - No conformance of the TMF swagger itself checked beyond field names, types and enums.
-- 3GPP barring (A4) and ProvMnS className strings (B2) still need a spec lookup before an answer
-  is proposed.
+- A4 and B2 were looked up in the R19 YAML on 2026-11-07 (rows above). TS 23.015 and the TS 28.541
+  prose were not read.
