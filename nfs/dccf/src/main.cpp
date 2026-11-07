@@ -52,6 +52,19 @@
 //   * A PUT that changes the fingerprint is an unsubscribe of the old collection and a subscribe
 //     to the new one, with the same subscriptionId.
 //   * LI: TS 33.127 has no DCCF-specific POI clause; nothing built.
+//   * Stale collection records (ADR-0566): dccf:src: records carry no TTL and outlive a
+//     restarted MFAF or source. A join whose MFAF PUT answers 404 rebuilds the collection for
+//     every consumer it had. Only an NSACF source subscription is checked for liveness (a PATCH
+//     of RFC 6902 "test" operations). A gone one is subscribed again; one gone at teardown is not
+//     deleted. That check resets the NSACF's remaining-report count of a maxReports subscription.
+//     AMF liveness is deferred for future implementation (TS 29.518 PATCH allows only add, remove
+//     and replace, so there is no side-effect-free check). NRF liveness is deferred until the NRF
+//     applies RFC 6902 PATCH as TS 29.510 requires; it overwrites the record today. NWDAF
+//     subscriptions persist across restarts, and its PUT emits LI events, so it is not probed.
+//     So a dead AMF or NRF source subscription is not detected, and its id may be deleted at
+//     teardown after the source restarted and reused it. Consumers that never unsubscribe (a
+//     killed client) stay in the fan-out, because TS 29.574 gives a consumer subscription no
+//     expiry. A record whose fingerprint nobody subscribes to again is never removed.
 #include "sbi_core/advertised_address.hpp"
 #include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
@@ -422,13 +435,14 @@ int main() {
     const auto call = [&](sbi_core::OAuth2Client& oauth,
                           const std::string& method,
                           const std::string& url,
-                          const std::optional<json>& body) {
+                          const std::optional<json>& body,
+                          const std::string& content_type = "application/json") {
         PeerResult out;
         sbi_core::http2::ClientRequest req;
         req.method = method;
         req.url = url;
         if (body) {
-            req.headers.emplace("content-type", "application/json");
+            req.headers.emplace("content-type", content_type);
             req.body = body->dump();
         }
         const std::lock_guard<std::mutex> lock(client_mutex);
@@ -478,6 +492,59 @@ int main() {
         return json{{"messageConfigurations", mcs}};
     };
 
+    // ---- stale collection records (ADR-0566) ---------------------------------------------------
+    // A dccf:src: record outlives what it names: a restarted NSACF or MFAF has lost the source
+    // subscription or the MFAF configuration while the record stays in Valkey. A join checks
+    // before it trusts one; see the DISCLOSED block for what each source allows.
+    enum class SourceState { Alive, Gone, Unknown };
+    const auto source_kind_of = [&](const std::string& name) -> const SourceKind& {
+        if (name == "AMF") {
+            return kAmf;
+        }
+        if (name == "NRF") {
+            return kNrf;
+        }
+        if (name == "NSACF") {
+            return kNsacf;
+        }
+        return kNwdaf;
+    };
+    // Only the NSACF is probed: TS 29.536 PATCH takes an RFC 6902 PatchItem array, and "test"
+    // operations alone change nothing. 200: the subscription still aims at this collection's
+    // MFAF target. 404: the NSACF no longer has it. 400 (a failed test): the id now names another
+    // subscriber's subscription, after an NSACF restart reused it.
+    const auto source_state = [&](const SourceKind& source, const dccf::SourceCollection& col) {
+        if (&source != &kNsacf) {
+            return SourceState::Unknown;
+        }
+        const json ops = json::array(
+            {json{{"op", "test"}, {"path", "/eventNotifyUri"}, {"value", col.mfaf_notif_uri}},
+             json{{"op", "test"}, {"path", "/notifyCorrelationId"}, {"value", col.mfaf_corre_id}}});
+        auto r = call(oauth_nsacf,
+                      "PATCH",
+                      col.source_resource_uri,
+                      std::optional<json>(ops),
+                      "application/json-patch+json");
+        if (r.status == 200 || r.status == 204) {
+            return SourceState::Alive;
+        }
+        if (r.status == 404 || r.status == 400) {
+            return SourceState::Gone;
+        }
+        spdlog::warn("dccf: liveness check of {} answered {} {} -- treated as unknown",
+                     col.source_resource_uri,
+                     r.status,
+                     r.error);
+        return SourceState::Unknown;
+    };
+    const auto source_resource_uri = [&](const SourceKind& source, const std::string& location) {
+        std::string uri = location.empty() ? source.base_url + source.subscriptions_path : location;
+        if (!uri.starts_with("http")) {
+            uri = source.base_url + uri;
+        }
+        return uri;
+    };
+
     // Subscribe: returns the 201 body to send, or the error response.
     const auto subscribe = [&](dccf::Kind kind,
                                const SourceKind& source,
@@ -496,6 +563,9 @@ int main() {
             store.replace_subscription(out_id, sub);
         }
 
+        // Consumers of a collection whose MFAF configuration was lost: the collection is rebuilt
+        // below for all of them, not only for this one (ADR-0566).
+        std::vector<std::string> carried;
         auto collection = store.get_source(sub.fingerprint);
         if (collection) {
             // 5A.2: already being collected -- add this consumer to the MFAF fan-out only.
@@ -503,22 +573,94 @@ int main() {
                 collection->consumers.end()) {
                 collection->consumers.push_back(out_id);
             }
+            const auto state = source_state(source, *collection);
             sbi_gen::MfafNotiInfo noti;
             noti.mfafNotifUri = collection->mfaf_notif_uri;
             noti.mfafCorreId = collection->mfaf_corre_id;
-            auto r =
-                call(oauth_mfaf,
-                     "PUT",
-                     mfaf_base + kMfaf3daRoot + "/configurations/" + collection->mfaf_trans_ref_id,
-                     message_configurations(collection->consumers, noti));
-            if (r.status != 200 && r.status != 204) {
+            const std::string mfaf_cfg_url =
+                mfaf_base + kMfaf3daRoot + "/configurations/" + collection->mfaf_trans_ref_id;
+            auto r = call(oauth_mfaf,
+                          "PUT",
+                          mfaf_cfg_url,
+                          message_configurations(collection->consumers, noti));
+            if (r.status == 404) {
+                // The MFAF no longer knows the configuration: the record is stale. The old
+                // source subscription is removed only where its id is known to still be ours:
+                // a probed-alive NSACF one, or the NWDAF's, which persists across restarts.
+                // An unprobed AMF/NRF id may name another subscriber's after a restart; it is
+                // left in place (aimed at a dead MFAF target) rather than risk deleting theirs.
+                if (state == SourceState::Alive || &source == &kNwdaf) {
+                    auto d = call(
+                        oauth_for(source), "DELETE", collection->source_resource_uri, std::nullopt);
+                    if (d.status != 204 && d.status != 200) {
+                        spdlog::warn("dccf: {} unsubscribe at {} answered {}",
+                                     source.name,
+                                     collection->source_resource_uri,
+                                     d.status);
+                    }
+                } else if (state == SourceState::Unknown) {
+                    spdlog::warn("dccf: {} subscription {} left in place -- its id cannot be "
+                                 "told from another subscriber's",
+                                 source.name,
+                                 collection->source_resource_uri);
+                }
+                spdlog::warn("dccf: MFAF configuration {} of collection {} is gone -- rebuilding "
+                             "it for {} consumer(s)",
+                             collection->mfaf_trans_ref_id,
+                             sub.fingerprint,
+                             collection->consumers.size());
+                carried = collection->consumers;
+                collection.reset();
+            } else if (r.status != 200 && r.status != 204) {
                 store.remove_subscription(out_id);
                 return problem(500,
                                "Internal Server Error",
                                "MFAF rejected the updated configuration (" +
                                    std::to_string(r.status) + "): " + r.body + r.error,
                                "SYSTEM_FAILURE");
+            } else if (state == SourceState::Gone) {
+                // The MFAF configuration is live but the source subscription is not: subscribe
+                // the source again with the same MFAF target, reusing the configuration.
+                const json body = source.aim_at_mfaf(
+                    source_sub, collection->mfaf_notif_uri, collection->mfaf_corre_id, instance_id);
+                auto s = call(oauth_for(source),
+                              "POST",
+                              source.base_url + source.subscriptions_path,
+                              std::optional<json>(body));
+                if (s.status != 201) {
+                    // Refused: this consumer is not admitted; the MFAF fan-out goes back to
+                    // the others, and the record keeps the dead URI so a later join retries.
+                    store.remove_subscription(out_id);
+                    collection->consumers.erase(std::remove(collection->consumers.begin(),
+                                                            collection->consumers.end(),
+                                                            out_id),
+                                                collection->consumers.end());
+                    auto back = call(oauth_mfaf,
+                                     "PUT",
+                                     mfaf_cfg_url,
+                                     message_configurations(collection->consumers, noti));
+                    if (back.status != 200 && back.status != 204) {
+                        spdlog::warn("dccf: MFAF configuration {} restore answered {}",
+                                     collection->mfaf_trans_ref_id,
+                                     back.status);
+                    }
+                    rejected_counter->Add(1);
+                    return problem(400,
+                                   "Bad Request",
+                                   std::string(source.name) + " did not accept the subscription (" +
+                                       std::to_string(s.status) + "): " + s.body + s.error,
+                                   "SUBSCRIPTION_CANNOT_BE_SERVED");
+                }
+                spdlog::warn("dccf: {} subscription {} of collection {} was gone -- "
+                             "subscribed again",
+                             source.name,
+                             collection->source_resource_uri,
+                             sub.fingerprint);
+                collection->source_resource_uri = source_resource_uri(source, s.location);
+                source_subs_counter->Add(1);
             }
+        }
+        if (collection) {
             store.put_source(sub.fingerprint, *collection);
             shared_counter->Add(1);
             spdlog::info("dccf: {} joins collection {} ({} consumer(s), source {} untouched)",
@@ -579,12 +721,25 @@ int main() {
                                std::to_string(s.status) + "): " + s.body + s.error,
                            "SUBSCRIPTION_CANNOT_BE_SERVED");
         }
-        col.source_resource_uri =
-            s.location.empty() ? source.base_url + source.subscriptions_path : s.location;
-        if (!col.source_resource_uri.starts_with("http")) {
-            col.source_resource_uri = source.base_url + col.source_resource_uri;
+        col.source_resource_uri = source_resource_uri(source, s.location);
+        col.consumers = carried.empty() ? std::vector<std::string>{out_id} : carried;
+        if (col.consumers.size() > 1) {
+            // A rebuilt collection: the new MFAF configuration fans out to every carried
+            // consumer. A failure here is corrected by the next join or leave.
+            sbi_gen::MfafNotiInfo noti;
+            noti.mfafNotifUri = col.mfaf_notif_uri;
+            noti.mfafCorreId = col.mfaf_corre_id;
+            auto r = call(oauth_mfaf,
+                          "PUT",
+                          mfaf_base + kMfaf3daRoot + "/configurations/" + col.mfaf_trans_ref_id,
+                          message_configurations(col.consumers, noti));
+            if (r.status != 200 && r.status != 204) {
+                spdlog::warn("dccf: MFAF configuration {} for {} carried consumer(s) answered {}",
+                             col.mfaf_trans_ref_id,
+                             col.consumers.size(),
+                             r.status);
+            }
         }
-        col.consumers = {out_id};
         store.put_source(sub.fingerprint, col);
         source_subs_counter->Add(1);
         spdlog::info("dccf: {} opens collection {} -- {} subscribed at {} via MFAF {} ({})",
@@ -625,16 +780,22 @@ int main() {
             store.put_source(sub.fingerprint, *collection);
             return;
         }
-        const SourceKind* source = collection->source == "AMF"     ? &kAmf
-                                   : collection->source == "NRF"   ? &kNrf
-                                   : collection->source == "NSACF" ? &kNsacf
-                                                                   : &kNwdaf;
-        auto s = call(oauth_for(*source), "DELETE", collection->source_resource_uri, std::nullopt);
-        if (s.status != 204 && s.status != 200) {
-            spdlog::warn("dccf: {} unsubscribe at {} answered {}",
+        const SourceKind* source = &source_kind_of(collection->source);
+        if (source_state(*source, *collection) == SourceState::Gone) {
+            // ADR-0566: the id is no longer ours (404) or now names another subscriber's (400);
+            // deleting it would remove theirs.
+            spdlog::warn("dccf: {} subscription {} already gone -- not deleted",
                          source->name,
-                         collection->source_resource_uri,
-                         s.status);
+                         collection->source_resource_uri);
+        } else {
+            auto s =
+                call(oauth_for(*source), "DELETE", collection->source_resource_uri, std::nullopt);
+            if (s.status != 204 && s.status != 200) {
+                spdlog::warn("dccf: {} unsubscribe at {} answered {}",
+                             source->name,
+                             collection->source_resource_uri,
+                             s.status);
+            }
         }
         auto m = call(oauth_mfaf,
                       "DELETE",
