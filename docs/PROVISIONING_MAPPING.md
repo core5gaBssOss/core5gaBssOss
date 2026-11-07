@@ -1,6 +1,6 @@
 # Provisioning Mapping: TMF640 Service / TMF664 ResourceFunction → 3GPP data
 
-**Status: DRAFT for review (ADR-0558 decision 4).** On 2026-11-07 the user approved ADR-0558's
+**Status: APPROVED 2026-11-07 (ADR-0558 decision 4); see "Approved answers".** On 2026-11-07 the user approved ADR-0558's
 direction: TMF640 for subscriber-service activation, and TMF664 → TS 28.532 provisioning MnS on the
 TS 28.541 NRM. This table did not exist then, so that approval covers the direction, not these rows.
 Rows marked **TODO** are open questions for the user. No mapping code exists or will be written
@@ -96,10 +96,9 @@ implements ProvMnS today (ADR-0558 "Disclosed").
 | `resourceVersion` | `swVersion` is on `ManagedElement`, not on `ManagedFunction` | | **TODO-B10** |
 | `category`, `description`, `value`, `role`, `startOperatingDate`, `endOperatingDate`, `place`, `relatedParty`, `note`, `attachment`, `activationFeature`, `autoModification`, `schedule` | none | Kept by TMF664 only | Proposed |
 
-## Proposed answers (for approval, 2026-11-07)
+## Approved answers (user approved all rows, 2026-11-07)
 
-Each answer is a proposal. Approve the list, or name the rows to change. No code is written before
-that.
+The user approved every row below ("approve all", 2026-11-07). They are binding for the mapping code.
 
 | Row | Proposed answer | Basis |
 |---|---|---|
