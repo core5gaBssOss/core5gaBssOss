@@ -1,6 +1,6 @@
 ## ADR-0558: TMF640 Service Activation and TMF664 Resource Function Activation for BSS-to-network provisioning
 
-**Date:** 2026-11-03. **Status:** Proposed.
+**Date:** 2026-11-03. **Status:** Accepted.
 
 **Origin.** From the reference-diagram review (TM Forum Open API ring). Third in the
 user-directed implementation order (after ADR-0556 and ADR-0557). See ADR-0556 "Origin".

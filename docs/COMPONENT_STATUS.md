@@ -11,7 +11,7 @@ The complete component list for this project, in scope per `CLAUDE.md` and
 **Keep this file current.** When a component is added or its status changes, update its row and the
 totals in the same commit.
 
-Last updated: 2026-11-01.
+Last updated: 2026-11-07.
 
 ## 5G Core, Tier 1: all 13 built
 
@@ -164,6 +164,22 @@ feature the core does not implement yet; partial ones name what is already in on
 | 103 | URLLC redundant transmission (TS 23.501 §5.33) | 🕒 Already in Pipeline, ADR-0550 |
 | 104 | AMF/SMF support for IAB, NCR, MWAB and femto nodes (TS 23.501 §5.35, §5.47, §5.49, §5.50) | 🕒 Already in Pipeline, ADR-0550 |
 
+## Reference-architecture adoptions
+
+Added 2026-11-07 when ADR-0556..0562 were accepted. Accepting a decision does not build anything:
+no code for these rows is in the repo yet, and each ADR records what stays deferred for future
+implementation.
+
+| # | Component | Status |
+|---|---|---|
+| 105 | Kafka event contracts in a schema registry (Apicurio) | 🕒 Already in Pipeline, ADR-0556 |
+| 106 | Open Policy Agent, northbound and MCP tool authorisation | 🕒 Already in Pipeline, ADR-0557 |
+| 107 | TMF640 Service Activation and TMF664 Resource Function Activation | 🕒 Already in Pipeline, ADR-0558 |
+| 108 | Debezium change data capture, PostgreSQL to Kafka, for BSS and analytics consumers | 🕒 Already in Pipeline, ADR-0559 |
+| 109 | OpenBao for secrets | 🕒 Already in Pipeline, ADR-0560 |
+| 110 | Feast feature store for the NWDAF and CHF training sidecars | 🕒 Already in Pipeline, ADR-0561 |
+| 111 | MCP server over Streamable HTTP with Keycloak-issued tokens | 🕒 Already in Pipeline, ADR-0562 |
+
 ## Totals
 
 | Group | Built | Already in pipeline |
@@ -173,6 +189,7 @@ feature the core does not implement yet; partial ones name what is already in on
 | Charging/BSS and platform | 9 of 9 | 0 |
 | R19 completeness (ADR-0539) | 0 of 25 | 25 |
 | mmt-studio-5g6g survey (ADR-0550) | 0 of 18 | 18 |
+| Reference-architecture adoptions (ADR-0556..0562) | 0 of 7 | 7 |
 
 The SEPP now carries inter-PLMN SBI traffic over N32 with TLS security or PRINS (application-layer
 security). It is partial: the unbuilt N32 items are listed in its row above (REVIEW-5ae0ef1 DOC-01).
