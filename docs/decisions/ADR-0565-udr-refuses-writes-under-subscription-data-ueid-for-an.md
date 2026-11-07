@@ -1,6 +1,6 @@
 ## ADR-0565: UDR refuses writes under subscription-data/{ueId} for an unprovisioned user
 
-**Date:** 2026-11-06. **Status:** Proposed.
+**Date:** 2026-11-06. **Status:** Accepted.
 
 **Context.** REVIEW-5ae0ef1 SUS-02 follow-up. ADR-0564 bounds the UDR's subscription tables and
 records the user decision of 2026-11-06 to refuse writes for unprovisioned users as a separate
