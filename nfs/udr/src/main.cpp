@@ -647,6 +647,8 @@
 #include "sbi_core/otel.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
+#include "sbi_core/store_quota.hpp"
+#include "sbi_core/subscription_expiry.hpp"
 #include "sbi_core/uuid.hpp"
 
 #include <boost/asio/io_context.hpp>
@@ -655,8 +657,12 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <stdexcept>
+#include <stop_token>
 #include <thread>
 #include <unordered_map>
 
@@ -969,6 +975,29 @@ void run_nrf_lifecycle(const std::string& udr_instance_id,
                                   std::chrono::seconds(kHeartbeatSeconds / 2));
 }
 
+// ADR-0564 (REVIEW-5ae0ef1 SUS-02): a create the subscription quota refused. TS 29.504 table
+// 6.1.6-2 -- which TS 29.519 tables 5.5.3-1, 6.5.3-1 and 7.4.3-1 defer to -- defines 403
+// CREATION_NOT_ALLOWED ("Creation of the resource is not allowed"), answered to a consumer over
+// its share; a full table is TS 29.500 table 5.2.7.2-1's 500 INSUFFICIENT_RESOURCES.
+sbi_core::http2::Response quota_refused(sbi_core::Refusal refusal, const std::string& what) {
+    if (refusal == sbi_core::Refusal::consumer_full) {
+        return sbi_core::http2::problem_response(403,
+                                                 "Forbidden",
+                                                 what + ": this consumer's share of the UDR's "
+                                                        "limit is reached",
+                                                 "CREATION_NOT_ALLOWED");
+    }
+    return sbi_core::http2::problem_response(500,
+                                             "Internal Server Error",
+                                             what + ": this UDR's store limit is reached",
+                                             "INSUFFICIENT_RESOURCES");
+}
+
+// TS 29.500 table 5.2.7.2-1: an optional IE (the expiry) with an incorrect value.
+sbi_core::http2::Response expiry_problem(const std::invalid_argument& e) {
+    return sbi_core::http2::problem_response(400, "Bad Request", e.what(), "OPTIONAL_IE_INCORRECT");
+}
+
 } // namespace
 
 int main() {
@@ -990,6 +1019,22 @@ int main() {
     // ADR-0382: mTLS identities (cert CN or dNSName SAN) admitted to the OAM provisioning API.
     const auto oam_provisioning_allowed_clients = nf_config::require<std::vector<std::string>>(
         config, "oam_provisioning_allowed_clients", "UDR_OAM_PROVISIONING_ALLOWED_CLIENTS");
+    // ADR-0564 (REVIEW-5ae0ef1 SUS-02): bounds on the subscription tables, and the longest
+    // subscription lifetime this UDR confirms -- operator configuration, not code.
+    const sbi_core::StoreLimits store_limits{
+        .max_entries =
+            nf_config::require<std::size_t>(config, "store_max_entries", "UDR_STORE_MAX_ENTRIES"),
+        .max_per_consumer = nf_config::require<std::size_t>(
+            config, "store_max_entries_per_consumer", "UDR_STORE_MAX_ENTRIES_PER_CONSUMER"),
+    };
+    const std::chrono::seconds subscription_max_lifetime{nf_config::require<std::int64_t>(
+        config, "subscription_max_lifetime_seconds", "UDR_SUBSCRIPTION_MAX_LIFETIME_SECONDS")};
+    const std::chrono::seconds store_sweep_interval{nf_config::require<std::int64_t>(
+        config, "store_sweep_interval_seconds", "UDR_STORE_SWEEP_INTERVAL_SECONDS")};
+    if (subscription_max_lifetime.count() <= 0 || store_sweep_interval.count() <= 0) {
+        nf_config::fatal("udr: subscription_max_lifetime_seconds and store_sweep_interval_seconds "
+                         "must be positive");
+    }
 
     sbi_core::init_logging("udr");
     sbi_core::init_tracing("udr");
@@ -1021,7 +1066,7 @@ int main() {
     // ADR-0253 (from ADR-0252's full-coverage audit): real application-data traffic-influence
     // family -- the one unrouted resource a real NEF/AF path depends on.
     udr::TrafficInfluenceDataStore traffic_influence_data(conninfo);
-    udr::TrafficInfluenceSubStore traffic_influence_subs(conninfo);
+    udr::TrafficInfluenceSubStore traffic_influence_subs(conninfo, store_limits);
     // ADR-0254: the remaining real application-data resources. Five distinct tables, one shared
     // store class -- see stores.hpp for why that is not the rejected discriminator shape.
     udr::KeyedJsonDocStore pfd_data(conninfo, "udr_pfd_data", "app_id");
@@ -1029,12 +1074,14 @@ int main() {
     udr::KeyedJsonDocStore iptv_config_data(conninfo, "udr_iptv_config_data", "configuration_id");
     udr::KeyedJsonDocStore service_param_data(
         conninfo, "udr_service_param_data", "service_param_id");
-    udr::KeyedJsonDocStore application_data_subs(conninfo, "udr_application_data_subs", "subs_id");
+    udr::KeyedJsonDocStore application_data_subs(
+        conninfo, "udr_application_data_subs", "subs_id", store_limits);
     // ADR-0255: structured data for exposure. access-and-mobility-data and subs-to-notify are
     // single-key documents and reuse the same store class; session-management-data is keyed by
     // (ueId, pduSessionId) and therefore has its own.
     udr::KeyedJsonDocStore exposure_am_data(conninfo, "udr_exposure_am_data", "ue_id");
-    udr::KeyedJsonDocStore exposure_data_subs(conninfo, "udr_exposure_data_subs", "sub_id");
+    udr::KeyedJsonDocStore exposure_data_subs(
+        conninfo, "udr_exposure_data_subs", "sub_id", store_limits);
     udr::ExposureSessionManagementDataStore exposure_sm_data(conninfo);
     // ADR-0256: the last of ADR-0252's UDR gap. AIoT data (both resources are seed-only for
     // writes -- the spec defines no create/replace/delete), data-restoration subscriptions, and
@@ -1083,7 +1130,7 @@ int main() {
     udr::BdtDataStore bdt_data(conninfo);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0213).
     udr::UsageMonDataStore usage_mon_data(conninfo);
-    udr::PolicyDataSubsToNotifyStore policy_data_subs_to_notify(conninfo);
+    udr::PolicyDataSubsToNotifyStore policy_data_subs_to_notify(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0117).
     udr::PlmnUePolicySetStore plmn_ue_policy_set(conninfo);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0118).
@@ -1139,33 +1186,53 @@ int main() {
     udr::FiveGVnGroupPpProfileDataStore five_g_vn_group_pp_profile_data(conninfo);
     udr::MbsGroupPpProfileDataStore mbs_group_pp_profile_data(conninfo);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0170).
-    udr::NfGroupIdSubscriptionStore nf_group_id_subscriptions(conninfo);
+    udr::NfGroupIdSubscriptionStore nf_group_id_subscriptions(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0182).
     udr::MbsSessionPolicyDataStore mbs_session_pol_data(conninfo);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0146).
     udr::GroupEeProfileDataStore group_ee_profile_data(conninfo);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0148).
-    udr::EeSubscriptionsStore ee_subscriptions(conninfo);
+    udr::EeSubscriptionsStore ee_subscriptions(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0149).
-    udr::SubsToNotifyStore subs_to_notify(conninfo);
+    udr::SubsToNotifyStore subs_to_notify(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0151).
-    udr::SdmSubscriptionsStore sdm_subscriptions(conninfo);
+    udr::SdmSubscriptionsStore sdm_subscriptions(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0152).
-    udr::EeAmfSubscriptionInfoStore ee_amf_subscription_info(conninfo);
+    udr::EeAmfSubscriptionInfoStore ee_amf_subscription_info(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0153).
-    udr::EeSmfSubscriptionInfoStore ee_smf_subscription_info(conninfo);
+    udr::EeSmfSubscriptionInfoStore ee_smf_subscription_info(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0154).
-    udr::EeHssSubscriptionInfoStore ee_hss_subscription_info(conninfo);
+    udr::EeHssSubscriptionInfoStore ee_hss_subscription_info(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0155).
-    udr::SdmHssSubscriptionInfoStore sdm_hss_subscription_info(conninfo);
+    udr::SdmHssSubscriptionInfoStore sdm_hss_subscription_info(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0156).
-    udr::GroupEeSubscriptionsStore group_ee_subscriptions(conninfo);
+    udr::GroupEeSubscriptionsStore group_ee_subscriptions(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0157).
-    udr::GroupAmfSubscriptionInfoStore group_amf_subscription_info(conninfo);
+    udr::GroupAmfSubscriptionInfoStore group_amf_subscription_info(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0158).
-    udr::GroupSmfSubscriptionInfoStore group_smf_subscription_info(conninfo);
+    udr::GroupSmfSubscriptionInfoStore group_smf_subscription_info(conninfo, store_limits);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0159).
-    udr::GroupHssSubscriptionInfoStore group_hss_subscription_info(conninfo);
+    udr::GroupHssSubscriptionInfoStore group_hss_subscription_info(conninfo, store_limits);
+    // ADR-0564: deletes the UDR-owned subscriptions whose confirmed expiry has passed (TS 29.504
+    // 5.2.2.6.2: the subscription then "becomes invalid"). Declared after the stores, so it stops
+    // first. Its connection opens here, so a database that cannot be reached fails the start the
+    // way the stores' connections do, not the thread.
+    udr::ExpirySweeper sweeper(conninfo);
+    std::jthread expiry_sweeper([&sweeper, store_sweep_interval](const std::stop_token& stop) {
+        std::mutex mutex;
+        std::condition_variable_any wake;
+        std::unique_lock lock(mutex);
+        while (!wake.wait_for(lock, stop, store_sweep_interval, [] { return false; }) &&
+               !stop.stop_requested()) {
+            try {
+                if (const auto removed = sweeper.sweep(udr::Clock::now()); removed > 0) {
+                    spdlog::info("udr: removed {} expired subscription(s)", removed);
+                }
+            } catch (const std::exception& e) {
+                spdlog::warn("udr: expired-subscription sweep failed: {}", e.what());
+            }
+        }
+    });
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0162).
     udr::PdtqDataStore pdtq_data(conninfo);
 
@@ -4616,7 +4683,8 @@ int main() {
         nf_group_id_subscriptions_collection_path_pattern,
         [&nf_group_id_subscriptions,
          &nf_group_id_subscriptions_create_counter,
-         nf_group_id_subscriptions_collection_path_pattern](const sbi_core::http2::Request& req) {
+         nf_group_id_subscriptions_collection_path_pattern,
+         subscription_max_lifetime](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto parsed =
                 sbi_core::http2::parse_json_body<sbi_gen::SubscriptionData_Nudr_GroupIDmap>(req,
@@ -4627,7 +4695,17 @@ int main() {
             const auto subscription_id = sbi_core::generate_uuid_v4();
             parsed->subscriptionId = subscription_id;
             json body = *parsed;
-            nf_group_id_subscriptions.create(subscription_id, body);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    body, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (const auto refused = nf_group_id_subscriptions.create(
+                    subscription_id, body, expires_at, req.token_sub)) {
+                return quota_refused(*refused, "NF group ID subscriptions");
+            }
             nf_group_id_subscriptions_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -4659,36 +4737,43 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    server.add_route("PATCH",
-                     nf_group_id_subscriptions_individual_path_pattern,
-                     [&nf_group_id_subscriptions, &nf_group_id_subscriptions_write_counter](
-                         const sbi_core::http2::Request& req) {
-                         json patch_ops;
-                         try {
-                             patch_ops = json::parse(req.body);
-                         } catch (const json::parse_error& e) {
-                             return sbi_core::http2::problem_response(
-                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
-                         }
-                         const auto subscription_id = req.path_params.at("subscriptionId");
-                         std::optional<json> patched;
-                         try {
-                             patched =
-                                 nf_group_id_subscriptions.apply_patch(subscription_id, patch_ops);
-                         } catch (const json::exception& e) {
-                             return sbi_core::http2::problem_response(
-                                 400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
-                         }
-                         if (!patched.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404,
-                                 "Not Found",
-                                 "No subscription for subscriptionId " + subscription_id,
-                                 std::nullopt);
-                         }
-                         nf_group_id_subscriptions_write_counter->Add(1);
-                         return sbi_core::http2::Response::json(200, patched->dump());
-                     });
+    server.add_route(
+        "PATCH",
+        nf_group_id_subscriptions_individual_path_pattern,
+        [&nf_group_id_subscriptions,
+         &nf_group_id_subscriptions_write_counter,
+         subscription_max_lifetime](const sbi_core::http2::Request& req) {
+            json patch_ops;
+            try {
+                patch_ops = json::parse(req.body);
+            } catch (const json::parse_error& e) {
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+            }
+            const auto subscription_id = req.path_params.at("subscriptionId");
+            std::optional<json> patched;
+            try {
+                patched = nf_group_id_subscriptions.apply_patch(
+                    subscription_id, patch_ops, [&](json& doc) {
+                        return sbi_core::confirm_expiry_in(
+                            doc, json::json_pointer("/expiry"), subscription_max_lifetime);
+                    });
+            } catch (const json::exception& e) {
+                return sbi_core::http2::problem_response(
+                    400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No subscription for subscriptionId " +
+                                                             subscription_id,
+                                                         std::nullopt);
+            }
+            nf_group_id_subscriptions_write_counter->Add(1);
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
 
     server.add_route("DELETE",
                      nf_group_id_subscriptions_individual_path_pattern,
@@ -6052,7 +6137,9 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const auto subs_id = sbi_core::generate_uuid_v4();
             json j = *body;
-            ee_subscriptions.create(ue_id, subs_id, j);
+            if (const auto refused = ee_subscriptions.create(ue_id, subs_id, j, req.token_sub)) {
+                return quota_refused(*refused, "EE subscriptions");
+            }
             ee_subscriptions_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -6225,7 +6312,9 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const auto subs_id = sbi_core::generate_uuid_v4();
             json j = *body;
-            sdm_subscriptions.create(ue_id, subs_id, j);
+            if (const auto refused = sdm_subscriptions.create(ue_id, subs_id, j, req.token_sub)) {
+                return quota_refused(*refused, "SDM subscriptions");
+            }
             sdm_subscriptions_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -6402,7 +6491,11 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const auto subs_id = req.path_params.at("subsId");
             json j = *body;
-            const bool is_new = ee_amf_subscription_info.put(ue_id, subs_id, j);
+            const auto stored = ee_amf_subscription_info.put(ue_id, subs_id, j, req.token_sub);
+            if (!stored) {
+                return quota_refused(stored.error(), "AMF subscription info");
+            }
+            const bool is_new = *stored;
             ee_amf_subscription_info_write_counter->Add(1);
             notify_subscribers(
                 subs_to_notify,
@@ -6541,7 +6634,11 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const auto subs_id = req.path_params.at("subsId");
             json j = *body;
-            const bool is_new = ee_smf_subscription_info.put(ue_id, subs_id, j);
+            const auto stored = ee_smf_subscription_info.put(ue_id, subs_id, j, req.token_sub);
+            if (!stored) {
+                return quota_refused(stored.error(), "SMF subscription info");
+            }
+            const bool is_new = *stored;
             ee_smf_subscription_info_write_counter->Add(1);
             notify_subscribers(
                 subs_to_notify,
@@ -6683,7 +6780,11 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const auto subs_id = req.path_params.at("subsId");
             json j = *body;
-            const bool is_new = ee_hss_subscription_info.put(ue_id, subs_id, j);
+            const auto stored = ee_hss_subscription_info.put(ue_id, subs_id, j, req.token_sub);
+            if (!stored) {
+                return quota_refused(stored.error(), "HSS subscription info");
+            }
+            const bool is_new = *stored;
             ee_hss_subscription_info_write_counter->Add(1);
             notify_subscribers(
                 subs_to_notify,
@@ -6830,7 +6931,10 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const auto subs_id = req.path_params.at("subsId");
             json j = *body;
-            sdm_hss_subscription_info.put(ue_id, subs_id, j);
+            if (const auto stored = sdm_hss_subscription_info.put(ue_id, subs_id, j, req.token_sub);
+                !stored) {
+                return quota_refused(stored.error(), "SDM HSS subscription info");
+            }
             sdm_hss_subscription_info_write_counter->Add(1);
             notify_subscribers(
                 subs_to_notify,
@@ -6963,7 +7067,10 @@ int main() {
             const auto ue_group_id = req.path_params.at("ueGroupId");
             const auto subs_id = sbi_core::generate_uuid_v4();
             json j = *body;
-            group_ee_subscriptions.create(ue_group_id, subs_id, j);
+            if (const auto refused =
+                    group_ee_subscriptions.create(ue_group_id, subs_id, j, req.token_sub)) {
+                return quota_refused(*refused, "group EE subscriptions");
+            }
             group_ee_subscriptions_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -7149,7 +7256,12 @@ int main() {
             const auto ue_group_id = req.path_params.at("ueGroupId");
             const auto subs_id = req.path_params.at("subsId");
             json j = *body;
-            const bool is_new = group_amf_subscription_info.put(ue_group_id, subs_id, j);
+            const auto stored =
+                group_amf_subscription_info.put(ue_group_id, subs_id, j, req.token_sub);
+            if (!stored) {
+                return quota_refused(stored.error(), "group AMF subscription info");
+            }
+            const bool is_new = *stored;
             group_amf_subscription_info_write_counter->Add(1);
             notify_subscribers_ue_less(
                 subs_to_notify,
@@ -7287,7 +7399,12 @@ int main() {
             const auto ue_group_id = req.path_params.at("ueGroupId");
             const auto subs_id = req.path_params.at("subsId");
             json j = *body;
-            const bool is_new = group_smf_subscription_info.put(ue_group_id, subs_id, j);
+            const auto stored =
+                group_smf_subscription_info.put(ue_group_id, subs_id, j, req.token_sub);
+            if (!stored) {
+                return quota_refused(stored.error(), "group SMF subscription info");
+            }
+            const bool is_new = *stored;
             group_smf_subscription_info_write_counter->Add(1);
             notify_subscribers_ue_less(
                 subs_to_notify,
@@ -7433,7 +7550,12 @@ int main() {
             const auto ue_group_id = req.path_params.at("ueGroupId");
             const auto subs_id = req.path_params.at("subsId");
             json j = *body;
-            const bool is_new = group_hss_subscription_info.put(ue_group_id, subs_id, j);
+            const auto stored =
+                group_hss_subscription_info.put(ue_group_id, subs_id, j, req.token_sub);
+            if (!stored) {
+                return quota_refused(stored.error(), "group HSS subscription info");
+            }
+            const bool is_new = *stored;
             group_hss_subscription_info_write_counter->Add(1);
             notify_subscribers_ue_less(
                 subs_to_notify,
@@ -7711,8 +7833,10 @@ int main() {
     server.add_route(
         "POST",
         subs_to_notify_collection_path_pattern,
-        [&subs_to_notify, &subs_to_notify_create_counter, subs_to_notify_collection_path_pattern](
-            const sbi_core::http2::Request& req) {
+        [&subs_to_notify,
+         &subs_to_notify_create_counter,
+         subs_to_notify_collection_path_pattern,
+         subscription_max_lifetime](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::SubscriptionDataSubscriptions>(req, err);
@@ -7721,7 +7845,17 @@ int main() {
             }
             const auto subs_id = sbi_core::generate_uuid_v4();
             json j = *body;
-            subs_to_notify.create(subs_id, body->ueId, j);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (const auto refused =
+                    subs_to_notify.create(subs_id, body->ueId, j, expires_at, req.token_sub)) {
+                return quota_refused(*refused, "subscription data subscriptions");
+            }
             subs_to_notify_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -7750,7 +7884,8 @@ int main() {
     server.add_route(
         "PATCH",
         subs_to_notify_individual_path_pattern,
-        [&subs_to_notify, &subs_to_notify_write_counter](const sbi_core::http2::Request& req) {
+        [&subs_to_notify, &subs_to_notify_write_counter, subscription_max_lifetime](
+            const sbi_core::http2::Request& req) {
             json patch_ops;
             try {
                 patch_ops = json::parse(req.body);
@@ -7761,10 +7896,15 @@ int main() {
             const auto subs_id = req.path_params.at("subsId");
             std::optional<json> patched;
             try {
-                patched = subs_to_notify.apply_patch(subs_id, patch_ops);
+                patched = subs_to_notify.apply_patch(subs_id, patch_ops, [&](json& doc) {
+                    return sbi_core::confirm_expiry_in(
+                        doc, json::json_pointer("/expiry"), subscription_max_lifetime);
+                });
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
                     400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
@@ -7831,7 +7971,8 @@ int main() {
         policy_subs_to_notify_collection_path_pattern,
         [&policy_data_subs_to_notify,
          &policy_data_subs_to_notify_create_counter,
-         policy_subs_to_notify_collection_path_pattern](const sbi_core::http2::Request& req) {
+         policy_subs_to_notify_collection_path_pattern,
+         subscription_max_lifetime](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PolicyDataSubscription>(req, err);
             if (!body.has_value()) {
@@ -7839,7 +7980,17 @@ int main() {
             }
             const auto subs_id = sbi_core::generate_uuid_v4();
             json j = *body;
-            policy_data_subs_to_notify.create(subs_id, std::nullopt, j);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (const auto refused = policy_data_subs_to_notify.create(
+                    subs_id, std::nullopt, j, expires_at, req.token_sub)) {
+                return quota_refused(*refused, "policy data subscriptions");
+            }
             policy_data_subs_to_notify_create_counter->Add(1);
 
             sbi_core::http2::Response resp;
@@ -7872,7 +8023,8 @@ int main() {
         "PUT",
         policy_subs_to_notify_individual_path_pattern,
         [&policy_data_subs_to_notify,
-         &policy_data_subs_to_notify_replace_counter](const sbi_core::http2::Request& req) {
+         &policy_data_subs_to_notify_replace_counter,
+         subscription_max_lifetime](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::PolicyDataSubscription>(req, err);
             if (!body.has_value()) {
@@ -7880,7 +8032,14 @@ int main() {
             }
             const auto subs_id = req.path_params.at("subsId");
             json j = *body;
-            auto replaced = policy_data_subs_to_notify.replace(subs_id, j);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            auto replaced = policy_data_subs_to_notify.replace(subs_id, j, expires_at);
             if (!replaced.has_value()) {
                 return sbi_core::http2::problem_response(404,
                                                          "Not Found",
@@ -8647,7 +8806,8 @@ int main() {
     server.add_route(
         "POST",
         influence_subs_collection_path,
-        [&traffic_influence_subs, influence_subs_item_path](const sbi_core::http2::Request& req) {
+        [&traffic_influence_subs, influence_subs_item_path, subscription_max_lifetime](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_Application_Data>(
                 req, err);
@@ -8656,7 +8816,18 @@ int main() {
             }
             const std::string subscription_id = sbi_core::generate_uuid_v4();
             nlohmann::json j = *body;
-            traffic_influence_subs.put(subscription_id, j);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (const auto stored =
+                    traffic_influence_subs.put(subscription_id, j, expires_at, req.token_sub);
+                !stored) {
+                return quota_refused(stored.error(), "traffic influence subscriptions");
+            }
             std::map<std::string, std::string> params{{"subscriptionId", subscription_id}};
             sbi_core::http2::Response resp;
             resp.status = 201;
@@ -8686,7 +8857,7 @@ int main() {
     server.add_route(
         "PUT",
         influence_subs_item_path,
-        [&traffic_influence_subs](const sbi_core::http2::Request& req) {
+        [&traffic_influence_subs, subscription_max_lifetime](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_Application_Data>(
                 req, err);
@@ -8695,7 +8866,18 @@ int main() {
             }
             const auto subscription_id = req.path_params.at("subscriptionId");
             nlohmann::json j = *body;
-            traffic_influence_subs.put(subscription_id, j);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (const auto stored =
+                    traffic_influence_subs.put(subscription_id, j, expires_at, req.token_sub);
+                !stored) {
+                return quota_refused(stored.error(), "traffic influence subscriptions");
+            }
             sbi_core::http2::Response resp;
             resp.status = 200;
             resp.headers.emplace("content-type", "application/json");
@@ -9029,7 +9211,8 @@ int main() {
     server.add_route(
         "POST",
         app_subs_coll_path,
-        [&application_data_subs, app_subs_item_path](const sbi_core::http2::Request& req) {
+        [&application_data_subs, app_subs_item_path, subscription_max_lifetime](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ApplicationDataSubs>(req, err);
             if (!body.has_value()) {
@@ -9037,7 +9220,18 @@ int main() {
             }
             const std::string subs_id = sbi_core::generate_uuid_v4();
             nlohmann::json j = *body;
-            application_data_subs.put(subs_id, j);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (const auto stored =
+                    application_data_subs.put(subs_id, j, expires_at, req.token_sub);
+                !stored) {
+                return quota_refused(stored.error(), "application data subscriptions");
+            }
             std::map<std::string, std::string> params{{"subsId", subs_id}};
             sbi_core::http2::Response resp;
             resp.status = 201;
@@ -9063,7 +9257,9 @@ int main() {
         });
 
     server.add_route(
-        "PUT", app_subs_item_path, [&application_data_subs](const sbi_core::http2::Request& req) {
+        "PUT",
+        app_subs_item_path,
+        [&application_data_subs, subscription_max_lifetime](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<sbi_gen::ApplicationDataSubs>(req, err);
             if (!body.has_value()) {
@@ -9071,7 +9267,17 @@ int main() {
             }
             const auto id = req.path_params.at("subsId");
             nlohmann::json j = *body;
-            application_data_subs.put(id, j);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (const auto stored = application_data_subs.put(id, j, expires_at, req.token_sub);
+                !stored) {
+                return quota_refused(stored.error(), "application data subscriptions");
+            }
             sbi_core::http2::Response resp;
             resp.status = 200;
             resp.headers.emplace("content-type", "application/json");
@@ -9271,7 +9477,8 @@ int main() {
     server.add_route(
         "POST",
         exposure_subs_coll_path,
-        [&exposure_data_subs, exposure_subs_item_path](const sbi_core::http2::Request& req) {
+        [&exposure_data_subs, exposure_subs_item_path, subscription_max_lifetime](
+            const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::ExposureDataSubscription>(req, err);
@@ -9280,7 +9487,17 @@ int main() {
             }
             const std::string sub_id = sbi_core::generate_uuid_v4();
             nlohmann::json j = *body;
-            exposure_data_subs.put(sub_id, j);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (const auto stored = exposure_data_subs.put(sub_id, j, expires_at, req.token_sub);
+                !stored) {
+                return quota_refused(stored.error(), "exposure data subscriptions");
+            }
             std::map<std::string, std::string> params{{"subId", sub_id}};
             sbi_core::http2::Response resp;
             resp.status = 201;
@@ -9295,7 +9512,9 @@ int main() {
     // ADR-0254's application-data subs-to-notify PUT, which upserts -- the difference is read
     // from each path's own response set, not carried across.
     server.add_route(
-        "PUT", exposure_subs_item_path, [&exposure_data_subs](const sbi_core::http2::Request& req) {
+        "PUT",
+        exposure_subs_item_path,
+        [&exposure_data_subs, subscription_max_lifetime](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<sbi_gen::ExposureDataSubscription>(req, err);
@@ -9308,7 +9527,17 @@ int main() {
                     404, "Not Found", "No exposure data subscription: " + sub_id, std::nullopt);
             }
             nlohmann::json j = *body;
-            exposure_data_subs.put(sub_id, j);
+            udr::Clock::time_point expires_at;
+            try {
+                expires_at = sbi_core::confirm_expiry_in(
+                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+            } catch (const std::invalid_argument& e) {
+                return expiry_problem(e);
+            }
+            if (const auto stored = exposure_data_subs.put(sub_id, j, expires_at, req.token_sub);
+                !stored) {
+                return quota_refused(stored.error(), "exposure data subscriptions");
+            }
             sbi_core::http2::Response resp;
             resp.status = 200;
             resp.headers.emplace("content-type", "application/json");
