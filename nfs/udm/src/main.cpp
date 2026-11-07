@@ -95,6 +95,7 @@
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
 #include "sbi_core/store_quota.hpp"
+#include "sbi_core/subscription_expiry.hpp"
 #include "sbi_core/uuid.hpp"
 
 #include <boost/asio/io_context.hpp>
@@ -447,28 +448,9 @@ sbi_core::http2::Response store_full(const std::string& what) {
                                              "INSUFFICIENT_RESOURCES");
 }
 
-// ADR-0535: TS 29.503 6.1.6.2.3 / 6.4.6.2.6 -- a request proposes a subscription's expiry, the
-// response carries the one the UDM confirms (sbi_core::confirm_expiry: at most `max_lifetime`
-// ahead, spread when the UDM sets it). Confirms the value at `at` in `doc`, writing it back when
-// it differs from the proposal.
-// Throws std::invalid_argument when it is not an RFC 3339 date-time.
-udm::Clock::time_point
-confirm_expiry_in(json& doc, const json::json_pointer& at, std::chrono::seconds max_lifetime) {
-    std::optional<udm::Clock::time_point> proposed;
-    if (doc.contains(at) && !doc.at(at).is_null()) {
-        if (doc.at(at).is_string()) {
-            proposed = sbi_core::parse_rfc3339(doc.at(at).get<std::string>());
-        }
-        if (!proposed) {
-            throw std::invalid_argument(at.to_string() + " is not an RFC 3339 date-time");
-        }
-    }
-    const auto confirmed = sbi_core::confirm_expiry(proposed, udm::Clock::now(), max_lifetime);
-    if (confirmed != proposed) { // a proposal accepted as is keeps the consumer's own spelling
-        doc[at] = sbi_core::format_rfc3339(confirmed);
-    }
-    return confirmed;
-}
+// ADR-0535: TS 29.503 6.1.6.2.3 / 6.4.6.2.6 -- the UDM confirms the expiry a subscribe request
+// proposes. Shared with the UDR since ADR-0564.
+using sbi_core::confirm_expiry_in;
 
 // TS 29.500 Table 5.2.7.2-1: an optional IE (the expiry) with an incorrect value.
 sbi_core::http2::Response expiry_problem(const std::invalid_argument& e) {

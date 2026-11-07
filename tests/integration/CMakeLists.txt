@@ -37,6 +37,7 @@ add_executable(integration_tests
     test_udm_mt_niddau_rsds_ssau_ueid.cpp
     test_upf_event_exposure_gueip.cpp
     test_udr_context_data.cpp
+    test_udr_store_bounds.cpp
     test_udr_ondatachange_webhook.cpp
     test_sbi_core_concurrency.cpp
     test_http2_route_precedence.cpp

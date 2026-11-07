@@ -526,6 +526,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0561](decisions/ADR-0561-feast-feature-store-shared-by-the-nwdaf-and-chf-training.md) Feast feature store shared by the NWDAF and CHF training sidecars, training only
 - [0562](decisions/ADR-0562-mcp-server-over-streamable-http-with-keycloak-issued-tokens.md) MCP server over Streamable HTTP with Keycloak-issued tokens, in addition to stdio
 - [0517](decisions/ADR-0517-nwdaf-mtlf-helm-chart-the-nwdaf-certificate-names-nwdaf.md) NWDAF MTLF Helm chart; the NWDAF certificate names nwdaf-mtlf (DEP-03 follow-up)
+- [0564](decisions/ADR-0564-udr-subscription-tables-bounded-per-table-and-per-token-sub.md) UDR subscription tables bounded per table and per token sub; confirmed subscription expiry (SUS-02)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

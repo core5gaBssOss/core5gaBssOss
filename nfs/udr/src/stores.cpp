@@ -1,6 +1,61 @@
 #include "stores.hpp"
 
+#include "sbi_core/datetime.hpp"
+
+#include <array>
+#include <utility>
+
 namespace udr {
+
+// ADR-0564 (REVIEW-5ae0ef1 SUS-02). The counts are those udr_store_quota_count() keeps
+// (schema.postgres.sql): one row per (table, consumer), and '*' for the table's total.
+std::optional<sbi_core::Refusal> quota_refusal(pqxx::work& txn,
+                                               const std::string& table,
+                                               const std::string& consumer,
+                                               const sbi_core::StoreLimits& limits) {
+    const bool counted = !consumer.empty() && consumer != "*";
+    const auto rows = txn.exec("SELECT consumer, entries FROM udr_store_quota "
+                               "WHERE store = $1 AND consumer IN ('*', $2)",
+                               pqxx::params{table, consumer});
+    std::int64_t total = 0;
+    std::int64_t mine = 0;
+    for (const auto& row : rows) {
+        (row["consumer"].as<std::string>() == "*" ? total : mine) =
+            row["entries"].as<std::int64_t>();
+    }
+    if (std::cmp_greater_equal(total, limits.max_entries)) {
+        return sbi_core::Refusal::store_full;
+    }
+    if (counted && std::cmp_greater_equal(mine, limits.max_per_consumer)) {
+        return sbi_core::Refusal::consumer_full;
+    }
+    return std::nullopt;
+}
+
+ExpirySweeper::ExpirySweeper(const std::string& conninfo) : conn_(conninfo) {}
+
+std::size_t ExpirySweeper::sweep(Clock::time_point now) {
+    // The six subscription tables with an expires_at column (schema.postgres.sql, ADR-0564).
+    static constexpr std::array<const char*, 6> kTables{
+        "udr_subs_to_notify",
+        "udr_policy_data_subs_to_notify",
+        "udr_traffic_influence_sub",
+        "udr_application_data_subs",
+        "udr_exposure_data_subs",
+        "udr_nf_group_id_subscriptions",
+    };
+    pqxx::work txn(conn_);
+    std::size_t removed = 0;
+    const auto at = sbi_core::format_rfc3339(now);
+    for (const char* table : kTables) {
+        removed += static_cast<std::size_t>(
+            txn.exec(std::string("DELETE FROM ") + table + " WHERE expires_at <= $1::timestamptz",
+                     pqxx::params{at})
+                .affected_rows());
+    }
+    txn.commit();
+    return removed;
+}
 
 AmfContextStore::AmfContextStore(const std::string& conninfo) : conn_(conninfo) {}
 
@@ -1879,16 +1934,24 @@ std::optional<nlohmann::json> GroupEeProfileDataStore::get(const std::string& ue
     return std::make_optional(nlohmann::json::parse(result.front()["data"].as<std::string>()));
 }
 
-EeSubscriptionsStore::EeSubscriptionsStore(const std::string& conninfo) : conn_(conninfo) {}
+EeSubscriptionsStore::EeSubscriptionsStore(const std::string& conninfo,
+                                           sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-void EeSubscriptionsStore::create(const std::string& ue_id,
-                                  const std::string& subs_id,
-                                  nlohmann::json data) {
+std::optional<sbi_core::Refusal> EeSubscriptionsStore::create(const std::string& ue_id,
+                                                              const std::string& subs_id,
+                                                              nlohmann::json data,
+                                                              const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    txn.exec("INSERT INTO udr_ee_subscriptions (ue_id, subs_id, data) VALUES ($1, $2, $3::jsonb)",
-             pqxx::params{ue_id, subs_id, data.dump()});
+    if (const auto refusal = quota_refusal(txn, "udr_ee_subscriptions", consumer, limits_)) {
+        return refusal;
+    }
+    txn.exec("INSERT INTO udr_ee_subscriptions (ue_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4)",
+             pqxx::params{ue_id, subs_id, data.dump(), consumer});
     txn.commit();
+    return std::nullopt;
 }
 
 std::optional<nlohmann::json> EeSubscriptionsStore::get(const std::string& ue_id,
@@ -1958,16 +2021,25 @@ bool EeSubscriptionsStore::remove(const std::string& ue_id, const std::string& s
     return result.affected_rows() > 0;
 }
 
-SubsToNotifyStore::SubsToNotifyStore(const std::string& conninfo) : conn_(conninfo) {}
+SubsToNotifyStore::SubsToNotifyStore(const std::string& conninfo, sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-void SubsToNotifyStore::create(const std::string& subs_id,
-                               const std::optional<std::string>& ue_id,
-                               nlohmann::json data) {
+std::optional<sbi_core::Refusal> SubsToNotifyStore::create(const std::string& subs_id,
+                                                           const std::optional<std::string>& ue_id,
+                                                           nlohmann::json data,
+                                                           Clock::time_point expires_at,
+                                                           const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    txn.exec("INSERT INTO udr_subs_to_notify (subs_id, ue_id, data) VALUES ($1, $2, $3::jsonb)",
-             pqxx::params{subs_id, ue_id, data.dump()});
+    if (const auto refusal = quota_refusal(txn, "udr_subs_to_notify", consumer, limits_)) {
+        return refusal;
+    }
+    txn.exec(
+        "INSERT INTO udr_subs_to_notify (subs_id, ue_id, data, consumer, expires_at) "
+        "VALUES ($1, $2, $3::jsonb, $4, $5::timestamptz)",
+        pqxx::params{subs_id, ue_id, data.dump(), consumer, sbi_core::format_rfc3339(expires_at)});
     txn.commit();
+    return std::nullopt;
 }
 
 std::optional<nlohmann::json> SubsToNotifyStore::get(const std::string& subs_id) {
@@ -2007,7 +2079,8 @@ std::vector<nlohmann::json> SubsToNotifyStore::list_ue_less() {
 }
 
 std::optional<nlohmann::json> SubsToNotifyStore::apply_patch(const std::string& subs_id,
-                                                             const nlohmann::json& patch_ops) {
+                                                             const nlohmann::json& patch_ops,
+                                                             const ExpiryFinisher& finish) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
     const auto result =
@@ -2016,9 +2089,11 @@ std::optional<nlohmann::json> SubsToNotifyStore::apply_patch(const std::string& 
         return std::nullopt;
     }
     auto data = nlohmann::json::parse(result.front()["data"].as<std::string>());
-    data = data.patch(patch_ops); // may throw nlohmann::json::exception -- caller catches
-    txn.exec("UPDATE udr_subs_to_notify SET data = $2::jsonb WHERE subs_id = $1",
-             pqxx::params{subs_id, data.dump()});
+    data = data.patch(patch_ops);         // may throw nlohmann::json::exception -- caller catches
+    const auto expires_at = finish(data); // may throw std::invalid_argument -- caller catches
+    txn.exec("UPDATE udr_subs_to_notify SET data = $2::jsonb, expires_at = $3::timestamptz "
+             "WHERE subs_id = $1",
+             pqxx::params{subs_id, data.dump(), sbi_core::format_rfc3339(expires_at)});
     txn.commit();
     return std::make_optional(data);
 }
@@ -2032,16 +2107,24 @@ bool SubsToNotifyStore::remove(const std::string& subs_id) {
     return result.affected_rows() > 0;
 }
 
-SdmSubscriptionsStore::SdmSubscriptionsStore(const std::string& conninfo) : conn_(conninfo) {}
+SdmSubscriptionsStore::SdmSubscriptionsStore(const std::string& conninfo,
+                                             sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-void SdmSubscriptionsStore::create(const std::string& ue_id,
-                                   const std::string& subs_id,
-                                   nlohmann::json data) {
+std::optional<sbi_core::Refusal> SdmSubscriptionsStore::create(const std::string& ue_id,
+                                                               const std::string& subs_id,
+                                                               nlohmann::json data,
+                                                               const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    txn.exec("INSERT INTO udr_sdm_subscriptions (ue_id, subs_id, data) VALUES ($1, $2, $3::jsonb)",
-             pqxx::params{ue_id, subs_id, data.dump()});
+    if (const auto refusal = quota_refusal(txn, "udr_sdm_subscriptions", consumer, limits_)) {
+        return refusal;
+    }
+    txn.exec("INSERT INTO udr_sdm_subscriptions (ue_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4)",
+             pqxx::params{ue_id, subs_id, data.dump(), consumer});
     txn.commit();
+    return std::nullopt;
 }
 
 std::optional<nlohmann::json> SdmSubscriptionsStore::get(const std::string& ue_id,
@@ -2111,22 +2194,33 @@ bool SdmSubscriptionsStore::remove(const std::string& ue_id, const std::string& 
     return result.affected_rows() > 0;
 }
 
-EeAmfSubscriptionInfoStore::EeAmfSubscriptionInfoStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+EeAmfSubscriptionInfoStore::EeAmfSubscriptionInfoStore(const std::string& conninfo,
+                                                       sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-bool EeAmfSubscriptionInfoStore::put(const std::string& ue_id,
-                                     const std::string& subs_id,
-                                     nlohmann::json data) {
+std::expected<bool, sbi_core::Refusal>
+EeAmfSubscriptionInfoStore::put(const std::string& ue_id,
+                                const std::string& subs_id,
+                                nlohmann::json data,
+                                const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    const auto row = txn.exec("INSERT INTO udr_ee_amf_subscription_info (ue_id, subs_id, data) "
-                              "VALUES ($1, $2, $3::jsonb) "
-                              "ON CONFLICT (ue_id, subs_id) DO UPDATE SET data = EXCLUDED.data "
-                              "RETURNING (xmax = 0) AS inserted",
-                              pqxx::params{ue_id, subs_id, data.dump()})
-                         .one_row();
+    const bool is_new =
+        txn.exec("SELECT 1 FROM udr_ee_amf_subscription_info WHERE ue_id = $1 AND subs_id = $2",
+                 pqxx::params{ue_id, subs_id})
+            .empty();
+    if (is_new) {
+        if (const auto refusal =
+                quota_refusal(txn, "udr_ee_amf_subscription_info", consumer, limits_)) {
+            return std::unexpected(*refusal);
+        }
+    }
+    txn.exec("INSERT INTO udr_ee_amf_subscription_info (ue_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4) "
+             "ON CONFLICT (ue_id, subs_id) DO UPDATE SET data = EXCLUDED.data",
+             pqxx::params{ue_id, subs_id, data.dump(), consumer});
     txn.commit();
-    return row["inserted"].as<bool>();
+    return is_new;
 }
 
 std::optional<nlohmann::json> EeAmfSubscriptionInfoStore::get(const std::string& ue_id,
@@ -2171,22 +2265,33 @@ bool EeAmfSubscriptionInfoStore::remove(const std::string& ue_id, const std::str
     return result.affected_rows() > 0;
 }
 
-EeSmfSubscriptionInfoStore::EeSmfSubscriptionInfoStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+EeSmfSubscriptionInfoStore::EeSmfSubscriptionInfoStore(const std::string& conninfo,
+                                                       sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-bool EeSmfSubscriptionInfoStore::put(const std::string& ue_id,
-                                     const std::string& subs_id,
-                                     nlohmann::json data) {
+std::expected<bool, sbi_core::Refusal>
+EeSmfSubscriptionInfoStore::put(const std::string& ue_id,
+                                const std::string& subs_id,
+                                nlohmann::json data,
+                                const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    const auto row = txn.exec("INSERT INTO udr_ee_smf_subscription_info (ue_id, subs_id, data) "
-                              "VALUES ($1, $2, $3::jsonb) "
-                              "ON CONFLICT (ue_id, subs_id) DO UPDATE SET data = EXCLUDED.data "
-                              "RETURNING (xmax = 0) AS inserted",
-                              pqxx::params{ue_id, subs_id, data.dump()})
-                         .one_row();
+    const bool is_new =
+        txn.exec("SELECT 1 FROM udr_ee_smf_subscription_info WHERE ue_id = $1 AND subs_id = $2",
+                 pqxx::params{ue_id, subs_id})
+            .empty();
+    if (is_new) {
+        if (const auto refusal =
+                quota_refusal(txn, "udr_ee_smf_subscription_info", consumer, limits_)) {
+            return std::unexpected(*refusal);
+        }
+    }
+    txn.exec("INSERT INTO udr_ee_smf_subscription_info (ue_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4) "
+             "ON CONFLICT (ue_id, subs_id) DO UPDATE SET data = EXCLUDED.data",
+             pqxx::params{ue_id, subs_id, data.dump(), consumer});
     txn.commit();
-    return row["inserted"].as<bool>();
+    return is_new;
 }
 
 std::optional<nlohmann::json> EeSmfSubscriptionInfoStore::get(const std::string& ue_id,
@@ -2231,22 +2336,33 @@ bool EeSmfSubscriptionInfoStore::remove(const std::string& ue_id, const std::str
     return result.affected_rows() > 0;
 }
 
-EeHssSubscriptionInfoStore::EeHssSubscriptionInfoStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+EeHssSubscriptionInfoStore::EeHssSubscriptionInfoStore(const std::string& conninfo,
+                                                       sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-bool EeHssSubscriptionInfoStore::put(const std::string& ue_id,
-                                     const std::string& subs_id,
-                                     nlohmann::json data) {
+std::expected<bool, sbi_core::Refusal>
+EeHssSubscriptionInfoStore::put(const std::string& ue_id,
+                                const std::string& subs_id,
+                                nlohmann::json data,
+                                const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    const auto row = txn.exec("INSERT INTO udr_ee_hss_subscription_info (ue_id, subs_id, data) "
-                              "VALUES ($1, $2, $3::jsonb) "
-                              "ON CONFLICT (ue_id, subs_id) DO UPDATE SET data = EXCLUDED.data "
-                              "RETURNING (xmax = 0) AS inserted",
-                              pqxx::params{ue_id, subs_id, data.dump()})
-                         .one_row();
+    const bool is_new =
+        txn.exec("SELECT 1 FROM udr_ee_hss_subscription_info WHERE ue_id = $1 AND subs_id = $2",
+                 pqxx::params{ue_id, subs_id})
+            .empty();
+    if (is_new) {
+        if (const auto refusal =
+                quota_refusal(txn, "udr_ee_hss_subscription_info", consumer, limits_)) {
+            return std::unexpected(*refusal);
+        }
+    }
+    txn.exec("INSERT INTO udr_ee_hss_subscription_info (ue_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4) "
+             "ON CONFLICT (ue_id, subs_id) DO UPDATE SET data = EXCLUDED.data",
+             pqxx::params{ue_id, subs_id, data.dump(), consumer});
     txn.commit();
-    return row["inserted"].as<bool>();
+    return is_new;
 }
 
 std::optional<nlohmann::json> EeHssSubscriptionInfoStore::get(const std::string& ue_id,
@@ -2291,19 +2407,33 @@ bool EeHssSubscriptionInfoStore::remove(const std::string& ue_id, const std::str
     return result.affected_rows() > 0;
 }
 
-SdmHssSubscriptionInfoStore::SdmHssSubscriptionInfoStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+SdmHssSubscriptionInfoStore::SdmHssSubscriptionInfoStore(const std::string& conninfo,
+                                                         sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-void SdmHssSubscriptionInfoStore::put(const std::string& ue_id,
-                                      const std::string& subs_id,
-                                      nlohmann::json data) {
+std::expected<bool, sbi_core::Refusal>
+SdmHssSubscriptionInfoStore::put(const std::string& ue_id,
+                                 const std::string& subs_id,
+                                 nlohmann::json data,
+                                 const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    txn.exec("INSERT INTO udr_sdm_hss_subscription_info (ue_id, subs_id, data) "
-             "VALUES ($1, $2, $3::jsonb) "
+    const bool is_new =
+        txn.exec("SELECT 1 FROM udr_sdm_hss_subscription_info WHERE ue_id = $1 AND subs_id = $2",
+                 pqxx::params{ue_id, subs_id})
+            .empty();
+    if (is_new) {
+        if (const auto refusal =
+                quota_refusal(txn, "udr_sdm_hss_subscription_info", consumer, limits_)) {
+            return std::unexpected(*refusal);
+        }
+    }
+    txn.exec("INSERT INTO udr_sdm_hss_subscription_info (ue_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4) "
              "ON CONFLICT (ue_id, subs_id) DO UPDATE SET data = EXCLUDED.data",
-             pqxx::params{ue_id, subs_id, data.dump()});
+             pqxx::params{ue_id, subs_id, data.dump(), consumer});
     txn.commit();
+    return is_new;
 }
 
 std::optional<nlohmann::json> SdmHssSubscriptionInfoStore::get(const std::string& ue_id,
@@ -2348,18 +2478,24 @@ bool SdmHssSubscriptionInfoStore::remove(const std::string& ue_id, const std::st
     return result.affected_rows() > 0;
 }
 
-GroupEeSubscriptionsStore::GroupEeSubscriptionsStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+GroupEeSubscriptionsStore::GroupEeSubscriptionsStore(const std::string& conninfo,
+                                                     sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-void GroupEeSubscriptionsStore::create(const std::string& ue_group_id,
-                                       const std::string& subs_id,
-                                       nlohmann::json data) {
+std::optional<sbi_core::Refusal> GroupEeSubscriptionsStore::create(const std::string& ue_group_id,
+                                                                   const std::string& subs_id,
+                                                                   nlohmann::json data,
+                                                                   const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    txn.exec("INSERT INTO udr_group_ee_subscriptions (ue_group_id, subs_id, data) "
-             "VALUES ($1, $2, $3::jsonb)",
-             pqxx::params{ue_group_id, subs_id, data.dump()});
+    if (const auto refusal = quota_refusal(txn, "udr_group_ee_subscriptions", consumer, limits_)) {
+        return refusal;
+    }
+    txn.exec("INSERT INTO udr_group_ee_subscriptions (ue_group_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4)",
+             pqxx::params{ue_group_id, subs_id, data.dump(), consumer});
     txn.commit();
+    return std::nullopt;
 }
 
 std::optional<nlohmann::json> GroupEeSubscriptionsStore::get(const std::string& ue_group_id,
@@ -2430,23 +2566,33 @@ bool GroupEeSubscriptionsStore::remove(const std::string& ue_group_id, const std
     return result.affected_rows() > 0;
 }
 
-GroupAmfSubscriptionInfoStore::GroupAmfSubscriptionInfoStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+GroupAmfSubscriptionInfoStore::GroupAmfSubscriptionInfoStore(const std::string& conninfo,
+                                                             sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-bool GroupAmfSubscriptionInfoStore::put(const std::string& ue_group_id,
-                                        const std::string& subs_id,
-                                        nlohmann::json data) {
+std::expected<bool, sbi_core::Refusal>
+GroupAmfSubscriptionInfoStore::put(const std::string& ue_group_id,
+                                   const std::string& subs_id,
+                                   nlohmann::json data,
+                                   const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    const auto row =
-        txn.exec("INSERT INTO udr_group_amf_subscription_info (ue_group_id, subs_id, data) "
-                 "VALUES ($1, $2, $3::jsonb) "
-                 "ON CONFLICT (ue_group_id, subs_id) DO UPDATE SET data = EXCLUDED.data "
-                 "RETURNING (xmax = 0) AS inserted",
-                 pqxx::params{ue_group_id, subs_id, data.dump()})
-            .one_row();
+    const bool is_new = txn.exec("SELECT 1 FROM udr_group_amf_subscription_info WHERE ue_group_id "
+                                 "= $1 AND subs_id = $2",
+                                 pqxx::params{ue_group_id, subs_id})
+                            .empty();
+    if (is_new) {
+        if (const auto refusal =
+                quota_refusal(txn, "udr_group_amf_subscription_info", consumer, limits_)) {
+            return std::unexpected(*refusal);
+        }
+    }
+    txn.exec("INSERT INTO udr_group_amf_subscription_info (ue_group_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4) "
+             "ON CONFLICT (ue_group_id, subs_id) DO UPDATE SET data = EXCLUDED.data",
+             pqxx::params{ue_group_id, subs_id, data.dump(), consumer});
     txn.commit();
-    return row["inserted"].as<bool>();
+    return is_new;
 }
 
 std::optional<nlohmann::json> GroupAmfSubscriptionInfoStore::get(const std::string& ue_group_id,
@@ -2492,23 +2638,33 @@ bool GroupAmfSubscriptionInfoStore::remove(const std::string& ue_group_id,
     return result.affected_rows() > 0;
 }
 
-GroupSmfSubscriptionInfoStore::GroupSmfSubscriptionInfoStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+GroupSmfSubscriptionInfoStore::GroupSmfSubscriptionInfoStore(const std::string& conninfo,
+                                                             sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-bool GroupSmfSubscriptionInfoStore::put(const std::string& ue_group_id,
-                                        const std::string& subs_id,
-                                        nlohmann::json data) {
+std::expected<bool, sbi_core::Refusal>
+GroupSmfSubscriptionInfoStore::put(const std::string& ue_group_id,
+                                   const std::string& subs_id,
+                                   nlohmann::json data,
+                                   const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    const auto row =
-        txn.exec("INSERT INTO udr_group_smf_subscription_info (ue_group_id, subs_id, data) "
-                 "VALUES ($1, $2, $3::jsonb) "
-                 "ON CONFLICT (ue_group_id, subs_id) DO UPDATE SET data = EXCLUDED.data "
-                 "RETURNING (xmax = 0) AS inserted",
-                 pqxx::params{ue_group_id, subs_id, data.dump()})
-            .one_row();
+    const bool is_new = txn.exec("SELECT 1 FROM udr_group_smf_subscription_info WHERE ue_group_id "
+                                 "= $1 AND subs_id = $2",
+                                 pqxx::params{ue_group_id, subs_id})
+                            .empty();
+    if (is_new) {
+        if (const auto refusal =
+                quota_refusal(txn, "udr_group_smf_subscription_info", consumer, limits_)) {
+            return std::unexpected(*refusal);
+        }
+    }
+    txn.exec("INSERT INTO udr_group_smf_subscription_info (ue_group_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4) "
+             "ON CONFLICT (ue_group_id, subs_id) DO UPDATE SET data = EXCLUDED.data",
+             pqxx::params{ue_group_id, subs_id, data.dump(), consumer});
     txn.commit();
-    return row["inserted"].as<bool>();
+    return is_new;
 }
 
 std::optional<nlohmann::json> GroupSmfSubscriptionInfoStore::get(const std::string& ue_group_id,
@@ -2554,23 +2710,33 @@ bool GroupSmfSubscriptionInfoStore::remove(const std::string& ue_group_id,
     return result.affected_rows() > 0;
 }
 
-GroupHssSubscriptionInfoStore::GroupHssSubscriptionInfoStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+GroupHssSubscriptionInfoStore::GroupHssSubscriptionInfoStore(const std::string& conninfo,
+                                                             sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-bool GroupHssSubscriptionInfoStore::put(const std::string& ue_group_id,
-                                        const std::string& subs_id,
-                                        nlohmann::json data) {
+std::expected<bool, sbi_core::Refusal>
+GroupHssSubscriptionInfoStore::put(const std::string& ue_group_id,
+                                   const std::string& subs_id,
+                                   nlohmann::json data,
+                                   const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    const auto row =
-        txn.exec("INSERT INTO udr_group_hss_subscription_info (ue_group_id, subs_id, data) "
-                 "VALUES ($1, $2, $3::jsonb) "
-                 "ON CONFLICT (ue_group_id, subs_id) DO UPDATE SET data = EXCLUDED.data "
-                 "RETURNING (xmax = 0) AS inserted",
-                 pqxx::params{ue_group_id, subs_id, data.dump()})
-            .one_row();
+    const bool is_new = txn.exec("SELECT 1 FROM udr_group_hss_subscription_info WHERE ue_group_id "
+                                 "= $1 AND subs_id = $2",
+                                 pqxx::params{ue_group_id, subs_id})
+                            .empty();
+    if (is_new) {
+        if (const auto refusal =
+                quota_refusal(txn, "udr_group_hss_subscription_info", consumer, limits_)) {
+            return std::unexpected(*refusal);
+        }
+    }
+    txn.exec("INSERT INTO udr_group_hss_subscription_info (ue_group_id, subs_id, data, consumer) "
+             "VALUES ($1, $2, $3::jsonb, $4) "
+             "ON CONFLICT (ue_group_id, subs_id) DO UPDATE SET data = EXCLUDED.data",
+             pqxx::params{ue_group_id, subs_id, data.dump(), consumer});
     txn.commit();
-    return row["inserted"].as<bool>();
+    return is_new;
 }
 
 std::optional<nlohmann::json> GroupHssSubscriptionInfoStore::get(const std::string& ue_group_id,
@@ -2785,16 +2951,28 @@ std::optional<nlohmann::json> MbsGroupPpProfileDataStore::get() {
     return std::make_optional(nlohmann::json::parse(result.front()["data"].as<std::string>()));
 }
 
-NfGroupIdSubscriptionStore::NfGroupIdSubscriptionStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+NfGroupIdSubscriptionStore::NfGroupIdSubscriptionStore(const std::string& conninfo,
+                                                       sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-void NfGroupIdSubscriptionStore::create(const std::string& subscription_id, nlohmann::json data) {
+std::optional<sbi_core::Refusal>
+NfGroupIdSubscriptionStore::create(const std::string& subscription_id,
+                                   nlohmann::json data,
+                                   Clock::time_point expires_at,
+                                   const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    txn.exec("INSERT INTO udr_nf_group_id_subscriptions (subscription_id, data) "
-             "VALUES ($1, $2::jsonb)",
-             pqxx::params{subscription_id, data.dump()});
+    if (const auto refusal =
+            quota_refusal(txn, "udr_nf_group_id_subscriptions", consumer, limits_)) {
+        return refusal;
+    }
+    txn.exec(
+        "INSERT INTO udr_nf_group_id_subscriptions "
+        "(subscription_id, data, consumer, expires_at) "
+        "VALUES ($1, $2::jsonb, $3, $4::timestamptz)",
+        pqxx::params{subscription_id, data.dump(), consumer, sbi_core::format_rfc3339(expires_at)});
     txn.commit();
+    return std::nullopt;
 }
 
 std::optional<nlohmann::json> NfGroupIdSubscriptionStore::get(const std::string& subscription_id) {
@@ -2811,7 +2989,8 @@ std::optional<nlohmann::json> NfGroupIdSubscriptionStore::get(const std::string&
 
 std::optional<nlohmann::json>
 NfGroupIdSubscriptionStore::apply_patch(const std::string& subscription_id,
-                                        const nlohmann::json& patch_ops) {
+                                        const nlohmann::json& patch_ops,
+                                        const ExpiryFinisher& finish) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
     const auto result =
@@ -2821,9 +3000,11 @@ NfGroupIdSubscriptionStore::apply_patch(const std::string& subscription_id,
         return std::nullopt;
     }
     auto data = nlohmann::json::parse(result.front()["data"].as<std::string>());
-    data = data.patch(patch_ops); // may throw nlohmann::json::exception -- caller catches
-    txn.exec("UPDATE udr_nf_group_id_subscriptions SET data = $2::jsonb WHERE subscription_id = $1",
-             pqxx::params{subscription_id, data.dump()});
+    data = data.patch(patch_ops);         // may throw nlohmann::json::exception -- caller catches
+    const auto expires_at = finish(data); // may throw std::invalid_argument -- caller catches
+    txn.exec("UPDATE udr_nf_group_id_subscriptions SET data = $2::jsonb, "
+             "expires_at = $3::timestamptz WHERE subscription_id = $1",
+             pqxx::params{subscription_id, data.dump(), sbi_core::format_rfc3339(expires_at)});
     txn.commit();
     return std::make_optional(data);
 }
@@ -2924,18 +3105,29 @@ std::vector<nlohmann::json> UsageMonDataStore::list_by_ue_id(const std::string& 
     return out;
 }
 
-PolicyDataSubsToNotifyStore::PolicyDataSubsToNotifyStore(const std::string& conninfo)
-    : conn_(conninfo) {}
+PolicyDataSubsToNotifyStore::PolicyDataSubsToNotifyStore(const std::string& conninfo,
+                                                         sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
-void PolicyDataSubsToNotifyStore::create(const std::string& subs_id,
-                                         const std::optional<std::string>& ue_id,
-                                         nlohmann::json data) {
+std::optional<sbi_core::Refusal>
+PolicyDataSubsToNotifyStore::create(const std::string& subs_id,
+                                    const std::optional<std::string>& ue_id,
+                                    nlohmann::json data,
+                                    Clock::time_point expires_at,
+                                    const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    txn.exec("INSERT INTO udr_policy_data_subs_to_notify (subs_id, ue_id, data) "
-             "VALUES ($1, $2, $3::jsonb)",
-             pqxx::params{subs_id, ue_id, data.dump()});
+    if (const auto refusal =
+            quota_refusal(txn, "udr_policy_data_subs_to_notify", consumer, limits_)) {
+        return refusal;
+    }
+    txn.exec(
+        "INSERT INTO udr_policy_data_subs_to_notify "
+        "(subs_id, ue_id, data, consumer, expires_at) "
+        "VALUES ($1, $2, $3::jsonb, $4, $5::timestamptz)",
+        pqxx::params{subs_id, ue_id, data.dump(), consumer, sbi_core::format_rfc3339(expires_at)});
     txn.commit();
+    return std::nullopt;
 }
 
 std::optional<nlohmann::json> PolicyDataSubsToNotifyStore::get(const std::string& subs_id) {
@@ -2963,12 +3155,14 @@ std::vector<nlohmann::json> PolicyDataSubsToNotifyStore::list_all() {
 }
 
 std::optional<nlohmann::json> PolicyDataSubsToNotifyStore::replace(const std::string& subs_id,
-                                                                   nlohmann::json data) {
+                                                                   nlohmann::json data,
+                                                                   Clock::time_point expires_at) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    const auto result = txn.exec("UPDATE udr_policy_data_subs_to_notify SET data = $2::jsonb "
-                                 "WHERE subs_id = $1",
-                                 pqxx::params{subs_id, data.dump()});
+    const auto result =
+        txn.exec("UPDATE udr_policy_data_subs_to_notify SET data = $2::jsonb, "
+                 "expires_at = $3::timestamptz WHERE subs_id = $1",
+                 pqxx::params{subs_id, data.dump(), sbi_core::format_rfc3339(expires_at)});
     if (result.affected_rows() == 0) {
         return std::nullopt;
     }
@@ -3077,7 +3271,9 @@ bool TrafficInfluenceDataStore::remove(const std::string& influence_id) {
     return result.affected_rows() > 0;
 }
 
-TrafficInfluenceSubStore::TrafficInfluenceSubStore(const std::string& conninfo) : conn_(conninfo) {}
+TrafficInfluenceSubStore::TrafficInfluenceSubStore(const std::string& conninfo,
+                                                   sbi_core::StoreLimits limits)
+    : conn_(conninfo), limits_(limits) {}
 
 std::vector<nlohmann::json> TrafficInfluenceSubStore::list() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -3104,16 +3300,28 @@ std::optional<nlohmann::json> TrafficInfluenceSubStore::get(const std::string& s
     return std::make_optional(nlohmann::json::parse(result.front()["data"].as<std::string>()));
 }
 
-bool TrafficInfluenceSubStore::put(const std::string& subscription_id, const nlohmann::json& data) {
+std::expected<bool, sbi_core::Refusal>
+TrafficInfluenceSubStore::put(const std::string& subscription_id,
+                              const nlohmann::json& data,
+                              Clock::time_point expires_at,
+                              const std::string& consumer) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
     const auto existing = txn.exec("SELECT 1 FROM udr_traffic_influence_sub WHERE "
                                    "subscription_id = $1",
                                    pqxx::params{subscription_id});
     const bool is_new = existing.empty();
-    txn.exec("INSERT INTO udr_traffic_influence_sub (subscription_id, data) VALUES "
-             "($1, $2::jsonb) ON CONFLICT (subscription_id) DO UPDATE SET data = EXCLUDED.data",
-             pqxx::params{subscription_id, data.dump()});
+    if (is_new) {
+        if (const auto refusal =
+                quota_refusal(txn, "udr_traffic_influence_sub", consumer, limits_)) {
+            return std::unexpected(*refusal);
+        }
+    }
+    txn.exec(
+        "INSERT INTO udr_traffic_influence_sub (subscription_id, data, consumer, expires_at) "
+        "VALUES ($1, $2::jsonb, $3, $4::timestamptz) ON CONFLICT (subscription_id) "
+        "DO UPDATE SET data = EXCLUDED.data, expires_at = EXCLUDED.expires_at",
+        pqxx::params{subscription_id, data.dump(), consumer, sbi_core::format_rfc3339(expires_at)});
     txn.commit();
     return is_new;
 }
@@ -3137,6 +3345,13 @@ KeyedJsonDocStore::KeyedJsonDocStore(const std::string& conninfo,
                                      std::string table,
                                      std::string id_column)
     : conn_(conninfo), table_(std::move(table)), id_column_(std::move(id_column)) {}
+
+KeyedJsonDocStore::KeyedJsonDocStore(const std::string& conninfo,
+                                     std::string table,
+                                     std::string id_column,
+                                     sbi_core::StoreLimits limits)
+    : conn_(conninfo), table_(std::move(table)), id_column_(std::move(id_column)), limits_(limits) {
+}
 
 std::vector<nlohmann::json> KeyedJsonDocStore::list() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -3171,6 +3386,30 @@ bool KeyedJsonDocStore::put(const std::string& id, const nlohmann::json& data) {
                  ", data) VALUES ($1, $2::jsonb) ON CONFLICT (" + id_column_ +
                  ") DO UPDATE SET data = EXCLUDED.data",
              pqxx::params{id, data.dump()});
+    txn.commit();
+    return is_new;
+}
+
+std::expected<bool, sbi_core::Refusal> KeyedJsonDocStore::put(const std::string& id,
+                                                              const nlohmann::json& data,
+                                                              Clock::time_point expires_at,
+                                                              const std::string& consumer) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pqxx::work txn(conn_);
+    const auto existing =
+        txn.exec("SELECT 1 FROM " + table_ + " WHERE " + id_column_ + " = $1", pqxx::params{id});
+    const bool is_new = existing.empty();
+    if (is_new && limits_) {
+        if (const auto refusal = quota_refusal(txn, table_, consumer, *limits_)) {
+            return std::unexpected(*refusal);
+        }
+    }
+    txn.exec("INSERT INTO " + table_ + " (" + id_column_ +
+                 ", data, consumer, expires_at) VALUES ($1, $2::jsonb, $3, $4::timestamptz) "
+                 "ON CONFLICT (" +
+                 id_column_ +
+                 ") DO UPDATE SET data = EXCLUDED.data, expires_at = EXCLUDED.expires_at",
+             pqxx::params{id, data.dump(), consumer, sbi_core::format_rfc3339(expires_at)});
     txn.commit();
     return is_new;
 }
