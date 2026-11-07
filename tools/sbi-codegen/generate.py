@@ -35,13 +35,28 @@ def main() -> int:
         default="bca84b60a37773133bcae97e5c6c0d10a93b47b6",
         help="3GPP forge.3gpp.org commit the specs/ snapshot was taken from",
     )
+    # ADR-0568: the same generator emits the TM Forum DTOs (Swagger 2.0 input) into their own
+    # namespace, with their own provenance line. The defaults keep the 3GPP output unchanged.
+    parser.add_argument("--namespace", default="sbi_gen", help="C++ namespace of the output")
+    parser.add_argument(
+        "--provenance",
+        default="3GPP R19 OpenAPI, branch REL-19",
+        help="source description written into every generated header",
+    )
+    parser.add_argument(
+        "--specs-path",
+        default="specs/5G_APIs-REL-19",
+        help="repo-relative directory cited for each source file in generated headers",
+    )
     args = parser.parse_args()
 
     registry = SchemaRegistry(args.specs_dir)
     converter = Converter(registry)
     ir_types = converter.convert_files(args.files)
 
-    written = render(ir_types, args.commit, args.out)
+    written = render(
+        ir_types, args.commit, args.out, args.namespace, args.provenance, args.specs_path
+    )
 
     kinds: dict[str, int] = {}
     for t in ir_types.values():
