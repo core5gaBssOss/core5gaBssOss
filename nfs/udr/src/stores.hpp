@@ -1,8 +1,13 @@
 #pragma once
 
+#include "sbi_core/store_quota.hpp"
+
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <cstdint>
+#include <expected>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <pqxx/pqxx>
@@ -25,6 +30,39 @@
 // the two Nudr_DataRepository PATCH operations use a different patch standard than UDM's.
 
 namespace udr {
+
+// ADR-0564 (REVIEW-5ae0ef1 SUS-02): the subscription tables are bounded per table and per
+// access-token sub (http2::Request::token_sub), by counts the udr_store_quota trigger keeps in the
+// same database (schema.postgres.sql) -- so they hold across a restart and across every delete
+// path. A store checks them before inserting a new row; replacing an existing row is never refused
+// and keeps its creator. The six subscription collections the UDR itself owns also carry the
+// expiry the UDR confirmed (expires_at), and ExpirySweeper removes them once it has passed.
+using Clock = std::chrono::system_clock;
+
+// Re-confirms, inside a store's transaction, the expiry of a document a modify produced: writes
+// the confirmed time into the document and returns it. Throws std::invalid_argument for a value
+// that is not an RFC 3339 date-time; the store then writes nothing.
+using ExpiryFinisher = std::function<Clock::time_point(nlohmann::json&)>;
+
+// Why a new row in `table` would exceed `limits` for `consumer` ("" -- a request with no token --
+// counts only toward max_entries), or nullopt when it fits.
+std::optional<sbi_core::Refusal> quota_refusal(pqxx::work& txn,
+                                               const std::string& table,
+                                               const std::string& consumer,
+                                               const sbi_core::StoreLimits& limits);
+
+// Deletes the rows of the UDR-owned subscription tables whose confirmed expiry is not after `now`
+// (TS 29.504 5.2.2.6.2: the subscription "becomes invalid"). Its own connection, so a sweep never
+// waits on a store's lock.
+class ExpirySweeper {
+public:
+    explicit ExpirySweeper(const std::string& conninfo);
+    // The number of subscriptions removed.
+    std::size_t sweep(Clock::time_point now);
+
+private:
+    pqxx::connection conn_;
+};
 
 // Backs the AMF 3GPP-access context group (QueryAmfContext3gpp, CreateAmfContext3gpp,
 // AmfContext3gpp). Keyed by ueId (Supi) -- one AMF context per UE, per
@@ -252,11 +290,22 @@ private:
 class KeyedJsonDocStore {
 public:
     KeyedJsonDocStore(const std::string& conninfo, std::string table, std::string id_column);
+    // ADR-0564: a subscription table (consumer and expires_at columns), bounded by `limits`.
+    KeyedJsonDocStore(const std::string& conninfo,
+                      std::string table,
+                      std::string id_column,
+                      sbi_core::StoreLimits limits);
 
     std::vector<nlohmann::json> list();
     std::optional<nlohmann::json> get(const std::string& id);
     // true when the row did not previously exist (the real 201-vs-200/204 distinction).
     bool put(const std::string& id, const nlohmann::json& data);
+    // ADR-0564, bounded stores only: true for a new row; a new row the quota refuses is the error
+    // (nothing stored). `expires_at` is the confirmed `expiry`, already written into `data`.
+    std::expected<bool, sbi_core::Refusal> put(const std::string& id,
+                                               const nlohmann::json& data,
+                                               Clock::time_point expires_at,
+                                               const std::string& consumer);
     // RFC 7396 merge patch. std::nullopt when the resource does not exist -- the real spec
     // documents 404 for PATCH here, so this deliberately does NOT upsert.
     std::optional<nlohmann::json> merge_patch(const std::string& id, const nlohmann::json& patch);
@@ -267,6 +316,7 @@ private:
     pqxx::connection conn_;
     std::string table_;
     std::string id_column_;
+    std::optional<sbi_core::StoreLimits> limits_; // set for a bounded subscription table
 };
 
 // ADR-0255: `/exposure-data/{ueId}/session-management-data/{pduSessionId}`
@@ -380,16 +430,22 @@ private:
 // own schema (TrafficInfluSub), not a view of the same table.
 class TrafficInfluenceSubStore {
 public:
-    explicit TrafficInfluenceSubStore(const std::string& conninfo);
+    TrafficInfluenceSubStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
     std::vector<nlohmann::json> list();
     std::optional<nlohmann::json> get(const std::string& subscription_id);
-    bool put(const std::string& subscription_id, const nlohmann::json& data);
+    // ADR-0564: true for a new row; a new row the quota refuses is the error (nothing stored).
+    // `expires_at` is the confirmed `expiry`, already written into `data` by the caller.
+    std::expected<bool, sbi_core::Refusal> put(const std::string& subscription_id,
+                                               const nlohmann::json& data,
+                                               Clock::time_point expires_at,
+                                               const std::string& consumer);
     bool remove(const std::string& subscription_id);
 
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 class AmPolicyDataStore {
@@ -1298,9 +1354,13 @@ private:
 // honored" precedent as `RangingSlPrivacyDataStore`). Composite key (ue_id, subs_id).
 class EeSubscriptionsStore {
 public:
-    explicit EeSubscriptionsStore(const std::string& conninfo);
+    EeSubscriptionsStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    void create(const std::string& ue_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: nullopt when stored; otherwise why the quota refused it (nothing stored).
+    std::optional<sbi_core::Refusal> create(const std::string& ue_id,
+                                            const std::string& subs_id,
+                                            nlohmann::json data,
+                                            const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id, const std::string& subs_id);
     std::vector<nlohmann::json> list(const std::string& ue_id);
     bool update(const std::string& ue_id, const std::string& subs_id, nlohmann::json data);
@@ -1312,6 +1372,7 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0149). Backs the real Subs To
@@ -1331,21 +1392,28 @@ private:
 // no `ueId` to match `list_by_ue_id` against.
 class SubsToNotifyStore {
 public:
-    explicit SubsToNotifyStore(const std::string& conninfo);
+    SubsToNotifyStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    void create(const std::string& subs_id,
-                const std::optional<std::string>& ue_id,
-                nlohmann::json data);
+    // ADR-0564: nullopt when stored; otherwise why the quota refused it (nothing stored).
+    // `expires_at` is the confirmed `expiry`, already written into `data` by the caller.
+    std::optional<sbi_core::Refusal> create(const std::string& subs_id,
+                                            const std::optional<std::string>& ue_id,
+                                            nlohmann::json data,
+                                            Clock::time_point expires_at,
+                                            const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& subs_id);
     std::vector<nlohmann::json> list_by_ue_id(const std::string& ue_id);
     std::vector<nlohmann::json> list_ue_less();
+    // ADR-0564: `finish` re-confirms the patched document's `expiry`.
     std::optional<nlohmann::json> apply_patch(const std::string& subs_id,
-                                              const nlohmann::json& patch_ops);
+                                              const nlohmann::json& patch_ops,
+                                              const ExpiryFinisher& finish);
     bool remove(const std::string& subs_id);
 
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0151). Backs the real SDM
@@ -1359,9 +1427,13 @@ private:
 // 6902 NOT upsert-capable. Composite key (ue_id, subs_id).
 class SdmSubscriptionsStore {
 public:
-    explicit SdmSubscriptionsStore(const std::string& conninfo);
+    SdmSubscriptionsStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    void create(const std::string& ue_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: nullopt when stored; otherwise why the quota refused it (nothing stored).
+    std::optional<sbi_core::Refusal> create(const std::string& ue_id,
+                                            const std::string& subs_id,
+                                            nlohmann::json data,
+                                            const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id, const std::string& subs_id);
     std::vector<nlohmann::json> list(const std::string& ue_id);
     bool update(const std::string& ue_id, const std::string& subs_id, nlohmann::json data);
@@ -1373,6 +1445,7 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0152). Backs the real AMF
@@ -1388,9 +1461,13 @@ private:
 // of `ee-subscriptions`' own nested sub-collections closed. Composite key (ue_id, subs_id).
 class EeAmfSubscriptionInfoStore {
 public:
-    explicit EeAmfSubscriptionInfoStore(const std::string& conninfo);
+    EeAmfSubscriptionInfoStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    bool put(const std::string& ue_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: true for a new row; a new row the quota refuses is the error (nothing stored).
+    std::expected<bool, sbi_core::Refusal> put(const std::string& ue_id,
+                                               const std::string& subs_id,
+                                               nlohmann::json data,
+                                               const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id, const std::string& subs_id);
     std::optional<nlohmann::json> apply_patch(const std::string& ue_id,
                                               const std::string& subs_id,
@@ -1400,6 +1477,7 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0153). Backs the real SMF Event
@@ -1413,9 +1491,13 @@ private:
 // Composite key (ue_id, subs_id).
 class EeSmfSubscriptionInfoStore {
 public:
-    explicit EeSmfSubscriptionInfoStore(const std::string& conninfo);
+    EeSmfSubscriptionInfoStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    bool put(const std::string& ue_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: true for a new row; a new row the quota refuses is the error (nothing stored).
+    std::expected<bool, sbi_core::Refusal> put(const std::string& ue_id,
+                                               const std::string& subs_id,
+                                               nlohmann::json data,
+                                               const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id, const std::string& subs_id);
     std::optional<nlohmann::json> apply_patch(const std::string& ue_id,
                                               const std::string& subs_id,
@@ -1425,6 +1507,7 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0154). Backs the real HSS Event
@@ -1440,9 +1523,13 @@ private:
 // own nested sub-collections closed. Composite key (ue_id, subs_id).
 class EeHssSubscriptionInfoStore {
 public:
-    explicit EeHssSubscriptionInfoStore(const std::string& conninfo);
+    EeHssSubscriptionInfoStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    bool put(const std::string& ue_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: true for a new row; a new row the quota refuses is the error (nothing stored).
+    std::expected<bool, sbi_core::Refusal> put(const std::string& ue_id,
+                                               const std::string& subs_id,
+                                               nlohmann::json data,
+                                               const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id, const std::string& subs_id);
     std::optional<nlohmann::json> apply_patch(const std::string& ue_id,
                                               const std::string& subs_id,
@@ -1452,15 +1539,20 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Real spec PUT documents only 204 (no 201) -- put() is void, always-upsert, same idiom as
 // SorDataStore/UpuDataStore (ADR-0143), just with a composite key (ADR-0155).
 class SdmHssSubscriptionInfoStore {
 public:
-    explicit SdmHssSubscriptionInfoStore(const std::string& conninfo);
+    SdmHssSubscriptionInfoStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    void put(const std::string& ue_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: true for a new row; a new row the quota refuses is the error (nothing stored).
+    std::expected<bool, sbi_core::Refusal> put(const std::string& ue_id,
+                                               const std::string& subs_id,
+                                               nlohmann::json data,
+                                               const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_id, const std::string& subs_id);
     std::optional<nlohmann::json> apply_patch(const std::string& ue_id,
                                               const std::string& subs_id,
@@ -1470,15 +1562,20 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Group-data-scoped sibling of EeSubscriptionsStore (ADR-0148), keyed by ue_group_id instead of
 // ue_id -- otherwise identical shape (ADR-0156).
 class GroupEeSubscriptionsStore {
 public:
-    explicit GroupEeSubscriptionsStore(const std::string& conninfo);
+    GroupEeSubscriptionsStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    void create(const std::string& ue_group_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: nullopt when stored; otherwise why the quota refused it (nothing stored).
+    std::optional<sbi_core::Refusal> create(const std::string& ue_group_id,
+                                            const std::string& subs_id,
+                                            nlohmann::json data,
+                                            const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_group_id, const std::string& subs_id);
     std::vector<nlohmann::json> list(const std::string& ue_group_id);
     bool update(const std::string& ue_group_id, const std::string& subs_id, nlohmann::json data);
@@ -1490,15 +1587,20 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Group-data-scoped sibling of EeAmfSubscriptionInfoStore (ADR-0152), keyed by ue_group_id
 // instead of ue_id -- otherwise identical shape (ADR-0157).
 class GroupAmfSubscriptionInfoStore {
 public:
-    explicit GroupAmfSubscriptionInfoStore(const std::string& conninfo);
+    GroupAmfSubscriptionInfoStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    bool put(const std::string& ue_group_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: true for a new row; a new row the quota refuses is the error (nothing stored).
+    std::expected<bool, sbi_core::Refusal> put(const std::string& ue_group_id,
+                                               const std::string& subs_id,
+                                               nlohmann::json data,
+                                               const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_group_id, const std::string& subs_id);
     std::optional<nlohmann::json> apply_patch(const std::string& ue_group_id,
                                               const std::string& subs_id,
@@ -1508,15 +1610,20 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Group-data-scoped sibling of EeSmfSubscriptionInfoStore (ADR-0153), keyed by ue_group_id
 // instead of ue_id -- otherwise identical shape (ADR-0158).
 class GroupSmfSubscriptionInfoStore {
 public:
-    explicit GroupSmfSubscriptionInfoStore(const std::string& conninfo);
+    GroupSmfSubscriptionInfoStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    bool put(const std::string& ue_group_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: true for a new row; a new row the quota refuses is the error (nothing stored).
+    std::expected<bool, sbi_core::Refusal> put(const std::string& ue_group_id,
+                                               const std::string& subs_id,
+                                               nlohmann::json data,
+                                               const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_group_id, const std::string& subs_id);
     std::optional<nlohmann::json> apply_patch(const std::string& ue_group_id,
                                               const std::string& subs_id,
@@ -1526,15 +1633,20 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Group-data-scoped sibling of EeHssSubscriptionInfoStore (ADR-0154), keyed by ue_group_id
 // instead of ue_id -- otherwise identical shape (ADR-0159).
 class GroupHssSubscriptionInfoStore {
 public:
-    explicit GroupHssSubscriptionInfoStore(const std::string& conninfo);
+    GroupHssSubscriptionInfoStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    bool put(const std::string& ue_group_id, const std::string& subs_id, nlohmann::json data);
+    // ADR-0564: true for a new row; a new row the quota refuses is the error (nothing stored).
+    std::expected<bool, sbi_core::Refusal> put(const std::string& ue_group_id,
+                                               const std::string& subs_id,
+                                               nlohmann::json data,
+                                               const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& ue_group_id, const std::string& subs_id);
     std::optional<nlohmann::json> apply_patch(const std::string& ue_group_id,
                                               const std::string& subs_id,
@@ -1544,6 +1656,7 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Real PDTQ Data (ADR-0162). Single-key on pdtq_ref_id (client-supplied, not server-generated).
@@ -1649,14 +1762,21 @@ private:
 // real webhook delivery.
 class NfGroupIdSubscriptionStore {
 public:
-    explicit NfGroupIdSubscriptionStore(const std::string& conninfo);
+    NfGroupIdSubscriptionStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    void create(const std::string& subscription_id, nlohmann::json data);
+    // ADR-0564: nullopt when stored; otherwise why the quota refused it (nothing stored).
+    // `expires_at` is the confirmed `expiry`, already written into `data` by the caller.
+    std::optional<sbi_core::Refusal> create(const std::string& subscription_id,
+                                            nlohmann::json data,
+                                            Clock::time_point expires_at,
+                                            const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& subscription_id);
     // Throws nlohmann::json::exception on a malformed patch -- caller turns that into a 400
     // ProblemDetails, same as every other apply_patch in this file.
+    // ADR-0564: `finish` re-confirms the patched document's `expiry`.
     std::optional<nlohmann::json> apply_patch(const std::string& subscription_id,
-                                              const nlohmann::json& patch_ops);
+                                              const nlohmann::json& patch_ops,
+                                              const ExpiryFinisher& finish);
     bool remove(const std::string& subscription_id);
     // Real onGroupIdMapChange delivery (ADR-0180, gap-closure task #106). No `nfType`/`nfGroupId`
     // columns exist in the real table (the composite subscription key those two real
@@ -1668,6 +1788,7 @@ public:
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #106, ADR-0182). Backs the real `policy-data`
@@ -1727,21 +1848,27 @@ private:
 // `onGroupIdMapChange`.
 class PolicyDataSubsToNotifyStore {
 public:
-    explicit PolicyDataSubsToNotifyStore(const std::string& conninfo);
+    PolicyDataSubsToNotifyStore(const std::string& conninfo, sbi_core::StoreLimits limits);
 
-    void create(const std::string& subs_id,
-                const std::optional<std::string>& ue_id,
-                nlohmann::json data);
+    // ADR-0564: nullopt when stored; otherwise why the quota refused it (nothing stored).
+    // `expires_at` is the confirmed `expiry`, already written into `data` by the caller.
+    std::optional<sbi_core::Refusal> create(const std::string& subs_id,
+                                            const std::optional<std::string>& ue_id,
+                                            nlohmann::json data,
+                                            Clock::time_point expires_at,
+                                            const std::string& consumer);
     std::optional<nlohmann::json> get(const std::string& subs_id);
     std::vector<nlohmann::json> list_all();
     // Real full replace (PUT), not a patch -- returns the replaced document, `std::nullopt` if
     // `subs_id` doesn't exist.
-    std::optional<nlohmann::json> replace(const std::string& subs_id, nlohmann::json data);
+    std::optional<nlohmann::json>
+    replace(const std::string& subs_id, nlohmann::json data, Clock::time_point expires_at);
     bool remove(const std::string& subs_id);
 
 private:
     std::mutex mutex_;
     pqxx::connection conn_;
+    sbi_core::StoreLimits limits_;
 };
 
 // ADR-0382: backs the UDR's project-owned OAM subscriber-provisioning API (NOT a 3GPP API -- the
