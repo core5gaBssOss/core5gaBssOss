@@ -26,6 +26,19 @@
         "uplink": "1 Gbps",
         "downlink": "1 Gbps"
       }
+    },
+    "rfs-5g-data": {
+      "snssais": [
+        {
+          "sst": 1,
+          "sd": "000001"
+        }
+      ],
+      "dnn": "internet",
+      "ue_ambr": {
+        "uplink": "1 Gbps",
+        "downlink": "1 Gbps"
+      }
     }
   }
 }

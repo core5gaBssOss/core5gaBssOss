@@ -121,6 +121,13 @@ The user approved every row below ("approve all", 2026-11-07). They are binding 
 | B9 | `resourceSpecification.id` = the className (e.g. `AmfFunction`); `version` = the NRM YAML version | Gives TMF664 a 3GPP-defined, fixed specification set |
 | B10 | `resourceVersion` not mapped (`swVersion` is on `ManagedElement`) | No `ManagedFunction` attribute carries it |
 
+## Implementation status
+
+- 2026-11-08, ADR-0569: TMF640 `POST /service`, `GET /service`, `GET /service/{id}` in
+  `bss/provisioning` (rows A1-A7). Because of A3, the UDR OAM API now takes the SIM keys on their
+  own route (`PUT /oam-provisioning/v1/subscribers/{ueId}/authentication-subscription`), and
+  `state` → `active` writes the network documents without them. PATCH (A4) is P3.
+
 ## Not done in this pass
 
 - No code and no generated DTOs.

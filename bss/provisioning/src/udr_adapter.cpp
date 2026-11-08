@@ -52,6 +52,70 @@ UdrAdapterConfig parse_udr_adapter_config(const json& config) {
 UdrAdapter::UdrAdapter(UdrAdapterConfig config, sbi_core::http2::TlsConfig tls)
     : config_(std::move(config)), client_(std::move(tls)) {}
 
+namespace {
+
+// The network documents for one subscriber under profile `p` (no credentials).
+json network_documents(const UdrAdapterConfig& config,
+                       const NetworkProfile& p,
+                       const std::string& msisdn) {
+    // AccessAndMobilitySubscriptionData (TS29503_Nudm_SDM.yaml): nssai.defaultSingleNssais is
+    // required inside Nssai; gpsis carries the MSISDN (Gpsi "msisdn-<digits>"); subscribedUeAmbr
+    // is AmbrRm {uplink, downlink}.
+    json default_nssais = json::array();
+    for (const auto& s : p.snssais) {
+        default_nssais.push_back(snssai_json(s));
+    }
+    json am_data{
+        {"nssai", {{"defaultSingleNssais", default_nssais}}},
+        {"subscribedUeAmbr", {{"uplink", p.ue_ambr_uplink}, {"downlink", p.ue_ambr_downlink}}}};
+    if (!msisdn.empty()) {
+        am_data["gpsis"] = json::array({"msisdn-" + msisdn});
+    }
+
+    // SessionManagementSubscriptionData: singleNssai required. One document, for the default
+    // S-NSSAI -- the same floor the UDR's seeded subscribers carry. dnnConfigurations is left
+    // unset, as it is for the seeded subscribers (disclosed, ADR-0382).
+    json sm_data{{"singleNssai", snssai_json(p.snssais.front())}};
+
+    // SmPolicyData: smPolicySnssaiData (required, minProperties 1) -> SmPolicySnssaiData{snssai
+    // required} -> smPolicyDnnData{dnn: SmPolicyDnnData{dnn required}}.
+    json snssai_map = json::object();
+    for (const auto& s : p.snssais) {
+        snssai_map[snssai_map_key(s)] = {
+            {"snssai", snssai_json(s)},
+            {"smPolicyDnnData", {{p.dnn, {{"dnn", p.dnn}}}}},
+        };
+    }
+
+    return json{
+        {"servingPlmnId", config.serving_plmn_id},
+        {"amData", am_data},
+        // SmfSelectionSubscriptionData has no required members; subscribedSnssaiInfos left unset,
+        // matching the seeded subscribers (disclosed).
+        {"smfSelectionData", json::object()},
+        {"smData", sm_data},
+        // AmPolicyData has no required members; nothing product-derived to put in it yet.
+        {"amPolicyData", json::object()},
+        {"smPolicyData", {{"smPolicySnssaiData", snssai_map}}},
+    };
+}
+
+// AuthenticationSubscription. encPermanentKey/encOpcKey carry K/OPc in clear hex with no
+// protectionParameterId -- the lab has no key-protection (HSM/transport-key) scheme yet;
+// disclosed in ADR-0382, not presented as encryption.
+json authentication_subscription(const UdrAdapterConfig& config,
+                                 const std::string& supi,
+                                 const SimCredentials& sim) {
+    return json{{"authenticationMethod", config.authentication_method},
+                {"encPermanentKey", sim.k},
+                {"encOpcKey", sim.opc},
+                {"authenticationManagementField", config.authentication_management_field},
+                {"sequenceNumber", {{"sqn", sim.sqn.empty() ? config.initial_sqn : sim.sqn}}},
+                {"supi", supi}};
+}
+
+} // namespace
+
 tl::expected<json, std::string> UdrAdapter::build_documents(const SubscriberSpec& spec,
                                                             std::string* profile_key) const {
     auto it = config_.network_profiles.find(spec.offering_id);
@@ -65,60 +129,64 @@ tl::expected<json, std::string> UdrAdapter::build_documents(const SubscriberSpec
     if (profile_key != nullptr) {
         *profile_key = it->first;
     }
-    const NetworkProfile& p = it->second;
+    json docs = network_documents(config_, it->second, spec.msisdn);
+    docs["authenticationSubscription"] = authentication_subscription(config_, spec.supi, spec.sim);
+    return docs;
+}
 
-    // AccessAndMobilitySubscriptionData (TS29503_Nudm_SDM.yaml): nssai.defaultSingleNssais is
-    // required inside Nssai; gpsis carries the MSISDN (Gpsi "msisdn-<digits>"); subscribedUeAmbr
-    // is AmbrRm {uplink, downlink}.
-    json default_nssais = json::array();
-    for (const auto& s : p.snssais) {
-        default_nssais.push_back(snssai_json(s));
+bool UdrAdapter::has_profile(const std::string& profile_key) const {
+    return config_.network_profiles.contains(profile_key);
+}
+
+tl::expected<json, std::string> UdrAdapter::build_network_documents(
+    const std::string& supi, const std::string& msisdn, const std::string& profile_key) const {
+    (void)supi; // the documents carry no SUPI; it is the path's ueId
+    const auto it = config_.network_profiles.find(profile_key);
+    if (it == config_.network_profiles.end()) {
+        return tl::unexpected("no network profile '" + profile_key + "' configured");
     }
-    json am_data{
-        {"nssai", {{"defaultSingleNssais", default_nssais}}},
-        {"subscribedUeAmbr", {{"uplink", p.ue_ambr_uplink}, {"downlink", p.ue_ambr_downlink}}}};
-    if (!spec.msisdn.empty()) {
-        am_data["gpsis"] = json::array({"msisdn-" + spec.msisdn});
+    return network_documents(config_, it->second, msisdn);
+}
+
+tl::expected<UdrProvisionOutcome, UdrWriteError> UdrAdapter::put(const std::string& path,
+                                                                 const std::string& body) {
+    sbi_core::http2::ClientRequest req;
+    req.method = "PUT";
+    req.url = config_.udr_base_url + "/oam-provisioning/v1/subscribers/" + path;
+    req.headers.emplace("content-type", "application/json");
+    req.body = body;
+    auto resp = client_.send(req);
+    if (!resp.has_value()) {
+        return tl::unexpected(UdrWriteError{false, "UDR unreachable: " + resp.error()});
     }
-
-    // SessionManagementSubscriptionData: singleNssai required. One document, for the default
-    // S-NSSAI -- the same floor the UDR's seeded subscribers carry. dnnConfigurations is left
-    // unset, as it is for the seeded subscribers (disclosed, ADR-0382).
-    json sm_data{{"singleNssai", snssai_json(p.snssais.front())}};
-
-    // AuthenticationSubscription. encPermanentKey/encOpcKey carry K/OPc in clear hex with no
-    // protectionParameterId -- the lab has no key-protection (HSM/transport-key) scheme yet;
-    // disclosed in ADR-0382, not presented as encryption.
-    json auth{
-        {"authenticationMethod", config_.authentication_method},
-        {"encPermanentKey", spec.sim.k},
-        {"encOpcKey", spec.sim.opc},
-        {"authenticationManagementField", config_.authentication_management_field},
-        {"sequenceNumber", {{"sqn", spec.sim.sqn.empty() ? config_.initial_sqn : spec.sim.sqn}}},
-        {"supi", spec.supi}};
-
-    // SmPolicyData: smPolicySnssaiData (required, minProperties 1) -> SmPolicySnssaiData{snssai
-    // required} -> smPolicyDnnData{dnn: SmPolicyDnnData{dnn required}}.
-    json snssai_map = json::object();
-    for (const auto& s : p.snssais) {
-        snssai_map[snssai_map_key(s)] = {
-            {"snssai", snssai_json(s)},
-            {"smPolicyDnnData", {{p.dnn, {{"dnn", p.dnn}}}}},
-        };
+    if (resp->status != 201 && resp->status != 204) {
+        // The UDR's ProblemDetails never echoes field values, so its body is safe to record.
+        return tl::unexpected(UdrWriteError{resp->status == 409,
+                                            "UDR returned " + std::to_string(resp->status) + ": " +
+                                                resp->body.substr(0, 512)});
     }
+    UdrProvisionOutcome out;
+    out.http_status = static_cast<int>(resp->status);
+    return out;
+}
 
-    return json{
-        {"servingPlmnId", config_.serving_plmn_id},
-        {"amData", am_data},
-        // SmfSelectionSubscriptionData has no required members; subscribedSnssaiInfos left unset,
-        // matching the seeded subscribers (disclosed).
-        {"smfSelectionData", json::object()},
-        {"smData", sm_data},
-        {"authenticationSubscription", auth},
-        // AmPolicyData has no required members; nothing product-derived to put in it yet.
-        {"amPolicyData", json::object()},
-        {"smPolicyData", {{"smPolicySnssaiData", snssai_map}}},
-    };
+tl::expected<UdrProvisionOutcome, UdrWriteError> UdrAdapter::provision_network(
+    const std::string& supi, const std::string& msisdn, const std::string& profile_key) {
+    auto body = build_network_documents(supi, msisdn, profile_key);
+    if (!body.has_value()) {
+        return tl::unexpected(UdrWriteError{false, body.error()});
+    }
+    auto out = put(supi, body->dump());
+    if (out.has_value()) {
+        out->profile_key = profile_key;
+    }
+    return out;
+}
+
+tl::expected<UdrProvisionOutcome, UdrWriteError>
+UdrAdapter::provision_credentials(const std::string& supi, const SimCredentials& sim) {
+    return put(supi + "/authentication-subscription",
+               authentication_subscription(config_, supi, sim).dump());
 }
 
 tl::expected<UdrProvisionOutcome, std::string> UdrAdapter::provision(const SubscriberSpec& spec) {

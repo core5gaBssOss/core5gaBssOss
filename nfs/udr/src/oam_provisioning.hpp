@@ -3,6 +3,11 @@
 // ADR-0382: the UDR's project-owned OAM subscriber-provisioning API.
 //
 //   PUT /oam-provisioning/v1/subscribers/{ueId}
+//   PUT /oam-provisioning/v1/subscribers/{ueId}/authentication-subscription   (ADR-0569)
+//
+// ADR-0569: the first PUT's authenticationSubscription is optional. The second writes the
+// credentials alone, so the network data (TMF640 activation) and the SIM keys (the order flow)
+// travel separately; a network-data PUT for a subscriber with no credentials is refused (409).
 //
 // NOT a 3GPP API, and deliberately not under any nudr-* root so it cannot be mistaken for one. The
 // R19 Nudr YAML (TS29505_Subscription_Data.yaml, TS29519_Policy_Data.yaml) defines no create
@@ -37,6 +42,10 @@ bool peer_allowed(const sbi_core::http2::Request& req, const std::vector<std::st
 // Error strings name the offending field but never echo its value (the body carries K/OPc).
 tl::expected<SubscriberDocuments, std::string>
 parse_subscriber_documents(const std::string& ue_id, const nlohmann::json& body);
+
+// Validates one AuthenticationSubscription for `ue_id` (same never-echo rule).
+tl::expected<nlohmann::json, std::string>
+parse_authentication_subscription(const std::string& ue_id, const nlohmann::json& auth);
 
 void register_routes(sbi_core::http2::Server& server,
                      SubscriberProvisioningStore& store,

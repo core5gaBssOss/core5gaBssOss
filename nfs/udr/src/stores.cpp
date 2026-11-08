@@ -3608,13 +3608,19 @@ void DataRestorationSubscriptionStore::add(const std::string& subscription_id,
 SubscriberProvisioningStore::SubscriberProvisioningStore(const std::string& conninfo)
     : conn_(conninfo) {}
 
-bool SubscriberProvisioningStore::replace(const std::string& ue_id,
-                                          const SubscriberDocuments& docs) {
+ProvisionWrite SubscriberProvisioningStore::replace(const std::string& ue_id,
+                                                    const SubscriberDocuments& docs) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    const bool created = txn.exec("SELECT 1 FROM udr_authentication_subscription WHERE ue_id = $1",
-                                  pqxx::params{ue_id})
-                             .empty();
+    if (!docs.authentication_subscription.has_value() &&
+        txn.exec("SELECT 1 FROM udr_authentication_subscription WHERE ue_id = $1 FOR UPDATE",
+                 pqxx::params{ue_id})
+            .empty()) {
+        return ProvisionWrite::NoCredentials;
+    }
+    const bool created =
+        txn.exec("SELECT 1 FROM udr_provisioned_data WHERE ue_id = $1", pqxx::params{ue_id})
+            .empty();
     // Only the three provisioned-data columns this API owns are replaced; the sibling columns
     // (lcs_bca/sms/trace) keep whatever they already hold.
     txn.exec("INSERT INTO udr_provisioned_data (ue_id, serving_plmn_id, am_data, smf_sel_data, "
@@ -3626,15 +3632,31 @@ bool SubscriberProvisioningStore::replace(const std::string& ue_id,
                           docs.am_data.dump(),
                           docs.smf_selection_data.dump(),
                           docs.sm_data.dump()});
-    txn.exec("INSERT INTO udr_authentication_subscription (ue_id, data) VALUES ($1, $2::jsonb) "
-             "ON CONFLICT (ue_id) DO UPDATE SET data = EXCLUDED.data",
-             pqxx::params{ue_id, docs.authentication_subscription.dump()});
+    if (docs.authentication_subscription.has_value()) {
+        txn.exec("INSERT INTO udr_authentication_subscription (ue_id, data) VALUES ($1, $2::jsonb) "
+                 "ON CONFLICT (ue_id) DO UPDATE SET data = EXCLUDED.data",
+                 pqxx::params{ue_id, docs.authentication_subscription->dump()});
+    }
     txn.exec("INSERT INTO udr_am_policy_data (ue_id, policy_data) VALUES ($1, $2::jsonb) "
              "ON CONFLICT (ue_id) DO UPDATE SET policy_data = EXCLUDED.policy_data",
              pqxx::params{ue_id, docs.am_policy_data.dump()});
     txn.exec("INSERT INTO udr_sm_policy_data (ue_id, policy_data) VALUES ($1, $2::jsonb) "
              "ON CONFLICT (ue_id) DO UPDATE SET policy_data = EXCLUDED.policy_data",
              pqxx::params{ue_id, docs.sm_policy_data.dump()});
+    txn.commit();
+    return created ? ProvisionWrite::Created : ProvisionWrite::Replaced;
+}
+
+bool SubscriberProvisioningStore::replace_authentication(const std::string& ue_id,
+                                                         const nlohmann::json& auth) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pqxx::work txn(conn_);
+    const bool created = txn.exec("SELECT 1 FROM udr_authentication_subscription WHERE ue_id = $1",
+                                  pqxx::params{ue_id})
+                             .empty();
+    txn.exec("INSERT INTO udr_authentication_subscription (ue_id, data) VALUES ($1, $2::jsonb) "
+             "ON CONFLICT (ue_id) DO UPDATE SET data = EXCLUDED.data",
+             pqxx::params{ue_id, auth.dump()});
     txn.commit();
     return created;
 }

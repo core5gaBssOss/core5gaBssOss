@@ -41,52 +41,30 @@ bool peer_allowed(const sbi_core::http2::Request& req, const std::vector<std::st
     return std::any_of(req.peer_cert_dns_names.begin(), req.peer_cert_dns_names.end(), on_list);
 }
 
-tl::expected<SubscriberDocuments, std::string> parse_subscriber_documents(const std::string& ue_id,
-                                                                          const json& body) {
-    // Supi pattern (TS29571_CommonData.yaml) also admits nai-/gci-/gli- forms; this API accepts
-    // the IMSI form only, the one bss/provisioning allocates today (disclosed in ADR-0382).
+namespace {
+
+// Supi pattern (TS29571_CommonData.yaml) also admits nai-/gci-/gli- forms; this API accepts the
+// IMSI form only, the one bss/provisioning allocates today (disclosed in ADR-0382).
+bool imsi_supi(const std::string& ue_id) {
     static const std::regex kImsiSupi("^imsi-[0-9]{5,15}$");
-    static const std::regex kPlmn("^[0-9]{5,6}$");
+    return std::regex_match(ue_id, kImsiSupi);
+}
+
+} // namespace
+
+tl::expected<nlohmann::json, std::string>
+parse_authentication_subscription(const std::string& ue_id, const json& auth) {
     static const std::regex kHex128("^[A-Fa-f0-9]{32}$");
     static const std::regex kAmf("^[A-Fa-f0-9]{4}$");
     static const std::regex kSqn("^[A-Fa-f0-9]{12}$");
 
-    if (!std::regex_match(ue_id, kImsiSupi)) {
+    if (!imsi_supi(ue_id)) {
         return bad("ueId must be an IMSI-form SUPI (imsi-<5..15 digits>)");
     }
-    if (!body.is_object()) {
-        return bad("body must be a JSON object");
+    if (!auth.is_object()) {
+        return bad("authenticationSubscription must be an object");
     }
-    SubscriberDocuments docs;
-    if (!matches(body.value("servingPlmnId", json()), kPlmn)) {
-        return bad("servingPlmnId must be MCC+MNC (5 or 6 digits)");
-    }
-    docs.serving_plmn_id = body["servingPlmnId"].get<std::string>();
-
-    for (const char* key : {"amData",
-                            "smfSelectionData",
-                            "smData",
-                            "authenticationSubscription",
-                            "amPolicyData",
-                            "smPolicyData"}) {
-        if (!body.contains(key) || !body[key].is_object()) {
-            return bad(std::string(key) + " is required and must be an object");
-        }
-    }
-
-    // SessionManagementSubscriptionData: singleNssai is required (TS29503_Nudm_SDM.yaml).
-    if (!body["smData"].contains("singleNssai") || !body["smData"]["singleNssai"].is_object()) {
-        return bad("smData.singleNssai is required (SessionManagementSubscriptionData)");
-    }
-    // SmPolicyData: smPolicySnssaiData is required, minProperties 1 (TS29519_Policy_Data.yaml).
-    const json& sm_pol = body["smPolicyData"];
-    if (!sm_pol.contains("smPolicySnssaiData") || !sm_pol["smPolicySnssaiData"].is_object() ||
-        sm_pol["smPolicySnssaiData"].empty()) {
-        return bad("smPolicyData.smPolicySnssaiData is required with at least one S-NSSAI");
-    }
-
     // AuthenticationSubscription (TS29505_Subscription_Data.yaml): authenticationMethod required.
-    const json& auth = body["authenticationSubscription"];
     if (!known_auth_method(auth.value("authenticationMethod", json()))) {
         return bad("authenticationSubscription.authenticationMethod missing or not an AuthMethod");
     }
@@ -114,15 +92,90 @@ tl::expected<SubscriberDocuments, std::string> parse_subscriber_documents(const 
     if (auth.contains("supi") && auth["supi"] != ue_id) {
         return bad("authenticationSubscription.supi does not match the ueId in the path");
     }
+    return auth;
+}
+
+tl::expected<SubscriberDocuments, std::string> parse_subscriber_documents(const std::string& ue_id,
+                                                                          const json& body) {
+    static const std::regex kPlmn("^[0-9]{5,6}$");
+
+    if (!imsi_supi(ue_id)) {
+        return bad("ueId must be an IMSI-form SUPI (imsi-<5..15 digits>)");
+    }
+    if (!body.is_object()) {
+        return bad("body must be a JSON object");
+    }
+    SubscriberDocuments docs;
+    if (!matches(body.value("servingPlmnId", json()), kPlmn)) {
+        return bad("servingPlmnId must be MCC+MNC (5 or 6 digits)");
+    }
+    docs.serving_plmn_id = body["servingPlmnId"].get<std::string>();
+
+    // ADR-0569: authenticationSubscription is optional. Without it the subscriber's credentials
+    // stay as the keys-only route wrote them, so a network-data write never carries K/OPc.
+    for (const char* key :
+         {"amData", "smfSelectionData", "smData", "amPolicyData", "smPolicyData"}) {
+        if (!body.contains(key) || !body[key].is_object()) {
+            return bad(std::string(key) + " is required and must be an object");
+        }
+    }
+
+    // SessionManagementSubscriptionData: singleNssai is required (TS29503_Nudm_SDM.yaml).
+    if (!body["smData"].contains("singleNssai") || !body["smData"]["singleNssai"].is_object()) {
+        return bad("smData.singleNssai is required (SessionManagementSubscriptionData)");
+    }
+    // SmPolicyData: smPolicySnssaiData is required, minProperties 1 (TS29519_Policy_Data.yaml).
+    const json& sm_pol = body["smPolicyData"];
+    if (!sm_pol.contains("smPolicySnssaiData") || !sm_pol["smPolicySnssaiData"].is_object() ||
+        sm_pol["smPolicySnssaiData"].empty()) {
+        return bad("smPolicyData.smPolicySnssaiData is required with at least one S-NSSAI");
+    }
+
+    if (body.contains("authenticationSubscription")) {
+        auto auth = parse_authentication_subscription(ue_id, body["authenticationSubscription"]);
+        if (!auth.has_value()) {
+            return tl::unexpected(auth.error());
+        }
+        docs.authentication_subscription = std::move(*auth);
+    }
 
     docs.am_data = body["amData"];
     docs.smf_selection_data = body["smfSelectionData"];
     docs.sm_data = body["smData"];
-    docs.authentication_subscription = auth;
     docs.am_policy_data = body["amPolicyData"];
     docs.sm_policy_data = sm_pol;
     return docs;
 }
+
+namespace {
+
+sbi_core::http2::Response refuse_peer(const sbi_core::http2::Request& req) {
+    spdlog::warn("udr: OAM provisioning refused for mTLS peer CN='{}'", req.peer_cert_cn);
+    return sbi_core::http2::problem_response(
+        403, "Forbidden", "mTLS peer is not an authorised provisioning client", std::nullopt);
+}
+
+// parse_error's what() can quote the offending input, which may contain K/OPc.
+std::optional<json> parse_body(const sbi_core::http2::Request& req) {
+    try {
+        return std::optional<json>(std::in_place, json::parse(req.body));
+    } catch (const json::parse_error&) {
+        return std::nullopt;
+    }
+}
+
+sbi_core::http2::Response malformed() {
+    return sbi_core::http2::problem_response(
+        400, "Malformed JSON", "request body is not valid JSON", "INVALID_MSG_FORMAT");
+}
+
+sbi_core::http2::Response status_only(int status) {
+    sbi_core::http2::Response resp;
+    resp.status = status;
+    return resp;
+}
+
+} // namespace
 
 void register_routes(sbi_core::http2::Server& server,
                      SubscriberProvisioningStore& store,
@@ -130,39 +183,65 @@ void register_routes(sbi_core::http2::Server& server,
     server.add_route(
         "PUT",
         std::string(kOamProvisioningRoot) + "/subscribers/{ueId}",
-        [&store, allowed = std::move(allowed_clients)](const sbi_core::http2::Request& req) {
+        [&store, allowed = allowed_clients](const sbi_core::http2::Request& req) {
             if (!peer_allowed(req, allowed)) {
-                spdlog::warn("udr: OAM provisioning refused for mTLS peer CN='{}'",
-                             req.peer_cert_cn);
-                return sbi_core::http2::problem_response(
-                    403,
-                    "Forbidden",
-                    "mTLS peer is not an authorised provisioning client",
-                    std::nullopt);
+                return refuse_peer(req);
             }
-            json body;
-            try {
-                body = json::parse(req.body);
-            } catch (const json::parse_error&) {
-                // parse_error's what() can quote the offending input, which may contain K/OPc.
-                return sbi_core::http2::problem_response(
-                    400, "Malformed JSON", "request body is not valid JSON", "INVALID_MSG_FORMAT");
+            const auto body = parse_body(req);
+            if (!body.has_value()) {
+                return malformed();
             }
             const auto& ue_id = req.path_params.at("ueId");
-            auto docs = parse_subscriber_documents(ue_id, body);
+            auto docs = parse_subscriber_documents(ue_id, *body);
             if (!docs.has_value()) {
                 return sbi_core::http2::problem_response(
                     400, "Bad Request", docs.error(), "UNSPECIFIED_MSG_FAILURE");
             }
-            const bool created = store.replace(ue_id, *docs);
-            spdlog::info(
-                "udr: OAM provisioning {} subscriber {}", created ? "created" : "replaced", ue_id);
-            sbi_core::http2::Response resp;
-            resp.status = created ? 201 : 204;
-            return resp;
+            const auto outcome = store.replace(ue_id, *docs);
+            if (outcome == ProvisionWrite::NoCredentials) {
+                return sbi_core::http2::problem_response(
+                    409,
+                    "Conflict",
+                    "subscriber has no credentials; PUT its authentication-subscription first or "
+                    "include authenticationSubscription",
+                    std::nullopt);
+            }
+            const bool created = outcome == ProvisionWrite::Created;
+            spdlog::info("udr: OAM provisioning {} subscriber {}{}",
+                         created ? "created" : "replaced",
+                         ue_id,
+                         docs->authentication_subscription ? "" : " (network data only)");
+            return status_only(created ? 201 : 204);
         },
         // Not an SBI API: no OAuth2 bearer, the mTLS peer allow-list above decides (ADR-0382,
         // ADR-0499).
+        sbi_core::http2::RouteAuth::None);
+
+    // ADR-0569: the keys-only write. The body is one AuthenticationSubscription
+    // (TS29505_Subscription_Data.yaml); nothing else of the subscriber changes.
+    server.add_route(
+        "PUT",
+        std::string(kOamProvisioningRoot) + "/subscribers/{ueId}/authentication-subscription",
+        [&store, allowed = std::move(allowed_clients)](const sbi_core::http2::Request& req) {
+            if (!peer_allowed(req, allowed)) {
+                return refuse_peer(req);
+            }
+            const auto body = parse_body(req);
+            if (!body.has_value()) {
+                return malformed();
+            }
+            const auto& ue_id = req.path_params.at("ueId");
+            auto auth = parse_authentication_subscription(ue_id, *body);
+            if (!auth.has_value()) {
+                return sbi_core::http2::problem_response(
+                    400, "Bad Request", auth.error(), "UNSPECIFIED_MSG_FAILURE");
+            }
+            const bool created = store.replace_authentication(ue_id, *auth);
+            spdlog::info("udr: OAM provisioning {} credentials of {}",
+                         created ? "created" : "replaced",
+                         ue_id);
+            return status_only(created ? 201 : 204);
+        },
         sbi_core::http2::RouteAuth::None);
 }
 

@@ -68,6 +68,11 @@ struct UdrProvisionOutcome {
     std::string profile_key;
 };
 
+struct UdrWriteError {
+    bool no_credentials = false; // the UDR answered 409: the subscriber has no credentials
+    std::string message;         // safe to log: never carries K/OPc
+};
+
 class UdrAdapter {
 public:
     UdrAdapter(UdrAdapterConfig config, sbi_core::http2::TlsConfig tls);
@@ -78,7 +83,26 @@ public:
 
     tl::expected<UdrProvisionOutcome, std::string> provision(const SubscriberSpec& spec);
 
+    // ADR-0569. The network documents alone (no authenticationSubscription), with the profile
+    // keyed exactly by `profile_key` -- for TMF640 that is the ServiceSpecification id (ADR-0558
+    // A1); there is no "default" fallback. Exposed for tests.
+    tl::expected<nlohmann::json, std::string> build_network_documents(
+        const std::string& supi, const std::string& msisdn, const std::string& profile_key) const;
+    bool has_profile(const std::string& profile_key) const;
+
+    // PUT .../subscribers/{supi} without credentials. A 409 from the UDR (no credentials yet)
+    // comes back as UdrWriteError::no_credentials.
+    tl::expected<UdrProvisionOutcome, UdrWriteError> provision_network(
+        const std::string& supi, const std::string& msisdn, const std::string& profile_key);
+
+    // PUT .../subscribers/{supi}/authentication-subscription: the SIM keys alone.
+    tl::expected<UdrProvisionOutcome, UdrWriteError>
+    provision_credentials(const std::string& supi, const SimCredentials& sim);
+
 private:
+    tl::expected<UdrProvisionOutcome, UdrWriteError> put(const std::string& path,
+                                                         const std::string& body);
+
     UdrAdapterConfig config_;
     sbi_core::http2::Client client_;
 };

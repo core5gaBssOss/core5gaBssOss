@@ -531,7 +531,8 @@
   "ADR-0565-udr-refuses-writes-under-subscription-data-ueid-for-an.md",
   "ADR-0566-dependabot-no-longer-opens-prs-vulnerability-alerts-stay.md",
   "ADR-0567-dccf-repairs-stale-collection-records-instead-of-trusting.md",
-  "ADR-0568-sbi-codegen-also-generates-the-tm-forum-dtos-from-swagger-2.md"
+  "ADR-0568-sbi-codegen-also-generates-the-tm-forum-dtos-from-swagger-2.md",
+  "ADR-0569-tmf640-activates-subscriber-network-data-sim-keys-reach-the.md"
  ],
  "split_commit": "0530e4f"
 }
