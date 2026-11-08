@@ -124,6 +124,9 @@ TEST(Http2RoutePrecedence, AnEncodedPathParameterArrivesDecodedAsOneSegment) {
     const std::string supi = "nai-a/b?c#d%e+f g@realm";
     EXPECT_EQ(sbi_core::uri::encode_path_segment("imsi-999700000000001"), "imsi-999700000000001");
     EXPECT_EQ(sbi_core::uri::encode_path_segment(supi), "nai-a%2Fb%3Fc%23d%25e+f%20g@realm");
+    // ADR-0570: a query value also encodes the characters that would start another parameter.
+    EXPECT_EQ(sbi_core::uri::encode_query_value("extgroupid-a&int-group-id=b+c;d#e@realm"),
+              "extgroupid-a%26int-group-id%3Db%2Bc%3Bd%23e@realm");
 
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, "127.0.0.1", 0, test_tls());

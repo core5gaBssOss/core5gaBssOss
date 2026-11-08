@@ -13,8 +13,9 @@
 
 namespace sbi_core::uri {
 
-inline std::string encode_path_segment(std::string_view value) {
-    static constexpr std::string_view kKeep = "-._~!$&'()*+,;=:@";
+namespace detail {
+
+inline std::string percent_encode_except(std::string_view value, std::string_view keep) {
     static constexpr char kHex[] = "0123456789ABCDEF";
     std::string out;
     out.reserve(value.size());
@@ -22,7 +23,7 @@ inline std::string encode_path_segment(std::string_view value) {
         const auto c = static_cast<unsigned char>(ch);
         const bool alnum =
             (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-        if (alnum || kKeep.find(ch) != std::string_view::npos) {
+        if (alnum || keep.find(ch) != std::string_view::npos) {
             out += ch;
         } else {
             out += '%';
@@ -31,6 +32,18 @@ inline std::string encode_path_segment(std::string_view value) {
         }
     }
     return out;
+}
+
+} // namespace detail
+
+inline std::string encode_path_segment(std::string_view value) {
+    return detail::percent_encode_except(value, "-._~!$&'()*+,;=:@");
+}
+
+// A query parameter value (RFC 3986 3.4, form style): also encodes '&', '=', '+', ';' and '#',
+// so the value can neither start another parameter nor end the query.
+inline std::string encode_query_value(std::string_view value) {
+    return detail::percent_encode_except(value, "-._~!$'()*,:@/?");
 }
 
 } // namespace sbi_core::uri
