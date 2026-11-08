@@ -48,6 +48,9 @@ handle their JSON by hand today. `tools/sbi-codegen` (ADR-0010) read only OpenAP
 
 **Verified (2026-11-07, this machine).**
 
+- CI run 42391980707 (PR #96, 2026-11-07): configure, full build, ctest, TSan and ASan/UBSan jobs
+  all succeeded. The job log could not be downloaded afterwards, so the per-test lines for
+  `test_tmf640_dtos` are not quoted here.
 - All 165 3GPP pilot files in `libs/sbi-generated/CMakeLists.txt` were regenerated with the old and
   the new generator. `diff -rq` reports the 249 output files byte-identical. The first attempt was
   not identical: the stem change renamed `TS29511_N5g-eir_EquipmentIdentityCheck`. That is why
