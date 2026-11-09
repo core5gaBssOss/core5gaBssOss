@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include <aka_crypto/hex.hpp>
+#include <sbi_core/uri.hpp>
 
 namespace udm {
 
@@ -50,7 +51,9 @@ UdrAuthSubscriptionSource::UdrAuthSubscriptionSource(sbi_core::http2::Client& cl
     : client_(client), oauth_(oauth), udr_base_url_(std::move(udr_base_url)) {}
 
 std::string UdrAuthSubscriptionSource::resource_url(const std::string& supi) const {
-    return udr_base_url_ + kUdrApiRoot + "/subscription-data/" + supi +
+    // ADR-0570: the SUPI came from a decoded request path; re-encode it as one segment.
+    return udr_base_url_ + kUdrApiRoot + "/subscription-data/" +
+           sbi_core::uri::encode_path_segment(supi) +
            "/authentication-data/authentication-subscription";
 }
 

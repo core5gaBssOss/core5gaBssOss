@@ -96,6 +96,7 @@
 #include "sbi_core/sbi_headers.hpp"
 #include "sbi_core/store_quota.hpp"
 #include "sbi_core/subscription_expiry.hpp"
+#include "sbi_core/uri.hpp"
 #include "sbi_core/uuid.hpp"
 
 #include <boost/asio/io_context.hpp>
@@ -133,6 +134,14 @@
 #include "nf_config/nf_config.hpp"
 
 namespace {
+
+// ADR-0570: the sbi_core server percent-decodes path parameters (ADR-0549), so a value taken
+// from this UDM's request path or query is re-encoded before it goes into a UDR URI. Without it
+// an encoded '/' in a ueId would become a real '/' one hop later and address another UDR
+// resource.
+std::string seg(std::string_view value) {
+    return sbi_core::uri::encode_path_segment(value);
+}
 
 using nlohmann::json;
 
@@ -1810,8 +1819,8 @@ int main() {
         }
         sbi_core::http2::ClientRequest udr_req;
         udr_req.method = "GET";
-        udr_req.url = udr_base_url + kUdrApiRoot + "/subscription-data/" + ue_id + "/" +
-                      serving_plmn_id + "/provisioned-data/" + segment;
+        udr_req.url = udr_base_url + kUdrApiRoot + "/subscription-data/" + seg(ue_id) + "/" +
+                      seg(serving_plmn_id) + "/provisioned-data/" + segment;
         udr_req.headers.emplace("authorization", "Bearer " + *token);
         auto udr_resp = udr_client.send(udr_req);
         if (!udr_resp.has_value()) {
@@ -2001,8 +2010,8 @@ int main() {
         }
         sbi_core::http2::ClientRequest udr_req;
         udr_req.method = "GET";
-        udr_req.url = udr_base_url + kUdrApiRoot + "/subscription-data/" + ue_id + "/" +
-                      serving_plmn_id + "/provisioned-data";
+        udr_req.url = udr_base_url + kUdrApiRoot + "/subscription-data/" + seg(ue_id) + "/" +
+                      seg(serving_plmn_id) + "/provisioned-data";
         udr_req.headers.emplace("authorization", "Bearer " + *token);
         auto udr_resp = udr_client.send(udr_req);
         if (!udr_resp.has_value()) {
@@ -2058,7 +2067,8 @@ int main() {
         }
         sbi_core::http2::ClientRequest udr_req;
         udr_req.method = "GET";
-        udr_req.url = udr_base_url + kUdrApiRoot + "/subscription-data/" + ue_id + "/" + segment;
+        udr_req.url =
+            udr_base_url + kUdrApiRoot + "/subscription-data/" + seg(ue_id) + "/" + segment;
         udr_req.headers.emplace("authorization", "Bearer " + *token);
         auto udr_resp = udr_client.send(udr_req);
         if (!udr_resp.has_value()) {
@@ -2613,8 +2623,8 @@ int main() {
             }
             sbi_core::http2::ClientRequest udr_req;
             udr_req.method = "GET";
-            udr_req.url =
-                udr_base_url + kUdrApiRoot + "/subscription-data/shared-data/" + shared_data_id;
+            udr_req.url = udr_base_url + kUdrApiRoot + "/subscription-data/shared-data/" +
+                          seg(shared_data_id);
             udr_req.headers.emplace("authorization", "Bearer " + *token);
             auto udr_resp = udr_client.send(udr_req);
             if (!udr_resp.has_value()) {
@@ -2674,8 +2684,8 @@ int main() {
             for (const auto& shared_data_id : sbi_core::http2::split_form_array(ids_it->second)) {
                 sbi_core::http2::ClientRequest udr_req;
                 udr_req.method = "GET";
-                udr_req.url =
-                    udr_base_url + kUdrApiRoot + "/subscription-data/shared-data/" + shared_data_id;
+                udr_req.url = udr_base_url + kUdrApiRoot + "/subscription-data/shared-data/" +
+                              seg(shared_data_id);
                 udr_req.headers.emplace("authorization", "Bearer " + *token);
                 auto udr_resp = udr_client.send(udr_req);
                 if (!udr_resp.has_value() || udr_resp->status != 200) {
@@ -2715,10 +2725,12 @@ int main() {
             }
             sbi_core::http2::ClientRequest udr_req;
             udr_req.method = "GET";
-            udr_req.url = udr_base_url + kUdrApiRoot + "/subscription-data/group-data/" +
-                          std::string("group-identifiers") + "?" +
-                          (ext_it != req.query_params.end() ? "ext-group-id=" + ext_it->second
-                                                            : "int-group-id=" + int_it->second);
+            udr_req.url =
+                udr_base_url + kUdrApiRoot + "/subscription-data/group-data/" +
+                std::string("group-identifiers") + "?" +
+                (ext_it != req.query_params.end()
+                     ? "ext-group-id=" + sbi_core::uri::encode_query_value(ext_it->second)
+                     : "int-group-id=" + sbi_core::uri::encode_query_value(int_it->second));
             udr_req.headers.emplace("authorization", "Bearer " + *token);
             auto udr_resp = udr_client.send(udr_req);
             if (!udr_resp.has_value()) {
@@ -2845,8 +2857,8 @@ int main() {
                 auto token = udr_oauth.get_bearer_token();
                 sbi_core::http2::ClientRequest q;
                 q.method = "GET";
-                q.url =
-                    udr_base_url + kUdrApiRoot + "/subscription-data/" + ue_id + "/identity-data";
+                q.url = udr_base_url + kUdrApiRoot + "/subscription-data/" + seg(ue_id) +
+                        "/identity-data";
                 if (token) {
                     q.headers.emplace("authorization", "Bearer " + *token);
                 }
@@ -3558,36 +3570,38 @@ int main() {
                          const auto ue_id = req.path_params.at("ueId");
                          const auto af_instance_id = req.path_params.at("afInstanceId");
                          auto resp = proxy_to_udr("PUT",
-                                                  "/subscription-data/" + ue_id +
-                                                      "/pp-data-store/" + af_instance_id,
+                                                  "/subscription-data/" + seg(ue_id) +
+                                                      "/pp-data-store/" + seg(af_instance_id),
                                                   req.body);
                          pp_data_entry_counter->Add(1);
                          return resp;
                      });
 
-    server.add_route(
-        "DELETE",
-        std::string(kPpApiRoot) + "/{ueId}/pp-data-store/{afInstanceId}",
-        [&proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            const auto af_instance_id = req.path_params.at("afInstanceId");
-            auto resp = proxy_to_udr(
-                "DELETE", "/subscription-data/" + ue_id + "/pp-data-store/" + af_instance_id, "");
-            pp_data_entry_counter->Add(1);
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kPpApiRoot) + "/{ueId}/pp-data-store/{afInstanceId}",
+                     [&proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         const auto af_instance_id = req.path_params.at("afInstanceId");
+                         auto resp = proxy_to_udr("DELETE",
+                                                  "/subscription-data/" + seg(ue_id) +
+                                                      "/pp-data-store/" + seg(af_instance_id),
+                                                  "");
+                         pp_data_entry_counter->Add(1);
+                         return resp;
+                     });
 
-    server.add_route(
-        "GET",
-        std::string(kPpApiRoot) + "/{ueId}/pp-data-store/{afInstanceId}",
-        [&proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            const auto af_instance_id = req.path_params.at("afInstanceId");
-            auto resp = proxy_to_udr(
-                "GET", "/subscription-data/" + ue_id + "/pp-data-store/" + af_instance_id, "");
-            pp_data_entry_counter->Add(1);
-            return resp;
-        });
+    server.add_route("GET",
+                     std::string(kPpApiRoot) + "/{ueId}/pp-data-store/{afInstanceId}",
+                     [&proxy_to_udr, &pp_data_entry_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         const auto af_instance_id = req.path_params.at("afInstanceId");
+                         auto resp = proxy_to_udr("GET",
+                                                  "/subscription-data/" + seg(ue_id) +
+                                                      "/pp-data-store/" + seg(af_instance_id),
+                                                  "");
+                         pp_data_entry_counter->Add(1);
+                         return resp;
+                     });
 
     // 5G VN Group: Create/Delete/Get -- real, direct proxies to UDR's own already-live
     // 5g-vn-groups/{externalGroupId} resource (ADR-0144).
@@ -3597,7 +3611,7 @@ int main() {
         [&proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             auto resp = proxy_to_udr(
-                "PUT", "/subscription-data/group-data/5g-vn-groups/" + ext_group_id, req.body);
+                "PUT", "/subscription-data/group-data/5g-vn-groups/" + seg(ext_group_id), req.body);
             pp_5g_vn_group_counter->Add(1);
             return resp;
         });
@@ -3608,7 +3622,7 @@ int main() {
         [&proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             auto resp = proxy_to_udr(
-                "DELETE", "/subscription-data/group-data/5g-vn-groups/" + ext_group_id, "");
+                "DELETE", "/subscription-data/group-data/5g-vn-groups/" + seg(ext_group_id), "");
             pp_5g_vn_group_counter->Add(1);
             return resp;
         });
@@ -3619,7 +3633,7 @@ int main() {
         [&proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             auto resp = proxy_to_udr(
-                "GET", "/subscription-data/group-data/5g-vn-groups/" + ext_group_id, "");
+                "GET", "/subscription-data/group-data/5g-vn-groups/" + seg(ext_group_id), "");
             pp_5g_vn_group_counter->Add(1);
             return resp;
         });
@@ -3631,7 +3645,7 @@ int main() {
                      [&proxy_to_udr, &pp_5g_vn_group_counter](const sbi_core::http2::Request& req) {
                          const auto ext_group_id = req.path_params.at("extGroupId");
                          const std::string udr_path =
-                             "/subscription-data/group-data/5g-vn-groups/" + ext_group_id;
+                             "/subscription-data/group-data/5g-vn-groups/" + seg(ext_group_id);
                          auto get_resp = proxy_to_udr("GET", udr_path, "");
                          if (get_resp.status != 200) {
                              return get_resp;
@@ -3671,10 +3685,10 @@ int main() {
         std::string(kPpApiRoot) + "/mbs-group-membership/{extGroupId}",
         [&proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
-            auto resp =
-                proxy_to_udr("PUT",
-                             "/subscription-data/group-data/mbs-group-membership/" + ext_group_id,
-                             req.body);
+            auto resp = proxy_to_udr("PUT",
+                                     "/subscription-data/group-data/mbs-group-membership/" +
+                                         seg(ext_group_id),
+                                     req.body);
             pp_5g_mbs_group_counter->Add(1);
             return resp;
         });
@@ -3684,8 +3698,10 @@ int main() {
         std::string(kPpApiRoot) + "/mbs-group-membership/{extGroupId}",
         [&proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
-            auto resp = proxy_to_udr(
-                "DELETE", "/subscription-data/group-data/mbs-group-membership/" + ext_group_id, "");
+            auto resp = proxy_to_udr("DELETE",
+                                     "/subscription-data/group-data/mbs-group-membership/" +
+                                         seg(ext_group_id),
+                                     "");
             pp_5g_mbs_group_counter->Add(1);
             return resp;
         });
@@ -3695,8 +3711,10 @@ int main() {
         std::string(kPpApiRoot) + "/mbs-group-membership/{extGroupId}",
         [&proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
-            auto resp = proxy_to_udr(
-                "GET", "/subscription-data/group-data/mbs-group-membership/" + ext_group_id, "");
+            auto resp = proxy_to_udr("GET",
+                                     "/subscription-data/group-data/mbs-group-membership/" +
+                                         seg(ext_group_id),
+                                     "");
             pp_5g_mbs_group_counter->Add(1);
             return resp;
         });
@@ -3709,7 +3727,7 @@ int main() {
         [&proxy_to_udr, &pp_5g_mbs_group_counter](const sbi_core::http2::Request& req) {
             const auto ext_group_id = req.path_params.at("extGroupId");
             const std::string udr_path =
-                "/subscription-data/group-data/mbs-group-membership/" + ext_group_id;
+                "/subscription-data/group-data/mbs-group-membership/" + seg(ext_group_id);
             auto get_resp = proxy_to_udr("GET", udr_path, "");
             if (get_resp.status != 200) {
                 return get_resp;

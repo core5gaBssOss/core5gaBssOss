@@ -257,3 +257,36 @@ TEST(UdmUeauFromUdrIntegration, UnknownSubscriberIs404AndUdrDownIs503) {
     ASSERT_TRUE(r.has_value());
     EXPECT_EQ(r->status, 503) << r->body;
 }
+
+// ADR-0570: the sbi_core server percent-decodes path parameters (ADR-0549), so the UDM must
+// re-encode a ueId before it puts it in a UDR URI. Without that, "%2F" and "%3F" in the ueId
+// became a real '/' and '?' one hop later: asking the UDM for am-data returned the subscriber's
+// sm-data, read from another UDR resource.
+TEST(UdmUeauFromUdrIntegration, EncodedSlashInUeIdNeverReachesAnotherUdrResource) {
+    auto stack = spawn_stack();
+    sbi_core::http2::Client client(tls_as("hello-nf"));
+    ASSERT_TRUE(wait_reachable(client, "https://127.0.0.1:7780/", 100));
+    onboard_test_subscriber();
+    const std::string token = fetch_token(client, "nudm-sdm", "UDM");
+    ASSERT_FALSE(token.empty());
+    const auto am_data = [&](const std::string& ue_id) {
+        sbi_core::http2::ClientRequest req;
+        req.method = "GET";
+        req.url = "https://127.0.0.1:7780/nudm-sdm/v2/" + ue_id + "/am-data";
+        req.headers.emplace("authorization", "Bearer " + token);
+        return client.send(req);
+    };
+
+    // Control: the plain SUPI gets its AccessAndMobilitySubscriptionData.
+    auto plain = am_data(kSupi);
+    ASSERT_TRUE(plain.has_value());
+    ASSERT_EQ(plain->status, 200) << plain->body;
+    EXPECT_TRUE(json::parse(plain->body).contains("nssai"));
+
+    // The same SUPI with an encoded path tail: one opaque ueId, so no subscriber matches it, and
+    // the sm-data document is never returned.
+    auto injected = am_data(std::string(kSupi) + "%2F99970%2Fprovisioned-data%2Fsm-data%3F");
+    ASSERT_TRUE(injected.has_value());
+    EXPECT_NE(injected->status, 200) << injected->body;
+    EXPECT_EQ(injected->body.find("singleNssai"), std::string::npos) << injected->body;
+}

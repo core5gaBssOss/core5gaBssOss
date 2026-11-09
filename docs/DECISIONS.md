@@ -534,6 +534,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0566](decisions/ADR-0566-dependabot-no-longer-opens-prs-vulnerability-alerts-stay.md) Dependabot no longer opens PRs; vulnerability alerts stay
 - [0567](decisions/ADR-0567-dccf-repairs-stale-collection-records-instead-of-trusting.md) DCCF repairs stale collection records instead of trusting them
 - [0568](decisions/ADR-0568-sbi-codegen-also-generates-the-tm-forum-dtos-from-swagger-2.md) sbi-codegen also generates the TM Forum DTOs from Swagger 2.0
+- [0570](decisions/ADR-0570-udm-re-encodes-request-path-values-before-it-builds-a-udr.md) UDM re-encodes request-path values before it builds a UDR URI
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
