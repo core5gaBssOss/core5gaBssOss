@@ -38,18 +38,29 @@ def headings(text):
     return out
 
 
-def approved_renames():
+def approved_renames(head_spec):
+    # The approvals are read from the same revision as HEAD (e.g. ":path" for the staged tree in the
+    # pre-commit hook), so an unstaged edit to the list cannot approve a staged heading removal.
+    if head_spec is None:
+        try:
+            text = open(RENAMES).read()
+        except FileNotFoundError:
+            return {}
+    else:
+        rev = head_spec.rsplit(":", 1)[0]
+        r = subprocess.run(["git", "show", f"{rev}:{RENAMES}"], capture_output=True, text=True)
+        if r.returncode != 0:
+            return {}
+        text = r.stdout
     out = {}
-    try:
-        lines = open(RENAMES).read().split("\n")
-    except FileNotFoundError:
-        return out
-    for line in lines:
+    for n, line in enumerate(text.split("\n"), 1):
         if line.strip() and not line.startswith("#"):
+            if " => " not in line or line.split(" => ", 1)[1].count(" | ") < 2:
+                sys.exit(f"{RENAMES}:{n}: expected 'old => new | date | approval', got {line!r}")
             old, rest = line.split(" => ", 1)
             new, _date, approval = (x.strip() for x in rest.split(" | ", 2))
             if not approval:
-                sys.exit(f"{RENAMES}: rename of {old!r} carries no quoted user approval")
+                sys.exit(f"{RENAMES}:{n}: rename of {old!r} carries no quoted user approval")
             out[old.strip()] = new
     return out
 
@@ -61,7 +72,7 @@ def main():
     head = git_show(sys.argv[2]) if len(sys.argv) == 3 else open("README.md").read()
     errs = []
     head_h = headings(head)
-    renames = approved_renames()
+    renames = approved_renames(sys.argv[2] if len(sys.argv) == 3 else None)
     gone = [h for h in headings(base) if h not in head_h and renames.get(h) not in head_h]
     for h in headings(base):
         if h not in head_h and renames.get(h) in head_h:
