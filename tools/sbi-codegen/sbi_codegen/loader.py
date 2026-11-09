@@ -41,6 +41,19 @@ def pure_ref_target(schema: dict) -> str | None:
     return None
 
 
+# ADR-0568: OpenAPI 3 keeps schemas under components.schemas; Swagger 2.0 (the TM Forum v4 API
+# files, ADR-0558) keeps them under definitions. The schema objects are the same JSON Schema
+# subset, so only the location and the $ref prefix differ. A Swagger 2.0 file is recognised only
+# by its own top-level `swagger: "2.x"` member, so no 3GPP file is affected.
+_SCHEMA_PREFIXES = ("/components/schemas/", "/definitions/")
+
+
+def _schemas_of(doc: dict) -> dict:
+    if str(doc.get("swagger", "")).startswith("2."):
+        return doc.get("definitions") or {}
+    return doc.get("components", {}).get("schemas") or {}
+
+
 class SchemaRegistry:
     def __init__(self, specs_dir: pathlib.Path):
         self.specs_dir = specs_dir
@@ -65,7 +78,7 @@ class SchemaRegistry:
             return
         self._loaded_files.add(filename)
         doc = self._load_doc(filename)
-        for name, schema in (doc.get("components", {}).get("schemas") or {}).items():
+        for name, schema in _schemas_of(doc).items():
             self.schemas[(filename, name)] = schema
 
     def _resolve_ref_one_hop(self, ref: str, from_file: str) -> tuple[str, dict, str]:
@@ -73,9 +86,10 @@ class SchemaRegistry:
             raise ValueError(f"unsupported $ref with no fragment: {ref}")
         file_part, frag = ref.split("#", 1)
         target_file = file_part if file_part else from_file
-        if not frag.startswith("/components/schemas/"):
+        prefix = next((p for p in _SCHEMA_PREFIXES if frag.startswith(p)), None)
+        if prefix is None:
             raise ValueError(f"unsupported $ref fragment shape: {ref}")
-        name = frag[len("/components/schemas/") :]
+        name = frag[len(prefix) :]
 
         self.load_file(target_file)
 
