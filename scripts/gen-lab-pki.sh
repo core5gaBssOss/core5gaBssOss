@@ -169,9 +169,13 @@ fi
 # confined to its own keys; every other user is kept to logical database 0 (no SELECT, MOVE,
 # COPY, SWAPDB) while the AAnF's contexts are in database 1, so no other NF can read them.
 VALKEY_NFS=(amf ausf chf nwdaf dccf adrf li-mdf li-mdf3 mfaf aanf)
+# users.acl is rewritten whole, so it lists every Valkey NF named in this run AND every one that
+# already has a password from an earlier run: `gen-lab-pki.sh aanf` must not drop the AMF's user.
 valkey_users=()
 for nf in "${VALKEY_NFS[@]}"; do
-    has_nf "${nf}" && valkey_users+=("${nf}")
+    if has_nf "${nf}" || [ -f "${CERTS_DIR}/${nf}/valkey.password" ]; then
+        valkey_users+=("${nf}")
+    fi
 done
 if [ ${#valkey_users[@]} -gt 0 ]; then
     echo "== Valkey ACL users =="

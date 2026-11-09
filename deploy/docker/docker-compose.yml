@@ -1,5 +1,9 @@
 # Lab bring-up for the NFs built so far. Run from the repo root:
 #   docker compose -f deploy/docker/docker-compose.yml up --build
+# For the whole lab use `make lab-up` instead (ADR-0571): it adds the generated overlay
+# docker-compose.lab.yml, whose configs carry each Valkey NF's ACL user (ADR-0514). This file
+# alone starts Valkey with the default user off, so the Valkey NFs (amf, ausf, chf, nwdaf, dccf,
+# adrf, li-mdf, li-mdf3, mfaf, aanf) fail NOAUTH at their startup PING without the overlay.
 #
 # PKI is provisioned ONCE by pki-init into the shared certs_data volume, which every NF container
 # mounts read-write at /build/certs. This replaced an earlier design where each NF generated its

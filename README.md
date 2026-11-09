@@ -452,7 +452,7 @@ exclusive). CI runs both, plus `clang-format`/`clang-tidy`, on every push that c
 pull request whose whole diff against `main` is docs, or a docs-only push to `main`, runs lint only, ADR-0469) — see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`.
+Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`. For the whole lab use `make lab-up`, which adds the generated `deploy/docker/docker-compose.lab.yml`: since ADR-0514 the Valkey NFs log in with their own ACL users, and only the overlay's configs carry them (ADR-0571).
 
 <h2 align="center">Documentation</h2>
 

@@ -536,6 +536,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0568](decisions/ADR-0568-sbi-codegen-also-generates-the-tm-forum-dtos-from-swagger-2.md) sbi-codegen also generates the TM Forum DTOs from Swagger 2.0
 - [0569](decisions/ADR-0569-tmf640-activates-subscriber-network-data-sim-keys-reach-the.md) TMF640 activates subscriber network data; SIM keys reach the UDR on their own route
 - [0570](decisions/ADR-0570-udm-re-encodes-request-path-values-before-it-builds-a-udr.md) UDM re-encodes request-path values before it builds a UDR URI
+- [0571](decisions/ADR-0571-valkey-acl-follow-ups-users-acl-keeps-every-nf-helm-secrets.md) Valkey ACL follow-ups: users.acl keeps every NF, Helm Secrets carry the ACL file, compose points at the lab overlay
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
