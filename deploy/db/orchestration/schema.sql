@@ -101,3 +101,18 @@ CREATE TABLE IF NOT EXISTS order_state_history (
     detail               TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_state_hist_order ON order_state_history (product_order_id);
+
+-- TMF640 Service (ADR-0558 increment 1, ADR-0569): the services bss/provisioning's TMF640 API
+-- activated. The whole Service, as the generated tmf_gen::Service serialises it, is the jsonb
+-- body; ue_id is unique, so one SUPI has at most one Service. SIM keys never appear here
+-- (ADR-0558 A3).
+CREATE TABLE IF NOT EXISTS tmf640_service (
+    id                        TEXT PRIMARY KEY,
+    ue_id                     TEXT NOT NULL UNIQUE,
+    state                     TEXT NOT NULL,
+    service_specification_id  TEXT NOT NULL,
+    body                      JSONB NOT NULL,
+    created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_tmf640_service_created ON tmf640_service (created_at, id);

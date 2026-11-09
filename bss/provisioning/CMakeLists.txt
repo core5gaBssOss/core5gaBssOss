@@ -1,6 +1,6 @@
 find_package(libpqxx CONFIG REQUIRED)
-add_library(provisioning_store STATIC src/provisioning_store.cpp src/udr_adapter.cpp)
-target_link_libraries(provisioning_store PUBLIC libpqxx::pqxx nf_config sbi_core)
+add_library(provisioning_store STATIC src/provisioning_store.cpp src/udr_adapter.cpp src/tmf640_service.cpp)
+target_link_libraries(provisioning_store PUBLIC libpqxx::pqxx nf_config sbi_core tmf_generated)
 target_include_directories(provisioning_store PUBLIC src)
 add_executable(provisioning src/main.cpp)
 target_link_libraries(provisioning PRIVATE sbi_core provisioning_store nf_config)

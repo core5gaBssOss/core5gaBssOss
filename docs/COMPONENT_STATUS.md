@@ -174,7 +174,7 @@ implementation.
 |---|---|---|
 | 105 | Kafka event contracts in a schema registry (Apicurio) | 🕒 Already in Pipeline, ADR-0556 |
 | 106 | Open Policy Agent, northbound and MCP tool authorisation | 🕒 Already in Pipeline, ADR-0557 |
-| 107 | TMF640 Service Activation and TMF664 Resource Function Activation | 🕒 Already in Pipeline, ADR-0558. Mapping approved (docs/PROVISIONING_MAPPING.md); TMF640 DTOs generated (ADR-0568); the API itself is not built yet |
+| 107 | TMF640 Service Activation and TMF664 Resource Function Activation | 🕒 Already in Pipeline, ADR-0558. Mapping approved (docs/PROVISIONING_MAPPING.md); TMF640 DTOs generated (ADR-0568); TMF640 `POST /service`, `GET /service`, `GET /service/{id}` built (ADR-0569). PATCH, events and TMF664 not built yet |
 | 108 | Debezium change data capture, PostgreSQL to Kafka, for BSS and analytics consumers | 🕒 Already in Pipeline, ADR-0559 |
 | 109 | OpenBao for secrets | 🕒 Already in Pipeline, ADR-0560 |
 | 110 | Feast feature store for the NWDAF and CHF training sidecars | 🕒 Already in Pipeline, ADR-0561 |

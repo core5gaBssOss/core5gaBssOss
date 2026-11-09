@@ -12,21 +12,31 @@
 //     -- verified through the read APIs, not by querying the UDR's tables.
 //   * Rejection text never echoes the SIM keys it was given.
 //
-// Not covered here (disclosed in ADR-0382): the full provisioning saga (orchestration + charging
-// DBs are not provisioned in CI); UDM AKA for an onboarded SUPI (UDM still reads K/OPc from its
-// own in-memory seed, a separate increment).
+//   * ADR-0569: network data and SIM keys travel separately. A network-data PUT for a subscriber
+//     with no credentials is refused 409; the keys-only PUT creates them; the network write then
+//     leaves them untouched.
+//   * ADR-0569: TMF640 activation (provisioning::tmf640::create_service) against the real
+//     orchestration DB and UDR: "active" writes network data only, a pre-active state writes
+//     nothing, a second Service for one SUPI and an activation without credentials store nothing.
+//
+// Not covered here (disclosed in ADR-0382): the full provisioning saga; the provisioning binary's
+// HTTP routes (the same create_service/validate_create are called directly); UDM AKA for an
+// onboarded SUPI (UDM still reads K/OPc from its own in-memory seed, a separate increment).
 
 #include "sbi_core/http2_client.hpp"
 
 #include <nlohmann/json.hpp>
 
+#include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <thread>
 #include <utility>
 
 #include "oam_provisioning.hpp"
 #include "spawn_guard.hpp"
 #include "test_tokens.hpp"
+#include "tmf640_service.hpp"
 #include "udr_adapter.hpp"
 
 #include <gtest/gtest.h>
@@ -60,8 +70,40 @@ provisioning::UdrAdapterConfig adapter_config() {
          {{"default",
            {{"snssais", json::array({{{"sst", 1}, {"sd", "000001"}}})},
             {"dnn", "internet"},
-            {"ue_ambr", {{"uplink", "1 Gbps"}, {"downlink", "1 Gbps"}}}}}}},
+            {"ue_ambr", {{"uplink", "1 Gbps"}, {"downlink", "1 Gbps"}}}}},
+          // ADR-0569: a TMF640 ServiceSpecification id (ADR-0558 A1).
+          {"rfs-5g-data",
+           {{"snssais", json::array({{{"sst", 1}, {"sd", "000001"}}})},
+            {"dnn", "internet"},
+            {"ue_ambr", {{"uplink", "500 Mbps"}, {"downlink", "2 Gbps"}}}}}}},
     });
+}
+
+provisioning::UdrAdapter make_adapter() {
+    return provisioning::UdrAdapter(adapter_config(),
+                                    sbi_core::http2::TlsConfig{
+                                        .cert_path = CERTS_DIR "/provisioning/cert.pem",
+                                        .key_path = CERTS_DIR "/provisioning/key.pem",
+                                        .ca_path = CERTS_DIR "/ca/ca.crt",
+                                    });
+}
+
+// A SUPI no earlier run used: the UDR and orchestration DBs persist between local runs, and the
+// ADR-0569 tests need a subscriber with no credentials yet.
+std::string fresh_supi() {
+    static std::atomic<unsigned> n{0};
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    const auto t = static_cast<unsigned long long>(
+                       std::chrono::duration_cast<std::chrono::milliseconds>(now).count()) %
+                   1000000000ULL;
+    return "imsi-99970" + std::to_string(t * 10 + (n++ % 10));
+}
+
+std::string orchestration_url() {
+    if (const char* url = std::getenv("PROVISIONING_ORCHESTRATION_DATABASE_URL")) {
+        return url;
+    }
+    return "postgresql://postgres@127.0.0.1:5434/orchestration";
 }
 
 provisioning::SubscriberSpec spec() {
@@ -244,4 +286,159 @@ TEST(UdrOamProvisioningIntegration, OnlyProvisioningIdentityWritesAndNudrReadsIt
     const json amp =
         get_json(other_nf, std::string("/policy-data/ues/") + kSupi + "/am-data", token);
     EXPECT_TRUE(amp.is_object());
+}
+
+// ADR-0569 contract: the network-only documents carry no credentials and pass the UDR validator;
+// the profile is keyed exactly (no "default" fallback).
+TEST(UdrOamProvisioningContract, NetworkDocumentsCarryNoCredentials) {
+    auto adapter = make_adapter();
+    const auto body = adapter.build_network_documents(kSupi, "9997000099", "rfs-5g-data");
+    ASSERT_TRUE(body.has_value()) << body.error();
+    EXPECT_FALSE(body->contains("authenticationSubscription"));
+    EXPECT_EQ(body->dump().find(kTestK), std::string::npos);
+    const auto docs = udr::oam::parse_subscriber_documents(kSupi, *body);
+    ASSERT_TRUE(docs.has_value()) << docs.error();
+    EXPECT_FALSE(docs->authentication_subscription.has_value());
+    EXPECT_EQ(docs->am_data["subscribedUeAmbr"]["downlink"], "2 Gbps");
+    EXPECT_FALSE(adapter.build_network_documents(kSupi, "", "po-unknown").has_value());
+}
+
+TEST(UdrOamProvisioningIntegration, NetworkDataAndCredentialsTravelSeparately) {
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    nf_test::SpawnedProcess udr(UDR_PATH);
+
+    auto other_nf = client_as("hello-nf");
+    ASSERT_TRUE(wait_reachable(other_nf, "https://127.0.0.1:7781/", 200))
+        << "udr never became reachable";
+    auto adapter = make_adapter();
+    const std::string supi = fresh_supi();
+    const provisioning::SimCredentials sim{kTestK, kTestOpc, "00000000002a"};
+
+    // No credentials yet: the network-only write is refused and writes nothing.
+    auto early = adapter.provision_network(supi, "9997000098", "rfs-5g-data");
+    ASSERT_FALSE(early.has_value());
+    EXPECT_TRUE(early.error().no_credentials) << early.error().message;
+
+    // The keys-only route: another identity is refused, provisioning creates then replaces.
+    sbi_core::http2::ClientRequest foreign;
+    foreign.method = "PUT";
+    foreign.url = "https://127.0.0.1:7781/oam-provisioning/v1/subscribers/" + supi +
+                  "/authentication-subscription";
+    foreign.headers.emplace("content-type", "application/json");
+    foreign.body = json{
+        {"authenticationMethod", "5G_AKA"},
+        {"encPermanentKey", kTestK},
+        {"encOpcKey",
+         kTestOpc}}.dump();
+    auto refused = other_nf.send(foreign);
+    ASSERT_TRUE(refused.has_value());
+    EXPECT_EQ(refused->status, 403) << refused->body;
+
+    auto keys = adapter.provision_credentials(supi, sim);
+    ASSERT_TRUE(keys.has_value()) << keys.error().message;
+    EXPECT_EQ(keys->http_status, 201);
+    auto keys_again = adapter.provision_credentials(supi, sim);
+    ASSERT_TRUE(keys_again.has_value()) << keys_again.error().message;
+    EXPECT_EQ(keys_again->http_status, 204);
+
+    // Now the network write lands: created first, replaced after.
+    auto net = adapter.provision_network(supi, "9997000098", "rfs-5g-data");
+    ASSERT_TRUE(net.has_value()) << net.error().message;
+    EXPECT_EQ(net->http_status, 201);
+    EXPECT_EQ(net->profile_key, "rfs-5g-data");
+    auto net_again = adapter.provision_network(supi, "9997000098", "rfs-5g-data");
+    ASSERT_TRUE(net_again.has_value()) << net_again.error().message;
+    EXPECT_EQ(net_again->http_status, 204);
+
+    // Read back through the standard Nudr GETs: the network write kept the keys.
+    const std::string token = fetch_token(other_nf);
+    ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
+    const std::string ue = "/subscription-data/" + supi;
+    const json am = get_json(other_nf, ue + "/99970/provisioned-data/am-data", token);
+    EXPECT_EQ(am["gpsis"][0], "msisdn-9997000098");
+    EXPECT_EQ(am["subscribedUeAmbr"]["uplink"], "500 Mbps");
+    const json auth =
+        get_json(other_nf, ue + "/authentication-data/authentication-subscription", token);
+    EXPECT_EQ(auth["encPermanentKey"], kTestK);
+    EXPECT_EQ(auth["sequenceNumber"]["sqn"], "00000000002a");
+}
+
+TEST(UdrOamProvisioningIntegration, Tmf640ActivationWritesNetworkDataOnlyAndStoresTheService) {
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    nf_test::SpawnedProcess udr(UDR_PATH);
+
+    auto other_nf = client_as("hello-nf");
+    ASSERT_TRUE(wait_reachable(other_nf, "https://127.0.0.1:7781/", 200))
+        << "udr never became reachable";
+    auto adapter = make_adapter();
+    provisioning::tmf640::ServiceStore store(orchestration_url(), 2);
+    const auto has_profile = [&adapter](const std::string& id) { return adapter.has_profile(id); };
+    const auto body = [](const std::string& supi, const std::string& state) {
+        return json{{"category", "RFS"},
+                    {"state", state},
+                    {"serviceSpecification", {{"id", "rfs-5g-data"}}},
+                    {"serviceCharacteristic",
+                     json::array({{{"name", "supi"}, {"value", supi}},
+                                  {{"name", "msisdn"}, {"value", "9997000097"}}})}}
+            .dump();
+    };
+    const std::string token = fetch_token(other_nf);
+    ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
+    const auto am_status = [&](const std::string& supi) {
+        sbi_core::http2::ClientRequest req;
+        req.method = "GET";
+        req.url = "https://127.0.0.1:7781/nudr-dr/v2/subscription-data/" + supi +
+                  "/99970/provisioned-data/am-data";
+        req.headers.emplace("authorization", "Bearer " + token);
+        auto resp = other_nf.send(req);
+        return resp.has_value() ? static_cast<int>(resp->status) : -1;
+    };
+
+    // 1. "active" for a subscriber whose keys the order flow already wrote.
+    const std::string supi = fresh_supi();
+    ASSERT_TRUE(adapter.provision_credentials(supi, {kTestK, kTestOpc, ""}).has_value());
+    auto v = provisioning::tmf640::validate_create(body(supi, "active"), has_profile);
+    ASSERT_TRUE(v.has_value()) << v.error().detail;
+    auto created = provisioning::tmf640::create_service(store, adapter, *v);
+    ASSERT_TRUE(created.has_value()) << created.error().detail;
+    const auto id = created->at("id").get<std::string>();
+    EXPECT_EQ(created->at("href"), std::string(provisioning::tmf640::kApiRoot) + "/service/" + id);
+    EXPECT_EQ(am_status(supi), 200);
+    const auto stored = store.get(id);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_EQ(*stored, *created);
+    EXPECT_EQ(stored->dump().find(kTestK), std::string::npos); // A3
+    bool listed = false;
+    for (const auto& s : store.list(0, 1000).items) {
+        listed = listed || s.at("id") == id;
+    }
+    EXPECT_TRUE(listed);
+
+    // 2. A second Service for the same SUPI: 409, nothing stored.
+    auto twice = provisioning::tmf640::create_service(store, adapter, *v);
+    ASSERT_FALSE(twice.has_value());
+    EXPECT_EQ(twice.error().status, 409);
+
+    // 3. "active" with no credentials at the UDR: 409, nothing stored, nothing written.
+    const std::string keyless = fresh_supi();
+    auto kv = provisioning::tmf640::validate_create(body(keyless, "active"), has_profile);
+    ASSERT_TRUE(kv.has_value());
+    auto refused = provisioning::tmf640::create_service(store, adapter, *kv);
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_EQ(refused.error().status, 409);
+    EXPECT_EQ(am_status(keyless), 404);
+    // Nothing was stored, so the same SUPI can be activated once its keys exist.
+    ASSERT_TRUE(adapter.provision_credentials(keyless, {kTestK, kTestOpc, ""}).has_value());
+    EXPECT_TRUE(provisioning::tmf640::create_service(store, adapter, *kv).has_value());
+
+    // 4. "reserved": stored, no network write.
+    const std::string reserved = fresh_supi();
+    auto rv = provisioning::tmf640::validate_create(body(reserved, "reserved"), has_profile);
+    ASSERT_TRUE(rv.has_value());
+    auto kept = provisioning::tmf640::create_service(store, adapter, *rv);
+    ASSERT_TRUE(kept.has_value()) << kept.error().detail;
+    EXPECT_EQ(kept->at("state"), "reserved");
+    EXPECT_EQ(am_status(reserved), 404);
 }

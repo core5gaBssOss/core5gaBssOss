@@ -497,6 +497,8 @@ jobs:
         env:
           TEST_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0569: the TMF640 Service store test (test_udr_oam_provisioning.cpp).
+          PROVISIONING_ORCHESTRATION_DATABASE_URL: postgresql://postgres@localhost:15434/orchestration
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
@@ -933,6 +935,8 @@ jobs:
         env:
           TEST_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0569: the TMF640 Service store test (test_udr_oam_provisioning.cpp).
+          PROVISIONING_ORCHESTRATION_DATABASE_URL: postgresql://postgres@localhost:15434/orchestration
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging

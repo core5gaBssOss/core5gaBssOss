@@ -15,9 +15,12 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <nf_config/nf_config.hpp>
 
+#include "TMF640_ServiceActivation_v4_0_0.hpp"
 #include "provisioning_store.hpp"
+#include "tmf640_service.hpp"
 
 using nlohmann::json;
 
@@ -51,11 +54,15 @@ int main() {
                                      .ca_path = CERTS_DIR "/ca/ca.crt",
                                  });
     provisioning::ProvisioningStore store(orchestration_url, charging_url, db_pool_size, udr);
+    // ADR-0569: TMF640 Services live in the same orchestration DB, on their own pool.
+    provisioning::tmf640::ServiceStore service_store(orchestration_url, db_pool_size);
     spdlog::info("provisioning: connected to orchestration + charging PostgreSQL");
 
     auto meter = sbi_core::get_meter("provisioning");
     auto order_counter = meter->CreateUInt64Counter("provisioning_customer_orders_total",
                                                     "Customer provisioning orders processed");
+    auto service_create_counter = meter->CreateUInt64Counter(
+        "provisioning_tmf640_service_create_total", "TMF640 POST /service requests answered 201");
 
     // ADR-0450: real observability for ADR-0449's PgPool hardening -- two real, independent pools
     // (orchestration DB, charging DB), reported separately since an exhausted orchestration pool
@@ -162,6 +169,90 @@ int main() {
                                  404, json{{"error", "order not found"}}.dump());
                          }
                          return sbi_core::http2::Response::json(200, order->dump());
+                     });
+
+    // --- TMF640 Service Activation and Configuration v4 (ADR-0558 increment 1, ADR-0569) ---
+    // Errors use the TMF640 Error schema {code, reason, message, status}, not ProblemDetails.
+    const auto tmf_error = [](int status, const std::string& reason, const std::string& message) {
+        tmf_gen::Error e;
+        e.code = std::to_string(status);
+        e.reason = reason;
+        e.message = message;
+        e.status = std::to_string(status);
+        return sbi_core::http2::Response::json(status, json(e).dump());
+    };
+    const std::string service_root = std::string(provisioning::tmf640::kApiRoot) + "/service";
+
+    server.add_route(
+        "POST",
+        service_root,
+        [&service_store, &udr, &service_create_counter, tmf_error](
+            const sbi_core::http2::Request& req) {
+            auto valid = provisioning::tmf640::validate_create(
+                req.body, [&udr](const std::string& id) { return udr.has_profile(id); });
+            if (!valid.has_value()) {
+                return tmf_error(valid.error().status, valid.error().title, valid.error().detail);
+            }
+            const auto& v = *valid;
+            auto created = provisioning::tmf640::create_service(service_store, udr, v);
+            if (!created.has_value()) {
+                return tmf_error(
+                    created.error().status, created.error().title, created.error().detail);
+            }
+            service_create_counter->Add(1);
+            auto resp = sbi_core::http2::Response::json(201, created->dump());
+            resp.headers.emplace("location", created->at("href").get<std::string>());
+            return resp;
+        });
+
+    server.add_route(
+        "GET", service_root, [&service_store, tmf_error](const sbi_core::http2::Request& req) {
+            if (req.query_params.contains("fields")) {
+                return tmf_error(400,
+                                 "Bad Request",
+                                 "the fields parameter is deferred for future implementation");
+            }
+            const auto number = [&req](const char* name,
+                                       std::size_t dflt) -> std::optional<std::size_t> {
+                const auto it = req.query_params.find(name);
+                if (it == req.query_params.end()) {
+                    return dflt;
+                }
+                const auto& s = it->second;
+                if (s.empty() || s.size() > 9 ||
+                    !std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+                    return std::nullopt;
+                }
+                return static_cast<std::size_t>(std::stoul(s));
+            };
+            const auto offset = number("offset", 0);
+            const auto limit = number("limit", 100);
+            if (!offset || !limit || *limit == 0 || *limit > 1000) {
+                return tmf_error(400,
+                                 "Bad Request",
+                                 "offset must be a non-negative integer and limit 1 to 1000");
+            }
+            const auto page = service_store.list(*offset, *limit);
+            auto resp = sbi_core::http2::Response::json(200, json(page.items).dump());
+            resp.headers.emplace("x-total-count", std::to_string(page.total));
+            resp.headers.emplace("x-result-count", std::to_string(page.items.size()));
+            return resp;
+        });
+
+    server.add_route("GET",
+                     service_root + "/{id}",
+                     [&service_store, tmf_error](const sbi_core::http2::Request& req) {
+                         if (req.query_params.contains("fields")) {
+                             return tmf_error(
+                                 400,
+                                 "Bad Request",
+                                 "the fields parameter is deferred for future implementation");
+                         }
+                         const auto service = service_store.get(req.path_params.at("id"));
+                         if (!service) {
+                             return tmf_error(404, "Not Found", "no Service with this id");
+                         }
+                         return sbi_core::http2::Response::json(200, service->dump());
                      });
 
     spdlog::info("provisioning: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);

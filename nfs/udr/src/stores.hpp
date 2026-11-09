@@ -1887,18 +1887,31 @@ struct SubscriberDocuments {
     nlohmann::json am_data;
     nlohmann::json smf_selection_data;
     nlohmann::json sm_data;
-    nlohmann::json authentication_subscription;
+    // Absent on a network-data-only write (ADR-0569): the subscriber's credentials then stay as
+    // the keys-only route last wrote them.
+    std::optional<nlohmann::json> authentication_subscription;
     nlohmann::json am_policy_data;
     nlohmann::json sm_policy_data;
+};
+
+enum class ProvisionWrite {
+    Created,       // the subscriber had no provisioned data before
+    Replaced,      // provisioned data replaced
+    NoCredentials, // network-data-only write for a subscriber with no credentials: nothing written
 };
 
 class SubscriberProvisioningStore {
 public:
     explicit SubscriberProvisioningStore(const std::string& conninfo);
 
-    // Replaces the subscriber's documents atomically. Returns true if the UE did not exist before
-    // (no authentication-subscription row), false if it replaced an existing one.
-    bool replace(const std::string& ue_id, const SubscriberDocuments& docs);
+    // Replaces the subscriber's documents atomically. Created/Replaced tell whether the UE had
+    // provisioned data before. Without docs.authentication_subscription the credentials row is
+    // kept, and must already exist (NoCredentials otherwise; ADR-0569).
+    ProvisionWrite replace(const std::string& ue_id, const SubscriberDocuments& docs);
+
+    // ADR-0569: writes only the AuthenticationSubscription (the keys-only route). Returns true if
+    // the UE had no credentials before.
+    bool replace_authentication(const std::string& ue_id, const nlohmann::json& auth);
 
 private:
     std::mutex mutex_;

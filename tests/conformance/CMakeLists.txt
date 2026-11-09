@@ -83,3 +83,10 @@ add_executable(test_tmf640_dtos test_tmf640_dtos.cpp)
 target_link_libraries(test_tmf640_dtos PRIVATE tmf_generated GTest::gtest GTest::gtest_main)
 target_compile_features(test_tmf640_dtos PRIVATE cxx_std_23)
 gtest_discover_tests(test_tmf640_dtos)
+
+# ADR-0569: TMF640 POST /service validation against the approved ADR-0558 A-rows. Pure checks:
+# no database, no network.
+add_executable(test_tmf640_service test_tmf640_service.cpp)
+target_link_libraries(test_tmf640_service PRIVATE provisioning_store GTest::gtest GTest::gtest_main)
+target_compile_features(test_tmf640_service PRIVATE cxx_std_23)
+gtest_discover_tests(test_tmf640_service)
