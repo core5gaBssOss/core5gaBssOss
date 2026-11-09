@@ -78,4 +78,6 @@ the UDR, and row A3 says SIM keys (K, OPc, SQN) never enter a TMF640 Service, be
   `Tmf640ActivationWritesNetworkDataOnlyAndStoresTheService` could not reach the orchestration DB
   (CI publishes it on port 15434; `ci.yml` now passes `PROVISIONING_ORCHESTRATION_DATABASE_URL`),
   and `gui_nf_config_schemas_up_to_date` (the GUI schema for `provisioning.json` regenerated for
-  the new profile). Their re-run is pending.
+  the new profile).
+- CI run 42547589719 on main after the merge (2026-11-09): every job succeeded (build, ASan/UBSan,
+  TSan); 1245 of 1245 tests passed, including both tests above and the three new UDR OAM tests.
