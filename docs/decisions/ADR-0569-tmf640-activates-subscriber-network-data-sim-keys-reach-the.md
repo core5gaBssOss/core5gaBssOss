@@ -72,8 +72,10 @@ the UDR, and row A3 says SIM keys (K, OPc, SQN) never enter a TMF640 Service, be
 - All changed sources and both test files compile (`-fsyntax-only` with the build's flags).
 - `test_tmf640_service` was built and run here: 8 of 8 tests pass (the A1, A2, A3, A5 and A7
   refusals, the closed state set, no key echoed in any refusal, every pre-active state accepted).
-- Not run here, because CI is using this machine: the three new UDR OAM tests
-  (`UdrOamProvisioningContract.NetworkDocumentsCarryNoCredentials`,
-  `UdrOamProvisioningIntegration.NetworkDataAndCredentialsTravelSeparately`,
-  `UdrOamProvisioningIntegration.Tmf640ActivationWritesNetworkDataOnlyAndStoresTheService`) and the
-  existing ones they sit beside. CI runs them on the PR.
+- CI run 42498085937 (PR #14, 2026-11-08), build job: `NetworkDocumentsCarryNoCredentials`,
+  `NetworkDataAndCredentialsTravelSeparately`, the existing UDR OAM tests and all 8
+  `Tmf640Service` tests passed. Two tests failed, both fixed in the next commit:
+  `Tmf640ActivationWritesNetworkDataOnlyAndStoresTheService` could not reach the orchestration DB
+  (CI publishes it on port 15434; `ci.yml` now passes `PROVISIONING_ORCHESTRATION_DATABASE_URL`),
+  and `gui_nf_config_schemas_up_to_date` (the GUI schema for `provisioning.json` regenerated for
+  the new profile). Their re-run is pending.

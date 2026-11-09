@@ -99,6 +99,42 @@
               }
             }
           }
+        },
+        "rfs-5g-data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "snssais": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "sst": {
+                    "type": "integer"
+                  },
+                  "sd": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "dnn": {
+              "type": "string"
+            },
+            "ue_ambr": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "uplink": {
+                  "type": "string"
+                },
+                "downlink": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -122,6 +158,9 @@
     "network_profiles: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "network_profiles.default: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "network_profiles.default.snssais[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
-    "network_profiles.default.ue_ambr: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
+    "network_profiles.default.ue_ambr: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "network_profiles.rfs-5g-data: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "network_profiles.rfs-5g-data.snssais[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "network_profiles.rfs-5g-data.ue_ambr: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }
