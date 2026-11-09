@@ -85,6 +85,13 @@ def _cpp_field_name(json_name: str) -> str:
     # JSON wire name (json_name) is untouched and still what's serialized.
     if json_name[:1].isdigit():
         json_name = "n" + json_name
+    # ADR-0568: TM Forum's polymorphism members `@type`, `@baseType`, `@schemaLocation` and
+    # `@referredType` start with '@'. They become `atType`, `atBaseType`, ... in C++; the JSON
+    # wire name is untouched. Any other character that is not legal in an identifier becomes '_'.
+    # No 3GPP name contains such a character (it could never have compiled), so none is renamed.
+    if json_name[:1] == "@":
+        json_name = "at" + json_name[1:2].upper() + json_name[2:]
+    json_name = re.sub(r"[^A-Za-z0-9_]", "_", json_name)
     if json_name in _CPP_RESERVED:
         return json_name + "_"
     return json_name

@@ -533,6 +533,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0565](decisions/ADR-0565-udr-refuses-writes-under-subscription-data-ueid-for-an.md) UDR refuses writes under subscription-data/{ueId} for an unprovisioned user
 - [0566](decisions/ADR-0566-dependabot-no-longer-opens-prs-vulnerability-alerts-stay.md) Dependabot no longer opens PRs; vulnerability alerts stay
 - [0567](decisions/ADR-0567-dccf-repairs-stale-collection-records-instead-of-trusting.md) DCCF repairs stale collection records instead of trusting them
+- [0568](decisions/ADR-0568-sbi-codegen-also-generates-the-tm-forum-dtos-from-swagger-2.md) sbi-codegen also generates the TM Forum DTOs from Swagger 2.0
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

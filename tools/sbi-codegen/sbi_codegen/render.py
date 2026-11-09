@@ -20,6 +20,7 @@ import re
 import jinja2
 
 from .ir import AliasType, ObjectType, OpaqueType, OpenEnumType, TypeRef
+from .schema_to_ir import _CPP_RESERVED
 
 _TEMPLATES_DIR = pathlib.Path(__file__).parent.parent / "templates"
 
@@ -89,6 +90,10 @@ def _enumconst(value: str) -> str:
     ident = re.sub(r"[^A-Za-z0-9_]", "_", value)
     if ident[:1].isdigit():
         ident = "V" + ident
+    # ADR-0568: TMF640's lowercase enum values include `delete` (TaskStateType-style enums). A
+    # keyword gets a trailing '_', as field names already do. No 3GPP enum value is a keyword.
+    if ident in _CPP_RESERVED:
+        ident += "_"
     return ident
 
 
@@ -333,7 +338,25 @@ def _topo_sort_types(
     return ordered_names, cyclic_names
 
 
-def render(ir_types: dict, commit: str, out_dir: pathlib.Path) -> list[pathlib.Path]:
+def _file_stem(source_file: str) -> str:
+    """Output file stem for a spec file. 3GPP names pass through unchanged, '-' included
+    ('TS29511_N5g-eir_EquipmentIdentityCheck.yaml'). A TM Forum name
+    ('TMF640-ServiceActivation-v4.0.0.swagger.json', ADR-0568) loses its '.swagger' marker, and
+    its '-'/'.' become '_', so the version dots do not read as file extensions."""
+    stem = pathlib.Path(source_file).stem
+    if not stem.endswith(".swagger"):
+        return stem
+    return re.sub(r"[^A-Za-z0-9_]", "_", stem.removesuffix(".swagger"))
+
+
+def render(
+    ir_types: dict,
+    commit: str,
+    out_dir: pathlib.Path,
+    namespace: str = "sbi_gen",
+    provenance: str = "3GPP R19 OpenAPI, branch REL-19",
+    specs_path: str = "specs/5G_APIs-REL-19",
+) -> list[pathlib.Path]:
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(_TEMPLATES_DIR)),
         trim_blocks=True,
@@ -349,7 +372,7 @@ def render(ir_types: dict, commit: str, out_dir: pathlib.Path) -> list[pathlib.P
     for t in ir_types.values():
         by_file.setdefault(t.source_file, []).append(t.name)
 
-    file_stems = {f: pathlib.Path(f).stem for f in by_file}
+    file_stems = {f: _file_stem(f) for f in by_file}
 
     # File-level dependency graph (for SCC / cycle detection).
     file_edges: dict[str, set[str]] = {stem: set() for stem in file_stems.values()}
@@ -473,6 +496,9 @@ def render(ir_types: dict, commit: str, out_dir: pathlib.Path) -> list[pathlib.P
             "stem": group_name,
             "citations": citations,
             "commit": commit,
+            "namespace": namespace,
+            "provenance": provenance,
+            "specs_path": specs_path,
             "deps": sorted(deps),
             "forward_declared_types": forward_declared_types,
             "object_types": object_types,

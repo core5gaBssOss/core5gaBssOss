@@ -76,3 +76,10 @@ add_executable(test_li_x1_gating test_li_x1_gating.cpp)
 target_link_libraries(test_li_x1_gating PRIVATE li_core GTest::gtest GTest::gtest_main)
 target_compile_features(test_li_x1_gating PRIVATE cxx_std_23)
 gtest_discover_tests(test_li_x1_gating)
+
+# ADR-0568: round-trip of the generated TMF640 DTOs (TM Forum swagger, specs/tmforum). Its own
+# binary: tmf_generated + gtest only.
+add_executable(test_tmf640_dtos test_tmf640_dtos.cpp)
+target_link_libraries(test_tmf640_dtos PRIVATE tmf_generated GTest::gtest GTest::gtest_main)
+target_compile_features(test_tmf640_dtos PRIVATE cxx_std_23)
+gtest_discover_tests(test_tmf640_dtos)
