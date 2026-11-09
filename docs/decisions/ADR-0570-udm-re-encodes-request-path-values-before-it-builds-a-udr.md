@@ -46,3 +46,7 @@ UDR query string the same way. Found by `/code-review` on 2026-11-08.
   sm-data) and the new `encode_query_value` assertion in
   `Http2RoutePrecedence.AnEncodedPathParameterArrivesDecodedAsOneSegment`. CI runs both on the PR.
   The test has not yet been shown to fail without the fix.
+- CI: PR #15 run 42499914588 passed 1232 of 1232 tests, and run 42547589719 on main (2026-11-09)
+  passed 1245 of 1245 with every job succeeding (build, ASan/UBSan, TSan). Both runs include
+  `EncodedSlashInUeIdNeverReachesAnotherUdrResource` and the `encode_query_value` assertion. The
+  test has still not been shown to fail without the fix.
