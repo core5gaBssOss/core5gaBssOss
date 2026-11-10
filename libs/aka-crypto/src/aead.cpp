@@ -3,6 +3,7 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
+#include <algorithm>
 #include <memory>
 
 namespace aka_crypto {

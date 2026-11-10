@@ -153,7 +153,6 @@ std::string rfc3339(std::chrono::system_clock::time_point t) {
     return buf;
 }
 
-// The FQDN part of a TS 29.522 AfId "<FQDN>.<10 hex digits>".
 // The KAKMA key-encryption key: one line of 64 hex digits (ADR-0514). Exits if it is missing or
 // malformed -- the AAnF never stores KAKMA in the clear.
 aka_crypto::Aes256Key read_kek(const std::string& path) {
@@ -168,6 +167,7 @@ aka_crypto::Aes256Key read_kek(const std::string& path) {
     return *kek;
 }
 
+// The FQDN part of a TS 29.522 AfId "<FQDN>.<10 hex digits>".
 std::string af_fqdn(const std::string& af_id) {
     return af_id.substr(0, af_id.rfind('.'));
 }
