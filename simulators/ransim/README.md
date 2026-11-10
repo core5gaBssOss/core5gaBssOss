@@ -24,16 +24,20 @@ license analysis in ADR-0016.
   committed) and builds it there.
 - `vendor/` -- gitignored. Created by `fetch-and-build.sh`. Not part of this repository's git
   history.
-- `config/gnb.yaml`, `config/ue.yaml` -- **these two files are not in the repository** (checked 2026-10-06: `git log` has no
-  history for either path, and `config/` has no such files). They are the lab config `nr-gnb`/`nr-ue` need, pointed at AMF's N2
-  listener, and have to be written before the commands below can run. **Corrected 2026-10-02 (docs-audit): this section was severely stale.** AMF has had a
-  real NGAP/SCTP server for a long time (`nfs/amf/src/ngap_task.cpp`, logs "listening for NGAP/N2
-  (SCTP)"); registration, PDU session establishment, and N2 handover have all worked end to end
-  since early in this project (CLAUDE.md's Phase 2 end-to-end milestone). This file was apparently
-  never revisited after that landed. Not independently re-verified in this pass: whether this
-  specific `config/gnb.yaml`/`ue.yaml` pair is still the right shape for AMF's current NGAP config,
-  or whether this exact UERANSIM pairing is still the project's live/preferred UE-driving tool
-  versus something that superseded it -- check both before relying on this file to actually run.
+- `config/gnb.yaml`, `config/ue.yaml` -- the lab config `nr-gnb`/`nr-ue` need. Both are in the
+  repository (an earlier version of this section said they were not; corrected 2026-11-10,
+  ADR-0572 v0.2.0 item 1). What they point at, checked against the repo on 2026-11-10 by reading,
+  not by running:
+  - `gnb.yaml` `amfConfigs` = `127.0.0.5:38412`, the AMF's `ngap_bind_address`/`ngap_bind_port`
+    in `config/amf.json`; PLMN 999/70, TAC 1, S-NSSAI sst 1 / sd 1.
+  - `ue.yaml` SUPI `imsi-999700000000001` with the TS 35.207 Test Set 1 K/OP/AMF, the subscriber
+    the UDR seeds (`nfs/udr/src/main.cpp`); one `IPv4` session on DNN `internet`, which is the
+    SMF's `ue_ipv4_pools` entry in `config/smf.json`.
+- **What drives the UE in this project's tests.** The integration tests do not use UERANSIM; they
+  use the project's own NAS/NGAP driver, `tests/integration/ue_nas_driver.cpp`, so registration,
+  PDU session establishment and N2/Xn handover are proven against the project's own codec. Nothing
+  in CI runs UERANSIM. A recorded UERANSIM registration and PDU session run against the lab, with
+  the exact commands and output, is deferred for future implementation: ADR-0572, v0.2.0 item 5.
 
 ## Usage
 

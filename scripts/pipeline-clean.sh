@@ -34,13 +34,27 @@ set -euo pipefail
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker/docker-compose.yml}"
 DC=(docker compose -f "$COMPOSE_FILE")
 
+# ADR-0514: the lab Valkey has no default user; every command signs in as an ACL user. The chf:*
+# keys belong to the CHF, so this script uses the CHF's user and its password file from
+# scripts/gen-lab-pki.sh (ADR-0571 listed this script as the one caller left without credentials).
+CERTS_DIR="${CERTS_DIR:-certs}"
+VALKEY_USER="${VALKEY_USER:-chf}"
+VALKEY_PASSWORD_FILE="${VALKEY_PASSWORD_FILE:-$CERTS_DIR/$VALKEY_USER/valkey.password}"
+if [[ ! -r "$VALKEY_PASSWORD_FILE" ]]; then
+  echo "pipeline-clean.sh: $VALKEY_PASSWORD_FILE not found; run scripts/gen-lab-pki.sh $VALKEY_USER first" >&2
+  exit 1
+fi
+VALKEY_PASSWORD="$(tr -d '\n' < "$VALKEY_PASSWORD_FILE")"
+# Passed to valkey-cli inside the container through the environment, not on its command line.
+VALKEY_CLI="valkey-cli --user $VALKEY_USER --pass \"\$VALKEY_PASSWORD\" --no-auth-warning"
+
 APPLY=0
 [[ "${1:-}" == "--yes" ]] && APPLY=1
 
 # The Doris allinone container has a mysql client; exec into the running service (a `compose run`
 # on doris-schema-init swallows an ad-hoc command via its entrypoint, so exec the live doris).
 doris() { "${DC[@]}" exec -T doris mysql -h127.0.0.1 -P9030 -uroot -N -B -e "$1"; }
-redis() { "${DC[@]}" exec -T valkey redis-cli "$@"; }
+redis() { "${DC[@]}" exec -T -e VALKEY_PASSWORD="$VALKEY_PASSWORD" valkey sh -c "$VALKEY_CLI \"\$@\"" -- "$@"; }
 pg()    { "${DC[@]}" exec -T postgres-chf psql -U postgres -d charging -At -c "$1"; }
 
 echo "== current corpus size =="
@@ -68,7 +82,8 @@ doris 'TRUNCATE TABLE chf_features.subscriber_features'  && echo "  truncated ch
 # ONE exec, batched DELs: the old per-key `docker compose exec ... DEL` loop cost a process spawn per
 # key -- over an hour for the 80K keys of the 2026-09 corpus.
 n=$(redis --scan --pattern 'chf:*' | wc -l | tr -d ' ')
-"${DC[@]}" exec -T valkey sh -c "redis-cli --scan --pattern 'chf:*' | xargs -r -n 500 redis-cli DEL >/dev/null"
+"${DC[@]}" exec -T -e VALKEY_PASSWORD="$VALKEY_PASSWORD" valkey sh -c \
+  "$VALKEY_CLI --scan --pattern 'chf:*' | xargs -r -n 500 $VALKEY_CLI DEL >/dev/null"
 echo "  deleted $n redis chf:* keys"
 
 # CHF rating store.

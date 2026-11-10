@@ -2,9 +2,10 @@
 # Format is UERANSIM's own (see vendor/UERANSIM/config/custom-gnb.yaml after fetching) --
 # not a 3GPP-defined schema, just this simulator's config file.
 #
-# NOT FUNCTIONAL YET: AMF has no NGAP/N2 listener as of docs/DECISIONS.md ADR-0016. This
-# config is a placeholder for when that lands -- running nr-gnb against it today will fail
-# to connect (SCTP ECONNREFUSED).
+# The AMF's NGAP/N2 listener is config/amf.json `ngap_bind_address`/`ngap_bind_port`
+# (127.0.0.5:38412 in the lab config); `amfConfigs` below must match it. (This header said
+# "NOT FUNCTIONAL YET: AMF has no NGAP/N2 listener" from ADR-0016 until 2026-11-10; the listener
+# has existed since the AMF's NGAP turn, nfs/amf/src/ngap_task.cpp.)
 
 mcc: '999'          # Test PLMN -- not a real network. See ADR-0016.
 mnc: '70'
@@ -17,7 +18,7 @@ linkIp: 127.0.0.1    # gNB's local IP for the simulated radio link (gNB <-> UE)
 ngapIp: 127.0.0.1    # gNB's local IP for N2 (gNB <-> AMF)
 gtpIp: 127.0.0.1      # gNB's local IP for N3 (gNB <-> UPF)
 
-# AMF's future N2 listener. Port 38412 is NGAP's IANA-assigned SCTP port (TS 38.412).
+# AMF's N2 listener (config/amf.json). Port 38412 is NGAP's IANA-assigned SCTP port (TS 38.412).
 amfConfigs:
   - address: 127.0.0.5
     port: 38412
