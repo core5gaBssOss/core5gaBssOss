@@ -13,7 +13,7 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - The AAnF stores KAKMA sealed with AES-256-GCM under a key-encryption key file, never in the
   clear. In the lab, each NF signs in to Valkey as its own ACL user, and Valkey is no longer
   published on the host
-  ([ADR-0514](docs/decisions/ADR-0514-akma-anchor-keys-sealed-at-rest-aes-256-gcm-aanf-key.md)).
+  ([ADR-0514](docs/decisions/archive/ADR-0514-akma-anchor-keys-sealed-at-rest-aes-256-gcm-aanf-key.md)).
   An existing local `certs/` needs `scripts/gen-lab-pki.sh aanf` once, to create the key.
 
 ## [0.1.0] - 2026-10-31
@@ -48,16 +48,16 @@ and is **not deployable in production yet** (see
     changelog (ADR-0509).
 - Helm charts for the 17 NFs that had none (CHF, NEF, NSSF, SCP, BSF, ADRF, DCCF, EIR, GMLC,
   LI-MDF, LI-MDF3, LMF, MFAF, NSACF, NWDAF, SMSF, UDSF), in the ADR-0513 shape
-  ([ADR-0515](docs/decisions/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md)).
+  ([ADR-0515](docs/decisions/archive/ADR-0515-helm-charts-for-the-17-nfs-without-one-dep-03-nf-half-the.md)).
 
 ### Changed
 
 - The README is the full project page again, updated for the organization move, licensing and
   process changes, with four stale security-compliance rows corrected
-  ([ADR-0511](docs/decisions/ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md)).
+  ([ADR-0511](docs/decisions/archive/ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md)).
 - `README.md` is append/update only: nothing is ever removed from it. Enforced by a pre-commit hook
   and a `readme-append-only` CI job
-  ([ADR-0512](docs/decisions/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md)).
+  ([ADR-0512](docs/decisions/archive/ADR-0512-readme-md-is-append-update-only-nothing-is-ever-removed.md)).
 
 ### Removed
 
