@@ -11,7 +11,7 @@ The complete component list for this project, in scope per `CLAUDE.md` and
 **Keep this file current.** When a component is added or its status changes, update its row and the
 totals in the same commit.
 
-Last updated: 2026-11-07.
+Last updated: 2026-11-10.
 
 ## 5G Core, Tier 1: all 13 built
 
@@ -174,7 +174,7 @@ implementation.
 |---|---|---|
 | 105 | Kafka event contracts in a schema registry (Apicurio) | 🕒 Already in Pipeline, ADR-0556 |
 | 106 | Open Policy Agent, northbound and MCP tool authorisation | 🕒 Already in Pipeline, ADR-0557 |
-| 107 | TMF640 Service Activation and TMF664 Resource Function Activation | 🕒 Already in Pipeline, ADR-0558. Mapping approved (docs/PROVISIONING_MAPPING.md); TMF640 DTOs generated (ADR-0568); TMF640 `POST /service`, `GET /service`, `GET /service/{id}` built (ADR-0569). PATCH, events and TMF664 not built yet |
+| 107 | TMF640 Service Activation and TMF664 Resource Function Activation | ⚠️ Partial, ADR-0558. Mapping approved (docs/PROVISIONING_MAPPING.md); TMF640 DTOs generated (ADR-0568); TMF640 `POST /service`, `GET /service`, `GET /service/{id}` built (ADR-0569). TMF640 PATCH, DELETE and notifications, and TMF664, are deferred for future implementation (ADR-0572, v0.2.0 item 3) |
 | 108 | Debezium change data capture, PostgreSQL to Kafka, for BSS and analytics consumers | 🕒 Already in Pipeline, ADR-0559 |
 | 109 | OpenBao for secrets | 🕒 Already in Pipeline, ADR-0560 |
 | 110 | Feast feature store for the NWDAF and CHF training sidecars | 🕒 Already in Pipeline, ADR-0561 |
@@ -189,7 +189,7 @@ implementation.
 | Charging/BSS and platform | 9 of 9 | 0 |
 | R19 completeness (ADR-0539) | 0 of 25 | 25 |
 | mmt-studio-5g6g survey (ADR-0550) | 0 of 18 | 18 |
-| Reference-architecture adoptions (ADR-0556..0562) | 0 of 7 | 7 |
+| Reference-architecture adoptions (ADR-0556..0562) | 0 of 7 (+ TMF640 partial, ADR-0558) | 6 |
 
 The SEPP now carries inter-PLMN SBI traffic over N32 with TLS security or PRINS (application-layer
 security). It is partial: the unbuilt N32 items are listed in its row above (REVIEW-5ae0ef1 DOC-01).

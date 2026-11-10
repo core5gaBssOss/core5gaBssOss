@@ -2,8 +2,9 @@
 # Format is UERANSIM's own (see vendor/UERANSIM/config/custom-ue.yaml after fetching) --
 # not a 3GPP-defined schema, just this simulator's config file.
 #
-# key/op/amf below are the real TS 35.207 Test Set 1 values -- deliberately matched to
-# nfs/udm/src/main.cpp's seeded imsi-999700000000001 subscriber (5G_AKA), not UERANSIM's own
+# key/op/amf below are the real TS 35.207 Test Set 1 values -- deliberately matched to the seeded
+# imsi-999700000000001 subscriber (5G_AKA; seeded in the UDR, nfs/udr/src/main.cpp, since the UDM
+# started reading authentication data from the UDR; it was nfs/udm/src/main.cpp's seed before), not UERANSIM's own
 # published example defaults (which this file originally carried, before AMF's NGAP turn
 # reconciled the two). Two real mismatches were found and fixed here (see docs/DECISIONS.md
 # ADR-0030): `op` didn't match UDM's seed at all, and UERANSIM's own MAC validation
