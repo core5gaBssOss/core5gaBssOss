@@ -1913,6 +1913,17 @@ public:
     // the UE had no credentials before.
     bool replace_authentication(const std::string& ue_id, const nlohmann::json& auth);
 
+    // ADR-0576: replaces the AccessAndMobilitySubscriptionData of one (ueId, servingPlmnId)
+    // provisioned-data row and nothing else. False if the row does not exist (nothing written).
+    bool replace_am_data(const std::string& ue_id,
+                         const std::string& serving_plmn_id,
+                         const nlohmann::json& am_data);
+
+    // ADR-0576: removes what this API writes for the UE -- every udr_provisioned_data row (which
+    // also drops that row's lcs_bca/sms/trace columns), the AuthenticationSubscription, and the
+    // AM/SM policy data -- in one transaction. False if none of them existed.
+    bool remove_subscriber(const std::string& ue_id);
+
 private:
     std::mutex mutex_;
     pqxx::connection conn_;

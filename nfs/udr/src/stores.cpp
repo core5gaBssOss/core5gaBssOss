@@ -3661,4 +3661,32 @@ bool SubscriberProvisioningStore::replace_authentication(const std::string& ue_i
     return created;
 }
 
+bool SubscriberProvisioningStore::replace_am_data(const std::string& ue_id,
+                                                  const std::string& serving_plmn_id,
+                                                  const nlohmann::json& am_data) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pqxx::work txn(conn_);
+    const auto updated = txn.exec("UPDATE udr_provisioned_data SET am_data = $3::jsonb "
+                                  "WHERE ue_id = $1 AND serving_plmn_id = $2",
+                                  pqxx::params{ue_id, serving_plmn_id, am_data.dump()});
+    txn.commit();
+    return updated.affected_rows() > 0;
+}
+
+bool SubscriberProvisioningStore::remove_subscriber(const std::string& ue_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pqxx::work txn(conn_);
+    std::size_t removed = 0;
+    for (const char* table : {"udr_provisioned_data",
+                              "udr_authentication_subscription",
+                              "udr_am_policy_data",
+                              "udr_sm_policy_data"}) {
+        removed += static_cast<std::size_t>(
+            txn.exec(std::string("DELETE FROM ") + table + " WHERE ue_id = $1", pqxx::params{ue_id})
+                .affected_rows());
+    }
+    txn.commit();
+    return removed > 0;
+}
+
 } // namespace udr

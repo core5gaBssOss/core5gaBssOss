@@ -4,6 +4,12 @@
 //
 //   PUT /oam-provisioning/v1/subscribers/{ueId}
 //   PUT /oam-provisioning/v1/subscribers/{ueId}/authentication-subscription   (ADR-0569)
+//   PUT /oam-provisioning/v1/subscribers/{ueId}/am-data                       (ADR-0576)
+//   DELETE /oam-provisioning/v1/subscribers/{ueId}                            (ADR-0576)
+//
+// ADR-0576: the am-data PUT replaces one serving PLMN's AccessAndMobilitySubscriptionData and
+// nothing else (TMF640 active <-> inactive sets or clears odbPacketServices, PROVISIONING_MAPPING
+// A4). The DELETE removes what the first two PUTs write (TMF640 DELETE /service/{id}).
 //
 // ADR-0569: the first PUT's authenticationSubscription is optional. The second writes the
 // credentials alone, so the network data (TMF640 activation) and the SIM keys (the order flow)
@@ -46,6 +52,16 @@ parse_subscriber_documents(const std::string& ue_id, const nlohmann::json& body)
 // Validates one AuthenticationSubscription for `ue_id` (same never-echo rule).
 tl::expected<nlohmann::json, std::string>
 parse_authentication_subscription(const std::string& ue_id, const nlohmann::json& auth);
+
+// ADR-0576: the am-data PUT body, {"servingPlmnId": MCC+MNC, "amData": one
+// AccessAndMobilitySubscriptionData (TS29503_Nudm_SDM.yaml)}. odbPacketServices, if present, must
+// be an OdbPacketServices (TS29571_CommonData.yaml: a string, or null).
+struct AmDataWrite {
+    std::string serving_plmn_id;
+    nlohmann::json am_data;
+};
+tl::expected<AmDataWrite, std::string> parse_am_data_write(const std::string& ue_id,
+                                                           const nlohmann::json& body);
 
 void register_routes(sbi_core::http2::Server& server,
                      SubscriberProvisioningStore& store,

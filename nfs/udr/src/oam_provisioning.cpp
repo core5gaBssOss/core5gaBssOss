@@ -147,6 +147,30 @@ tl::expected<SubscriberDocuments, std::string> parse_subscriber_documents(const 
     return docs;
 }
 
+tl::expected<AmDataWrite, std::string> parse_am_data_write(const std::string& ue_id,
+                                                           const json& body) {
+    static const std::regex kPlmn("^[0-9]{5,6}$");
+    if (!imsi_supi(ue_id)) {
+        return bad("ueId must be an IMSI-form SUPI (imsi-<5..15 digits>)");
+    }
+    if (!body.is_object()) {
+        return bad("body must be a JSON object");
+    }
+    if (!matches(body.value("servingPlmnId", json()), kPlmn)) {
+        return bad("servingPlmnId must be MCC+MNC (5 or 6 digits)");
+    }
+    if (!body.contains("amData") || !body["amData"].is_object()) {
+        return bad("amData is required and must be an object");
+    }
+    const json& am = body["amData"];
+    // OdbPacketServices (TS29571_CommonData.yaml): anyOf(enum-or-string, NullValue).
+    if (am.contains("odbPacketServices") && !am["odbPacketServices"].is_null() &&
+        !am["odbPacketServices"].is_string()) {
+        return bad("amData.odbPacketServices must be a string or null (OdbPacketServices)");
+    }
+    return AmDataWrite{body["servingPlmnId"].get<std::string>(), am};
+}
+
 namespace {
 
 sbi_core::http2::Response refuse_peer(const sbi_core::http2::Request& req) {
@@ -222,7 +246,7 @@ void register_routes(sbi_core::http2::Server& server,
     server.add_route(
         "PUT",
         std::string(kOamProvisioningRoot) + "/subscribers/{ueId}/authentication-subscription",
-        [&store, allowed = std::move(allowed_clients)](const sbi_core::http2::Request& req) {
+        [&store, allowed = allowed_clients](const sbi_core::http2::Request& req) {
             if (!peer_allowed(req, allowed)) {
                 return refuse_peer(req);
             }
@@ -241,6 +265,55 @@ void register_routes(sbi_core::http2::Server& server,
                          created ? "created" : "replaced",
                          ue_id);
             return status_only(created ? 201 : 204);
+        },
+        sbi_core::http2::RouteAuth::None);
+
+    // ADR-0576: one serving PLMN's AccessAndMobilitySubscriptionData alone. Replaces an existing
+    // document only: a subscriber with no provisioned data is 404, never created here.
+    server.add_route(
+        "PUT",
+        std::string(kOamProvisioningRoot) + "/subscribers/{ueId}/am-data",
+        [&store, allowed = allowed_clients](const sbi_core::http2::Request& req) {
+            if (!peer_allowed(req, allowed)) {
+                return refuse_peer(req);
+            }
+            const auto body = parse_body(req);
+            if (!body.has_value()) {
+                return malformed();
+            }
+            const auto& ue_id = req.path_params.at("ueId");
+            auto write = parse_am_data_write(ue_id, *body);
+            if (!write.has_value()) {
+                return sbi_core::http2::problem_response(
+                    400, "Bad Request", write.error(), "UNSPECIFIED_MSG_FAILURE");
+            }
+            if (!store.replace_am_data(ue_id, write->serving_plmn_id, write->am_data)) {
+                return sbi_core::http2::problem_response(
+                    404,
+                    "Not Found",
+                    "no provisioned data for this subscriber and serving PLMN",
+                    std::nullopt);
+            }
+            spdlog::info("udr: OAM provisioning replaced am-data of {}", ue_id);
+            return status_only(204);
+        },
+        sbi_core::http2::RouteAuth::None);
+
+    // ADR-0576: deprovisioning. Removes what the PUTs above write; 404 if there was nothing.
+    server.add_route(
+        "DELETE",
+        std::string(kOamProvisioningRoot) + "/subscribers/{ueId}",
+        [&store, allowed = std::move(allowed_clients)](const sbi_core::http2::Request& req) {
+            if (!peer_allowed(req, allowed)) {
+                return refuse_peer(req);
+            }
+            const auto& ue_id = req.path_params.at("ueId");
+            if (!store.remove_subscriber(ue_id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no provisioned subscriber with this ueId", std::nullopt);
+            }
+            spdlog::info("udr: OAM provisioning removed subscriber {}", ue_id);
+            return status_only(204);
         },
         sbi_core::http2::RouteAuth::None);
 }
