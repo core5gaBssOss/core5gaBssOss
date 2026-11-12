@@ -101,3 +101,29 @@ TEST(SbiJsonBody, ProblemResponseWritesTheCauseOrNone) {
     const auto without = sbi_core::http2::problem_response(404, "Not Found", "x", std::nullopt);
     EXPECT_FALSE(json::parse(without.body).contains("cause"));
 }
+
+// ADR-0574: the front half alone -- the same 415 / 400 checks, the ops returned unapplied, so a
+// caller (the NRF, TS 29.510 5.2.2.3.1B) can answer an inapplicable patch with its own status.
+TEST(SbiJsonPatch, ParseReturnsTheOpsWithoutApplyingThem) {
+    const auto out = sbi_core::http2::parse_json_patch_body(patch_request(
+        "application/json-patch+json", R"([{"op":"replace","path":"/missing","value":1}])"));
+    ASSERT_TRUE(out.has_value()) << out.error().body;
+    ASSERT_TRUE(out->is_array());
+    EXPECT_EQ(out->size(), 1u);
+}
+
+TEST(SbiJsonPatch, ParseRejectsAnotherMediaTypeWith415AndAcceptPatch) {
+    const auto out = sbi_core::http2::parse_json_patch_body(
+        patch_request("application/merge-patch+json", R"({"nfStatus":"REGISTERED"})"));
+    ASSERT_FALSE(out.has_value());
+    EXPECT_EQ(out.error().status, 415);
+    EXPECT_EQ(out.error().headers.count("accept-patch"), 1u);
+}
+
+TEST(SbiJsonPatch, ParseRejectsAnEmptyArrayWith400) {
+    const auto out =
+        sbi_core::http2::parse_json_patch_body(patch_request("application/json-patch+json", "[]"));
+    ASSERT_FALSE(out.has_value());
+    EXPECT_EQ(out.error().status, 400);
+    EXPECT_EQ(cause_of(out.error()), "INVALID_MSG_FORMAT");
+}

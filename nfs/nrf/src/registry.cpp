@@ -19,15 +19,19 @@ std::optional<nlohmann::json> NfRegistry::get(const std::string& nf_instance_id)
     return std::make_optional(it->second);
 }
 
-std::optional<nlohmann::json> NfRegistry::apply_patch(const std::string& nf_instance_id,
-                                                      const nlohmann::json& patch_ops) {
+std::optional<tl::expected<nlohmann::json, sbi_core::http2::Response>>
+NfRegistry::update(const std::string& nf_instance_id, const ProfileEdit& edit) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = profiles_.find(nf_instance_id);
     if (it == profiles_.end()) {
         return std::nullopt;
     }
-    it->second = it->second.patch(patch_ops);
-    return std::make_optional(it->second);
+    auto edited = edit(it->second);
+    if (edited) {
+        it->second = *edited;
+        last_heartbeat_[nf_instance_id] = std::chrono::steady_clock::now();
+    }
+    return edited;
 }
 
 bool NfRegistry::remove(const std::string& nf_instance_id) {
@@ -95,16 +99,15 @@ nlohmann::json SubscriptionRegistry::create(nlohmann::json subscription_data) {
     return subscription_data;
 }
 
-std::optional<nlohmann::json> SubscriptionRegistry::update(const std::string& subscription_id,
-                                                           nlohmann::json subscription_data) {
+bool SubscriptionRegistry::set_validity_time(const std::string& subscription_id,
+                                             const std::string& validity_time) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = subscriptions_.find(subscription_id);
     if (it == subscriptions_.end()) {
-        return std::nullopt;
+        return false;
     }
-    subscription_data["subscriptionId"] = subscription_id;
-    it->second = subscription_data;
-    return std::make_optional(it->second);
+    it->second["validityTime"] = validity_time;
+    return true;
 }
 
 bool SubscriptionRegistry::remove(const std::string& subscription_id) {

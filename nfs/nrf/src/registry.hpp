@@ -1,12 +1,16 @@
 #pragma once
 
+#include "sbi_core/http2_server.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <tl/expected.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -26,11 +30,16 @@ public:
 
     std::optional<nlohmann::json> get(const std::string& nf_instance_id);
 
-    // Applies an RFC 6902 JSON Patch (already parsed) to the stored profile via nlohmann::json's
-    // built-in .patch(). Throws nlohmann::json::exception (invalid patch op, failed "test", etc.)
-    // -- caller is responsible for turning that into a ProblemDetails 4xx.
-    std::optional<nlohmann::json> apply_patch(const std::string& nf_instance_id,
-                                              const nlohmann::json& patch_ops);
+    // NFUpdate partial update / heart-beat (TS 29.510 5.2.2.3.1B, 5.2.2.3.2; ADR-0574). Under one
+    // lock: looks the profile up, passes a copy to `edit`, and stores what `edit` returns, so an
+    // If-Match check, the patch and its validation see no concurrent PUT. std::nullopt: no such
+    // instance. An unexpected value from `edit` (the response to send) leaves the profile as it
+    // was. On success the stored (possibly unchanged) profile is returned and the heart-beat
+    // refreshed.
+    using ProfileEdit = std::function<tl::expected<nlohmann::json, sbi_core::http2::Response>(
+        const nlohmann::json& current)>;
+    std::optional<tl::expected<nlohmann::json, sbi_core::http2::Response>>
+    update(const std::string& nf_instance_id, const ProfileEdit& edit);
 
     bool remove(const std::string& nf_instance_id);
 
@@ -69,8 +78,10 @@ public:
     // Assigns and returns a subscriptionId, stores subscription_data with that id filled in.
     nlohmann::json create(nlohmann::json subscription_data);
 
-    std::optional<nlohmann::json> update(const std::string& subscription_id,
-                                         nlohmann::json subscription_data);
+    // UpdateSubscription (TS 29.510 5.2.2.5.6): the one attribute it may change. False: no such
+    // subscription. The suggested value is kept as sent (ADR-0574 disclosed: the NRF assigns no
+    // validity time of its own and expires no subscription yet).
+    bool set_validity_time(const std::string& subscription_id, const std::string& validity_time);
 
     bool remove(const std::string& subscription_id);
 
