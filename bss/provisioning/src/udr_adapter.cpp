@@ -1,5 +1,7 @@
 #include "udr_adapter.hpp"
 
+#include "sbi_core/uri.hpp"
+
 #include <stdexcept>
 
 namespace provisioning {
@@ -170,13 +172,19 @@ tl::expected<UdrProvisionOutcome, UdrWriteError> UdrAdapter::put(const std::stri
     return out;
 }
 
-tl::expected<UdrProvisionOutcome, UdrWriteError> UdrAdapter::provision_network(
-    const std::string& supi, const std::string& msisdn, const std::string& profile_key) {
+tl::expected<UdrProvisionOutcome, UdrWriteError>
+UdrAdapter::provision_network(const std::string& supi,
+                              const std::string& msisdn,
+                              const std::string& profile_key,
+                              bool barred) {
     auto body = build_network_documents(supi, msisdn, profile_key);
     if (!body.has_value()) {
         return tl::unexpected(UdrWriteError{false, body.error()});
     }
-    auto out = put(supi, body->dump());
+    if (barred) {
+        (*body)["amData"]["odbPacketServices"] = kBarAllPacketServices;
+    }
+    auto out = put(sbi_core::uri::encode_path_segment(supi), body->dump());
     if (out.has_value()) {
         out->profile_key = profile_key;
     }
@@ -184,8 +192,44 @@ tl::expected<UdrProvisionOutcome, UdrWriteError> UdrAdapter::provision_network(
 }
 
 tl::expected<UdrProvisionOutcome, UdrWriteError>
+UdrAdapter::provision_am_data(const std::string& supi,
+                              const std::string& msisdn,
+                              const std::string& profile_key,
+                              bool barred) {
+    auto docs = build_network_documents(supi, msisdn, profile_key);
+    if (!docs.has_value()) {
+        return tl::unexpected(UdrWriteError{false, docs.error()});
+    }
+    json am_data = (*docs)["amData"];
+    am_data["odbPacketServices"] = barred ? json(kBarAllPacketServices) : json(nullptr);
+    const json body{{"servingPlmnId", (*docs)["servingPlmnId"]}, {"amData", am_data}};
+    auto out = put(sbi_core::uri::encode_path_segment(supi) + "/am-data", body.dump());
+    if (out.has_value()) {
+        out->profile_key = profile_key;
+    }
+    return out;
+}
+
+tl::expected<void, UdrWriteError> UdrAdapter::deprovision(const std::string& supi) {
+    sbi_core::http2::ClientRequest req;
+    req.method = "DELETE";
+    req.url = config_.udr_base_url + "/oam-provisioning/v1/subscribers/" +
+              sbi_core::uri::encode_path_segment(supi);
+    auto resp = client_.send(req);
+    if (!resp.has_value()) {
+        return tl::unexpected(UdrWriteError{false, "UDR unreachable: " + resp.error()});
+    }
+    if (resp->status != 204 && resp->status != 404) {
+        return tl::unexpected(UdrWriteError{false,
+                                            "UDR returned " + std::to_string(resp->status) + ": " +
+                                                resp->body.substr(0, 512)});
+    }
+    return {};
+}
+
+tl::expected<UdrProvisionOutcome, UdrWriteError>
 UdrAdapter::provision_credentials(const std::string& supi, const SimCredentials& sim) {
-    return put(supi + "/authentication-subscription",
+    return put(sbi_core::uri::encode_path_segment(supi) + "/authentication-subscription",
                authentication_subscription(config_, supi, sim).dump());
 }
 

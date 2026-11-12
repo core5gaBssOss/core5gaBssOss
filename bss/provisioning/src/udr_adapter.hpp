@@ -73,6 +73,10 @@ struct UdrWriteError {
     std::string message;         // safe to log: never carries K/OPc
 };
 
+// ADR-0576, PROVISIONING_MAPPING A4: the OdbPacketServices value a barred (TMF640 "inactive")
+// subscriber carries in AccessAndMobilitySubscriptionData; an unbarred one carries null.
+inline constexpr const char* kBarAllPacketServices = "ALL_PACKET_SERVICES";
+
 class UdrAdapter {
 public:
     UdrAdapter(UdrAdapterConfig config, sbi_core::http2::TlsConfig tls);
@@ -91,9 +95,25 @@ public:
     bool has_profile(const std::string& profile_key) const;
 
     // PUT .../subscribers/{supi} without credentials. A 409 from the UDR (no credentials yet)
-    // comes back as UdrWriteError::no_credentials.
-    tl::expected<UdrProvisionOutcome, UdrWriteError> provision_network(
-        const std::string& supi, const std::string& msisdn, const std::string& profile_key);
+    // comes back as UdrWriteError::no_credentials. `barred` sets amData.odbPacketServices to
+    // ALL_PACKET_SERVICES (A4); otherwise the documents carry no odbPacketServices.
+    tl::expected<UdrProvisionOutcome, UdrWriteError>
+    provision_network(const std::string& supi,
+                      const std::string& msisdn,
+                      const std::string& profile_key,
+                      bool barred = false);
+
+    // ADR-0576: PUT .../subscribers/{supi}/am-data -- the profile's amData with odbPacketServices
+    // ALL_PACKET_SERVICES (barred) or null, nothing else of the subscriber rewritten.
+    tl::expected<UdrProvisionOutcome, UdrWriteError>
+    provision_am_data(const std::string& supi,
+                      const std::string& msisdn,
+                      const std::string& profile_key,
+                      bool barred);
+
+    // ADR-0576: DELETE .../subscribers/{supi}. A UDR 404 (nothing provisioned) is success, so a
+    // pre-active Service and a retried delete both succeed.
+    tl::expected<void, UdrWriteError> deprovision(const std::string& supi);
 
     // PUT .../subscribers/{supi}/authentication-subscription: the SIM keys alone.
     tl::expected<UdrProvisionOutcome, UdrWriteError>

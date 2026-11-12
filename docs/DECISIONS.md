@@ -539,6 +539,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0571](decisions/archive/ADR-0571-valkey-acl-follow-ups-users-acl-keeps-every-nf-helm-secrets.md) Valkey ACL follow-ups: users.acl keeps every NF, Helm Secrets carry the ACL file, compose points at the lab overlay
 - [0572](decisions/ADR-0572-release-plan-for-v0-2-0-and-v0-3-0-ordered-execution-of-the.md) Release plan for v0.2.0 and v0.3.0: ordered execution of the 2026-11-10 in-depth evaluation
 - [0573](decisions/ADR-0573-archiving-rule-widened-adrs-dated-before-the-2026-10-review.md) Archiving rule widened: ADRs dated before the 2026-10 review close unless they hold an open question; the live set is the pending work
+- [0576](decisions/ADR-0576-tmf640-patch-and-delete-service-id-barring-through-a-udr.md) TMF640 PATCH and DELETE /service/{id}: barring through a UDR OAM am-data write, deprovisioning through a UDR OAM delete
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

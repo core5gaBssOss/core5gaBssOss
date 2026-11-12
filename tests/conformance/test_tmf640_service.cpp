@@ -131,3 +131,137 @@ TEST(Tmf640Service, RefusesMalformedJsonWithoutQuotingIt) {
     EXPECT_EQ(v.error().status, 400);
     EXPECT_EQ(v.error().detail.find("0f1e2d3c"), std::string::npos);
 }
+
+// ADR-0576: PATCH /service/{id}. Every row of the transition table in plan_patch, plus the A-row
+// checks re-run on the merged Service.
+namespace {
+
+using provisioning::tmf640::plan_patch;
+using provisioning::tmf640::UdrAction;
+
+json stored_with_state(const std::string& state) {
+    json s = valid_body();
+    s["state"] = state;
+    s["id"] = "svc-1";
+    s["href"] = "/tmf-api/ServiceActivationAndConfiguration/v4/service/svc-1";
+    return s;
+}
+
+provisioning::tmf640::PatchPlan
+planned(const std::string& from, const json& patch, const std::string& ct = "application/json") {
+    auto p = plan_patch(stored_with_state(from), ct, patch.dump(), known_profile);
+    EXPECT_TRUE(p.has_value()) << from << " " << patch.dump() << ": "
+                               << (p.has_value() ? "" : p.error().detail);
+    return p.has_value() ? *p : provisioning::tmf640::PatchPlan{};
+}
+
+int refused(const std::string& from,
+            const json& patch,
+            const std::string& ct = "application/json") {
+    auto p = plan_patch(stored_with_state(from), ct, patch.dump(), known_profile);
+    EXPECT_FALSE(p.has_value()) << from << " " << patch.dump();
+    return p.has_value() ? 0 : p.error().status;
+}
+
+} // namespace
+
+TEST(Tmf640Patch, PreActiveToPreActiveStoresOnly) {
+    const auto p = planned("reserved", {{"state", "designed"}});
+    EXPECT_EQ(p.action, UdrAction::None);
+    EXPECT_TRUE(p.state_changed);
+    EXPECT_EQ(p.service["state"], "designed");
+}
+
+TEST(Tmf640Patch, PreActiveToActiveIsAFullUnbarredWrite) {
+    const auto p = planned("reserved", {{"state", "active"}});
+    EXPECT_EQ(p.action, UdrAction::FullWrite);
+    EXPECT_FALSE(p.barred);
+}
+
+TEST(Tmf640Patch, PreActiveToInactiveIsAFullBarredWrite) {
+    const auto p = planned("designed", {{"state", "inactive"}});
+    EXPECT_EQ(p.action, UdrAction::FullWrite);
+    EXPECT_TRUE(p.barred);
+}
+
+TEST(Tmf640Patch, ActiveInactiveSwapsOnlyTheAmDataBarring) {
+    const auto off = planned("active", {{"state", "inactive"}});
+    EXPECT_EQ(off.action, UdrAction::AmData);
+    EXPECT_TRUE(off.barred);
+    EXPECT_TRUE(off.state_changed);
+    EXPECT_TRUE(off.changed.empty());
+    const auto on = planned("inactive", {{"state", "active"}});
+    EXPECT_EQ(on.action, UdrAction::AmData);
+    EXPECT_FALSE(on.barred);
+}
+
+TEST(Tmf640Patch, ProvisionedBackToPreActiveIsRefused) {
+    EXPECT_EQ(refused("active", {{"state", "reserved"}}), 400);
+    EXPECT_EQ(refused("inactive", {{"state", "feasibilityChecked"}}), 400);
+}
+
+TEST(Tmf640Patch, TerminatedIsRefused) {
+    EXPECT_EQ(refused("active", {{"state", "terminated"}}), 400);
+}
+
+TEST(Tmf640Patch, MsisdnChangeRewritesProvisionedDataAndKeepsTheBarring) {
+    const json chars = json::array(
+        {characteristic("supi", "imsi-999700000012345"), characteristic("msisdn", "9997000999")});
+    const auto barred = planned("inactive", {{"serviceCharacteristic", chars}});
+    EXPECT_EQ(barred.action, UdrAction::FullWrite);
+    EXPECT_TRUE(barred.barred);
+    EXPECT_EQ(barred.validated.msisdn, "9997000999");
+    EXPECT_FALSE(barred.state_changed);
+    EXPECT_EQ(barred.changed, std::vector<std::string>{"serviceCharacteristic"});
+    EXPECT_EQ(planned("active", {{"serviceCharacteristic", chars}}).action, UdrAction::FullWrite);
+    // Pre-active: nothing is provisioned, so the new MSISDN is stored only.
+    EXPECT_EQ(planned("reserved", {{"serviceCharacteristic", chars}}).action, UdrAction::None);
+}
+
+TEST(Tmf640Patch, NoOpAndStoreOnlyFieldsWriteNothing) {
+    const auto same = planned("active", {{"state", "active"}});
+    EXPECT_EQ(same.action, UdrAction::None);
+    EXPECT_FALSE(same.state_changed);
+    EXPECT_TRUE(same.changed.empty());
+    const auto named = planned("active", {{"name", "data plan"}});
+    EXPECT_EQ(named.action, UdrAction::None);
+    EXPECT_EQ(named.changed, std::vector<std::string>{"name"});
+}
+
+TEST(Tmf640Patch, ReRunsTheARowChecksOnTheMergedService) {
+    // A merge patch replaces the whole array: dropping supi is refused, not silently stored.
+    EXPECT_EQ(
+        refused("active",
+                {{"serviceCharacteristic", json::array({characteristic("msisdn", "9997000999")})}}),
+        400);
+    // A changed supi.
+    EXPECT_EQ(refused("active",
+                      {{"serviceCharacteristic",
+                        json::array({characteristic("supi", "imsi-999700000099999")})}}),
+              400);
+    // A3: a key smuggled in by PATCH is refused without being echoed.
+    auto p =
+        plan_patch(stored_with_state("active"),
+                   "application/json",
+                   json{{"serviceCharacteristic",
+                         json::array({characteristic("supi", "imsi-999700000012345"),
+                                      characteristic("OPc", "000102030405060708090a0b0c0d0e0f")})}}
+                       .dump(),
+                   known_profile);
+    ASSERT_FALSE(p.has_value());
+    EXPECT_EQ(p.error().detail.find("000102030405"), std::string::npos);
+    // A7 and A1 on the merged result; serviceSpecification.id cannot move.
+    EXPECT_EQ(refused("active", {{"category", "CFS"}}), 400);
+    EXPECT_EQ(refused("active", {{"serviceSpecification", {{"id", "rfs-unknown"}}}}), 400);
+}
+
+TEST(Tmf640Patch, RefusesNonServiceUpdateMembersAndOtherMediaTypes) {
+    EXPECT_EQ(refused("active", {{"id", "other"}}), 400);
+    EXPECT_EQ(refused("active", {{"href", "/x"}}), 400);
+    EXPECT_EQ(refused("active", {{"state", "inactive"}}, "application/json-patch+json"), 400);
+    EXPECT_EQ(refused("active", {{"state", "inactive"}}, "text/plain"), 400);
+    EXPECT_EQ(refused("active", json::array()), 400);
+    // Parameters on the media type are fine (the swagger's own is application/json;charset=utf-8).
+    EXPECT_EQ(planned("active", {{"state", "inactive"}}, "application/json; charset=utf-8").action,
+              UdrAction::AmData);
+}

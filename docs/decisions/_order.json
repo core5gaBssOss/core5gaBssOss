@@ -536,7 +536,8 @@
   "archive/ADR-0570-udm-re-encodes-request-path-values-before-it-builds-a-udr.md",
   "archive/ADR-0571-valkey-acl-follow-ups-users-acl-keeps-every-nf-helm-secrets.md",
   "ADR-0572-release-plan-for-v0-2-0-and-v0-3-0-ordered-execution-of-the.md",
-  "ADR-0573-archiving-rule-widened-adrs-dated-before-the-2026-10-review.md"
+  "ADR-0573-archiving-rule-widened-adrs-dated-before-the-2026-10-review.md",
+  "ADR-0576-tmf640-patch-and-delete-service-id-barring-through-a-udr.md"
  ],
  "split_commit": "0530e4f"
 }

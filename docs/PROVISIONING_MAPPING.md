@@ -51,7 +51,7 @@ TMF640 `Service` has no required properties in the swagger. `ServiceStateType` i
 | `state` → `active` | `PUT /oam-provisioning/v1/subscribers/{ueId}` succeeds | The saga's existing UDR step; a failure leaves the state unchanged and fails the TMF641 item | Proposed |
 | `state` → `feasibilityChecked` / `designed` / `reserved` | none | No network write | Proposed |
 | `state` → `inactive` | `AccessAndMobilitySubscriptionData.odbPacketServices` = `ALL_PACKET_SERVICES` (TS29503_Nudm_SDM.yaml; type `OdbPacketServices`, TS29571_CommonData.yaml: `ALL_PACKET_SERVICES`, `ROAMER_ACCESS_HPLMN_AP`, `ROAMER_ACCESS_VPLMN_AP`, or `NullValue`; semantics TS 23.015) | Back to `active` clears it (`null`). `OdbData` in TS29505 has only `roamingOdb` (`OUTSIDE_HOME_PLMN`, `OUTSIDE_HOME_PLMN_COUNTRY`), so it cannot bar a subscriber at home. **No NF here reads `odbPacketServices` today**: the field is written, but enforcement (AMF/SMF) is deferred for future implementation | **TODO-A4**: see proposed answer |
-| `state` → `terminated` | none today: the UDR OAM API has only `PUT` | Deprovisioning is deferred for future implementation | **TODO-A5**: deprovisioning is out of scope for increment 1? |
+| `state` → `terminated` | none: `terminated` stays refused (A5); TMF640 `DELETE /service/{id}` deprovisions through `DELETE /oam-provisioning/v1/subscribers/{ueId}` (ADR-0576) | Deprovisioning is the DELETE, not a state | **A5** (approved below) |
 | `startDate`, `endDate` | none | Kept by TMF640 only | **TODO-A6**: should they schedule activation? Proposed: no |
 | `category` | none | TMF640 activates resource-facing services | **TODO-A7**: accept `category` only as `RFS`? |
 | `serviceOrderItem`, `relatedParty`, `place`, `note`, `feature`, `serviceRelationship`, `supportingService`, `supportingResource`, `isBundle`, `isServiceEnabled`, `isStateful`, `hasStarted`, `startMode`, `serviceDate`, `serviceType`, `name`, `description`, `relatedEntity` | none | Kept by TMF640 only; no 3GPP field they drive | Proposed |
@@ -127,6 +127,13 @@ The user approved every row below ("approve all", 2026-11-07). They are binding 
   `bss/provisioning` (rows A1-A7). Because of A3, the UDR OAM API now takes the SIM keys on their
   own route (`PUT /oam-provisioning/v1/subscribers/{ueId}/authentication-subscription`), and
   `state` → `active` writes the network documents without them. PATCH (A4) is P3.
+- 2026-11-12, ADR-0576: TMF640 `PATCH /service/{id}` and `DELETE /service/{id}`. A4 is written:
+  `inactive` (by POST or PATCH) carries `odbPacketServices: ALL_PACKET_SERVICES`, and `active`
+  after `inactive` carries `null`, through the new `PUT .../subscribers/{ueId}/am-data`. DELETE
+  deprovisions an active or inactive Service through the new `DELETE .../subscribers/{ueId}`.
+  A5's refusal of `terminated` stands; its reason in the row below ("the UDR OAM API cannot
+  delete") no longer holds, since DELETE is now the deprovisioning path. Event notifications (P5)
+  wait for TMF630.
 
 ## Not done in this pass
 

@@ -442,3 +442,147 @@ TEST(UdrOamProvisioningIntegration, Tmf640ActivationWritesNetworkDataOnlyAndStor
     EXPECT_EQ(kept->at("state"), "reserved");
     EXPECT_EQ(am_status(reserved), 404);
 }
+
+// ADR-0576: TMF640 PATCH and DELETE against a real UDR. active -> inactive -> active flips
+// odbPacketServices through the OAM am-data PUT; POST inactive is barred from the start; DELETE
+// deprovisions (Nudr reads 404 afterwards) and a pre-active Service's DELETE leaves the keys.
+TEST(UdrOamProvisioningIntegration, Tmf640PatchBarsAndUnbarsAndDeleteDeprovisions) {
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    nf_test::SpawnedProcess udr(UDR_PATH);
+
+    auto other_nf = client_as("hello-nf");
+    ASSERT_TRUE(wait_reachable(other_nf, "https://127.0.0.1:7781/", 200))
+        << "udr never became reachable";
+    auto adapter = make_adapter();
+    provisioning::tmf640::ServiceStore store(orchestration_url(), 2);
+    const auto has_profile = [&adapter](const std::string& id) { return adapter.has_profile(id); };
+    const auto body = [](const std::string& supi, const std::string& state) {
+        return json{{"category", "RFS"},
+                    {"state", state},
+                    {"serviceSpecification", {{"id", "rfs-5g-data"}}},
+                    {"serviceCharacteristic",
+                     json::array({{{"name", "supi"}, {"value", supi}},
+                                  {{"name", "msisdn"}, {"value", "9997000097"}}})}}
+            .dump();
+    };
+    const std::string token = fetch_token(other_nf);
+    ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
+    const auto am_data = [&](const std::string& supi) {
+        return get_json(
+            other_nf, "/subscription-data/" + supi + "/99970/provisioned-data/am-data", token);
+    };
+    const auto create = [&](const std::string& supi, const std::string& state) {
+        auto v = provisioning::tmf640::validate_create(body(supi, state), has_profile);
+        EXPECT_TRUE(v.has_value());
+        auto created = provisioning::tmf640::create_service(store, adapter, *v);
+        EXPECT_TRUE(created.has_value()) << (created.has_value() ? "" : created.error().detail);
+        return created.has_value() ? created->at("id").get<std::string>() : std::string();
+    };
+    const auto patch_state = [&](const std::string& id, const std::string& state) {
+        return provisioning::tmf640::patch_service(
+            store, adapter, id, "application/json", json{{"state", state}}.dump());
+    };
+
+    // 1. active, then inactive: barred; then active again: cleared to null (A4).
+    const std::string supi = fresh_supi();
+    ASSERT_TRUE(adapter.provision_credentials(supi, {kTestK, kTestOpc, ""}).has_value());
+    const auto id = create(supi, "active");
+    ASSERT_FALSE(id.empty());
+    EXPECT_FALSE(am_data(supi).contains("odbPacketServices"));
+    auto off = patch_state(id, "inactive");
+    ASSERT_TRUE(off.has_value()) << off.error().detail;
+    EXPECT_EQ(off->service["state"], "inactive");
+    EXPECT_EQ(am_data(supi).value("odbPacketServices", json()), "ALL_PACKET_SERVICES");
+    EXPECT_EQ(store.get(id)->at("state"), "inactive");
+    auto on = patch_state(id, "active");
+    ASSERT_TRUE(on.has_value()) << on.error().detail;
+    const auto cleared = am_data(supi);
+    ASSERT_TRUE(cleared.contains("odbPacketServices"));
+    EXPECT_TRUE(cleared["odbPacketServices"].is_null());
+    // The rest of the AM data is the profile's, unchanged by the barring writes.
+    EXPECT_TRUE(cleared.contains("nssai"));
+
+    // 2. A refused PATCH stores nothing: back to a pre-active state is 400.
+    auto back = patch_state(id, "reserved");
+    ASSERT_FALSE(back.has_value());
+    EXPECT_EQ(back.error().status, 400);
+    EXPECT_EQ(store.get(id)->at("state"), "active");
+
+    // 3. DELETE deprovisions: the Service is gone and Nudr has no AM data any more.
+    auto gone = provisioning::tmf640::delete_service(store, adapter, id);
+    ASSERT_TRUE(gone.has_value()) << gone.error().detail;
+    EXPECT_FALSE(store.get(id).has_value());
+    sbi_core::http2::ClientRequest probe;
+    probe.method = "GET";
+    probe.url = "https://127.0.0.1:7781/nudr-dr/v2/subscription-data/" + supi +
+                "/99970/provisioned-data/am-data";
+    probe.headers.emplace("authorization", "Bearer " + token);
+    auto after_delete = other_nf.send(probe);
+    ASSERT_TRUE(after_delete.has_value());
+    EXPECT_EQ(after_delete->status, 404) << after_delete->body;
+    auto again = provisioning::tmf640::delete_service(store, adapter, id);
+    ASSERT_FALSE(again.has_value());
+    EXPECT_EQ(again.error().status, 404);
+
+    // 4. POST inactive is barred from the start (A4 for every inactive Service).
+    const std::string barred = fresh_supi();
+    ASSERT_TRUE(adapter.provision_credentials(barred, {kTestK, kTestOpc, ""}).has_value());
+    const auto barred_id = create(barred, "inactive");
+    ASSERT_FALSE(barred_id.empty());
+    EXPECT_EQ(am_data(barred).value("odbPacketServices", json()), "ALL_PACKET_SERVICES");
+    EXPECT_TRUE(provisioning::tmf640::delete_service(store, adapter, barred_id).has_value());
+
+    // 5. A pre-active Service's DELETE leaves the subscriber's keys at the UDR: a later
+    // activation of the same SUPI still finds them.
+    const std::string reserved = fresh_supi();
+    ASSERT_TRUE(adapter.provision_credentials(reserved, {kTestK, kTestOpc, ""}).has_value());
+    const auto reserved_id = create(reserved, "reserved");
+    ASSERT_FALSE(reserved_id.empty());
+    EXPECT_TRUE(provisioning::tmf640::delete_service(store, adapter, reserved_id).has_value());
+    EXPECT_FALSE(create(reserved, "active").empty());
+}
+
+// ADR-0576: the two new OAM routes on their own. am-data PUT never creates; DELETE is 404 for a
+// subscriber that does not exist; a peer off the allow-list is refused on both.
+TEST(UdrOamProvisioningIntegration, AmDataPutNeverCreatesAndDeleteIs404WhenAbsent) {
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    nf_test::SpawnedProcess udr(UDR_PATH);
+    auto provisioning_client = client_as("provisioning");
+    ASSERT_TRUE(wait_reachable(provisioning_client, "https://127.0.0.1:7781/", 200));
+    const std::string root = "https://127.0.0.1:7781/oam-provisioning/v1/subscribers/";
+    const std::string absent = fresh_supi();
+
+    sbi_core::http2::ClientRequest am;
+    am.method = "PUT";
+    am.url = root + absent + "/am-data";
+    am.headers.emplace("content-type", "application/json");
+    am.body =
+        json{{"servingPlmnId", "99970"}, {"amData", {{"odbPacketServices", "ALL_PACKET_SERVICES"}}}}
+            .dump();
+    auto r = provisioning_client.send(am);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 404) << r->body;
+
+    sbi_core::http2::ClientRequest bad_odb = am;
+    bad_odb.body = json{{"servingPlmnId", "99970"}, {"amData", {{"odbPacketServices", 3}}}}.dump();
+    r = provisioning_client.send(bad_odb);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 400) << r->body;
+
+    sbi_core::http2::ClientRequest del;
+    del.method = "DELETE";
+    del.url = root + absent;
+    r = provisioning_client.send(del);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 404) << r->body;
+
+    auto other_nf = client_as("hello-nf");
+    r = other_nf.send(del);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 403) << r->body;
+    r = other_nf.send(am);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 403) << r->body;
+}

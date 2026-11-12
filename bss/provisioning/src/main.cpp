@@ -255,6 +255,41 @@ int main() {
                          return sbi_core::http2::Response::json(200, service->dump());
                      });
 
+    // ADR-0576: PATCH (merge patch of Service_Update members, 200 with the Service) and DELETE
+    // (204). The UDR effect of each state transition is provisioning::tmf640::plan_patch.
+    server.add_route("PATCH",
+                     service_root + "/{id}",
+                     [&service_store, &udr, tmf_error](const sbi_core::http2::Request& req) {
+                         const auto ct = req.headers.find("content-type");
+                         auto patched = provisioning::tmf640::patch_service(
+                             service_store,
+                             udr,
+                             req.path_params.at("id"),
+                             ct == req.headers.end() ? std::string() : ct->second,
+                             req.body);
+                         if (!patched.has_value()) {
+                             return tmf_error(patched.error().status,
+                                              patched.error().title,
+                                              patched.error().detail);
+                         }
+                         return sbi_core::http2::Response::json(200, patched->service.dump());
+                     });
+
+    server.add_route("DELETE",
+                     service_root + "/{id}",
+                     [&service_store, &udr, tmf_error](const sbi_core::http2::Request& req) {
+                         auto deleted = provisioning::tmf640::delete_service(
+                             service_store, udr, req.path_params.at("id"));
+                         if (!deleted.has_value()) {
+                             return tmf_error(deleted.error().status,
+                                              deleted.error().title,
+                                              deleted.error().detail);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+
     spdlog::info("provisioning: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
     server.start();
     sbi_core::run_multi_threaded(ioc);
