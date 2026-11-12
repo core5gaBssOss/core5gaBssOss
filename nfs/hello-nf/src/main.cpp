@@ -142,7 +142,8 @@ int main() {
                 .dump();
 
         auto patch_resp = http_client.send(patch_req);
-        if (!patch_resp.has_value() || patch_resp->status != 200) {
+        // TS 29.510 5.2.2.3.2 step 2a: 204, or 200 with the full profile.
+        if (!patch_resp.has_value() || (patch_resp->status != 200 && patch_resp->status != 204)) {
             const std::string err = patch_resp.has_value() ? patch_resp->body : patch_resp.error();
             spdlog::error("hello-nf: heartbeat failed: {}", err);
             heartbeat_span->SetStatus(opentelemetry::trace::StatusCode::kError, "heartbeat failed");
