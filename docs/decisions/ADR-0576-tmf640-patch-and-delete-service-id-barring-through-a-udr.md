@@ -97,4 +97,10 @@ user is fetching TMF630), so it is not part of this ADR.
 - `fields`, `/monitor`, re-provisioning to another `serviceSpecification` are deferred for future
   implementation.
 
-**Verified.** See the PR; results are recorded there once measured.
+**Verified.** 2026-11-13, local Debug build of 41a47d4c (209/209 targets, 0 failed), real NRF + UDR
+binaries, UDR PostgreSQL and the orchestration DB created by `deploy/db/init-domain-dbs.sh`:
+`test_tmf640_service` 18/18 (10 new `Tmf640Patch*`); `integration_tests` filter
+`*UdrOamProvisioning*:*Tmf640*:*Provisioning*` 11/11, including the new
+`UdrOamProvisioningIntegration.Tmf640PatchBarsAndUnbarsAndDeleteDeprovisions` and
+`AmDataPutNeverCreatesAndDeleteIs404WhenAbsent`. Only these targeted subsets were run, not the full
+ctest; CI runs the rest on the PR.
