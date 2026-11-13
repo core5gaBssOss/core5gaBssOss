@@ -59,4 +59,10 @@ a request body, a stored record or a peer response. Those are listed under Discl
   is applied at each site and the change is mechanical, but only the serviceParamData PUT is
   exercised end to end.
 
-**Verified.** See the PR; results are recorded there once measured.
+**Verified.** PR #22 CI (run 43167897689, commit 99669d11): build 1245/1245, asan-ubsan 1262/1262,
+tsan 1245/1245, each including `NefEncodedAfId.ServiceParameterAfIdWithQueryCharacterNeverLandsOnAnotherUdrResource`.
+Fails without the fix (2026-11-13, local Debug build, real NRF + UDR + NEF, UDR PostgreSQL): with
+`nfs/nef/src/main.cpp` from main the test fails at `test_nef_encoded_af_id.cpp:109` (UDR DELETE of
+`victim-adr0575?-{subId}` is 404: nothing was written there) and `:111` (DELETE of `victim-adr0575`
+is 204: the old NEF wrote the AF's document to that other resource). With the fix restored and the
+NEF rebuilt, the same test passes.
