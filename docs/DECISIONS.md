@@ -540,6 +540,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0572](decisions/ADR-0572-release-plan-for-v0-2-0-and-v0-3-0-ordered-execution-of-the.md) Release plan for v0.2.0 and v0.3.0: ordered execution of the 2026-11-10 in-depth evaluation
 - [0573](decisions/ADR-0573-archiving-rule-widened-adrs-dated-before-the-2026-10-review.md) Archiving rule widened: ADRs dated before the 2026-10 review close unless they hold an open question; the live set is the pending work
 - [0575](decisions/ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md) NEF re-encodes the AF id before it builds a UDR resource id or a callback URI (ADR-0570 class, NEF part)
+- [0576](decisions/ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md) TMF640 PATCH /service/{id}: inactive bars packet services at the UDR, active clears it (ADR-0558 P3)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

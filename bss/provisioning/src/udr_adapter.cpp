@@ -138,14 +138,22 @@ bool UdrAdapter::has_profile(const std::string& profile_key) const {
     return config_.network_profiles.contains(profile_key);
 }
 
-tl::expected<json, std::string> UdrAdapter::build_network_documents(
-    const std::string& supi, const std::string& msisdn, const std::string& profile_key) const {
+tl::expected<json, std::string> UdrAdapter::build_network_documents(const std::string& supi,
+                                                                    const std::string& msisdn,
+                                                                    const std::string& profile_key,
+                                                                    bool odb_barred) const {
     (void)supi; // the documents carry no SUPI; it is the path's ueId
     const auto it = config_.network_profiles.find(profile_key);
     if (it == config_.network_profiles.end()) {
         return tl::unexpected("no network profile '" + profile_key + "' configured");
     }
-    return network_documents(config_, it->second, msisdn);
+    json docs = network_documents(config_, it->second, msisdn);
+    if (odb_barred) {
+        // AccessAndMobilitySubscriptionData.odbPacketServices (TS29503_Nudm_SDM.yaml), type
+        // OdbPacketServices (TS29571_CommonData.yaml); semantics TS 23.015.
+        docs["amData"]["odbPacketServices"] = "ALL_PACKET_SERVICES";
+    }
+    return docs;
 }
 
 tl::expected<UdrProvisionOutcome, UdrWriteError> UdrAdapter::put(const std::string& path,
@@ -170,9 +178,12 @@ tl::expected<UdrProvisionOutcome, UdrWriteError> UdrAdapter::put(const std::stri
     return out;
 }
 
-tl::expected<UdrProvisionOutcome, UdrWriteError> UdrAdapter::provision_network(
-    const std::string& supi, const std::string& msisdn, const std::string& profile_key) {
-    auto body = build_network_documents(supi, msisdn, profile_key);
+tl::expected<UdrProvisionOutcome, UdrWriteError>
+UdrAdapter::provision_network(const std::string& supi,
+                              const std::string& msisdn,
+                              const std::string& profile_key,
+                              bool odb_barred) {
+    auto body = build_network_documents(supi, msisdn, profile_key, odb_barred);
     if (!body.has_value()) {
         return tl::unexpected(UdrWriteError{false, body.error()});
     }

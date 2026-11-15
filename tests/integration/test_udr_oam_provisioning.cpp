@@ -303,6 +303,26 @@ TEST(UdrOamProvisioningContract, NetworkDocumentsCarryNoCredentials) {
     EXPECT_FALSE(adapter.build_network_documents(kSupi, "", "po-unknown").has_value());
 }
 
+// ADR-0576, mapping row A4: TMF640 `inactive` is amData.odbPacketServices = ALL_PACKET_SERVICES
+// (TS29503_Nudm_SDM.yaml AccessAndMobilitySubscriptionData); `active` leaves it out, which on the
+// UDR's whole-document PUT clears it. The UDR's own validation accepts both.
+TEST(UdrOamProvisioningContract, OdbBarringIsOnlyInTheBarredDocuments) {
+    auto adapter = make_adapter();
+    const auto open_docs = adapter.build_network_documents(kSupi, "9997000099", "rfs-5g-data");
+    const auto barred = adapter.build_network_documents(kSupi, "9997000099", "rfs-5g-data", true);
+    ASSERT_TRUE(open_docs.has_value() && barred.has_value());
+    EXPECT_FALSE((*open_docs)["amData"].contains("odbPacketServices"));
+    EXPECT_EQ((*barred)["amData"]["odbPacketServices"], "ALL_PACKET_SERVICES");
+    EXPECT_FALSE(barred->contains("authenticationSubscription"));
+    // Everything else is identical.
+    auto stripped = *barred;
+    stripped["amData"].erase("odbPacketServices");
+    EXPECT_EQ(stripped, *open_docs);
+    const auto docs = udr::oam::parse_subscriber_documents(kSupi, *barred);
+    ASSERT_TRUE(docs.has_value()) << docs.error();
+    EXPECT_EQ(docs->am_data["odbPacketServices"], "ALL_PACKET_SERVICES");
+}
+
 TEST(UdrOamProvisioningIntegration, NetworkDataAndCredentialsTravelSeparately) {
     nf_test::SpawnedProcess nrf(NRF_PATH);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -441,4 +461,80 @@ TEST(UdrOamProvisioningIntegration, Tmf640ActivationWritesNetworkDataOnlyAndStor
     ASSERT_TRUE(kept.has_value()) << kept.error().detail;
     EXPECT_EQ(kept->at("state"), "reserved");
     EXPECT_EQ(am_status(reserved), 404);
+}
+
+// ADR-0576, mapping row A4: PATCH inactive writes amData.odbPacketServices at the UDR, PATCH active
+// clears it, and a failed UDR write stores nothing.
+TEST(UdrOamProvisioningIntegration, Tmf640PatchBarsAndRestoresPacketServices) {
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    nf_test::SpawnedProcess udr(UDR_PATH);
+
+    auto other_nf = client_as("hello-nf");
+    ASSERT_TRUE(wait_reachable(other_nf, "https://127.0.0.1:7781/", 200))
+        << "udr never became reachable";
+    auto adapter = make_adapter();
+    provisioning::tmf640::ServiceStore store(orchestration_url(), 2);
+    const auto has_profile = [&adapter](const std::string& id) { return adapter.has_profile(id); };
+    const std::string token = fetch_token(other_nf);
+    ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
+    const auto odb = [&](const std::string& supi) -> json {
+        sbi_core::http2::ClientRequest req;
+        req.method = "GET";
+        req.url = "https://127.0.0.1:7781/nudr-dr/v2/subscription-data/" + supi +
+                  "/99970/provisioned-data/am-data";
+        req.headers.emplace("authorization", "Bearer " + token);
+        auto resp = other_nf.send(req);
+        if (!resp.has_value() || resp->status != 200) {
+            return json();
+        }
+        return json::parse(resp->body).value("odbPacketServices", json("<absent>"));
+    };
+
+    const std::string supi = fresh_supi();
+    ASSERT_TRUE(adapter.provision_credentials(supi, {kTestK, kTestOpc, ""}).has_value());
+    const auto create_body = json{{"category", "RFS"},
+                                  {"state", "active"},
+                                  {"serviceSpecification", {{"id", "rfs-5g-data"}}},
+                                  {"serviceCharacteristic",
+                                   json::array({{{"name", "supi"}, {"value", supi}},
+                                                {{"name", "msisdn"}, {"value", "9997000096"}}})}}
+                                 .dump();
+    auto v = provisioning::tmf640::validate_create(create_body, has_profile);
+    ASSERT_TRUE(v.has_value()) << v.error().detail;
+    auto created = provisioning::tmf640::create_service(store, adapter, *v);
+    ASSERT_TRUE(created.has_value()) << created.error().detail;
+    const auto id = created->at("id").get<std::string>();
+    EXPECT_EQ(odb(supi), json("<absent>"));
+
+    // active -> inactive: barred at the UDR, stored as inactive.
+    auto barred =
+        provisioning::tmf640::patch_service(store, adapter, id, R"({"state":"inactive"})");
+    ASSERT_TRUE(barred.has_value()) << barred.error().detail;
+    EXPECT_EQ(barred->at("state"), "inactive");
+    EXPECT_EQ(odb(supi), json("ALL_PACKET_SERVICES"));
+    EXPECT_EQ(store.get(id)->at("state"), "inactive");
+
+    // inactive -> active: cleared again.
+    auto restored =
+        provisioning::tmf640::patch_service(store, adapter, id, R"({"state":"active"})");
+    ASSERT_TRUE(restored.has_value()) << restored.error().detail;
+    EXPECT_EQ(odb(supi), json("<absent>"));
+
+    // A stored-only change touches neither the UDR nor the state.
+    auto dated = provisioning::tmf640::patch_service(
+        store, adapter, id, R"({"endDate":"2027-01-01T00:00:00Z"})");
+    ASSERT_TRUE(dated.has_value()) << dated.error().detail;
+    EXPECT_EQ(dated->at("endDate"), "2027-01-01T00:00:00Z");
+    EXPECT_EQ(dated->at("state"), "active");
+
+    // An unknown id is 404; a refused change stores nothing.
+    auto missing = provisioning::tmf640::patch_service(store, adapter, "no-such-id", "{}");
+    ASSERT_FALSE(missing.has_value());
+    EXPECT_EQ(missing.error().status, 404);
+    auto refused =
+        provisioning::tmf640::patch_service(store, adapter, id, R"({"state":"terminated"})");
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_EQ(refused.error().status, 400);
+    EXPECT_EQ(store.get(id)->at("state"), "active");
 }

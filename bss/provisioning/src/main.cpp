@@ -63,6 +63,9 @@ int main() {
                                                     "Customer provisioning orders processed");
     auto service_create_counter = meter->CreateUInt64Counter(
         "provisioning_tmf640_service_create_total", "TMF640 POST /service requests answered 201");
+    auto service_patch_counter =
+        meter->CreateUInt64Counter("provisioning_tmf640_service_patch_total",
+                                   "TMF640 PATCH /service/{id} requests answered 200");
 
     // ADR-0450: real observability for ADR-0449's PgPool hardening -- two real, independent pools
     // (orchestration DB, charging DB), reported separately since an exhausted orchestration pool
@@ -254,6 +257,30 @@ int main() {
                          }
                          return sbi_core::http2::Response::json(200, service->dump());
                      });
+
+    server.add_route(
+        "PATCH",
+        service_root + "/{id}",
+        [&service_store, &udr, &service_patch_counter, tmf_error](
+            const sbi_core::http2::Request& req) {
+            // TMF640 Service_Update is applied as RFC 7396 merge-patch (ADR-0576).
+            const auto ct = req.headers.find("content-type");
+            if (ct != req.headers.end() && ct->second.rfind("application/json", 0) != 0 &&
+                ct->second.rfind("application/merge-patch+json", 0) != 0) {
+                return tmf_error(400,
+                                 "Bad Request",
+                                 "content-type must be application/merge-patch+json or "
+                                 "application/json");
+            }
+            auto patched = provisioning::tmf640::patch_service(
+                service_store, udr, req.path_params.at("id"), req.body);
+            if (!patched.has_value()) {
+                return tmf_error(
+                    patched.error().status, patched.error().title, patched.error().detail);
+            }
+            service_patch_counter->Add(1);
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
 
     spdlog::info("provisioning: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
     server.start();
