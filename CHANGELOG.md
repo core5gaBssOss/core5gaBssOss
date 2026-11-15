@@ -65,6 +65,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ### Fixed
 
+- NEF re-encodes the AF id before it puts it into a UDR application-data resource id
+  (`iptvConfigData`, `serviceParamData`) or a callback URI, so an encoded `/` or `?` in `afId` no
+  longer reaches another resource (ADR-0570 class, NEF part;
+  [ADR-0575](docs/decisions/ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md)).
 - The UDM re-encodes request-path values before it builds a UDR URI, so a decoded `/` or `?`
   cannot address another UDR resource
   ([ADR-0570](docs/decisions/archive/ADR-0570-udm-re-encodes-request-path-values-before-it-builds-a-udr.md)).
