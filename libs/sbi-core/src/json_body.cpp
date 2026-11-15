@@ -39,8 +39,7 @@ std::string media_type(const Request& req) {
 
 } // namespace
 
-tl::expected<nlohmann::json, Response> apply_json_patch_body(const Request& req,
-                                                             const nlohmann::json& target) {
+tl::expected<nlohmann::json, Response> parse_json_patch_body(const Request& req) {
     constexpr const char* kJsonPatch = "application/json-patch+json";
     if (media_type(req) != kJsonPatch) {
         auto r = problem_response(415,
@@ -68,8 +67,17 @@ tl::expected<nlohmann::json, Response> apply_json_patch_body(const Request& req,
                                                  "PatchItem (RFC 6902)",
                                                  "INVALID_MSG_FORMAT"));
     }
+    return ops;
+}
+
+tl::expected<nlohmann::json, Response> apply_json_patch_body(const Request& req,
+                                                             const nlohmann::json& target) {
+    auto ops = parse_json_patch_body(req);
+    if (!ops) {
+        return tl::unexpected(std::move(ops.error()));
+    }
     try {
-        return target.patch(ops);
+        return target.patch(*ops);
     } catch (const nlohmann::json::exception& e) {
         return tl::unexpected(
             problem_with_cause(400, "Bad Request", e.what(), "INVALID_MSG_FORMAT"));

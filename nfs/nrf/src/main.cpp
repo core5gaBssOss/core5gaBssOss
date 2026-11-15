@@ -63,6 +63,7 @@
 // full-project YAML coverage audit -- see docs/CAPABILITY_GAP_ANALYSIS.md's own ADR-0193 section.
 #include "TS29510_Nnrf_Bootstrapping.hpp"
 #include "discovery_authz.hpp"
+#include "nf_update.hpp"
 #include "registry.hpp"
 #include "token_authz.hpp"
 
@@ -686,6 +687,7 @@ int main() {
             if (is_new) {
                 resp.headers.emplace("location", "/nnrf-nfm/v1/nf-instances/" + path_id);
             }
+            resp.headers.emplace("etag", nrf::profile_etag(profile)); // ADR-0574
             resp.body = profile.dump();
             return resp;
         },
@@ -704,7 +706,9 @@ int main() {
                                                      "No NF instance with id " + path_id,
                                                      std::nullopt);
                          }
-                         return sbi_core::http2::Response::json(200, profile->dump());
+                         auto resp = sbi_core::http2::Response::json(200, profile->dump());
+                         resp.headers.emplace("etag", nrf::profile_etag(*profile)); // ADR-0574
+                         return resp;
                      });
 
     server.add_route(
@@ -716,46 +720,60 @@ int main() {
             return sbi_core::http2::Response::json(200, arr.dump());
         });
 
+    // NFUpdate partial update and heart-beat (TS 29.510 5.2.2.3.1B, 5.2.2.3.2; ADR-0574). The
+    // If-Match check, the patch, the profile validation and the store run under one registry lock.
     server.add_route(
         "PATCH",
         "/nnrf-nfm/v1/nf-instances/{nfInstanceID}",
         [nf_registry, &notify, &heartbeats_counter](const sbi_core::http2::Request& req) {
             const auto path_id = req.path_params.at("nfInstanceID");
-            json patch_ops;
-            try {
-                patch_ops = json::parse(req.body);
-            } catch (const json::parse_error& e) {
-                return problem_response(400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+            auto ops = sbi_core::http2::parse_json_patch_body(req); // 415 / 400
+            if (!ops) {
+                return ops.error();
             }
-            std::optional<json> patched;
-            try {
-                patched = nf_registry->apply_patch(path_id, patch_ops);
-            } catch (const json::exception& e) {
-                return problem_response(400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
+            std::optional<std::string> if_match;
+            if (auto it = req.headers.find("if-match"); it != req.headers.end()) {
+                if_match = it->second;
             }
-            if (!patched.has_value()) {
+            json before;
+            auto outcome = nf_registry->update(path_id, [&](const json& current) {
+                before = current;
+                return nrf::patch_nf_profile(current, *ops, path_id, if_match, validate_nf_profile);
+            });
+            if (!outcome.has_value()) {
+                // 5.2.2.3.1B / 5.2.2.3.2 step 2b; TS 29.510 table 6.1.7.3-1 defines no cause.
                 return problem_response(
                     404, "Not Found", "No NF instance with id " + path_id, std::nullopt);
             }
-            spdlog::info("nrf: heartbeat/update for {}", path_id);
+            if (!*outcome) {
+                return outcome->error();
+            }
             heartbeats_counter->Add(1);
-            nf_registry->touch_heartbeat(path_id);
-            notify("NF_PROFILE_CHANGED", path_id, patched);
-            return sbi_core::http2::Response::json(200, patched->dump());
+            const json& after = **outcome;
+            if (after != before) {
+                spdlog::info("nrf: NF profile of {} updated", path_id);
+                notify("NF_PROFILE_CHANGED", path_id, std::make_optional(after));
+            }
+            // Step 2a: "204 No Content" should be returned, for an update and a heart-beat alike.
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
         });
 
+    // NFDeregister (TS 29.510 5.2.2.4.2): 404 for an instance that is not registered (ADR-0574).
     server.add_route(
         "DELETE",
         "/nnrf-nfm/v1/nf-instances/{nfInstanceID}",
         [nf_registry, &notify, &deregistrations_counter](const sbi_core::http2::Request& req) {
             const auto path_id = req.path_params.at("nfInstanceID");
-            const bool existed = nf_registry->remove(path_id);
-            spdlog::info(
-                "nrf: deregister {} ({})", path_id, existed ? "removed" : "was not registered");
-            if (existed) {
-                deregistrations_counter->Add(1);
-                notify("NF_DEREGISTERED", path_id, std::nullopt);
+            if (!nf_registry->remove(path_id)) {
+                spdlog::info("nrf: deregister {}: not registered", path_id);
+                return problem_response(
+                    404, "Not Found", "No NF instance with id " + path_id, std::nullopt);
             }
+            spdlog::info("nrf: deregistered {}", path_id);
+            deregistrations_counter->Add(1);
+            notify("NF_DEREGISTERED", path_id, std::nullopt);
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
@@ -910,32 +928,43 @@ int main() {
             return resp;
         });
 
+    // UpdateSubscription (TS 29.510 5.2.2.5.6): a JSON Patch that replaces validityTime only. The
+    // suggested value is accepted as sent, so step 2a's 204 applies (ADR-0574).
     server.add_route("PATCH",
                      "/nnrf-nfm/v1/subscriptions/{subscriptionID}",
                      [sub_registry](const sbi_core::http2::Request& req) {
                          const auto sub_id = req.path_params.at("subscriptionID");
-                         json sub_data;
-                         try {
-                             sub_data = json::parse(req.body);
-                         } catch (const json::parse_error& e) {
-                             return problem_response(
-                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+                         auto ops = sbi_core::http2::parse_json_patch_body(req); // 415 / 400
+                         if (!ops) {
+                             return ops.error();
                          }
-                         auto updated = sub_registry->update(sub_id, sub_data);
-                         if (!updated.has_value()) {
+                         auto validity_time = nrf::subscription_validity_time(*ops);
+                         if (!validity_time) {
+                             return validity_time.error();
+                         }
+                         if (!sub_registry->set_validity_time(sub_id, *validity_time)) {
                              return problem_response(404,
                                                      "Not Found",
                                                      "No subscription with id " + sub_id,
                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
-                         return sbi_core::http2::Response::json(200, updated->dump());
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
                      });
 
+    // NFStatusUnSubscribe, RemoveSubscription in the YAML (TS 29.510 5.2.2.7.2): 404
+    // SUBSCRIPTION_NOT_FOUND for an unknown id (ADR-0574).
     server.add_route("DELETE",
                      "/nnrf-nfm/v1/subscriptions/{subscriptionID}",
                      [sub_registry](const sbi_core::http2::Request& req) {
                          const auto sub_id = req.path_params.at("subscriptionID");
-                         sub_registry->remove(sub_id);
+                         if (!sub_registry->remove(sub_id)) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No subscription with id " + sub_id,
+                                                     "SUBSCRIPTION_NOT_FOUND");
+                         }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
                          return resp;

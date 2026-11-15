@@ -71,6 +71,23 @@ docker exec udr-postgres-local psql -U udr -d udr -tAc \
 The container is `udr-postgres-local` (port 5437) on this machine; under the compose lab it is
 `docker-postgres-udr-1`. `docker ps --format '{{.Names}}' | grep -i udr` tells which.
 
+The local test containers were removed on 2026-11-07, so recreate the ones a run needs. CI has its
+own `services:` and doesn't use them. Take the UDR and ADRF passwords from `config/udr.json` and
+`tests/integration/test_adrf.cpp:925`:
+
+```bash
+docker run -d --name udr-postgres-local -p 5437:5432 -e POSTGRES_USER=udr -e POSTGRES_DB=udr \
+  -e POSTGRES_PASSWORD="$UDR_DB_PASSWORD" \
+  -v "$PWD/nfs/udr/schema.postgres.sql:/docker-entrypoint-initdb.d/schema.sql:ro" postgres:16-alpine
+docker run -d --name postgres-adrf-verify -p 5438:5432 -e POSTGRES_USER=adrf -e POSTGRES_DB=adrf \
+  -e POSTGRES_PASSWORD="$ADRF_DB_PASSWORD" \
+  -v "$PWD/nfs/adrf/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro" postgres:16-alpine
+docker run -d --name chf-rating-postgres-local -p 5434:5432 -e POSTGRES_HOST_AUTH_METHOD=trust \
+  -e POSTGRES_DB=charging postgres:16-alpine
+docker run -d --name valkey-local -p 6379:6379 valkey/valkey:8-alpine
+docker run -d --name doris-verify -p 8030:8030 -p 8040:8040 -p 9030:9030 apache/doris:all-in-one-4.1.3
+```
+
 Also kill any manually started NF processes first — they squat the ports tests spawn onto.
 
 **Never quote a ctest total you did not measure.** This repo has twice carried a stale number
