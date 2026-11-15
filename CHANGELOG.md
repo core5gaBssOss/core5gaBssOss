@@ -69,6 +69,14 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ### Fixed
 
+- NRF NFUpdate, NFDeregister, UpdateSubscription and NFStatusUnSubscribe follow TS 29.510
+  5.2.2.3-5.2.2.7: PATCH takes `application/json-patch+json` only (415 otherwise), is applied,
+  validated and stored atomically, answers 204, 409 for an inapplicable op, 412 for a stale
+  If-Match and 403 `MODIFICATION_NOT_ALLOWED` for a removed mandatory IE or a changed
+  `nfInstanceId`; GET/PUT carry an `ETag`; `NF_PROFILE_CHANGED` only when the profile changed;
+  DELETE of an unknown instance or subscription is 404; a subscription PATCH replaces
+  `validityTime` only
+  ([ADR-0574](docs/decisions/ADR-0574-nrf-nfupdate-and-nfderegister-conformance-json-patch-204-if.md)).
 - NEF re-encodes the AF id before it puts it into a UDR application-data resource id
   (`iptvConfigData`, `serviceParamData`) or a callback URI, so an encoded `/` or `?` in `afId` no
   longer reaches another resource (ADR-0570 class, NEF part;

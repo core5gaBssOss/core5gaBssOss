@@ -244,3 +244,163 @@ TEST(NrfGapClosureIntegration, RetrieveStoredSearchAndCompleteSearchReturnCached
     ASSERT_TRUE(bad_resp.has_value());
     EXPECT_EQ(bad_resp->status, 404);
 }
+
+// ADR-0574: NFUpdate (TS 29.510 5.2.2.3.1B, 5.2.2.3.2), NFDeregister (5.2.2.4.2),
+// UpdateSubscription (5.2.2.5.6) and NFStatusUnSubscribe (5.2.2.7.2) against the real nrf binary.
+namespace {
+
+constexpr const char* kNfm = "https://127.0.0.1:7777/nnrf-nfm/v1";
+constexpr const char* kUpdId = "4947a69a-f61b-4bc1-b9da-47c9c5d14b64";
+
+sbi_core::http2::ClientRequest
+nfm_request(const std::string& method, const std::string& path, const std::string& token) {
+    sbi_core::http2::ClientRequest req;
+    req.method = method;
+    req.url = std::string(kNfm) + path;
+    if (!token.empty()) {
+        req.headers.emplace("authorization", "Bearer " + token);
+    }
+    return req;
+}
+
+sbi_core::http2::ClientRequest
+json_patch(const std::string& path, const std::string& token, const json& ops) {
+    auto req = nfm_request("PATCH", path, token);
+    req.headers.emplace("content-type", "application/json-patch+json");
+    req.body = ops.dump();
+    return req;
+}
+
+} // namespace
+
+TEST(NrfNfUpdateIntegration, PatchHeartBeatDeregisterAndSubscriptionUpdate) {
+    auto s = spawn_nrf();
+    auto client = make_client();
+    ASSERT_TRUE(
+        wait_reachable(client, "https://127.0.0.1:7777/nnrf-nfm/v1/nf-instances/nonexistent", 200))
+        << "nrf never became reachable";
+    const std::string token = fetch_token(client, "nnrf-nfm");
+    ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
+
+    const std::string item = std::string("/nf-instances/") + kUpdId;
+    auto put = nfm_request("PUT", item, "");
+    put.headers.emplace("content-type", "application/json");
+    put.body = json{{"nfInstanceId", kUpdId}, {"nfType", "AMF"}, {"nfStatus", "REGISTERED"}}.dump();
+    auto r = client.send(put);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 201) << r->body;
+    ASSERT_EQ(r->headers.count("etag"), 1u);
+    const std::string put_etag = r->headers.find("etag")->second;
+
+    // GET carries the same strong entity tag.
+    r = client.send(nfm_request("GET", item, token));
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 200) << r->body;
+    EXPECT_EQ(r->headers.find("etag")->second, put_etag);
+
+    // Heart-beat, the 5.2.2.3.2 EXAMPLE shape without If-Match: 204, no new entity tag.
+    const json heartbeat =
+        json::array({{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}});
+    r = client.send(json_patch(item, token, heartbeat));
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 204) << r->body;
+    r = client.send(nfm_request("GET", item, token));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->headers.find("etag")->second, put_etag);
+
+    // A merge-patch body: 415 with Accept-Patch.
+    auto merge = nfm_request("PATCH", item, token);
+    merge.headers.emplace("content-type", "application/merge-patch+json");
+    merge.body = R"({"nfStatus":"REGISTERED"})";
+    r = client.send(merge);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 415) << r->body;
+    EXPECT_EQ(r->headers.count("accept-patch"), 1u);
+
+    // A stale If-Match: 412, profile untouched.
+    auto conditional = json_patch(
+        item,
+        token,
+        json::array({{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "UNDISCOVERABLE"}}}));
+    conditional.headers.emplace("if-match", "\"stale\"");
+    r = client.send(conditional);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 412) << r->body;
+
+    // Replacing a non-existing IE: 409. Removing nfType: 403 MODIFICATION_NOT_ALLOWED.
+    r = client.send(json_patch(
+        item, token, json::array({{{"op", "replace"}, {"path", "/priority"}, {"value", 1}}})));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 409) << r->body;
+    r = client.send(
+        json_patch(item, token, json::array({{{"op", "remove"}, {"path", "/nfType"}}})));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 403) << r->body;
+    EXPECT_EQ(json::parse(r->body).value("cause", ""), "MODIFICATION_NOT_ALLOWED");
+
+    // A conditional update with the current tag: 204, and the tag moves.
+    auto current = json_patch(
+        item,
+        token,
+        json::array({{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "UNDISCOVERABLE"}}}));
+    current.headers.emplace("if-match", put_etag);
+    r = client.send(current);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 204) << r->body;
+    r = client.send(nfm_request("GET", item, token));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(json::parse(r->body).at("nfStatus"), "UNDISCOVERABLE");
+    EXPECT_NE(r->headers.find("etag")->second, put_etag);
+
+    // NFDeregister: 204, then 404 for the same id; PATCH of it is 404 too.
+    r = client.send(nfm_request("DELETE", item, token));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 204) << r->body;
+    r = client.send(nfm_request("DELETE", item, token));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 404) << r->body;
+    r = client.send(json_patch(item, token, heartbeat));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 404) << r->body;
+
+    // UpdateSubscription: a JSON Patch replacing validityTime -> 204 (the value is accepted as
+    // suggested); another attribute -> 400; unknown id -> 404 SUBSCRIPTION_NOT_FOUND.
+    auto sub = nfm_request("POST", "/subscriptions", token);
+    sub.headers.emplace("content-type", "application/json");
+    sub.body = json{{"nfStatusNotificationUri", "https://127.0.0.1:1/notify"}}.dump();
+    r = client.send(sub);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 201) << r->body;
+    const std::string sub_item =
+        "/subscriptions/" + json::parse(r->body).at("subscriptionId").get<std::string>();
+    r = client.send(json_patch(
+        sub_item,
+        token,
+        json::array(
+            {{{"op", "replace"}, {"path", "/validityTime"}, {"value", "2030-12-30T23:20:50Z"}}})));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 204) << r->body;
+    r = client.send(json_patch(
+        sub_item,
+        token,
+        json::array({{{"op", "replace"}, {"path", "/nfStatusNotificationUri"}, {"value", "x"}}})));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 400) << r->body;
+    r = client.send(json_patch(
+        "/subscriptions/no-such-id",
+        token,
+        json::array(
+            {{{"op", "replace"}, {"path", "/validityTime"}, {"value", "2030-12-30T23:20:50Z"}}})));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 404) << r->body;
+    EXPECT_EQ(json::parse(r->body).value("cause", ""), "SUBSCRIPTION_NOT_FOUND");
+
+    // NFStatusUnSubscribe: 204, then 404 SUBSCRIPTION_NOT_FOUND.
+    r = client.send(nfm_request("DELETE", sub_item, token));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 204) << r->body;
+    r = client.send(nfm_request("DELETE", sub_item, token));
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(r->status, 404) << r->body;
+    EXPECT_EQ(json::parse(r->body).value("cause", ""), "SUBSCRIPTION_NOT_FOUND");
+}

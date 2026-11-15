@@ -77,8 +77,12 @@ runner first, or `lab-up` and CI collide.
 ## Test
 
 ```bash
-./build/tests/integration/nrf_discovery_authz_tests     # 15 tests, 2 ms, no ports
+./build/tests/integration/nrf_discovery_authz_tests     # no ports, a few ms; safe while CI runs
 ```
+
+The count follows the build, not the source. On 2026-11-07 a `build/` from 2026-10-25 ran 14 tests,
+while the source (`test_nrf_discovery_authz.cpp` + `test_nrf_token_authz.cpp`) has 18. Fewer tests
+than `grep -c '^TEST'` finds means the build is stale.
 
 Full ctest, and its traps: skill `5gc-build-and-verify`.
 
@@ -97,7 +101,15 @@ Full ctest, and its traps: skill `5gc-build-and-verify`.
   `consumer` again, or every token is refused with `invalid_client`.
 - **The binaries are whatever `build/` last compiled, not the checked-out source.** After switching
   branches, rebuild the targets before trusting what you see. `restart nrf` only re-registers the NFs
-  in a build that includes ADR-0506 (PR #27). Older binaries log "heartbeat failed" forever.
+  in a build that includes ADR-0506 (PR #27, merged 2026-10-29). Older binaries log "heartbeat
+  failed" forever. Every token that names them as the target is then refused as well, for example
+  `invalid_scope: no registered UDM offers nudm-sdm to a AMF`. Compare
+  `ls -l --time-style=+%F build/nfs/udm/udm` with that date. With a stale build, call `down` and
+  then `up` again instead of `restart nrf`.
+- **Safe to run while the CI runner is busy.** Measured 2026-11-07 with a CI job active: CI listens
+  on 15434-15439, 16379, 18030/18040/19030 (Doris) and 19092. Dropbox holds 17500, 17600 and 17603.
+  No NF's shifted SBI port lands on any of them. Integration tests are a different matter: they use
+  the real ports, so they must wait for an idle runner.
 - **The UPF runs without its datapath.** As a local process it cannot get
   `CAP_NET_ADMIN`/`CAP_SYS_ADMIN`, so XDP is skipped ("eBPF/XDP datapath not started"). PFCP and SBI
   still work: `up upf` makes the SMF log "PFCP Sx Association established". Without a UPF the SMF
