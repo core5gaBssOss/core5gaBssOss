@@ -133,6 +133,7 @@ add_executable(integration_tests
     test_nef_event_exposure.cpp
     test_nef_traffic_influence_inference_training.cpp
     test_nef_put_replaces_only.cpp
+    test_nef_encoded_af_id.cpp
     test_nef_store_bounds.cpp
     test_nef_expiry.cpp
     test_n28_spending_limit.cpp

@@ -151,6 +151,7 @@
 #include "sbi_core/otel.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
+#include "sbi_core/uri.hpp"
 #include "sbi_core/uuid.hpp"
 
 #include <boost/asio/io_context.hpp>
@@ -6455,7 +6456,7 @@ int main() {
                 sbi_core::http2::ClientRequest udr_req;
                 udr_req.method = "PUT";
                 udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/iptvConfigData/" +
-                              af_id + "-" + id;
+                              sbi_core::uri::encode_path_segment(af_id + "-" + id);
                 udr_req.headers.emplace("content-type", "application/json");
                 udr_req.body = j.dump();
                 if (auto r = udr_client.send(udr_req); !r.has_value() || r->status >= 300) {
@@ -6514,7 +6515,7 @@ int main() {
                 sbi_core::http2::ClientRequest udr_req;
                 udr_req.method = "PUT";
                 udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/iptvConfigData/" +
-                              af_id + "-" + id;
+                              sbi_core::uri::encode_path_segment(af_id + "-" + id);
                 udr_req.headers.emplace("content-type", "application/json");
                 udr_req.body = j.dump();
                 if (auto r = udr_client.send(udr_req); !r.has_value() || r->status >= 300) {
@@ -6562,8 +6563,8 @@ int main() {
             {
                 sbi_core::http2::ClientRequest del;
                 del.method = "DELETE";
-                del.url = udr_base_url + "/nudr-dr/v2/application-data/iptvConfigData/" + af_id +
-                          "-" + id;
+                del.url = udr_base_url + "/nudr-dr/v2/application-data/iptvConfigData/" +
+                          sbi_core::uri::encode_path_segment(af_id + "-" + id);
                 if (auto r = udr_client.send(del); !r.has_value() || r->status >= 300) {
                     spdlog::warn(
                         "nef: IPTV configuration for {}/{} may still be applied -- UDR delete "
@@ -6851,8 +6852,8 @@ int main() {
 
             sbi_core::http2::ClientRequest udr_req;
             udr_req.method = "PUT";
-            udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/serviceParamData/" + af_id +
-                          "-" + sub_id;
+            udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/serviceParamData/" +
+                          sbi_core::uri::encode_path_segment(af_id + "-" + sub_id);
             udr_req.headers.emplace("content-type", "application/json");
             udr_req.body = udr_body.dump();
             if (auto r = udr_client.send(udr_req); !r.has_value() || r->status >= 300) {
@@ -6930,8 +6931,8 @@ int main() {
             }
             sbi_core::http2::ClientRequest udr_req;
             udr_req.method = "PUT";
-            udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/serviceParamData/" + af_id +
-                          "-" + sub_id;
+            udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/serviceParamData/" +
+                          sbi_core::uri::encode_path_segment(af_id + "-" + sub_id);
             udr_req.headers.emplace("content-type", "application/json");
             udr_req.body = udr_body.dump();
             if (auto r = udr_client.send(udr_req); !r.has_value() || r->status >= 300) {
@@ -6972,8 +6973,8 @@ int main() {
             // Parameters must stop applying when the AF withdraws them.
             sbi_core::http2::ClientRequest del;
             del.method = "DELETE";
-            del.url = udr_base_url + "/nudr-dr/v2/application-data/serviceParamData/" + af_id +
-                      "-" + sub_id;
+            del.url = udr_base_url + "/nudr-dr/v2/application-data/serviceParamData/" +
+                      sbi_core::uri::encode_path_segment(af_id + "-" + sub_id);
             if (auto r = udr_client.send(del); !r.has_value() || r->status >= 300) {
                 spdlog::warn("nef: service parameters for {}/{} may still be applied -- UDR "
                              "delete failed",
@@ -7396,8 +7397,9 @@ int main() {
                 // the URI it was given, so encoding the ids in the path is enough to correlate an
                 // inbound report back to the AF that asked for it -- no correlation-id state to
                 // keep in sync, and no lookup that could go stale.
-                ee.callbackReference =
-                    self_base_url + "/nnef-callback/v1/monitoring-notify/" + af_id + "/" + sub_id;
+                ee.callbackReference = self_base_url + "/nnef-callback/v1/monitoring-notify/" +
+                                       sbi_core::uri::encode_path_segment(af_id) + "/" +
+                                       sbi_core::uri::encode_path_segment(sub_id);
                 ee.monitoringConfigurations = json{{"0", config}};
                 if (body->maximumNumberOfReports.has_value() || j.contains("monitorExpireTime")) {
                     // Suffixed since ADR-0358 pulled Ndccf_DataManagement's own ReportingOptions
@@ -7603,8 +7605,9 @@ int main() {
                 return nef_store_refused(req, sub_id_created.error());
             }
             const auto& sub_id = *sub_id_created;
-            const std::string nef_notif =
-                self_base_url + "/nnef-callback/v1/qos-notify/" + af_id + "/" + sub_id;
+            const std::string nef_notif = self_base_url + "/nnef-callback/v1/qos-notify/" +
+                                          sbi_core::uri::encode_path_segment(af_id) + "/" +
+                                          sbi_core::uri::encode_path_segment(sub_id);
 
             // ADR-0498, TS 29.522 4.4.9.3: a UE identified by GPSI and no UE address goes through
             // the TSCTSF (Ntsctsf_QoSandTSCAssistance_Create, GMEC), never straight to the PCF.
@@ -7698,7 +7701,9 @@ int main() {
                 pcf_base_url,
                 // ADR-0318: same correlation-by-URI as ADR-0317 -- PCF echoes the notifUri it was
                 // given, so the path identifies which AF subscription an event belongs to.
-                self_base_url + "/nnef-callback/v1/qos-notify/" + af_id + "/" + sub_id,
+                self_base_url + "/nnef-callback/v1/qos-notify/" +
+                    sbi_core::uri::encode_path_segment(af_id) + "/" +
+                    sbi_core::uri::encode_path_segment(sub_id),
                 *body);
             if (app_session.has_value()) {
                 af_qos_subs.set_app_session(af_id, sub_id, *app_session);

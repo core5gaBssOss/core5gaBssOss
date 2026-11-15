@@ -540,6 +540,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0572](decisions/ADR-0572-release-plan-for-v0-2-0-and-v0-3-0-ordered-execution-of-the.md) Release plan for v0.2.0 and v0.3.0: ordered execution of the 2026-11-10 in-depth evaluation
 - [0573](decisions/ADR-0573-archiving-rule-widened-adrs-dated-before-the-2026-10-review.md) Archiving rule widened: ADRs dated before the 2026-10 review close unless they hold an open question; the live set is the pending work
 - [0574](decisions/ADR-0574-nrf-nfupdate-and-nfderegister-conformance-json-patch-204-if.md) NRF NFUpdate and NFDeregister conformance: JSON Patch, 204, If-Match, 404 (TS 29.510 5.2.2.3-5.2.2.7)
+- [0575](decisions/ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md) NEF re-encodes the AF id before it builds a UDR resource id or a callback URI (ADR-0570 class, NEF part)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
