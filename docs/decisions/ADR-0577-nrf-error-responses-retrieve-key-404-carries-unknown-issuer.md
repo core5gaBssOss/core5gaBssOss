@@ -53,5 +53,9 @@ only in the change history (CR 0974, CT#103), not in a table or the YAML (not fo
   libraries.
 - The 26 501s, 3 504s and 3 503s elsewhere were counted, not examined.
 
-**Verified.** To be recorded after CI: `NrfGapClosureIntegration.RetrieveKeyRequestForUnknownIssuerIs404`
-now asserts `cause == "UNKNOWN_ISSUER"`.
+**Verified (2026-11-15, this machine).** `NrfGapClosureIntegration.RetrieveKeyRequestForUnknownIssuerIs404`,
+now asserting `cause == "UNKNOWN_ISSUER"`, and `RetrieveKeyRequestForOwnIssuerReturnsRealPublicKey`
+both pass against the rebuilt NRF. The second failed once with `bind: Address already in use` when
+run straight after the first (port 7777 not yet released) and passed on its own. The assertion was
+not run against the unfixed NRF, so this records that the test passes with the fix, not that it
+fails without it. CI result to be added.
