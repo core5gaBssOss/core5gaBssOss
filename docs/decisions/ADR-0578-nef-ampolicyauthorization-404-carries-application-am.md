@@ -54,5 +54,7 @@ Nudr_GroupIDmap. CLAUDE.md: when the spec text is not in hand, stop and ask. See
 - The `.gitignore` gains the architecture picture that was sitting untracked in the repository root
   (user, 2026-11-15: add to `.gitignore`).
 
-**Verified.** To be recorded after the build: `NefAmContextCause.UnknownContextIs404WithApplicationAmContextNotFound`
-(new, GET, DELETE and PATCH).
+**Verified (2026-11-15, this machine).** `NefAmContextCause.UnknownContextIs404WithApplicationAmContextNotFound`
+(GET, DELETE and PATCH of an unknown context) passes against the rebuilt NEF. It was not run against
+the unfixed NEF, so this records that it passes with the fix, not that it fails without it. CI result
+to be added.
