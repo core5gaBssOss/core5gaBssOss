@@ -1,9 +1,10 @@
 #pragma once
 
-// TMF640 Service Activation and Configuration v4.0.0, increment 1 (ADR-0558, ADR-0569): POST
-// /service, GET /service, GET /service/{id}. Request and response bodies are the generated tmf_gen
-// DTOs (specs/tmforum/TMF640-ServiceActivation-v4.0.0.swagger.json, ADR-0568). The mapping onto
-// 3GPP data is docs/PROVISIONING_MAPPING.md Part A, rows approved 2026-11-07:
+// TMF640 Service Activation and Configuration v4.0.0, increments 1 and 2 (ADR-0558, ADR-0569,
+// ADR-0576): POST /service, GET /service, GET /service/{id}, PATCH /service/{id}. Request and
+// response bodies are the generated tmf_gen DTOs
+// (specs/tmforum/TMF640-ServiceActivation-v4.0.0.swagger.json, ADR-0568). The mapping onto 3GPP
+// data is docs/PROVISIONING_MAPPING.md Part A, rows approved 2026-11-07:
 //
 //   A1  serviceSpecification.id is the network-profile key (config network_profiles), exact match.
 //   A2  serviceCharacteristic "supi" (required, imsi- form) and "msisdn" (optional, digits).
@@ -14,8 +15,12 @@
 //   state "active" writes the network documents to the UDR (no credentials, ADR-0569); the other
 //   pre-active states write nothing.
 //
-// Not in this increment (deferred for future implementation): PATCH (P3: inactive/active),
-// DELETE, the `fields` query parameter, event notifications (P5), /monitor.
+//   A4  PATCH: `inactive` writes amData.odbPacketServices = ALL_PACKET_SERVICES, `active` writes
+//       the documents without it (ADR-0576). Enforcement in AMF/SMF is not built.
+//   PATCH is RFC 7396 merge-patch.
+//
+// Not built (deferred for future implementation): DELETE, the `fields` query parameter, event
+// notifications (P5), /monitor.
 
 #include <nlohmann/json.hpp>
 
@@ -54,6 +59,30 @@ tl::expected<ValidatedService, ServiceError>
 validate_create(const std::string& body,
                 const std::function<bool(const std::string&)>& has_profile);
 
+// What PATCH must do at the UDR (ADR-0576).
+enum class NetworkAction {
+    None,     // stored-only change, or a move between pre-active states
+    Activate, // network documents without ODB (state -> active)
+    Bar,      // network documents with odbPacketServices = ALL_PACKET_SERVICES (active -> inactive)
+};
+
+struct PatchPlan {
+    nlohmann::json service; // the merged Service, as normalised by the generated DTO
+    std::string supi;
+    std::string msisdn;
+    std::string specification_id;
+    std::string state;
+    NetworkAction action = NetworkAction::None;
+};
+
+// Applies an RFC 7396 merge-patch `body` to the `stored` Service and decides the network action.
+// Refuses (400) a body that is not a JSON object, a change of id, href, category,
+// serviceSpecification.id, supi or msisdn, a credential-named or duplicate characteristic, a state
+// outside ServiceStateType, `terminated`, and a move from active/inactive back to a pre-active
+// state. Pure: no database, no network.
+tl::expected<PatchPlan, ServiceError> plan_patch(const nlohmann::json& stored,
+                                                 const std::string& body);
+
 // The orchestration-DB table orchestration.tmf640_service (deploy/db/orchestration/schema.sql).
 class ServiceStore {
 public:
@@ -65,6 +94,14 @@ public:
     tl::expected<nlohmann::json, ServiceError>
     create(const ValidatedService& v,
            const std::function<tl::expected<void, ServiceError>()>& network_write);
+
+    // PATCH: loads the Service under a row lock (404 if absent), hands it to `transition`, and
+    // stores what it returns before commit, so a failed UDR write inside `transition` stores
+    // nothing and two concurrent PATCHes of one Service run one after the other.
+    tl::expected<nlohmann::json, ServiceError>
+    patch(const std::string& id,
+          const std::function<tl::expected<nlohmann::json, ServiceError>(const nlohmann::json&)>&
+              transition);
 
     std::optional<nlohmann::json> get(const std::string& id);
 
@@ -84,5 +121,10 @@ private:
 // no 502); either way nothing is stored.
 tl::expected<nlohmann::json, ServiceError>
 create_service(ServiceStore& store, UdrAdapter& udr, const ValidatedService& v);
+
+// PATCH /service/{id}: plans the change, writes the UDR for state transitions, stores the merged
+// Service. A UDR 409 is answered 409, any other UDR failure 500; either way nothing is stored.
+tl::expected<nlohmann::json, ServiceError>
+patch_service(ServiceStore& store, UdrAdapter& udr, const std::string& id, const std::string& body);
 
 } // namespace provisioning::tmf640

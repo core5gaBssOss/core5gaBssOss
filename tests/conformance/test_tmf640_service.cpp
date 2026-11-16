@@ -131,3 +131,106 @@ TEST(Tmf640Service, RefusesMalformedJsonWithoutQuotingIt) {
     EXPECT_EQ(v.error().status, 400);
     EXPECT_EQ(v.error().detail.find("0f1e2d3c"), std::string::npos);
 }
+
+// ---- PATCH /service/{id} (ADR-0576, mapping row A4): the pure planning step -------------------
+
+namespace {
+
+using provisioning::tmf640::NetworkAction;
+using provisioning::tmf640::plan_patch;
+
+json stored_in(const std::string& state) {
+    auto v = valid_body();
+    v["state"] = state;
+    v["id"] = "svc-1";
+    v["href"] = "/tmf-api/ServiceActivationAndConfiguration/v4/service/svc-1";
+    return v;
+}
+
+} // namespace
+
+TEST(Tmf640Patch, ActiveToInactiveBarsPacketServices) {
+    const auto p = plan_patch(stored_in("active"), R"({"state":"inactive"})");
+    ASSERT_TRUE(p.has_value()) << p.error().detail;
+    EXPECT_EQ(p->action, NetworkAction::Bar);
+    EXPECT_EQ(p->state, "inactive");
+    EXPECT_EQ(p->supi, "imsi-999700000012345");
+    EXPECT_EQ(p->msisdn, "9997000123");
+    EXPECT_EQ(p->service["state"], "inactive");
+    EXPECT_EQ(p->service["id"], "svc-1"); // merge keeps what the patch does not mention
+}
+
+TEST(Tmf640Patch, InactiveToActiveRewritesWithoutBarring) {
+    const auto p = plan_patch(stored_in("inactive"), R"({"state":"active"})");
+    ASSERT_TRUE(p.has_value()) << p.error().detail;
+    EXPECT_EQ(p->action, NetworkAction::Activate);
+}
+
+TEST(Tmf640Patch, PreActiveToActiveWritesTheNetworkDocuments) {
+    for (const char* from : {"feasibilityChecked", "designed", "reserved"}) {
+        const auto p = plan_patch(stored_in(from), R"({"state":"active"})");
+        ASSERT_TRUE(p.has_value()) << from;
+        EXPECT_EQ(p->action, NetworkAction::Activate) << from;
+    }
+}
+
+TEST(Tmf640Patch, MovesThatTouchNoSubscriberWriteNothing) {
+    // A6: dates and free-form fields are stored only; a same-state PATCH and a move between
+    // pre-active states or pre-active -> inactive never reach the UDR.
+    auto p = plan_patch(stored_in("active"), R"({"endDate":"2027-01-01T00:00:00Z"})");
+    ASSERT_TRUE(p.has_value()) << p.error().detail;
+    EXPECT_EQ(p->action, NetworkAction::None);
+    EXPECT_EQ(p->service["endDate"], "2027-01-01T00:00:00Z");
+    EXPECT_EQ(p->service["startDate"], "2026-11-08T00:00:00Z"); // untouched
+
+    p = plan_patch(stored_in("designed"), R"({"state":"reserved"})");
+    ASSERT_TRUE(p.has_value());
+    EXPECT_EQ(p->action, NetworkAction::None);
+
+    p = plan_patch(stored_in("designed"), R"({"state":"inactive"})");
+    ASSERT_TRUE(p.has_value());
+    EXPECT_EQ(p->action, NetworkAction::None);
+}
+
+TEST(Tmf640Patch, MergePatchNullRemovesAMemberButNotARequiredOne) {
+    auto p = plan_patch(stored_in("active"), R"({"startDate":null})"); // RFC 7396
+    ASSERT_TRUE(p.has_value()) << p.error().detail;
+    EXPECT_FALSE(p->service.contains("startDate"));
+    EXPECT_FALSE(plan_patch(stored_in("active"), R"({"state":null})").has_value());
+}
+
+TEST(Tmf640Patch, RefusesWhatItCannotDoWithA400) {
+    const auto active = stored_in("active");
+    const auto refused = [&](const std::string& body, const json& stored = json()) {
+        const auto p = plan_patch(stored.is_null() ? active : stored, body);
+        EXPECT_FALSE(p.has_value()) << body;
+        if (!p.has_value()) {
+            EXPECT_EQ(p.error().status, 400) << body;
+        }
+    };
+    refused(R"({"state":"terminated"})");                  // A5
+    refused(R"({"state":"nonsense"})");                    // closed ServiceStateType set
+    refused(R"({"category":"CFS"})");                      // A7
+    refused(R"({"serviceSpecification":{"id":"other"}})"); // A1: identity of the profile
+    refused(R"({"id":"x"})");
+    refused(R"({"href":"/x"})");
+    refused(R"({"state":"designed"})");                        // active -> pre-active
+    refused(R"({"state":"reserved"})", stored_in("inactive")); // inactive -> pre-active
+    refused(R"([1])");
+    refused("{not json");
+    // serviceCharacteristic replaces the array (RFC 7396), so supi/msisdn must be re-sent intact.
+    refused(R"({"serviceCharacteristic":[]})");
+    refused(R"({"serviceCharacteristic":[{"name":"supi","value":"imsi-999700000099999"}]})");
+    refused(R"({"serviceCharacteristic":[{"name":"supi","value":"imsi-999700000012345"},)"
+            R"({"name":"msisdn","value":"9997000123"},{"name":"opc","value":"x"}]})"); // A3
+    refused(R"({"serviceCharacteristic":[{"name":"supi","value":"imsi-999700000012345"},)"
+            R"({"name":"msisdn","value":"9997000123"},{"name":"supi","value":"x"}]})");
+}
+
+TEST(Tmf640Patch, RefusalNeverEchoesACharacteristicValue) {
+    const auto p = plan_patch(
+        stored_in("active"),
+        R"({"serviceCharacteristic":[{"name":"opc","value":"SECRET-0123456789abcdef"}]})");
+    ASSERT_FALSE(p.has_value());
+    EXPECT_EQ(p.error().detail.find("SECRET"), std::string::npos);
+}
