@@ -543,6 +543,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0575](decisions/ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md) NEF re-encodes the AF id before it builds a UDR resource id or a callback URI (ADR-0570 class, NEF part)
 - [0577](decisions/ADR-0577-nrf-error-responses-retrieve-key-404-carries-unknown-issuer.md) NRF error responses: retrieve-key 404 carries UNKNOWN_ISSUER; the other NRF 404s have no defined cause (SBI-03, NRF part)
 - [0576](decisions/ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md) TMF640 PATCH /service/{id}: inactive bars packet services at the UDR, active clears it (ADR-0558 P3)
+- [0580](decisions/ADR-0580-ci-lint-job-runs-on-the-laptop-runner-5gc-lab-small-fork-pr.md) CI lint job runs on the laptop runner (5gc-lab-small); fork-PR approval for all external contributors
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
