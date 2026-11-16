@@ -538,6 +538,7 @@
   "ADR-0572-release-plan-for-v0-2-0-and-v0-3-0-ordered-execution-of-the.md",
   "ADR-0573-archiving-rule-widened-adrs-dated-before-the-2026-10-review.md",
   "ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md",
+  "ADR-0577-nrf-error-responses-retrieve-key-404-carries-unknown-issuer.md",
   "ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md",
   "ADR-0574-nrf-nfupdate-and-nfderegister-conformance-json-patch-204-if.md",
   "ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md"

@@ -99,6 +99,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - Two review-ledger rows that still said "Open" for work merged in October (SPEC-05 PDU session
   release; NFs registering `127.0.0.1`) are closed; the ransim README no longer says its
   `gnb.yaml`/`ue.yaml` are missing from the repository.
+- NRF `POST /oauth2/retrieve-key` for an unknown issuer answers 404 with `cause` `UNKNOWN_ISSUER`
+  (TS 29.510 table 6.3.6.3-1); the other four NRF 404s have no cause defined by the specification
+  and stay without one
+  ([ADR-0577](docs/decisions/ADR-0577-nrf-error-responses-retrieve-key-404-carries-unknown-issuer.md)).
 
 ### Security
 

@@ -168,6 +168,8 @@ TEST(NrfGapClosureIntegration, RetrieveKeyRequestForUnknownIssuerIs404) {
     auto resp = client.send(req);
     ASSERT_TRUE(resp.has_value());
     EXPECT_EQ(resp->status, 404);
+    // TS 29.510 table 6.3.4.3.2-2 / 6.3.6.3-1: a 404 on retrieve-key carries UNKNOWN_ISSUER.
+    EXPECT_EQ(json::parse(resp->body).value("cause", ""), "UNKNOWN_ISSUER");
 }
 
 TEST(NrfGapClosureIntegration, RetrieveStoredSearchAndCompleteSearchReturnCachedResult) {
