@@ -136,6 +136,102 @@ validate_create(const std::string& body,
     return v;
 }
 
+tl::expected<PatchPlan, ServiceError> plan_patch(const json& stored, const std::string& body) {
+    static const std::regex kMsisdn("^[0-9]{5,15}$");
+
+    json patch;
+    try {
+        patch = json::parse(body);
+    } catch (const json::parse_error&) {
+        return bad("request body is not valid JSON");
+    }
+    if (!patch.is_object()) {
+        return bad("request body must be a Service_Update object");
+    }
+    for (const char* immutable : {"id", "href"}) {
+        if (patch.contains(immutable)) {
+            return bad(std::string(immutable) + " cannot be changed");
+        }
+    }
+
+    json merged = stored;
+    merged.merge_patch(patch); // RFC 7396; null removes a member
+    PatchPlan plan;
+    try {
+        plan.service = json(merged.get<tmf_gen::Service>());
+    } catch (const json::exception& e) {
+        return bad(std::string("the patched object is not a valid Service: ") + e.what());
+    }
+
+    const auto field_or_empty = [](const json& j, const char* k) {
+        return j.contains(k) && j[k].is_string() ? j[k].get<std::string>() : std::string();
+    };
+    if (field_or_empty(plan.service, "category") != "RFS") {
+        return bad("category must stay \"RFS\" (ADR-0558 A7)");
+    }
+    plan.specification_id = plan.service.at("serviceSpecification").value("id", std::string());
+    if (plan.specification_id != stored.at("serviceSpecification").value("id", std::string())) {
+        return bad("serviceSpecification.id cannot be changed");
+    }
+
+    std::set<std::string> seen;
+    std::string supi_before, msisdn_before;
+    for (const auto& c : stored.value("serviceCharacteristic", json::array())) {
+        if (c.value("name", std::string()) == "supi") {
+            supi_before = c.value("value", std::string());
+        } else if (c.value("name", std::string()) == "msisdn") {
+            msisdn_before = c.value("value", std::string());
+        }
+    }
+    for (const auto& c : plan.service.value("serviceCharacteristic", json::array())) {
+        const auto name = c.value("name", std::string());
+        if (credential_name(name)) {
+            return bad("serviceCharacteristic '" + name +
+                       "' is refused: SIM credentials never enter a Service (ADR-0558 A3)");
+        }
+        if (!seen.insert(name).second) {
+            return bad("serviceCharacteristic '" + name + "' appears more than once");
+        }
+        const json value = c.value("value", json());
+        if (name == "supi") {
+            plan.supi = value.is_string() ? value.get<std::string>() : std::string();
+        } else if (name == "msisdn") {
+            if (!value.is_string() || !std::regex_match(value.get<std::string>(), kMsisdn)) {
+                return bad("serviceCharacteristic 'msisdn' must be 5 to 15 digits");
+            }
+            plan.msisdn = value.get<std::string>();
+        }
+    }
+    if (plan.supi != supi_before || plan.msisdn != msisdn_before) {
+        return bad("serviceCharacteristic 'supi' and 'msisdn' cannot be changed; create a new "
+                   "Service instead");
+    }
+
+    const std::string before = stored.value("state", std::string());
+    plan.state = plan.service.value("state", std::string());
+    if (!service_states().contains(plan.state)) {
+        return bad("state must be a ServiceStateType value");
+    }
+    if (plan.state == tmf_gen::ServiceStateType::terminated) {
+        return bad("state 'terminated' is not accepted: deprovisioning is deferred for future "
+                   "implementation (ADR-0558 A5)");
+    }
+    const bool was_live = before == tmf_gen::ServiceStateType::active ||
+                          before == tmf_gen::ServiceStateType::inactive;
+    if (plan.state == before) {
+        plan.action = NetworkAction::None;
+    } else if (plan.state == tmf_gen::ServiceStateType::active) {
+        plan.action = NetworkAction::Activate;
+    } else if (plan.state == tmf_gen::ServiceStateType::inactive) {
+        plan.action =
+            before == tmf_gen::ServiceStateType::active ? NetworkAction::Bar : NetworkAction::None;
+    } else if (was_live) {
+        return bad("a Service that was active or inactive cannot return to '" + plan.state +
+                   "': the subscriber is already at the UDR");
+    }
+    return plan;
+}
+
 ServiceStore::ServiceStore(const std::string& orchestration_conninfo, std::size_t pool_size)
     : pool_(std::make_unique<nf_config::PgPool>(orchestration_conninfo, pool_size)) {}
 
@@ -165,6 +261,27 @@ ServiceStore::create(const ValidatedService& v,
     }
     txn.commit();
     return service;
+}
+
+tl::expected<json, ServiceError> ServiceStore::patch(
+    const std::string& id,
+    const std::function<tl::expected<json, ServiceError>(const json&)>& transition) {
+    auto lease = pool_->acquire();
+    pqxx::work txn(lease.conn());
+    const auto rows = txn.exec(
+        "SELECT body FROM orchestration.tmf640_service WHERE id = $1 FOR UPDATE", pqxx::params{id});
+    if (rows.empty()) {
+        return tl::unexpected(ServiceError{404, "Not Found", "no Service with this id"});
+    }
+    auto next = transition(json::parse(rows[0][0].c_str()));
+    if (!next.has_value()) {
+        return tl::unexpected(next.error()); // txn rolls back: nothing stored
+    }
+    txn.exec("UPDATE orchestration.tmf640_service SET state = $2, body = $3::jsonb, "
+             "updated_at = now() WHERE id = $1",
+             pqxx::params{id, next->value("state", std::string()), next->dump()});
+    txn.commit();
+    return *next;
 }
 
 std::optional<json> ServiceStore::get(const std::string& id) {
@@ -218,6 +335,39 @@ create_service(ServiceStore& store, UdrAdapter& udr, const ValidatedService& v) 
             "provisioning: TMF640 activation of {} failed: {}", v.supi, written.error().message);
         return tl::unexpected(
             ServiceError{500, "Internal Server Error", "the UDR write failed; nothing was stored"});
+    });
+}
+
+tl::expected<json, ServiceError> patch_service(ServiceStore& store,
+                                               UdrAdapter& udr,
+                                               const std::string& id,
+                                               const std::string& body) {
+    return store.patch(id, [&](const json& stored) -> tl::expected<json, ServiceError> {
+        auto plan = plan_patch(stored, body);
+        if (!plan.has_value()) {
+            return tl::unexpected(plan.error());
+        }
+        if (plan->action != NetworkAction::None) {
+            auto written = udr.provision_network(plan->supi,
+                                                 plan->msisdn,
+                                                 plan->specification_id,
+                                                 plan->action == NetworkAction::Bar);
+            if (!written.has_value()) {
+                if (written.error().no_credentials) {
+                    return tl::unexpected(ServiceError{
+                        409,
+                        "Conflict",
+                        "the subscriber has no credentials at the UDR yet; the order flow "
+                        "provisions them before activation (ADR-0569)"});
+                }
+                spdlog::warn("provisioning: TMF640 PATCH of {} failed at the UDR: {}",
+                             plan->supi,
+                             written.error().message);
+                return tl::unexpected(ServiceError{
+                    500, "Internal Server Error", "the UDR write failed; nothing was stored"});
+            }
+        }
+        return plan->service;
     });
 }
 

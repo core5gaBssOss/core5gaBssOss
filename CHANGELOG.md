@@ -46,6 +46,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   lab runner, 120 s each by default, with a persistent corpus and crash artifacts (clang-22; clang-18
   has no libFuzzer runtime on the lab machine)
   ([ADR-0579](docs/decisions/ADR-0579-nightly-libfuzzer-run-of-the-seven-codec-harnesses-on-the.md)).
+- TMF640 `PATCH /service/{id}` (RFC 7396 merge-patch): `inactive` bars packet services at the UDR
+  (`amData.odbPacketServices = ALL_PACKET_SERVICES`), `active` clears it; AMF/SMF do not enforce it
+  yet
+  ([ADR-0576](docs/decisions/ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md)).
 
 ### Changed
 

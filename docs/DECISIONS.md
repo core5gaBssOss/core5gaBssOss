@@ -542,6 +542,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0574](decisions/ADR-0574-nrf-nfupdate-and-nfderegister-conformance-json-patch-204-if.md) NRF NFUpdate and NFDeregister conformance: JSON Patch, 204, If-Match, 404 (TS 29.510 5.2.2.3-5.2.2.7)
 - [0575](decisions/ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md) NEF re-encodes the AF id before it builds a UDR resource id or a callback URI (ADR-0570 class, NEF part)
 - [0579](decisions/ADR-0579-nightly-libfuzzer-run-of-the-seven-codec-harnesses-on-the.md) Nightly libFuzzer run of the seven codec harnesses on the lab runner (ADR-0572 v0.2.0 item 5, fuzz part)
+- [0576](decisions/ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md) TMF640 PATCH /service/{id}: inactive bars packet services at the UDR, active clears it (ADR-0558 P3)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
