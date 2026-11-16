@@ -9,7 +9,7 @@ build and its sanitizers. The user directed that the laptop be used 100%.
 
 **Decision.** The runner `mastermind-073-small` now also carries the label `5gc-lab`. This was added on
 2026-11-16 through `POST /repos/{owner}/{repo}/actions/runners/{id}/labels`; it is runner configuration,
-and no workflow file changes. Every job with `runs-on: [self-hosted, linux, x64, 5gc-lab]` (`build`,
+with no change to any `runs-on` (see the preflight fix below). Every job with `runs-on: [self-hosted, linux, x64, 5gc-lab]` (`build`,
 `sanitize`, `fuzz-nightly`) now goes to whichever of the two runners is free. `lint` and `docs-lint` stay
 on `5gc-lab-small`, so only the laptop runs them.
 
