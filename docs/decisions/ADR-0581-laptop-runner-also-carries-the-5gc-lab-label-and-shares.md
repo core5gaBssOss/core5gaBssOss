@@ -17,6 +17,15 @@ Prerequisite done before this change: the user approved creating `~/.local/build
 laptop (Python 3.14, jinja2 3.1.6, PyYAML 6.0.3, from `tools/sbi-codegen/requirements.txt`). This
 removes the PEP 668 `pip install` failure that ADR-0580 disclosed.
 
+**Incident and fix (2026-11-16).** The label was first added before any workflow change. Within
+minutes, the laptop picked up a `sanitize (asan-ubsan)` job and a `build` job, and both failed in under
+a minute at "Locate caches and tools for this runner (ADR-0363)". That preflight in `build` and
+`sanitize` still listed `clang-tidy-18`, which was left over from before ADR-0482. The laptop has only
+`clang-tidy-22`. Neither job ever invokes clang-tidy (only `lint` does, and it checks `clang-tidy-22`), so
+this PR drops `clang-tidy-18` from those two preflight lists rather than installing an unused package. The
+label was removed again at once, to stop more fast failures, and it is re-added only after this fix is on
+`main`.
+
 **Disclosed limitations.**
 - **Memory.** The laptop has about 6.9 GiB RAM, against 15 GB on the lab host. The self-hosted branch of
   each job still uses `CI_JOBS=4` / `VCPKG_MAX_CONCURRENCY=4`, a value tuned for the lab host
