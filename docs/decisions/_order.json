@@ -541,7 +541,8 @@
   "ADR-0577-nrf-error-responses-retrieve-key-404-carries-unknown-issuer.md",
   "ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md",
   "ADR-0574-nrf-nfupdate-and-nfderegister-conformance-json-patch-204-if.md",
-  "ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md"
+  "ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md",
+  "ADR-0580-ci-lint-job-runs-on-the-laptop-runner-5gc-lab-small-fork-pr.md"
  ],
  "split_commit": "0530e4f"
 }
