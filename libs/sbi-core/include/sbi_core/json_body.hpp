@@ -45,6 +45,12 @@ const char* dto_error_cause(const nlohmann::json::exception& e);
 tl::expected<nlohmann::json, Response> apply_json_patch_body(const Request& req,
                                                              const nlohmann::json& target);
 
+// The front half of apply_json_patch_body: the same 415 / 400 INVALID_MSG_FORMAT checks, returning
+// the PatchItem array without applying it. For a resource whose spec gives an inapplicable patch a
+// different status than a malformed one, e.g. TS 29.510 5.2.2.3.1B step 2b (409 Conflict for "a
+// value of a non-existing IE") (ADR-0574).
+tl::expected<nlohmann::json, Response> parse_json_patch_body(const Request& req);
+
 // True when `body` is well-formed JSON in which some object repeats a member name. nlohmann::json
 // (like most parsers) keeps the last value silently, so a request such as
 // {"supi":"imsi-1","supi":"imsi-2"} would be read as the second while a validating front end may
