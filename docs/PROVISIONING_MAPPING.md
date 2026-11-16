@@ -127,6 +127,10 @@ The user approved every row below ("approve all", 2026-11-07). They are binding 
   `bss/provisioning` (rows A1-A7). Because of A3, the UDR OAM API now takes the SIM keys on their
   own route (`PUT /oam-provisioning/v1/subscribers/{ueId}/authentication-subscription`), and
   `state` → `active` writes the network documents without them. PATCH (A4) is P3.
+- 2026-11-15, ADR-0576: TMF640 `PATCH /service/{id}` (row A4, P3), applied as RFC 7396
+  merge-patch: `inactive` writes `amData.odbPacketServices = ALL_PACKET_SERVICES` through the UDR
+  OAM PUT, `active` writes the documents without it (the PUT replaces `amData`, so that clears it).
+  AMF/SMF enforcement of the barring is not built.
 
 ## Not done in this pass
 

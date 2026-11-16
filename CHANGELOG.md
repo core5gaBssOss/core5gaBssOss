@@ -42,6 +42,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   ([ADR-0552](docs/decisions/archive/ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md)).
 - The 2026-11-10 in-depth evaluation and the release order for v0.2.0, v0.3.0 and v0.4.0
   ([ADR-0572](docs/decisions/ADR-0572-release-plan-for-v0-2-0-and-v0-3-0-ordered-execution-of-the.md)).
+- TMF640 `PATCH /service/{id}` (RFC 7396 merge-patch): `inactive` bars packet services at the UDR
+  (`amData.odbPacketServices = ALL_PACKET_SERVICES`), `active` clears it; AMF/SMF do not enforce it
+  yet
+  ([ADR-0576](docs/decisions/ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md)).
 
 ### Changed
 
@@ -65,6 +69,14 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ### Fixed
 
+- NRF NFUpdate, NFDeregister, UpdateSubscription and NFStatusUnSubscribe follow TS 29.510
+  5.2.2.3-5.2.2.7: PATCH takes `application/json-patch+json` only (415 otherwise), is applied,
+  validated and stored atomically, answers 204, 409 for an inapplicable op, 412 for a stale
+  If-Match and 403 `MODIFICATION_NOT_ALLOWED` for a removed mandatory IE or a changed
+  `nfInstanceId`; GET/PUT carry an `ETag`; `NF_PROFILE_CHANGED` only when the profile changed;
+  DELETE of an unknown instance or subscription is 404; a subscription PATCH replaces
+  `validityTime` only
+  ([ADR-0574](docs/decisions/ADR-0574-nrf-nfupdate-and-nfderegister-conformance-json-patch-204-if.md)).
 - NEF re-encodes the AF id before it puts it into a UDR application-data resource id
   (`iptvConfigData`, `serviceParamData`) or a callback URI, so an encoded `/` or `?` in `afId` no
   longer reaches another resource (ADR-0570 class, NEF part;
@@ -87,6 +99,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - Two review-ledger rows that still said "Open" for work merged in October (SPEC-05 PDU session
   release; NFs registering `127.0.0.1`) are closed; the ransim README no longer says its
   `gnb.yaml`/`ue.yaml` are missing from the repository.
+- NRF `POST /oauth2/retrieve-key` for an unknown issuer answers 404 with `cause` `UNKNOWN_ISSUER`
+  (TS 29.510 table 6.3.6.3-1); the other four NRF 404s have no cause defined by the specification
+  and stay without one
+  ([ADR-0577](docs/decisions/ADR-0577-nrf-error-responses-retrieve-key-404-carries-unknown-issuer.md)).
 - NEF AMPolicyAuthorization: GET/PATCH/DELETE of an unknown Individual Application AM Context
   answer 404 with `cause` `APPLICATION_AM_CONTEXT_NOT_FOUND` (TS 29.522 table 5.17.5.3-1); the
   NEF's other 404s have no cause defined in the specifications in hand

@@ -86,14 +86,22 @@ public:
     // ADR-0569. The network documents alone (no authenticationSubscription), with the profile
     // keyed exactly by `profile_key` -- for TMF640 that is the ServiceSpecification id (ADR-0558
     // A1); there is no "default" fallback. Exposed for tests.
-    tl::expected<nlohmann::json, std::string> build_network_documents(
-        const std::string& supi, const std::string& msisdn, const std::string& profile_key) const;
+    // `odb_barred` (ADR-0558 A4, TMF640 state `inactive`) sets amData.odbPacketServices to
+    // ALL_PACKET_SERVICES; false leaves the member out, which on this whole-document PUT clears it.
+    tl::expected<nlohmann::json, std::string>
+    build_network_documents(const std::string& supi,
+                            const std::string& msisdn,
+                            const std::string& profile_key,
+                            bool odb_barred = false) const;
     bool has_profile(const std::string& profile_key) const;
 
     // PUT .../subscribers/{supi} without credentials. A 409 from the UDR (no credentials yet)
     // comes back as UdrWriteError::no_credentials.
-    tl::expected<UdrProvisionOutcome, UdrWriteError> provision_network(
-        const std::string& supi, const std::string& msisdn, const std::string& profile_key);
+    tl::expected<UdrProvisionOutcome, UdrWriteError>
+    provision_network(const std::string& supi,
+                      const std::string& msisdn,
+                      const std::string& profile_key,
+                      bool odb_barred = false);
 
     // PUT .../subscribers/{supi}/authentication-subscription: the SIM keys alone.
     tl::expected<UdrProvisionOutcome, UdrWriteError>
