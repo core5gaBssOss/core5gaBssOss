@@ -604,8 +604,11 @@ int main() {
             }
             const auto requested_issuer = body.at("issuer").get<std::string>();
             if (requested_issuer != nrf_instance_id) {
-                return problem_response(
-                    404, "Not Found", "No key known for issuer " + requested_issuer, std::nullopt);
+                // TS 29.510 table 6.3.4.3.2-2 and 6.3.6.3-1.
+                return problem_response(404,
+                                        "Not Found",
+                                        "No key known for issuer " + requested_issuer,
+                                        "UNKNOWN_ISSUER");
             }
             std::ifstream key_file(certs_dir + "/nrf-jwt/public.pem");
             std::string raw_pub_key;

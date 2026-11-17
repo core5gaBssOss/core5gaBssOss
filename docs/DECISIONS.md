@@ -541,8 +541,13 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0573](decisions/ADR-0573-archiving-rule-widened-adrs-dated-before-the-2026-10-review.md) Archiving rule widened: ADRs dated before the 2026-10 review close unless they hold an open question; the live set is the pending work
 - [0574](decisions/ADR-0574-nrf-nfupdate-and-nfderegister-conformance-json-patch-204-if.md) NRF NFUpdate and NFDeregister conformance: JSON Patch, 204, If-Match, 404 (TS 29.510 5.2.2.3-5.2.2.7)
 - [0575](decisions/ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md) NEF re-encodes the AF id before it builds a UDR resource id or a callback URI (ADR-0570 class, NEF part)
+- [0577](decisions/ADR-0577-nrf-error-responses-retrieve-key-404-carries-unknown-issuer.md) NRF error responses: retrieve-key 404 carries UNKNOWN_ISSUER; the other NRF 404s have no defined cause (SBI-03, NRF part)
 - [0579](decisions/ADR-0579-nightly-libfuzzer-run-of-the-seven-codec-harnesses-on-the.md) Nightly libFuzzer run of the seven codec harnesses on the lab runner (ADR-0572 v0.2.0 item 5, fuzz part)
 - [0576](decisions/ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md) TMF640 PATCH /service/{id}: inactive bars packet services at the UDR, active clears it (ADR-0558 P3)
+- [0580](decisions/ADR-0580-ci-lint-job-runs-on-the-laptop-runner-5gc-lab-small-fork-pr.md) CI lint job runs on the laptop runner (5gc-lab-small); fork-PR approval for all external contributors
+- [0581](decisions/ADR-0581-laptop-runner-also-carries-the-5gc-lab-label-and-shares.md) Laptop runner also carries the 5gc-lab label and shares build, sanitize and fuzz jobs
+- [0578](decisions/ADR-0578-nef-ampolicyauthorization-404-carries-application-am.md) NEF AMPolicyAuthorization 404 carries APPLICATION_AM_CONTEXT_NOT_FOUND; the other NEF 404s have no defined cause (SBI-03, NEF part)
+- [0582](decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md) Self-hosted CI parallelism follows runner RAM: CI_JOBS 2 under 12 GiB, else 4
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

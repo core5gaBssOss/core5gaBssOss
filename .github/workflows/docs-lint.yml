@@ -1,8 +1,8 @@
 name: Docs lint
 
 # markdownlint on the front-page documents listed in .markdownlint-cli2.jsonc (ADR-0509), and the
-# README append-only check (CLAUDE.md guardrail 10, ADR-0512). Runs on a GitHub-hosted runner, never
-# the self-hosted one.
+# README append-only check (CLAUDE.md guardrail 10, ADR-0512). Runs on the laptop self-hosted runner
+# (label 5gc-lab-small, ADR-0580; user-directed 2026-11-16), never the lab host (5gc-lab).
 on:
   pull_request:
     paths: ["**.md", ".markdownlint-cli2.jsonc", ".github/workflows/docs-lint.yml", "scripts/docs/check_readme_append_only.py"]
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   markdownlint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, 5gc-lab-small]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,7 +36,7 @@ jobs:
   # loudly when a PR or a push to main drops a section heading or reduces the README's non-blank lines
   # or words. A detection layer, not a gate: main has no required status checks, by design.
   readme-append-only:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, 5gc-lab-small]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

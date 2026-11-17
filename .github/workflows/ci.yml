@@ -298,13 +298,18 @@ jobs:
             # scripts/setup-asn1c.sh and libs/ngap-generated look in <repo>/build-tools; point
             # that at the persistent cache so asn1c is built once per machine, not per run.
             mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
-            echo "CI_JOBS=4" >> "$GITHUB_ENV"
+            # ADR-0582: parallelism follows the runner's RAM. 4 on the 15 GB lab host; 2 on a runner
+            # under 12 GiB (the ~7 GB laptop swapped 7-15 GB at 4 and ran tsan in 145 min vs ~48).
+            MEM_GIB=$(awk '/^MemTotal:/ {print int($2/1048576)}' /proc/meminfo)
+            if [ "$MEM_GIB" -lt 12 ]; then RUNNER_JOBS=2; else RUNNER_JOBS=4; fi
+            echo "runner RAM ${MEM_GIB} GiB -> CI_JOBS=${RUNNER_JOBS}"
+            echo "CI_JOBS=${RUNNER_JOBS}" >> "$GITHUB_ENV"
             # vcpkg ignores CI_JOBS and builds a cache-missing port at nproc+1 (-j9 here), which
             # thrashes this 15 GB box; cap it to the same 4 the project build uses.
-            echo "VCPKG_MAX_CONCURRENCY=4" >> "$GITHUB_ENV"
+            echo "VCPKG_MAX_CONCURRENCY=${RUNNER_JOBS}" >> "$GITHUB_ENV"
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
-            for t in ninja cmake clang-18 clang-format-18 clang-tidy-18 bison flex ccache docker; do
+            for t in ninja cmake clang-18 clang-format-18 bison flex ccache docker; do  # ADR-0581: no clang-tidy here -- build/sanitize never run it (lint checks clang-tidy-22)
               command -v "$t" >/dev/null || { echo "self-hosted runner is missing $t"; exit 1; }
             done
             ccache -o max_size=20G; ccache -z
@@ -725,13 +730,18 @@ jobs:
             # scripts/setup-asn1c.sh and libs/ngap-generated look in <repo>/build-tools; point
             # that at the persistent cache so asn1c is built once per machine, not per run.
             mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
-            echo "CI_JOBS=4" >> "$GITHUB_ENV"
+            # ADR-0582: parallelism follows the runner's RAM. 4 on the 15 GB lab host; 2 on a runner
+            # under 12 GiB (the ~7 GB laptop swapped 7-15 GB at 4 and ran tsan in 145 min vs ~48).
+            MEM_GIB=$(awk '/^MemTotal:/ {print int($2/1048576)}' /proc/meminfo)
+            if [ "$MEM_GIB" -lt 12 ]; then RUNNER_JOBS=2; else RUNNER_JOBS=4; fi
+            echo "runner RAM ${MEM_GIB} GiB -> CI_JOBS=${RUNNER_JOBS}"
+            echo "CI_JOBS=${RUNNER_JOBS}" >> "$GITHUB_ENV"
             # vcpkg ignores CI_JOBS and builds a cache-missing port at nproc+1 (-j9 here), which
             # thrashes this 15 GB box; cap it to the same 4 the project build uses.
-            echo "VCPKG_MAX_CONCURRENCY=4" >> "$GITHUB_ENV"
+            echo "VCPKG_MAX_CONCURRENCY=${RUNNER_JOBS}" >> "$GITHUB_ENV"
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
-            for t in ninja cmake clang-18 clang-format-18 clang-tidy-18 bison flex ccache docker; do
+            for t in ninja cmake clang-18 clang-format-18 bison flex ccache docker; do  # ADR-0581: no clang-tidy here -- build/sanitize never run it (lint checks clang-tidy-22)
               command -v "$t" >/dev/null || { echo "self-hosted runner is missing $t"; exit 1; }
             done
             ccache -o max_size=20G; ccache -z
@@ -1005,7 +1015,8 @@ jobs:
           $RUN ctest --test-dir build --output-on-failure --timeout 300
 
   lint:
-    runs-on: [self-hosted, linux, x64, 5gc-lab]
+    # ADR-0580: lint runs on the laptop runner (label 5gc-lab-small) so build/sanitize keep the lab host.
+    runs-on: [self-hosted, linux, x64, 5gc-lab-small]
     # ADR-0468: a push or PR lints only changed files (~40 min measured); the weekly/on-demand full
     # sweep takes 4.5-5.5 h (ADR-0371) and must keep the 6 h maximum. Push/PR cap raised 90 -> 240
     # on 2026-10-09: a push touching ~35 .cpp (26 NF mains at ~27 min of clang-tidy each) hit 90.
@@ -1031,10 +1042,15 @@ jobs:
             # scripts/setup-asn1c.sh and libs/ngap-generated look in <repo>/build-tools; point
             # that at the persistent cache so asn1c is built once per machine, not per run.
             mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
-            echo "CI_JOBS=4" >> "$GITHUB_ENV"
+            # ADR-0582: parallelism follows the runner's RAM. 4 on the 15 GB lab host; 2 on a runner
+            # under 12 GiB (the ~7 GB laptop swapped 7-15 GB at 4 and ran tsan in 145 min vs ~48).
+            MEM_GIB=$(awk '/^MemTotal:/ {print int($2/1048576)}' /proc/meminfo)
+            if [ "$MEM_GIB" -lt 12 ]; then RUNNER_JOBS=2; else RUNNER_JOBS=4; fi
+            echo "runner RAM ${MEM_GIB} GiB -> CI_JOBS=${RUNNER_JOBS}"
+            echo "CI_JOBS=${RUNNER_JOBS}" >> "$GITHUB_ENV"
             # vcpkg ignores CI_JOBS and builds a cache-missing port at nproc+1 (-j9 here), which
             # thrashes this 15 GB box; cap it to the same 4 the project build uses.
-            echo "VCPKG_MAX_CONCURRENCY=4" >> "$GITHUB_ENV"
+            echo "VCPKG_MAX_CONCURRENCY=${RUNNER_JOBS}" >> "$GITHUB_ENV"
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
             for t in ninja cmake clang-18 clang-format-18 clang-tidy-22 bison flex ccache docker; do
