@@ -50,6 +50,12 @@ ran them (ADR-0572 B9: "libFuzzer targets never run in CI"); `tests/fuzz/CMakeLi
   (`libs/ngap-generated`), and the SBI JSON decoders.
 - The nightly shares the one runner: a PR's CI that arrives during it waits for it (about 15 minutes
   at the default budget plus the build, which is ccache-warm after the first night).
+- Since ADR-0581 the `5gc-lab` label is shared by two runners, so the nightly can land on the ~7 GB
+  laptop runner. The build's parallelism follows the ADR-0582 RAM rule: 2 under 12 GiB, else 4. The
+  rule replaces the hard-coded `-j4` and `VCPKG_MAX_CONCURRENCY=4`. The fuzz build is ASan-instrumented,
+  so each compile is expected to take about 2.3-2.8 GB, judging from the asan-ubsan legs. That figure is
+  inferred and has not been measured for the fuzz targets. A cold fuzz build on the laptop is expected
+  to be slow, much as its cold asan-ubsan build took 131 min.
 - No actionlint on this machine; the YAML was parsed with PyYAML only. The first scheduled or
   manual run is the real test.
 

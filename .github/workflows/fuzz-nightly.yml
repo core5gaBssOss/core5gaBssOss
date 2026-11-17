@@ -54,7 +54,12 @@ jobs:
           echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
           echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
           mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
-          echo "VCPKG_MAX_CONCURRENCY=4" >> "$GITHUB_ENV"
+          # ADR-0582: parallelism follows the runner's RAM (2 under 12 GiB, else 4), same rule as ci.yml.
+          MEM_GIB=$(awk '/^MemTotal:/ {print int($2/1048576)}' /proc/meminfo)
+          if [ "$MEM_GIB" -lt 12 ]; then RUNNER_JOBS=2; else RUNNER_JOBS=4; fi
+          echo "runner RAM ${MEM_GIB} GiB -> CI_JOBS=${RUNNER_JOBS}"
+          echo "CI_JOBS=${RUNNER_JOBS}" >> "$GITHUB_ENV"
+          echo "VCPKG_MAX_CONCURRENCY=${RUNNER_JOBS}" >> "$GITHUB_ENV"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
           for t in ninja cmake clang-22 clang++-22 bison flex ccache; do
@@ -94,7 +99,7 @@ jobs:
 
       - name: Build the fuzz targets only
         run: >
-          cmake --build build-fuzz -- -j4
+          cmake --build build-fuzz -- -j"${CI_JOBS:-2}"
           fuzz_diameter fuzz_tcap_message fuzz_dialogue_portion fuzz_map_operations
           fuzz_cap_operations fuzz_ss7_transport fuzz_li_x2x3
 
