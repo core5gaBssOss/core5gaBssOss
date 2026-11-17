@@ -544,7 +544,8 @@
   "ADR-0575-nef-re-encodes-the-af-id-before-it-builds-a-udr-resource-id.md",
   "ADR-0580-ci-lint-job-runs-on-the-laptop-runner-5gc-lab-small-fork-pr.md",
   "ADR-0581-laptop-runner-also-carries-the-5gc-lab-label-and-shares.md",
-  "ADR-0578-nef-ampolicyauthorization-404-carries-application-am.md"
+  "ADR-0578-nef-ampolicyauthorization-404-carries-application-am.md",
+  "ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md"
  ],
  "split_commit": "0530e4f"
 }
