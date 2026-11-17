@@ -545,6 +545,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0576](decisions/ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md) TMF640 PATCH /service/{id}: inactive bars packet services at the UDR, active clears it (ADR-0558 P3)
 - [0580](decisions/ADR-0580-ci-lint-job-runs-on-the-laptop-runner-5gc-lab-small-fork-pr.md) CI lint job runs on the laptop runner (5gc-lab-small); fork-PR approval for all external contributors
 - [0581](decisions/ADR-0581-laptop-runner-also-carries-the-5gc-lab-label-and-shares.md) Laptop runner also carries the 5gc-lab label and shares build, sanitize and fuzz jobs
+- [0578](decisions/ADR-0578-nef-ampolicyauthorization-404-carries-application-am.md) NEF AMPolicyAuthorization 404 carries APPLICATION_AM_CONTEXT_NOT_FOUND; the other NEF 404s have no defined cause (SBI-03, NEF part)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

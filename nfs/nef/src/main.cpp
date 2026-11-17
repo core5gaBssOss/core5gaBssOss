@@ -3355,31 +3355,36 @@ int main() {
                          resp.body = j.dump();
                          return resp;
                      });
-    server.add_route("DELETE",
-                     std::string(kAfAmPolicyAuthApiRoot) +
-                         "/{afId}/app-am-contexts/{appAmContextId}",
-                     [&af_am_policy_auth](const sbi_core::http2::Request& req) {
-                         if (!af_am_policy_auth.remove(req.path_params.at("afId"),
-                                                       req.path_params.at("appAmContextId"))) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such AM policy context", std::nullopt);
-                         }
-                         sbi_core::http2::Response resp;
-                         resp.status = 204;
-                         return resp;
-                     });
-    server.add_route("GET",
-                     std::string(kAfAmPolicyAuthApiRoot) +
-                         "/{afId}/app-am-contexts/{appAmContextId}",
-                     [&af_am_policy_auth](const sbi_core::http2::Request& req) {
-                         auto doc = af_am_policy_auth.get(req.path_params.at("afId"),
-                                                          req.path_params.at("appAmContextId"));
-                         if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such AM policy context", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, doc->dump());
-                     });
+    server.add_route(
+        "DELETE",
+        std::string(kAfAmPolicyAuthApiRoot) + "/{afId}/app-am-contexts/{appAmContextId}",
+        [&af_am_policy_auth](const sbi_core::http2::Request& req) {
+            if (!af_am_policy_auth.remove(req.path_params.at("afId"),
+                                          req.path_params.at("appAmContextId"))) {
+                // TS 29.522 table 5.17.5.3-1.
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such AM policy context",
+                                                         "APPLICATION_AM_CONTEXT_NOT_FOUND");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+    server.add_route(
+        "GET",
+        std::string(kAfAmPolicyAuthApiRoot) + "/{afId}/app-am-contexts/{appAmContextId}",
+        [&af_am_policy_auth](const sbi_core::http2::Request& req) {
+            auto doc = af_am_policy_auth.get(req.path_params.at("afId"),
+                                             req.path_params.at("appAmContextId"));
+            if (!doc.has_value()) {
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such AM policy context",
+                                                         "APPLICATION_AM_CONTEXT_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, doc->dump());
+        });
     server.add_route(
         "PATCH",
         std::string(kAfAmPolicyAuthApiRoot) + "/{afId}/app-am-contexts/{appAmContextId}",
@@ -3393,8 +3398,10 @@ int main() {
                                                          req.path_params.at("appAmContextId"),
                                                          json::parse(req.body));
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM policy context", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such AM policy context",
+                                                         "APPLICATION_AM_CONTEXT_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });

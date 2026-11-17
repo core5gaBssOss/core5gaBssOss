@@ -103,6 +103,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   (TS 29.510 table 6.3.6.3-1); the other four NRF 404s have no cause defined by the specification
   and stay without one
   ([ADR-0577](docs/decisions/ADR-0577-nrf-error-responses-retrieve-key-404-carries-unknown-issuer.md)).
+- NEF AMPolicyAuthorization: GET/PATCH/DELETE of an unknown Individual Application AM Context
+  answer 404 with `cause` `APPLICATION_AM_CONTEXT_NOT_FOUND` (TS 29.522 table 5.17.5.3-1); the
+  NEF's other 404s have no cause defined in the specifications in hand
+  ([ADR-0578](docs/decisions/ADR-0578-nef-ampolicyauthorization-404-carries-application-am.md)).
 
 ### Security
 
