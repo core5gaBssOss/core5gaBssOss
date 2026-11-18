@@ -552,6 +552,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0584](decisions/ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md) UDM 404s carry the TS 29.503 cause for their service (SBI-03, UDM part)
 - [0585](decisions/ADR-0585-tmf640-delete-service-id-bars-at-the-udr-then-removes-the.md) TMF640 DELETE /service/{id} bars at the UDR, then removes the Service
 - [0586](decisions/ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md) TMF640 event notifications: hub listeners and best-effort Service events (N1-N5)
+- [0590](decisions/ADR-0590-nwdaf-subscription-404s-carry-subscription-not-found-bsf.md) NWDAF subscription 404s carry SUBSCRIPTION_NOT_FOUND; BSF and the other NWDAF 404s have no defined cause (SBI-03)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

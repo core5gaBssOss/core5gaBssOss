@@ -550,7 +550,8 @@
   "ADR-0583-udr-404s-carry-data-not-found-subscription-not-found-or.md",
   "ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md",
   "ADR-0585-tmf640-delete-service-id-bars-at-the-udr-then-removes-the.md",
-  "ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md"
+  "ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md",
+  "ADR-0590-nwdaf-subscription-404s-carry-subscription-not-found-bsf.md"
  ],
  "split_commit": "0530e4f"
 }

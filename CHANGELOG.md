@@ -135,6 +135,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - UDM: every 404 carries the TS 29.503 cause for its service (`CONTEXT_NOT_FOUND` for UECM
   registrations, `DATA_NOT_FOUND`, `USER_NOT_FOUND`, `GROUP_IDENTIFIER_NOT_FOUND`, `AUTHORIZATION_NOT_FOUND`)
   ([ADR-0584](docs/decisions/ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md)).
+- NWDAF: unknown VFL subscription and ML model training subscription 404s carry
+  `SUBSCRIPTION_NOT_FOUND`; the BSF's 404s need no cause (TS 29.521 defines none)
+  ([ADR-0590](docs/decisions/ADR-0590-nwdaf-subscription-404s-carry-subscription-not-found-bsf.md)).
 
 ### Security
 
