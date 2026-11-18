@@ -1,6 +1,6 @@
 ## ADR-0563: PCF V2X/A2X UE-requested policy provisioning and PCF-initiated modification (ADR-0551 increment 3)
 
-**Date:** 2026-11-04. **Status:** Proposed.
+**Date:** 2026-11-04. **Status:** Accepted (user, 2026-11-18).
 
 **Context.** ADR-0551 split the PCF V2X/A2X procedure list P1-P7 into three increments. Increment 1 covered P1, P2 and P5, and increment 2 (ADR-0555) covered P3 and P4. Increment 3 is P6 + P7. On 2026-11-04 the user approved this procedure list:
 

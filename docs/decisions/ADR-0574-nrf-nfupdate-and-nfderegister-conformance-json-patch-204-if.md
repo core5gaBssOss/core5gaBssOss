@@ -1,6 +1,6 @@
 ## ADR-0574: NRF NFUpdate and NFDeregister conformance: JSON Patch, 204, If-Match, 404 (TS 29.510 5.2.2.3-5.2.2.7)
 
-**Date:** 2026-11-12. **Status:** Proposed. ADR-0572 v0.2.0 item 2, first half (the NRF). The
+**Date:** 2026-11-12. **Status:** Accepted (user, 2026-11-18). ADR-0572 v0.2.0 item 2, first half (the NRF). The
 second half, the ADR-0570 audit, is deferred to its own PR (see Disclosed).
 
 **Context.** ADR-0572 B7 lists "NRF PATCH non-conformance and NRF DELETE 204" as open. Read against
@@ -91,3 +91,6 @@ Fails without the fix: `NrfNfUpdateIntegration.PatchHeartBeatDeregisterAndSubscr
 against an NRF built from `main` (ea535853) fails at its first new assertion (no `ETag` on PUT 201,
 `test_nrf_gap_closure.cpp:292`). That assertion is fatal, so the later 204/404/409/412 checks were
 not reached against the old binary; this run does not show each of them failing separately.
+
+**Update (2026-11-18).** The second half of item 2, the ADR-0570 audit, was done for the NEF in
+ADR-0575 (#22). The remaining sites are listed there.
