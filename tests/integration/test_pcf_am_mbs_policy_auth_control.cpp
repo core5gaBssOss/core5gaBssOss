@@ -213,6 +213,8 @@ TEST(AmPolicyAuthorizationIntegration, CreateReadUpdateDeleteAndEventsSubscripti
     auto delete_again_resp = client.send(delete_req);
     ASSERT_TRUE(delete_again_resp.has_value());
     EXPECT_EQ(delete_again_resp->status, 404);
+    EXPECT_EQ(json::parse(delete_again_resp->body).value("cause", ""),
+              "APPLICATION_AM_CONTEXT_NOT_FOUND");
 }
 
 TEST(AmPolicyAuthorizationIntegration, CreateWithMissingRequiredFieldIs400) {
@@ -302,6 +304,8 @@ TEST(MbsPolicyAuthorizationIntegration, CreateReadModifyDeleteLifecycle) {
     auto delete_again_resp = client.send(delete_req);
     ASSERT_TRUE(delete_again_resp.has_value());
     EXPECT_EQ(delete_again_resp->status, 404);
+    EXPECT_EQ(json::parse(delete_again_resp->body).value("cause", ""),
+              "MBS_SESSION_POL_AUTH_CTXT_NOT_FOUND");
 }
 
 TEST(MbsPolicyAuthorizationIntegration, CreateWithMissingRequiredFieldIs400) {
@@ -389,6 +393,8 @@ TEST(MbsPolicyControlIntegration, CreateReadUpdateDeleteLifecycle) {
     auto delete_again_resp = client.send(delete_req);
     ASSERT_TRUE(delete_again_resp.has_value());
     EXPECT_EQ(delete_again_resp->status, 404);
+    EXPECT_EQ(json::parse(delete_again_resp->body).value("cause", ""),
+              "MBS_POLICY_ASSOCIATION_NOT_FOUND");
 }
 
 TEST(MbsPolicyControlIntegration, CreateWithMissingRequiredFieldIs400) {
