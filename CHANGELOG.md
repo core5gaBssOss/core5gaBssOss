@@ -56,6 +56,13 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   and `docs-lint` run there, and it shares `build`, `sanitize` and `fuzz-nightly` with the lab host
   ([ADR-0580](docs/decisions/ADR-0580-ci-lint-job-runs-on-the-laptop-runner-5gc-lab-small-fork-pr.md),
   [ADR-0581](docs/decisions/ADR-0581-laptop-runner-also-carries-the-5gc-lab-label-and-shares.md)).
+- TMF640 `DELETE /service/{id}`: an active or inactive Service is barred at the UDR, then removed;
+  the subscriber stays provisioned (mapping row A5)
+  ([ADR-0585](docs/decisions/ADR-0585-tmf640-delete-service-id-bars-at-the-udr-then-removes-the.md)).
+- TMF640 event notifications: `POST`/`DELETE /hub` listeners; `ServiceCreateEvent`,
+  `ServiceAttributeValueChangeEvent`, `ServiceStateChangeEvent` and `ServiceDeleteEvent` delivered best
+  effort to `{callback}/listener/<event>`, with no access token
+  ([ADR-0586](docs/decisions/ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md)).
 
 ### Changed
 
@@ -125,6 +132,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - UDR: every Nudr_DataRepository 404 carries a `cause`: `DATA_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`
   or `GROUP_IDENTIFIER_NOT_FOUND` (TS 29.504 table 6.1.6-2, TS 29.500 table 5.2.7.2-1)
   ([ADR-0583](docs/decisions/ADR-0583-udr-404s-carry-data-not-found-subscription-not-found-or.md)).
+- UDM: every 404 carries the TS 29.503 cause for its service (`CONTEXT_NOT_FOUND` for UECM
+  registrations, `DATA_NOT_FOUND`, `USER_NOT_FOUND`, `GROUP_IDENTIFIER_NOT_FOUND`, `AUTHORIZATION_NOT_FOUND`)
+  ([ADR-0584](docs/decisions/ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md)).
 
 ### Security
 

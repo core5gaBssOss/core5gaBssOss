@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "tmf640_events.hpp"
 #include "tmf640_service.hpp"
 
 #include <gtest/gtest.h>
@@ -233,4 +234,59 @@ TEST(Tmf640Patch, RefusalNeverEchoesACharacteristicValue) {
         R"({"serviceCharacteristic":[{"name":"opc","value":"SECRET-0123456789abcdef"}]})");
     ASSERT_FALSE(p.has_value());
     EXPECT_EQ(p.error().detail.find("SECRET"), std::string::npos);
+}
+
+// ADR-0585: DELETE bars a Service that has network documents at the UDR, and writes nothing for
+// a pre-active one.
+TEST(Tmf640Delete, ActiveAndInactiveServicesAreBarredFirst) {
+    for (const char* state : {"active", "inactive"}) {
+        const auto p = provisioning::tmf640::plan_delete(stored_in(state));
+        EXPECT_TRUE(p.bar) << state;
+        EXPECT_FALSE(p.supi.empty()) << state;
+        EXPECT_FALSE(p.specification_id.empty()) << state;
+    }
+}
+
+TEST(Tmf640Delete, PreActiveServicesWriteNothing) {
+    for (const char* state : {"feasibilityChecked", "designed", "reserved"}) {
+        EXPECT_FALSE(provisioning::tmf640::plan_delete(stored_in(state)).bar) << state;
+    }
+}
+
+// ADR-0586: the pure parts of the TMF640 notifications.
+TEST(Tmf640Events, ListenerPathIsTheSwaggerClientPath) {
+    using namespace provisioning::tmf640;
+    EXPECT_EQ(listener_path(kServiceCreateEvent), "/listener/serviceCreateEvent");
+    EXPECT_EQ(listener_path(kServiceAttributeValueChangeEvent),
+              "/listener/serviceAttributeValueChangeEvent");
+    EXPECT_EQ(listener_path(kServiceStateChangeEvent), "/listener/serviceStateChangeEvent");
+    EXPECT_EQ(listener_path(kServiceDeleteEvent), "/listener/serviceDeleteEvent");
+}
+
+TEST(Tmf640Events, EventCarriesTheServiceAndItsType) {
+    const json service{{"id", "svc-1"}, {"state", "inactive"}};
+    const auto e =
+        provisioning::tmf640::make_event(provisioning::tmf640::kServiceStateChangeEvent, service);
+    EXPECT_EQ(e.at("eventType"), "ServiceStateChangeEvent");
+    EXPECT_EQ(e.at("event").at("service"), service);
+    EXPECT_FALSE(e.at("eventId").get<std::string>().empty());
+    EXPECT_FALSE(e.at("eventTime").get<std::string>().empty());
+}
+
+TEST(Tmf640Events, ListenerInputNeedsAnHttpsCallback) {
+    using provisioning::tmf640::validate_listener;
+    EXPECT_TRUE(validate_listener(R"({"callback":"https://bss.example/cb"})").has_value());
+    const auto q = validate_listener(R"({"callback":"https://bss.example/cb","query":"x"})");
+    ASSERT_TRUE(q.has_value());
+    EXPECT_EQ(q->at("query"), "x");
+    for (const char* bad : {R"({})",
+                            R"({"callback":"http://bss.example/cb"})",
+                            R"({"callback":42})",
+                            R"({"callback":"https://bss.example/cb","query":1})",
+                            R"([])",
+                            "not json"}) {
+        const auto r = validate_listener(bad);
+        ASSERT_FALSE(r.has_value()) << bad;
+        EXPECT_EQ(r.error().status, 400) << bad;
+    }
 }

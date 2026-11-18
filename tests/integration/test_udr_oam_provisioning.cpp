@@ -538,3 +538,62 @@ TEST(UdrOamProvisioningIntegration, Tmf640PatchBarsAndRestoresPacketServices) {
     EXPECT_EQ(refused.error().status, 400);
     EXPECT_EQ(store.get(id)->at("state"), "active");
 }
+
+// ADR-0585: DELETE bars an active Service at the UDR and removes it; the subscriber stays
+// provisioned (mapping row A5); an unknown id is 404.
+TEST(UdrOamProvisioningIntegration, Tmf640DeleteBarsThenRemovesTheService) {
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    nf_test::SpawnedProcess udr(UDR_PATH);
+
+    auto other_nf = client_as("hello-nf");
+    ASSERT_TRUE(wait_reachable(other_nf, "https://127.0.0.1:7781/", 200))
+        << "udr never became reachable";
+    auto adapter = make_adapter();
+    provisioning::tmf640::ServiceStore store(orchestration_url(), 2);
+    const auto has_profile = [&adapter](const std::string& id) { return adapter.has_profile(id); };
+    const std::string token = fetch_token(other_nf);
+    ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
+    const auto odb = [&](const std::string& supi) -> json {
+        sbi_core::http2::ClientRequest req;
+        req.method = "GET";
+        req.url = "https://127.0.0.1:7781/nudr-dr/v2/subscription-data/" + supi +
+                  "/99970/provisioned-data/am-data";
+        req.headers.emplace("authorization", "Bearer " + token);
+        auto resp = other_nf.send(req);
+        if (!resp.has_value() || resp->status != 200) {
+            return json();
+        }
+        return json::parse(resp->body).value("odbPacketServices", json("<absent>"));
+    };
+
+    const std::string supi = fresh_supi();
+    ASSERT_TRUE(adapter.provision_credentials(supi, {kTestK, kTestOpc, ""}).has_value());
+    const auto create_body = json{{"category", "RFS"},
+                                  {"state", "active"},
+                                  {"serviceSpecification", {{"id", "rfs-5g-data"}}},
+                                  {"serviceCharacteristic",
+                                   json::array({{{"name", "supi"}, {"value", supi}},
+                                                {{"name", "msisdn"}, {"value", "9997000097"}}})}}
+                                 .dump();
+    auto v = provisioning::tmf640::validate_create(create_body, has_profile);
+    ASSERT_TRUE(v.has_value()) << v.error().detail;
+    auto created = provisioning::tmf640::create_service(store, adapter, *v);
+    ASSERT_TRUE(created.has_value()) << created.error().detail;
+    const auto id = created->at("id").get<std::string>();
+    EXPECT_EQ(odb(supi), json("<absent>"));
+
+    auto deleted = provisioning::tmf640::delete_service(store, adapter, id);
+    ASSERT_TRUE(deleted.has_value()) << deleted.error().detail;
+    EXPECT_FALSE(store.get(id).has_value());
+    EXPECT_EQ(odb(supi), json("ALL_PACKET_SERVICES")); // still provisioned, now barred
+
+    auto again = provisioning::tmf640::delete_service(store, adapter, id);
+    ASSERT_FALSE(again.has_value());
+    EXPECT_EQ(again.error().status, 404);
+
+    // A new Service for the same SUPI is accepted again and clears the bar.
+    auto recreated = provisioning::tmf640::create_service(store, adapter, *v);
+    ASSERT_TRUE(recreated.has_value()) << recreated.error().detail;
+    EXPECT_EQ(odb(supi), json("<absent>"));
+}

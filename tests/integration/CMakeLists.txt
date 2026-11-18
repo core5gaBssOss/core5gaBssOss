@@ -43,6 +43,7 @@ add_executable(integration_tests
     test_udr_ondatachange_webhook.cpp
     test_sbi_core_concurrency.cpp
     test_http2_route_precedence.cpp
+    test_tmf640_events.cpp
     test_http2_authorizer.cpp
     test_eir_authorization.cpp
     test_gmlc_authorization.cpp

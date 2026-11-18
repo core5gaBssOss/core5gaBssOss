@@ -20,6 +20,7 @@
 
 #include "TMF640_ServiceActivation_v4_0_0.hpp"
 #include "provisioning_store.hpp"
+#include "tmf640_events.hpp"
 #include "tmf640_service.hpp"
 
 using nlohmann::json;
@@ -66,6 +67,9 @@ int main() {
     auto service_patch_counter =
         meter->CreateUInt64Counter("provisioning_tmf640_service_patch_total",
                                    "TMF640 PATCH /service/{id} requests answered 200");
+    auto service_delete_counter =
+        meter->CreateUInt64Counter("provisioning_tmf640_service_delete_total",
+                                   "TMF640 DELETE /service/{id} requests answered 204");
 
     // ADR-0450: real observability for ADR-0449's PgPool hardening -- two real, independent pools
     // (orchestration DB, charging DB), reported separately since an exhausted orchestration pool
@@ -186,10 +190,43 @@ int main() {
     };
     const std::string service_root = std::string(provisioning::tmf640::kApiRoot) + "/service";
 
+    // TMF640 event notifications (ADR-0586, N1-N5): in-memory listeners, best-effort delivery.
+    namespace t640 = provisioning::tmf640;
+    t640::EventHub event_hub(
+        sbi_core::http2::TlsConfig{
+            .cert_path = CERTS_DIR "/provisioning/cert.pem",
+            .key_path = CERTS_DIR "/provisioning/key.pem",
+            .ca_path = CERTS_DIR "/ca/ca.crt",
+        },
+        64,
+        1024);
+    const std::string hub_root = std::string(t640::kApiRoot) + "/hub";
+
+    server.add_route(
+        "POST", hub_root, [&event_hub, hub_root, tmf_error](const sbi_core::http2::Request& req) {
+            auto sub = event_hub.register_listener(req.body);
+            if (!sub.has_value()) {
+                return tmf_error(sub.error().status, sub.error().title, sub.error().detail);
+            }
+            auto resp = sbi_core::http2::Response::json(201, sub->dump());
+            resp.headers.emplace("location", hub_root + "/" + sub->at("id").get<std::string>());
+            return resp;
+        });
+
+    server.add_route(
+        "DELETE", hub_root + "/{id}", [&event_hub, tmf_error](const sbi_core::http2::Request& req) {
+            if (!event_hub.unregister_listener(req.path_params.at("id"))) {
+                return tmf_error(404, "Not Found", "no listener with this id");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
     server.add_route(
         "POST",
         service_root,
-        [&service_store, &udr, &service_create_counter, tmf_error](
+        [&service_store, &udr, &service_create_counter, &event_hub, tmf_error](
             const sbi_core::http2::Request& req) {
             auto valid = provisioning::tmf640::validate_create(
                 req.body, [&udr](const std::string& id) { return udr.has_profile(id); });
@@ -203,6 +240,7 @@ int main() {
                     created.error().status, created.error().title, created.error().detail);
             }
             service_create_counter->Add(1);
+            event_hub.publish(t640::make_event(t640::kServiceCreateEvent, *created));
             auto resp = sbi_core::http2::Response::json(201, created->dump());
             resp.headers.emplace("location", created->at("href").get<std::string>());
             return resp;
@@ -261,7 +299,7 @@ int main() {
     server.add_route(
         "PATCH",
         service_root + "/{id}",
-        [&service_store, &udr, &service_patch_counter, tmf_error](
+        [&service_store, &udr, &service_patch_counter, &event_hub, tmf_error](
             const sbi_core::http2::Request& req) {
             // TMF640 Service_Update is applied as RFC 7396 merge-patch (ADR-0576).
             const auto ct = req.headers.find("content-type");
@@ -272,15 +310,40 @@ int main() {
                                  "content-type must be application/merge-patch+json or "
                                  "application/json");
             }
+            std::string previous_state;
             auto patched = provisioning::tmf640::patch_service(
-                service_store, udr, req.path_params.at("id"), req.body);
+                service_store, udr, req.path_params.at("id"), req.body, &previous_state);
             if (!patched.has_value()) {
                 return tmf_error(
                     patched.error().status, patched.error().title, patched.error().detail);
             }
             service_patch_counter->Add(1);
+            event_hub.publish(t640::make_event(t640::kServiceAttributeValueChangeEvent, *patched));
+            if (patched->value("state", std::string()) != previous_state) {
+                event_hub.publish(t640::make_event(t640::kServiceStateChangeEvent, *patched));
+            }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
+
+    // DELETE /service/{id} (ADR-0585): an active or inactive Service is barred at the UDR first;
+    // the subscriber stays provisioned there (mapping row A5).
+    server.add_route("DELETE",
+                     service_root + "/{id}",
+                     [&service_store, &udr, &service_delete_counter, &event_hub, tmf_error](
+                         const sbi_core::http2::Request& req) {
+                         auto deleted = provisioning::tmf640::delete_service(
+                             service_store, udr, req.path_params.at("id"));
+                         if (!deleted.has_value()) {
+                             return tmf_error(deleted.error().status,
+                                              deleted.error().title,
+                                              deleted.error().detail);
+                         }
+                         service_delete_counter->Add(1);
+                         event_hub.publish(t640::make_event(t640::kServiceDeleteEvent, *deleted));
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     spdlog::info("provisioning: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
     server.start();

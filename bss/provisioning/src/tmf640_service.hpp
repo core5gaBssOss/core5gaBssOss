@@ -19,8 +19,13 @@
 //       the documents without it (ADR-0576). Enforcement in AMF/SMF is not built.
 //   PATCH is RFC 7396 merge-patch.
 //
-// Not built (deferred for future implementation): DELETE, the `fields` query parameter, event
-// notifications (P5), /monitor.
+//   DELETE (ADR-0585): an active or inactive Service is barred at the UDR
+//       (odbPacketServices = ALL_PACKET_SERVICES), then its row is deleted. The subscriber stays
+//       provisioned at the UDR (row A5: the UDR OAM API cannot delete). A pre-active Service wrote
+//       nothing, so nothing is written.
+//
+// Not built (deferred for future implementation): the `fields` query parameter, event
+// notifications (P5), /monitor, full deprovisioning at the UDR.
 
 #include <nlohmann/json.hpp>
 
@@ -83,6 +88,17 @@ struct PatchPlan {
 tl::expected<PatchPlan, ServiceError> plan_patch(const nlohmann::json& stored,
                                                  const std::string& body);
 
+// What DELETE must do at the UDR before the row goes (ADR-0585).
+struct DeletePlan {
+    std::string supi;
+    std::string msisdn;
+    std::string specification_id;
+    bool bar = false; // true when the stored state is active or inactive
+};
+
+// Reads the stored Service. Pure: no database, no network.
+DeletePlan plan_delete(const nlohmann::json& stored);
+
 // The orchestration-DB table orchestration.tmf640_service (deploy/db/orchestration/schema.sql).
 class ServiceStore {
 public:
@@ -105,6 +121,14 @@ public:
 
     std::optional<nlohmann::json> get(const std::string& id);
 
+    // DELETE: loads the Service under a row lock (404 if absent), hands it to `network_write`,
+    // and deletes the row before commit, so a failed UDR write deletes nothing.
+    // Returns the deleted Service.
+    tl::expected<nlohmann::json, ServiceError>
+    remove(const std::string& id,
+           const std::function<tl::expected<void, ServiceError>(const nlohmann::json&)>&
+               network_write);
+
     struct Page {
         std::vector<nlohmann::json> items;
         std::size_t total = 0;
@@ -124,7 +148,16 @@ create_service(ServiceStore& store, UdrAdapter& udr, const ValidatedService& v);
 
 // PATCH /service/{id}: plans the change, writes the UDR for state transitions, stores the merged
 // Service. A UDR 409 is answered 409, any other UDR failure 500; either way nothing is stored.
+// `previous_state`, when given, receives the state the Service had before the change.
+tl::expected<nlohmann::json, ServiceError> patch_service(ServiceStore& store,
+                                                         UdrAdapter& udr,
+                                                         const std::string& id,
+                                                         const std::string& body,
+                                                         std::string* previous_state = nullptr);
+
+// DELETE /service/{id}: bars an active or inactive Service at the UDR, then deletes it and returns
+// it. A UDR 409 is answered 409, any other UDR failure 500; either way nothing is deleted.
 tl::expected<nlohmann::json, ServiceError>
-patch_service(ServiceStore& store, UdrAdapter& udr, const std::string& id, const std::string& body);
+delete_service(ServiceStore& store, UdrAdapter& udr, const std::string& id);
 
 } // namespace provisioning::tmf640
