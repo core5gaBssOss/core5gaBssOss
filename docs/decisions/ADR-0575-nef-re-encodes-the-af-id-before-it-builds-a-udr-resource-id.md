@@ -1,6 +1,6 @@
 ## ADR-0575: NEF re-encodes the AF id before it builds a UDR resource id or a callback URI (ADR-0570 class, NEF part)
 
-**Date:** 2026-11-12. **Status:** Proposed. ADR-0572 v0.2.0 item 2, second half (the ADR-0570
+**Date:** 2026-11-12. **Status:** Accepted (user, 2026-11-18). ADR-0572 v0.2.0 item 2, second half (the ADR-0570
 audit), NEF part. Follows ADR-0549 (the server percent-decodes path parameters) and ADR-0570 (the
 UDM fix for the same class).
 

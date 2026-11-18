@@ -1,6 +1,6 @@
 ## ADR-0536: NEF store bounds per store and per token sub; TS 29.122 QUOTA_EXCEEDED where defined (SUS-02)
 
-**Date:** 2026-10-30. **Status:** Proposed.
+**Date:** 2026-10-30. **Status:** Accepted (user, 2026-11-18).
 
 **Context.** REVIEW-5ae0ef1 SUS-02 (suspected, Medium) says the in-memory stores of the NEF, UDM
 and UDR look uncapped and never expire. ADR-0535 bounded the UDM. This ADR covers the NEF.

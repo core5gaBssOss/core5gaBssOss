@@ -1,6 +1,6 @@
 ## ADR-0551: PCF V2X/A2X UE policy provisioning (P1-P7)
 
-**Date:** 2026-11-01. **Status:** Proposed.
+**Date:** 2026-11-01. **Status:** Accepted (user, 2026-11-18).
 
 **Context.** ADR-0540 puts V2X (TS 23.287) and A2X (TS 23.256) UE policy provisioning in scope for the PCF. The user approved procedure list P1-P7 on 2026-11-01. Today the PCF's Npcf_UEPolicyControl only stores the association and echoes the consumer's `suppFeat`; it hands back no policy content (ADR-0204).
 

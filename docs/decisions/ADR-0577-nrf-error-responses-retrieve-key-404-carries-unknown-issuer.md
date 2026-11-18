@@ -1,6 +1,6 @@
 ## ADR-0577: NRF error responses: retrieve-key 404 carries UNKNOWN_ISSUER; the other NRF 404s have no defined cause (SBI-03, NRF part)
 
-**Date:** 2026-11-15. **Status:** Proposed (user, 2026-11-15: "Start with the NRF for SBI-03").
+**Date:** 2026-11-15. **Status:** Accepted (user, 2026-11-18). Proposed (user, 2026-11-15: "Start with the NRF for SBI-03").
 Item 4 of the v0.2.0 plan (ADR-0572), first NF. Continues ADR-0502 (SBI-03, `cause` required on
 every `problem_response`). Numbered 0577 because ADR-0576 is taken by PR #23.
 
