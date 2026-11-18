@@ -60,3 +60,6 @@ ran them (ADR-0572 B9: "libFuzzer targets never run in CI"); `tests/fuzz/CMakeLi
   manual run is the real test.
 
 **Verified.** Local only, as above. CI/runner result to be added after the first `workflow_dispatch`.
+
+**Update (2026-11-18).** Merged to `main` in #26. The first `workflow_dispatch` run was started on
+2026-11-18. Its result is not recorded here yet, so no fuzzing outcome is claimed.

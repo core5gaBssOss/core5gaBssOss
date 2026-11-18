@@ -50,3 +50,7 @@ label was removed again at once, to stop more fast failures, and it is re-added 
   per-runner knob yet. Adding one (for example, reading a runner-local env file) is a follow-up, to do if
   the first laptop `sanitize` leg shows memory pressure.
 - *Keep the ADR-0580 split (laptop runs only lint and docs).* Rejected by the user ("use the laptop 100%").
+
+**Update (2026-11-18).** The *Memory* limitation is superseded by ADR-0582: below 12 GiB of RAM,
+`CI_JOBS` and `VCPKG_MAX_CONCURRENCY` are now 2. The *Cold caches* limitation was measured: the first
+laptop `build` hit the 240-minute cap. Once the cache was warm, builds took 43-45 min.

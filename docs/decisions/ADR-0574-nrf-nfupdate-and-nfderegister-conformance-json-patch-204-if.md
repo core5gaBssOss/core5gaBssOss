@@ -91,3 +91,6 @@ Fails without the fix: `NrfNfUpdateIntegration.PatchHeartBeatDeregisterAndSubscr
 against an NRF built from `main` (ea535853) fails at its first new assertion (no `ETag` on PUT 201,
 `test_nrf_gap_closure.cpp:292`). That assertion is fatal, so the later 204/404/409/412 checks were
 not reached against the old binary; this run does not show each of them failing separately.
+
+**Update (2026-11-18).** The second half of item 2, the ADR-0570 audit, was done for the NEF in
+ADR-0575 (#22). The remaining sites are listed there.
