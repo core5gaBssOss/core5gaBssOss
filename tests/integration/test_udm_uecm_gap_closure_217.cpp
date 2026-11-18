@@ -91,6 +91,8 @@ void exercise_smsf_group(sbi_core::http2::Client& client,
     auto get_before_resp = client.send(get_before_req);
     ASSERT_TRUE(get_before_resp.has_value());
     EXPECT_EQ(get_before_resp->status, 404);
+    // TS 29.503 table 6.2.7.3-1 (ADR-0584).
+    EXPECT_EQ(json::parse(get_before_resp->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 
     sbi_gen::SmsfRegistration create_data{};
     create_data.smsfInstanceId = "00000000-0000-4000-8000-000000000ddd";
@@ -153,6 +155,7 @@ void exercise_smsf_group(sbi_core::http2::Client& client,
     auto delete_again_resp = client.send(delete_req);
     ASSERT_TRUE(delete_again_resp.has_value());
     EXPECT_EQ(delete_again_resp->status, 404);
+    EXPECT_EQ(json::parse(delete_again_resp->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 }
 
 } // namespace
