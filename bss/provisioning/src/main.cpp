@@ -66,6 +66,9 @@ int main() {
     auto service_patch_counter =
         meter->CreateUInt64Counter("provisioning_tmf640_service_patch_total",
                                    "TMF640 PATCH /service/{id} requests answered 200");
+    auto service_delete_counter =
+        meter->CreateUInt64Counter("provisioning_tmf640_service_delete_total",
+                                   "TMF640 DELETE /service/{id} requests answered 204");
 
     // ADR-0450: real observability for ADR-0449's PgPool hardening -- two real, independent pools
     // (orchestration DB, charging DB), reported separately since an exhausted orchestration pool
@@ -281,6 +284,25 @@ int main() {
             service_patch_counter->Add(1);
             return sbi_core::http2::Response::json(200, patched->dump());
         });
+
+    // DELETE /service/{id} (ADR-0585): an active or inactive Service is barred at the UDR first;
+    // the subscriber stays provisioned there (mapping row A5).
+    server.add_route("DELETE",
+                     service_root + "/{id}",
+                     [&service_store, &udr, &service_delete_counter, tmf_error](
+                         const sbi_core::http2::Request& req) {
+                         auto deleted = provisioning::tmf640::delete_service(
+                             service_store, udr, req.path_params.at("id"));
+                         if (!deleted.has_value()) {
+                             return tmf_error(deleted.error().status,
+                                              deleted.error().title,
+                                              deleted.error().detail);
+                         }
+                         service_delete_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     spdlog::info("provisioning: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
     server.start();

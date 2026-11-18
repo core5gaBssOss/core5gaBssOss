@@ -56,6 +56,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   and `docs-lint` run there, and it shares `build`, `sanitize` and `fuzz-nightly` with the lab host
   ([ADR-0580](docs/decisions/ADR-0580-ci-lint-job-runs-on-the-laptop-runner-5gc-lab-small-fork-pr.md),
   [ADR-0581](docs/decisions/ADR-0581-laptop-runner-also-carries-the-5gc-lab-label-and-shares.md)).
+- TMF640 `DELETE /service/{id}`: an active or inactive Service is barred at the UDR, then removed;
+  the subscriber stays provisioned (mapping row A5)
+  ([ADR-0585](docs/decisions/ADR-0585-tmf640-delete-service-id-bars-at-the-udr-then-removes-the.md)).
 
 ### Changed
 

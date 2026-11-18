@@ -234,3 +234,20 @@ TEST(Tmf640Patch, RefusalNeverEchoesACharacteristicValue) {
     ASSERT_FALSE(p.has_value());
     EXPECT_EQ(p.error().detail.find("SECRET"), std::string::npos);
 }
+
+// ADR-0585: DELETE bars a Service that has network documents at the UDR, and writes nothing for
+// a pre-active one.
+TEST(Tmf640Delete, ActiveAndInactiveServicesAreBarredFirst) {
+    for (const char* state : {"active", "inactive"}) {
+        const auto p = provisioning::tmf640::plan_delete(stored_in(state));
+        EXPECT_TRUE(p.bar) << state;
+        EXPECT_FALSE(p.supi.empty()) << state;
+        EXPECT_FALSE(p.specification_id.empty()) << state;
+    }
+}
+
+TEST(Tmf640Delete, PreActiveServicesWriteNothing) {
+    for (const char* state : {"feasibilityChecked", "designed", "reserved"}) {
+        EXPECT_FALSE(provisioning::tmf640::plan_delete(stored_in(state)).bar) << state;
+    }
+}
