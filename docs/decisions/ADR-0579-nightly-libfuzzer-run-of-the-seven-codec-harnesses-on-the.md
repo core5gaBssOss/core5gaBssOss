@@ -61,5 +61,8 @@ ran them (ADR-0572 B9: "libFuzzer targets never run in CI"); `tests/fuzz/CMakeLi
 
 **Verified.** Local only, as above. CI/runner result to be added after the first `workflow_dispatch`.
 
-**Update (2026-11-18).** Merged to `main` in #26. The first `workflow_dispatch` run was started on
-2026-11-18. Its result is not recorded here yet, so no fuzzing outcome is claimed.
+**Update (2026-11-18).** Merged to `main` in #26. The first `workflow_dispatch` run, 44230521237 on
+`main` 3d02404f (2026-11-18, 03:27-03:43 UTC, 16 min including the build), succeeded. Each of the
+seven harnesses ran for its 120 s budget. They executed 21.4M, 30.1M, 32.8M, 41.2M, 58.2M, 77.2M
+and 94.0M inputs (`Done N runs in 121 second(s)`), and none crashed. This is a time-boxed run with no
+coverage measured, not a proof that the codecs are free of bugs.
