@@ -136,6 +136,9 @@ The user approved every row below ("approve all", 2026-11-07). They are binding 
   ALL_PACKET_SERVICES`, as for A4), then its row is deleted. A pre-active Service wrote nothing, so
   nothing is written. Row A5 still holds: the subscriber stays provisioned at the UDR, and full
   deprovisioning is deferred for future implementation.
+- 2026-11-18, ADR-0586: TMF640 event notifications. `POST`/`DELETE /hub` registers listeners, and
+  Service Create, AttributeValueChange, StateChange and Delete events are delivered best effort to
+  `{callback}/listener/<event>`. The TMF664 side (row B1) is not built.
 
 ## Not done in this pass
 
