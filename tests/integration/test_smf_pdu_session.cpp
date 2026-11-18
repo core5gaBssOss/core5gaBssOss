@@ -226,6 +226,7 @@ TEST(SmfIntegration, FullSmContextLifecycleOverRealHttp2) {
     auto release_again = client.send(release_req);
     ASSERT_TRUE(release_again.has_value());
     EXPECT_EQ(release_again->status, 404);
+    EXPECT_EQ(json::parse(release_again->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 
     // Confirm ReleaseSMContext really called PCF's DeleteSMPolicy too, not just cleaned up
     // locally: the SM Policy at PCF must be gone now.
@@ -338,6 +339,7 @@ TEST(SmfIntegration, MissingSmContextIs404AndTamperedTokenIs401AndNonMultipartCr
     auto retrieve_resp = client.send(retrieve_req);
     ASSERT_TRUE(retrieve_resp.has_value());
     EXPECT_EQ(retrieve_resp->status, 404);
+    EXPECT_EQ(json::parse(retrieve_resp->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 
     sbi_core::http2::ClientRequest tampered_req;
     tampered_req.method = "POST";

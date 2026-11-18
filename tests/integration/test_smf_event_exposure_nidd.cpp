@@ -169,6 +169,7 @@ TEST(SmfEventExposureIntegration, CreateGetReplaceDeleteLifecycle) {
     auto missing_get_resp = client.send(missing_get_req);
     ASSERT_TRUE(missing_get_resp.has_value());
     EXPECT_EQ(missing_get_resp->status, 404);
+    EXPECT_EQ(json::parse(missing_get_resp->body).value("cause", ""), "SUBSCRIPTION_NOT_FOUND");
 
     const json replace_body = json{{"notifId", "notif-2"},
                                    {"notifUri", "https://example.com/smf-evt-notify-2"},

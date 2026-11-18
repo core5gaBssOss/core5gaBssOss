@@ -231,4 +231,5 @@ TEST(SmfHandoverN2SmInfoIntegration, HandoverRequiredOnUnknownContextIs404) {
     // AMF treats any non-200 as "this session cannot be prepared" and skips it rather than
     // fabricating a tunnel -- so a clean 404 here is load-bearing, not cosmetic.
     EXPECT_EQ(ho_resp->status, 404) << ho_resp->body;
+    EXPECT_EQ(json::parse(ho_resp->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 }
