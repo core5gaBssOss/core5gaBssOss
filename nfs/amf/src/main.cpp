@@ -506,7 +506,7 @@ int main() {
                              return problem_response(404,
                                                      "Not Found",
                                                      "No UE context with id " + ue_context_id,
-                                                     std::nullopt);
+                                                     "CONTEXT_NOT_FOUND");
                          }
                          ue_contexts.remove(ue_context_id);
                          release_counter->Add(1);
@@ -528,7 +528,7 @@ int main() {
                              return problem_response(404,
                                                      "Not Found",
                                                      "No UE context with id " + ue_context_id,
-                                                     std::nullopt);
+                                                     "CONTEXT_NOT_FOUND");
                          }
                          ebi_counter->Add(1);
                          // Disclosed simplification: no real EPS Bearer Id pool -- always reports
@@ -554,7 +554,7 @@ int main() {
                              return problem_response(404,
                                                      "Not Found",
                                                      "No UE context with id " + ue_context_id,
-                                                     std::nullopt);
+                                                     "CONTEXT_NOT_FOUND");
                          }
                          transfer_counter->Add(1);
                          // Unreachable today (see file header): if it ever runs, only the mandatory
@@ -577,8 +577,10 @@ int main() {
             }
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(
-                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
+                return problem_response(404,
+                                        "Not Found",
+                                        "No UE context with id " + ue_context_id,
+                                        "CONTEXT_NOT_FOUND");
             }
             relocate_counter->Add(1);
             sbi_gen::UeContextRelocatedData resp_data;
@@ -604,8 +606,10 @@ int main() {
             }
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(
-                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
+                return problem_response(404,
+                                        "Not Found",
+                                        "No UE context with id " + ue_context_id,
+                                        "CONTEXT_NOT_FOUND");
             }
             cancel_relocate_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -626,7 +630,7 @@ int main() {
                              return problem_response(404,
                                                      "Not Found",
                                                      "No UE context with id " + ue_context_id,
-                                                     std::nullopt);
+                                                     "CONTEXT_NOT_FOUND");
                          }
                          reg_status_counter->Add(1);
                          sbi_gen::UeRegStatusUpdateRspData resp_data;
@@ -676,8 +680,10 @@ int main() {
         [&ue_contexts, &ue_ngap_registry, &n1n2_counter](const sbi_core::http2::Request& req) {
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(
-                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
+                return problem_response(404,
+                                        "Not Found",
+                                        "No UE context with id " + ue_context_id,
+                                        "CONTEXT_NOT_FOUND");
             }
 
             // Real delivery (ADR-0038) requires a binary N1 message, i.e. multipart/related --
@@ -956,8 +962,10 @@ int main() {
             }
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(
-                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
+                return problem_response(404,
+                                        "Not Found",
+                                        "No UE context with id " + ue_context_id,
+                                        "CONTEXT_NOT_FOUND");
             }
             provide_loc_info_counter->Add(1);
             // Disclosed simplification: an honestly-empty ProvideLocInfo -- UeContextStore only
@@ -979,12 +987,14 @@ int main() {
                          cancel_location_counter->Add(1);
                          // Disclosed: ProvidePositioningInfo above always 501s, so no real
                          // ldrReference is ever issued -- no cancellation request can ever match
-                         // one. Same precedent as LMF/GMLC's own cancel-path gaps.
-                         return problem_response(404,
-                                                 "Not Found",
+                         // one. Same precedent as LMF/GMLC's own cancel-path gaps. TS 29.518 table
+                         // 6.4.3.2.4.4.2-2 lists no 404 for cancel-pos-info: an unknown location
+                         // session is 403 LOCATION_SESSION_UNKNOWN (table 6.4.7.3-1, ADR-0588).
+                         return problem_response(403,
+                                                 "Forbidden",
                                                  "No positioning request with ldrReference " +
                                                      body->ldrReference,
-                                                 std::nullopt);
+                                                 "LOCATION_SESSION_UNKNOWN");
                      });
 
     // ---- TS29518_Namf_EventExposure.yaml (ADR-0199) ----
@@ -1286,8 +1296,10 @@ int main() {
         [&ue_contexts, &mt_domain_selection_counter](const sbi_core::http2::Request& req) {
             const auto ue_context_id = req.path_params.at("ueContextId");
             if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(
-                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
+                return problem_response(404,
+                                        "Not Found",
+                                        "No UE context with id " + ue_context_id,
+                                        "CONTEXT_NOT_FOUND");
             }
             mt_domain_selection_counter->Add(1);
             // Disclosed simplification: honestly-empty UeContextInfo -- same "UeContextStore only
@@ -1297,33 +1309,37 @@ int main() {
             return sbi_core::http2::Response::json(200, j.dump());
         });
 
-    server.add_route(
-        "PUT",
-        std::string(kMtApiRoot) + "/ue-contexts/{ueContextId}/ue-reachind",
-        [&ue_contexts, &ue_ngap_registry, &mt_enable_reachability_counter](
-            const sbi_core::http2::Request& req) {
-            sbi_core::http2::Response err;
-            auto body = parse_json_body<sbi_gen::EnableUeReachabilityReqData>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto ue_context_id = req.path_params.at("ueContextId");
-            if (!ue_contexts.get(ue_context_id).has_value()) {
-                return problem_response(
-                    404, "Not Found", "No UE context with id " + ue_context_id, std::nullopt);
-            }
-            mt_enable_reachability_counter->Add(1);
-            // ADR-0486 increment 4: a UE with a live NGAP association is CM-CONNECTED and so
-            // REACHABLE with no paging (TS 23.502 clause 4.13.3.7). Any other UE is reported
-            // UNREACHABLE -- disclosed: this AMF has no paging (TS 23.502 clause 4.2.3.3), so the
-            // CM-IDLE case of clause 4.13.3.6 step 4 ends here rather than in a page.
-            sbi_gen::EnableUeReachabilityRspData resp_data;
-            resp_data.reachability.value = ue_ngap_registry.has_live_association(ue_context_id)
-                                               ? sbi_gen::UeReachability::REACHABLE
-                                               : sbi_gen::UeReachability::UNREACHABLE;
-            json j = resp_data;
-            return sbi_core::http2::Response::json(200, j.dump());
-        });
+    server.add_route("PUT",
+                     std::string(kMtApiRoot) + "/ue-contexts/{ueContextId}/ue-reachind",
+                     [&ue_contexts, &ue_ngap_registry, &mt_enable_reachability_counter](
+                         const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             parse_json_body<sbi_gen::EnableUeReachabilityReqData>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto ue_context_id = req.path_params.at("ueContextId");
+                         if (!ue_contexts.get(ue_context_id).has_value()) {
+                             return problem_response(404,
+                                                     "Not Found",
+                                                     "No UE context with id " + ue_context_id,
+                                                     "CONTEXT_NOT_FOUND");
+                         }
+                         mt_enable_reachability_counter->Add(1);
+                         // ADR-0486 increment 4: a UE with a live NGAP association is CM-CONNECTED
+                         // and so REACHABLE with no paging (TS 23.502 clause 4.13.3.7). Any other
+                         // UE is reported UNREACHABLE -- disclosed: this AMF has no paging
+                         // (TS 23.502 clause 4.2.3.3), so the CM-IDLE case of clause 4.13.3.6 step
+                         // 4 ends here rather than in a page.
+                         sbi_gen::EnableUeReachabilityRspData resp_data;
+                         resp_data.reachability.value =
+                             ue_ngap_registry.has_live_association(ue_context_id)
+                                 ? sbi_gen::UeReachability::REACHABLE
+                                 : sbi_gen::UeReachability::UNREACHABLE;
+                         json j = resp_data;
+                         return sbi_core::http2::Response::json(200, j.dump());
+                     });
 
     server.add_route("POST",
                      std::string(kMtApiRoot) + "/ue-contexts/enable-group-reachability",

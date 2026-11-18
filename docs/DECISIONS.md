@@ -552,6 +552,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0584](decisions/ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md) UDM 404s carry the TS 29.503 cause for their service (SBI-03, UDM part)
 - [0585](decisions/ADR-0585-tmf640-delete-service-id-bars-at-the-udr-then-removes-the.md) TMF640 DELETE /service/{id} bars at the UDR, then removes the Service
 - [0586](decisions/ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md) TMF640 event notifications: hub listeners and best-effort Service events (N1-N5)
+- [0588](decisions/ADR-0588-amf-404s-carry-context-not-found-cancellocation-for-an.md) AMF 404s carry CONTEXT_NOT_FOUND; CancelLocation for an unknown session is 403 LOCATION_SESSION_UNKNOWN (SBI-03, AMF part)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

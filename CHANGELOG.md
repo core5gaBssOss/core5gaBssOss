@@ -135,6 +135,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - UDM: every 404 carries the TS 29.503 cause for its service (`CONTEXT_NOT_FOUND` for UECM
   registrations, `DATA_NOT_FOUND`, `USER_NOT_FOUND`, `GROUP_IDENTIFIER_NOT_FOUND`, `AUTHORIZATION_NOT_FOUND`)
   ([ADR-0584](docs/decisions/ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md)).
+- AMF: unknown-UE-context 404s carry `CONTEXT_NOT_FOUND`; `cancel-pos-info` for an unknown
+  location session answers 403 `LOCATION_SESSION_UNKNOWN` (TS 29.518 table 6.4.7.3-1) instead of 404
+  ([ADR-0588](docs/decisions/ADR-0588-amf-404s-carry-context-not-found-cancellocation-for-an.md)).
 
 ### Security
 

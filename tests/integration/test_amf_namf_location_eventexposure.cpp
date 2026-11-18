@@ -4,8 +4,9 @@
 //
 // Covers: ProvidePositioningInfo's real, disclosed 501 (no LPP/GNSS/PRU capability);
 // ProvideLocationInfo's real 404-then-honestly-empty-200 (mirrors ReleaseUEContext's own
-// get/404 precedent, via a real multipart CreateUEContext); CancelLocation's real 404 (no
-// ldrReference is ever issued, since ProvidePositioningInfo always 501s); and full real
+// get/404 precedent, via a real multipart CreateUEContext); CancelLocation's real 403 (no
+// ldrReference is ever issued, since ProvidePositioningInfo always 501s; LOCATION_SESSION_UNKNOWN,
+// ADR-0588); and full real
 // create+modify(RFC 6902 PATCH)+delete subscription CRUD for both the individual /subscriptions
 // and AMF-Set-level /set-subscriptions families of Namf_EventExposure.
 
@@ -167,6 +168,7 @@ TEST(AmfLocationIntegration, ProvideLocationInfo404ThenHonestlyEmpty200) {
     auto missing_resp = client.send(missing_req);
     ASSERT_TRUE(missing_resp.has_value());
     EXPECT_EQ(missing_resp->status, 404);
+    EXPECT_EQ(json::parse(missing_resp->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 
     const json create_json = sbi_gen::UeContextCreateData{};
     auto create_req =
@@ -188,7 +190,7 @@ TEST(AmfLocationIntegration, ProvideLocationInfo404ThenHonestlyEmpty200) {
     EXPECT_FALSE(loc_info.location.has_value());
 }
 
-TEST(AmfLocationIntegration, CancelLocationIs404) {
+TEST(AmfLocationIntegration, CancelLocationUnknownSessionIs403) {
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_GT(nrf.pid(), 0) << "failed to fork nrf";
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -216,7 +218,9 @@ TEST(AmfLocationIntegration, CancelLocationIs404) {
          "ldr-42"}}.dump();
     auto resp = client.send(req);
     ASSERT_TRUE(resp.has_value());
-    EXPECT_EQ(resp->status, 404);
+    // TS 29.518 table 6.4.7.3-1: an unknown location session (ADR-0588).
+    EXPECT_EQ(resp->status, 403);
+    EXPECT_EQ(json::parse(resp->body).value("cause", ""), "LOCATION_SESSION_UNKNOWN");
 }
 
 TEST(AmfEventExposureIntegration, IndividualSubscriptionCreateModifyDelete) {
