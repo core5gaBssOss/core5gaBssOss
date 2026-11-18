@@ -548,6 +548,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0581](decisions/ADR-0581-laptop-runner-also-carries-the-5gc-lab-label-and-shares.md) Laptop runner also carries the 5gc-lab label and shares build, sanitize and fuzz jobs
 - [0578](decisions/ADR-0578-nef-ampolicyauthorization-404-carries-application-am.md) NEF AMPolicyAuthorization 404 carries APPLICATION_AM_CONTEXT_NOT_FOUND; the other NEF 404s have no defined cause (SBI-03, NEF part)
 - [0582](decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md) Self-hosted CI parallelism follows runner RAM: CI_JOBS 2 under 12 GiB, else 4
+- [0584](decisions/ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md) UDM 404s carry the TS 29.503 cause for their service (SBI-03, UDM part)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

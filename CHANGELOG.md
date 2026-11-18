@@ -111,6 +111,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   answer 404 with `cause` `APPLICATION_AM_CONTEXT_NOT_FOUND` (TS 29.522 table 5.17.5.3-1); the
   NEF's other 404s have no cause defined in the specifications in hand
   ([ADR-0578](docs/decisions/ADR-0578-nef-ampolicyauthorization-404-carries-application-am.md)).
+- UDM: every 404 carries the TS 29.503 cause for its service (`CONTEXT_NOT_FOUND` for UECM
+  registrations, `DATA_NOT_FOUND`, `USER_NOT_FOUND`, `GROUP_IDENTIFIER_NOT_FOUND`, `AUTHORIZATION_NOT_FOUND`)
+  ([ADR-0584](docs/decisions/ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md)).
 
 ### Security
 

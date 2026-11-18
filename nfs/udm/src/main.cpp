@@ -431,7 +431,7 @@ sbi_core::http2::Response auth_data_problem(udm::AuthDataError err, const std::s
     switch (err) {
         case udm::AuthDataError::NotFound:
             return sbi_core::http2::problem_response(
-                404, "Not Found", "No authentication subscription for " + supi, std::nullopt);
+                404, "Not Found", "No authentication subscription for " + supi, "USER_NOT_FOUND");
         case udm::AuthDataError::Invalid:
             return sbi_core::http2::problem_response(500,
                                                      "Internal Server Error",
@@ -819,7 +819,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AMF 3GPP-access registration for ueId " + ue_id,
-                                 std::nullopt);
+                                 "CONTEXT_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, registration->dump());
                      });
@@ -845,7 +845,7 @@ int main() {
                     404,
                     "Not Found",
                     "No AMF 3GPP-access registration for ueId " + ue_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             // ADR-0475 event 3 (TS 33.128 7.2.2.3.4, bullet 2): purgeFlag=true on this real
             // Amf3GppAccessRegistrationModification is this build's only conformant trigger for
@@ -876,7 +876,7 @@ int main() {
                     404,
                     "Not Found",
                     "No AMF 3GPP-access registration for ueId " + ue_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             amf_registrations.remove(ue_id);
             cancel_location_at_vlr(vlr_peer_address, vlr_peer_port, ue_id, body->deregReason.value);
@@ -913,7 +913,7 @@ int main() {
                     404,
                     "Not Found",
                     "No AMF 3GPP-access registration for ueId " + ue_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             pei_update_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1015,7 +1015,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AMF non-3GPP-access registration for ueId " + ue_id,
-                                 std::nullopt);
+                                 "CONTEXT_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, registration->dump());
                      });
@@ -1039,7 +1039,7 @@ int main() {
                     404,
                     "Not Found",
                     "No AMF non-3GPP-access registration for ueId " + ue_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             amf_non3gpp_patch_counter->Add(1);
             // ADR-0475 event 3 (TS 33.128 7.2.2.3.4, bullet 3), non-3GPP-access variant.
@@ -1112,7 +1112,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No SMSF 3GPP-access registration for ueId " + ue_id,
-                                 std::nullopt);
+                                 "CONTEXT_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, registration->dump());
                      });
@@ -1127,7 +1127,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMSF 3GPP-access registration for ueId " + ue_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             smsf_3gpp_dereg_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1152,7 +1152,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMSF 3GPP-access registration for ueId " + ue_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             smsf_3gpp_patch_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1200,7 +1200,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No SMSF non-3GPP-access registration for ueId " + ue_id,
-                                 std::nullopt);
+                                 "CONTEXT_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, registration->dump());
                      });
@@ -1215,7 +1215,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No SMSF non-3GPP-access registration for ueId " + ue_id,
-                                 std::nullopt);
+                                 "CONTEXT_NOT_FOUND");
                          }
                          smsf_non3gpp_dereg_counter->Add(1);
                          sbi_core::http2::Response resp;
@@ -1241,7 +1241,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMSF non-3GPP-access registration for ueId " + ue_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             smsf_non3gpp_patch_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1284,18 +1284,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/ip-sm-gw",
-        [&ip_sm_gw_registrations](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            auto registration = ip_sm_gw_registrations.get(ue_id);
-            if (!registration.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No IP-SM-GW registration for ueId " + ue_id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, registration->dump());
-        });
+    server.add_route("GET",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/ip-sm-gw",
+                     [&ip_sm_gw_registrations](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto registration = ip_sm_gw_registrations.get(ue_id);
+                         if (!registration.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No IP-SM-GW registration for ueId " + ue_id,
+                                 "CONTEXT_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, registration->dump());
+                     });
 
     server.add_route(
         "DELETE",
@@ -1303,8 +1305,11 @@ int main() {
         [&ip_sm_gw_registrations, &ip_sm_gw_dereg_counter](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             if (!ip_sm_gw_registrations.remove(ue_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No IP-SM-GW registration for ueId " + ue_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No IP-SM-GW registration for ueId " +
+                                                             ue_id,
+                                                         "CONTEXT_NOT_FOUND");
             }
             ip_sm_gw_dereg_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1322,22 +1327,24 @@ int main() {
     // real spec, the two collection GETs use genuinely different response shapes, not an
     // inconsistency introduced here). Same PUT-uses-only-`201`/`200` and PATCH-returns-real-`204`
     // conventions as every other registration group in this file.
-    server.add_route(
-        "GET",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/nwdaf-registrations",
-        [&nwdaf_registrations](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            auto list = nwdaf_registrations.list_for_ue(ue_id);
-            if (list.empty()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NWDAF registration for ueId " + ue_id, std::nullopt);
-            }
-            json arr = json::array();
-            for (const auto& registration : list) {
-                arr.push_back(registration);
-            }
-            return sbi_core::http2::Response::json(200, arr.dump());
-        });
+    server.add_route("GET",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/nwdaf-registrations",
+                     [&nwdaf_registrations](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto list = nwdaf_registrations.list_for_ue(ue_id);
+                         if (list.empty()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No NWDAF registration for ueId " + ue_id,
+                                 "CONTEXT_NOT_FOUND");
+                         }
+                         json arr = json::array();
+                         for (const auto& registration : list) {
+                             arr.push_back(registration);
+                         }
+                         return sbi_core::http2::Response::json(200, arr.dump());
+                     });
 
     server.add_route(
         "PUT",
@@ -1384,7 +1391,7 @@ int main() {
                     "Not Found",
                     "No NWDAF registration for ueId/nwdafRegistrationId " + ue_id + "/" +
                         nwdaf_registration_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             nwdaf_dereg_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1413,7 +1420,7 @@ int main() {
                     "Not Found",
                     "No NWDAF registration for ueId/nwdafRegistrationId " + ue_id + "/" +
                         nwdaf_registration_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             nwdaf_patch_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1480,7 +1487,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, registration->dump());
         });
@@ -1504,7 +1511,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -1520,7 +1527,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             smf_registrations.remove(ue_id, pdu_session_id);
             smf_dereg_counter->Add(1);
@@ -1668,7 +1675,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMS routing information available for ueId " + ue_id,
-                    std::nullopt);
+                    "CONTEXT_NOT_FOUND");
             }
             result.supi = ue_id;
             send_routing_info_sm_counter->Add(1);
@@ -1689,27 +1696,30 @@ int main() {
     // 23.380) -- accepting the request and confirming the SUPI has a known registration is genuine
     // work this UDM does; relaying the trigger onward is not wired. A `supi` with no known
     // registration at all is a real `404`.
-    server.add_route(
-        "POST",
-        std::string(kUecmApiRoot) + "/restore-pcscf",
-        [&amf_registrations, &amf_non3gpp_registrations, &restore_pcscf_counter](
-            const sbi_core::http2::Request& req) {
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::TriggerRequest>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto& supi = body->supi;
-            if (!amf_registrations.get(supi).has_value() &&
-                !amf_non3gpp_registrations.get(supi).has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF registration known for supi " + supi, std::nullopt);
-            }
-            restore_pcscf_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("POST",
+                     std::string(kUecmApiRoot) + "/restore-pcscf",
+                     [&amf_registrations, &amf_non3gpp_registrations, &restore_pcscf_counter](
+                         const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::TriggerRequest>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto& supi = body->supi;
+                         if (!amf_registrations.get(supi).has_value() &&
+                             !amf_non3gpp_registrations.get(supi).has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No AMF registration known for supi " + supi,
+                                 "CONTEXT_NOT_FOUND");
+                         }
+                         restore_pcscf_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0227): real, previously
     // undisclosed `GetLocationInfo` -- unlike the two operations above/below, this one is a real,
@@ -1758,8 +1768,11 @@ int main() {
                 result.registrationLocationInfoList.push_back(loc);
             }
             if (result.registrationLocationInfoList.empty()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF registration known for ueId " + ue_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No AMF registration known for ueId " +
+                                                             ue_id,
+                                                         "CONTEXT_NOT_FOUND");
             }
             result.supi = ue_id;
             get_location_info_counter->Add(1);
@@ -1774,27 +1787,30 @@ int main() {
     // re-authentication (TS 33.501) -- accepting the request and confirming the ueId has a known
     // registration is genuine work; relaying the trigger onward is not wired. A ueId with no known
     // registration at all is a real `404`.
-    server.add_route(
-        "GET",
-        std::string(kUecmApiRoot) + "/{ueId}/registrations/trigger-auth",
-        [&amf_registrations, &amf_non3gpp_registrations, &auth_trigger_counter](
-            const sbi_core::http2::Request& req) {
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::AuthTriggerInfo>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            if (!amf_registrations.get(ue_id).has_value() &&
-                !amf_non3gpp_registrations.get(ue_id).has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF registration known for ueId " + ue_id, std::nullopt);
-            }
-            auth_trigger_counter->Add(1);
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("GET",
+                     std::string(kUecmApiRoot) + "/{ueId}/registrations/trigger-auth",
+                     [&amf_registrations, &amf_non3gpp_registrations, &auth_trigger_counter](
+                         const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<sbi_gen::AuthTriggerInfo>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto ue_id = req.path_params.at("ueId");
+                         if (!amf_registrations.get(ue_id).has_value() &&
+                             !amf_non3gpp_registrations.get(ue_id).has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No AMF registration known for ueId " + ue_id,
+                                 "CONTEXT_NOT_FOUND");
+                         }
+                         auth_trigger_counter->Add(1);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nudm_SDM: subscriber data retrieval (ADR-0069, gap-closure Tier 1b: real UDR calls,
     // replacing the permanently-empty stub the file header originally disclosed) ---
@@ -1830,8 +1846,11 @@ int main() {
                                                      "SYSTEM_FAILURE");
         }
         if (udr_resp->status == 404) {
-            return sbi_core::http2::problem_response(
-                404, "Not Found", "No provisioned " + segment + " for ueId " + ue_id, std::nullopt);
+            return sbi_core::http2::problem_response(404,
+                                                     "Not Found",
+                                                     "No provisioned " + segment + " for ueId " +
+                                                         ue_id,
+                                                     "DATA_NOT_FOUND");
         }
         if (udr_resp->status != 200) {
             return sbi_core::http2::problem_response(500,
@@ -2042,7 +2061,7 @@ int main() {
                                                      "Not Found",
                                                      "No provisioned " + field_name + " for ueId " +
                                                          ue_id,
-                                                     std::nullopt);
+                                                     "DATA_NOT_FOUND");
         }
         return parsed.at(field_name);
     };
@@ -2078,8 +2097,11 @@ int main() {
                                                      "SYSTEM_FAILURE");
         }
         if (udr_resp->status == 404) {
-            return sbi_core::http2::problem_response(
-                404, "Not Found", "No provisioned " + segment + " for ueId " + ue_id, std::nullopt);
+            return sbi_core::http2::problem_response(404,
+                                                     "Not Found",
+                                                     "No provisioned " + segment + " for ueId " +
+                                                         ue_id,
+                                                     "DATA_NOT_FOUND");
         }
         if (udr_resp->status != 200) {
             return sbi_core::http2::problem_response(500,
@@ -2289,7 +2311,7 @@ int main() {
             auto& am_data = std::get<json>(result);
             if (!am_data.contains("nssai")) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No provisioned nssai for ueId " + supi, std::nullopt);
+                    404, "Not Found", "No provisioned nssai for ueId " + supi, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, am_data.at("nssai").dump());
         });
@@ -2639,7 +2661,7 @@ int main() {
                                                          "Not Found",
                                                          "No shared data for sharedDataId " +
                                                              shared_data_id,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             if (udr_resp->status != 200) {
                 return sbi_core::http2::problem_response(500,
@@ -2742,7 +2764,7 @@ int main() {
             }
             if (udr_resp->status == 404) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Group Identifiers found", std::nullopt);
+                    404, "Not Found", "No Group Identifiers found", "GROUP_IDENTIFIER_NOT_FOUND");
             }
             if (udr_resp->status != 200) {
                 return sbi_core::http2::problem_response(500,
@@ -2868,13 +2890,13 @@ int main() {
                                                              "Not Found",
                                                              "no identity data for " + ue_id +
                                                                  " at the UDR",
-                                                             std::nullopt);
+                                                             "USER_NOT_FOUND");
                 }
                 const auto ident = json::parse(r->body, nullptr, false);
                 if (!ident.is_object() || !ident.contains("supiList") ||
                     !ident.at("supiList").is_array() || ident.at("supiList").empty()) {
                     return sbi_core::http2::problem_response(
-                        404, "Not Found", "no SUPI is associated with " + ue_id, std::nullopt);
+                        404, "Not Found", "no SUPI is associated with " + ue_id, "USER_NOT_FOUND");
                 }
                 sbi_gen::IdTranslationResult out;
                 out.supi = ident.at("supiList").at(0).get<std::string>();
@@ -3347,7 +3369,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No auth event " + auth_event_id + " for supi " + supi,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          delete_auth_counter->Add(1);
                          sbi_core::http2::Response resp;
@@ -3512,18 +3534,19 @@ int main() {
 
     // --- Nudm_PP (ADR-0082, gap-closure task #105) ---
 
-    server.add_route("GET",
-                     std::string(kPpApiRoot) + "/{ueId}/pp-data",
-                     [&pp_data, &pp_get_counter](const sbi_core::http2::Request& req) {
-                         const auto ue_id = req.path_params.at("ueId");
-                         auto data = pp_data.get(ue_id);
-                         if (!data.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No PP data for ueId " + ue_id, std::nullopt);
-                         }
-                         pp_get_counter->Add(1);
-                         return sbi_core::http2::Response::json(200, data->dump());
-                     });
+    server.add_route(
+        "GET",
+        std::string(kPpApiRoot) + "/{ueId}/pp-data",
+        [&pp_data, &pp_get_counter](const sbi_core::http2::Request& req) {
+            const auto ue_id = req.path_params.at("ueId");
+            auto data = pp_data.get(ue_id);
+            if (!data.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No PP data for ueId " + ue_id, "USER_NOT_FOUND");
+            }
+            pp_get_counter->Add(1);
+            return sbi_core::http2::Response::json(200, data->dump());
+        });
 
     server.add_route("PATCH",
                      std::string(kPpApiRoot) + "/{ueId}/pp-data",
@@ -3883,7 +3906,7 @@ int main() {
                                                      "Not Found",
                                                      "No such service-specific authorization: " +
                                                          body->authId,
-                                                     std::nullopt);
+                                                     "AUTHORIZATION_NOT_FOUND");
         });
 
     // ---- TS29503_Nudm_UEID.yaml (ADR-0202) ----
