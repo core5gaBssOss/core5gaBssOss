@@ -2099,7 +2099,7 @@ int main() {
             auto context = amf_contexts.get(ue_id);
             if (!context.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF context for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No AMF context for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, context->dump());
         });
@@ -2167,7 +2167,7 @@ int main() {
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AMF context for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No AMF context for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             amf_ctx_write_counter->Add(1);
             notify_subscribers(subs_to_notify,
@@ -2197,7 +2197,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AMF non-3GPP-access context for ueId " + ue_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, context->dump());
                      });
@@ -2266,7 +2266,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, registration->dump());
         });
@@ -2340,7 +2340,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             smf_reg_write_counter->Add(1);
             notify_subscribers(subs_to_notify,
@@ -2368,7 +2368,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMF registration for ueId/pduSessionId " + ue_id + "/" + pdu_session_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             smf_registrations.remove(ue_id, pdu_session_id);
             notify_subscribers(subs_to_notify,
@@ -2399,7 +2399,7 @@ int main() {
             provisioned_data_get_counter->Add(1);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No provisioned am-data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No provisioned am-data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -2417,7 +2417,7 @@ int main() {
                     404,
                     "Not Found",
                     "No provisioned smf-selection-subscription-data for ueId " + ue_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -2432,7 +2432,7 @@ int main() {
             provisioned_data_get_counter->Add(1);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No provisioned sm-data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No provisioned sm-data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -2452,7 +2452,7 @@ int main() {
                                                          "Not Found",
                                                          "No provisioned lcs-bca-data for ueId " +
                                                              ue_id,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -2472,7 +2472,7 @@ int main() {
                                                          "Not Found",
                                                          "No provisioned sms-mng-data for ueId " +
                                                              ue_id,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -2489,8 +2489,11 @@ int main() {
             auto data = provisioned_data.get_sms_data(ue_id, serving_plmn_id);
             provisioned_data_get_counter->Add(1);
             if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No provisioned sms-data for ueId " + ue_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No provisioned sms-data for ueId " +
+                                                             ue_id,
+                                                         "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -2507,8 +2510,11 @@ int main() {
             auto data = provisioned_data.get_trace_data(ue_id, serving_plmn_id);
             provisioned_data_get_counter->Add(1);
             if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No provisioned trace-data for ueId " + ue_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No provisioned trace-data for ueId " +
+                                                             ue_id,
+                                                         "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -2695,7 +2701,7 @@ int main() {
             sm_policy_data_get_counter->Add(1);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM policy data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No SM policy data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -2753,7 +2759,7 @@ int main() {
                     404,
                     "Not Found",
                     "No usage monitoring data for usageMonId " + usage_mon_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -2793,7 +2799,7 @@ int main() {
                     404,
                     "Not Found",
                     "No usage monitoring data for usageMonId " + usage_mon_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             usage_mon_data_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -2890,7 +2896,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No authentication subscription data for ueId " + ue_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
@@ -2960,19 +2966,21 @@ int main() {
                          return resp;
                      });
 
-    routes.add_route(
-        "GET",
-        auth_status_path_pattern,
-        [&auth_status, &auth_status_get_counter](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            auto data = auth_status.get(ue_id);
-            auth_status_get_counter->Add(1);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No authentication status for ueId " + ue_id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    routes.add_route("GET",
+                     auth_status_path_pattern,
+                     [&auth_status, &auth_status_get_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto data = auth_status.get(ue_id);
+                         auth_status_get_counter->Add(1);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No authentication status for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
     routes.add_route(
         "DELETE",
@@ -2984,8 +2992,11 @@ int main() {
          auth_status_path_pattern](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             if (!auth_status.remove(ue_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No authentication status for ueId " + ue_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No authentication status for ueId " +
+                                                             ue_id,
+                                                         "DATA_NOT_FOUND");
             }
             auth_status_delete_counter->Add(1);
             notify_subscribers(subs_to_notify,
@@ -3055,7 +3066,7 @@ int main() {
                                  "Not Found",
                                  "No individual authentication status for ueId " + ue_id +
                                      ", servingNetworkName " + serving_network_name,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
@@ -3075,7 +3086,7 @@ int main() {
                                  "Not Found",
                                  "No individual authentication status for ueId " + ue_id +
                                      ", servingNetworkName " + serving_network_name,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          individual_auth_status_delete_counter->Add(1);
                          notify_subscribers(subs_to_notify,
@@ -3106,7 +3117,7 @@ int main() {
             am_policy_data_get_counter->Add(1);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No AM policy data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No AM policy data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -3182,7 +3193,7 @@ int main() {
                                                          "Not Found",
                                                          "No SMSF 3GPP-access context for ueId " +
                                                              ue_id,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -3201,7 +3212,7 @@ int main() {
                                                          "Not Found",
                                                          "No SMSF 3GPP-access context for ueId " +
                                                              ue_id,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             smsf_3gpp_delete_counter->Add(1);
             notify_subscribers(subs_to_notify,
@@ -3254,7 +3265,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No SMSF non-3GPP-access context for ueId " + ue_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
@@ -3272,7 +3283,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No SMSF non-3GPP-access context for ueId " + ue_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          smsf_non3gpp_delete_counter->Add(1);
                          notify_subscribers(
@@ -3326,7 +3337,7 @@ int main() {
             auto data = ip_sm_gw_context.get(ue_id);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No IP-SM-GW context for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No IP-SM-GW context for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -3356,7 +3367,7 @@ int main() {
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No IP-SM-GW context for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No IP-SM-GW context for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             ip_sm_gw_write_counter->Add(1);
             notify_subscribers(subs_to_notify,
@@ -3380,7 +3391,7 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             if (!ip_sm_gw_context.remove(ue_id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No IP-SM-GW context for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No IP-SM-GW context for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             ip_sm_gw_delete_counter->Add(1);
             notify_subscribers(subs_to_notify,
@@ -3437,66 +3448,70 @@ int main() {
         auto data = mwd.get(ue_id);
         if (!data.has_value()) {
             return sbi_core::http2::problem_response(
-                404, "Not Found", "No Message Waiting Data for ueId " + ue_id, std::nullopt);
+                404, "Not Found", "No Message Waiting Data for ueId " + ue_id, "DATA_NOT_FOUND");
         }
         return sbi_core::http2::Response::json(200, data->dump());
     });
 
-    routes.add_route(
-        "PATCH",
-        mwd_path_pattern,
-        [&mwd, &mwd_write_counter, &subs_to_notify, &notify_client, mwd_path_pattern](
-            const sbi_core::http2::Request& req) {
-            json patch_ops;
-            try {
-                patch_ops = json::parse(req.body);
-            } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
-            }
-            const auto ue_id = req.path_params.at("ueId");
-            std::optional<json> patched;
-            try {
-                patched = mwd.apply_patch(ue_id, patch_ops);
-            } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
-            }
-            if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Message Waiting Data for ueId " + ue_id, std::nullopt);
-            }
-            mwd_write_counter->Add(1);
-            notify_subscribers(subs_to_notify,
-                               notify_client,
-                               ue_id,
-                               resolved_location(mwd_path_pattern, req.path_params),
-                               change_from_json_patch(patch_ops));
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    routes.add_route("PATCH",
+                     mwd_path_pattern,
+                     [&mwd, &mwd_write_counter, &subs_to_notify, &notify_client, mwd_path_pattern](
+                         const sbi_core::http2::Request& req) {
+                         json patch_ops;
+                         try {
+                             patch_ops = json::parse(req.body);
+                         } catch (const json::parse_error& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         const auto ue_id = req.path_params.at("ueId");
+                         std::optional<json> patched;
+                         try {
+                             patched = mwd.apply_patch(ue_id, patch_ops);
+                         } catch (const json::exception& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         if (!patched.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No Message Waiting Data for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         mwd_write_counter->Add(1);
+                         notify_subscribers(subs_to_notify,
+                                            notify_client,
+                                            ue_id,
+                                            resolved_location(mwd_path_pattern, req.path_params),
+                                            change_from_json_patch(patch_ops));
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
-    routes.add_route(
-        "DELETE",
-        mwd_path_pattern,
-        [&mwd, &mwd_delete_counter, &subs_to_notify, &notify_client, mwd_path_pattern](
-            const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            if (!mwd.remove(ue_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Message Waiting Data for ueId " + ue_id, std::nullopt);
-            }
-            mwd_delete_counter->Add(1);
-            notify_subscribers(subs_to_notify,
-                               notify_client,
-                               ue_id,
-                               resolved_location(mwd_path_pattern, req.path_params),
-                               change_remove());
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    routes.add_route("DELETE",
+                     mwd_path_pattern,
+                     [&mwd, &mwd_delete_counter, &subs_to_notify, &notify_client, mwd_path_pattern](
+                         const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         if (!mwd.remove(ue_id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No Message Waiting Data for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         mwd_delete_counter->Add(1);
+                         notify_subscribers(subs_to_notify,
+                                            notify_client,
+                                            ue_id,
+                                            resolved_location(mwd_path_pattern, req.path_params),
+                                            change_remove());
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nudr_DataRepository: Roaming Information (Document) resource (ADR-0100, gap-closure
     // task #106) -- real PUT+GET per TS29505_Subscription_Data.yaml, no PATCH/DELETE. ---
@@ -3549,7 +3564,7 @@ int main() {
             auto data = roaming_information.get(ue_id);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Roaming Information for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No Roaming Information for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -3604,7 +3619,7 @@ int main() {
             auto data = pei_info.get(ue_id);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No PEI Information for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No PEI Information for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -3627,7 +3642,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No Coverage Restriction Data for ueId " + ue_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          coverage_restriction_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -3647,7 +3662,7 @@ int main() {
             auto data = lcs_privacy_data.get(ue_id);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No LCS Privacy Data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No LCS Privacy Data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             lcs_privacy_data_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -3659,20 +3674,22 @@ int main() {
     const std::string lcs_subscription_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/lcs-subscription-data";
 
-    routes.add_route(
-        "GET",
-        lcs_subscription_data_path_pattern,
-        [&lcs_subscription_data,
-         &lcs_subscription_data_get_counter](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            auto data = lcs_subscription_data.get(ue_id);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No LCS Subscription Data for ueId " + ue_id, std::nullopt);
-            }
-            lcs_subscription_data_get_counter->Add(1);
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    routes.add_route("GET",
+                     lcs_subscription_data_path_pattern,
+                     [&lcs_subscription_data,
+                      &lcs_subscription_data_get_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto data = lcs_subscription_data.get(ue_id);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No LCS Subscription Data for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         lcs_subscription_data_get_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
     // --- Nudr_DataRepository: LCS Mobile Originated Subscription Data resource (ADR-0105,
     // gap-closure task #106) -- real GET-only per TS29505_Subscription_Data.yaml, seeded at
@@ -3691,7 +3708,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No LCS Mobile Originated Data for ueId " + ue_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          lcs_mo_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -3703,18 +3720,19 @@ int main() {
     const std::string pp_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/pp-data";
 
-    routes.add_route("GET",
-                     pp_data_path_pattern,
-                     [&pp_data, &pp_data_get_counter](const sbi_core::http2::Request& req) {
-                         const auto ue_id = req.path_params.at("ueId");
-                         auto data = pp_data.get(ue_id);
-                         pp_data_get_counter->Add(1);
-                         if (!data.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No pp-data for ueId " + ue_id, std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, data->dump());
-                     });
+    routes.add_route(
+        "GET",
+        pp_data_path_pattern,
+        [&pp_data, &pp_data_get_counter](const sbi_core::http2::Request& req) {
+            const auto ue_id = req.path_params.at("ueId");
+            auto data = pp_data.get(ue_id);
+            pp_data_get_counter->Add(1);
+            if (!data.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No pp-data for ueId " + ue_id, "DATA_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, data->dump());
+        });
 
     routes.add_route(
         "PATCH",
@@ -3760,7 +3778,7 @@ int main() {
             auto data = pp_profile_data.get(ue_id);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No pp-profile-data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No pp-profile-data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             pp_profile_data_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -3798,7 +3816,7 @@ int main() {
                                                          "Not Found",
                                                          "No PP data entry for ueId/afInstanceId " +
                                                              ue_id + "/" + af_instance_id,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -3859,7 +3877,7 @@ int main() {
                                                          "Not Found",
                                                          "No PP data entry for ueId/afInstanceId " +
                                                              ue_id + "/" + af_instance_id,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             pp_data_entry_delete_counter->Add(1);
             notify_subscribers(subs_to_notify,
@@ -3889,7 +3907,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No shared data for sharedDataId " + shared_data_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          shared_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -3903,20 +3921,22 @@ int main() {
     const std::string operator_specific_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/operator-specific-data";
 
-    routes.add_route(
-        "GET",
-        operator_specific_data_path_pattern,
-        [&operator_specific_data,
-         &operator_specific_data_get_counter](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            auto data = operator_specific_data.get(ue_id);
-            operator_specific_data_get_counter->Add(1);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No operator-specific-data for ueId " + ue_id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    routes.add_route("GET",
+                     operator_specific_data_path_pattern,
+                     [&operator_specific_data,
+                      &operator_specific_data_get_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto data = operator_specific_data.get(ue_id);
+                         operator_specific_data_get_counter->Add(1);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No operator-specific-data for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
     routes.add_route("PATCH",
                      operator_specific_data_path_pattern,
@@ -3992,30 +4012,32 @@ int main() {
                          return resp;
                      });
 
-    routes.add_route(
-        "DELETE",
-        operator_specific_data_path_pattern,
-        [&operator_specific_data,
-         &operator_specific_data_delete_counter,
-         &subs_to_notify,
-         &notify_client,
-         operator_specific_data_path_pattern](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            if (!operator_specific_data.remove(ue_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No operator-specific-data for ueId " + ue_id, std::nullopt);
-            }
-            operator_specific_data_delete_counter->Add(1);
-            notify_subscribers(
-                subs_to_notify,
-                notify_client,
-                ue_id,
-                resolved_location(operator_specific_data_path_pattern, req.path_params),
-                change_remove());
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    routes.add_route("DELETE",
+                     operator_specific_data_path_pattern,
+                     [&operator_specific_data,
+                      &operator_specific_data_delete_counter,
+                      &subs_to_notify,
+                      &notify_client,
+                      operator_specific_data_path_pattern](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         if (!operator_specific_data.remove(ue_id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No operator-specific-data for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         operator_specific_data_delete_counter->Add(1);
+                         notify_subscribers(subs_to_notify,
+                                            notify_client,
+                                            ue_id,
+                                            resolved_location(operator_specific_data_path_pattern,
+                                                              req.path_params),
+                                            change_remove());
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- Nudr_DataRepository: Event Exposure Data (Document) resource (ADR-0112, gap-closure
     // task #106) -- real GET-only per TS29505_Subscription_Data.yaml, seeded at startup. ---
@@ -4031,7 +4053,7 @@ int main() {
             auto data = ee_profile_data.get(ue_id);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No ee-profile-data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No ee-profile-data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             ee_profile_data_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -4051,7 +4073,7 @@ int main() {
             auto data = ue_policy_set.get(ue_id);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE policy set for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No UE policy set for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             ue_policy_set_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -4144,7 +4166,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No policy-data operator-specific-data for ueId " + ue_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          policy_operator_specific_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -4237,7 +4259,7 @@ int main() {
                     404,
                     "Not Found",
                     "No policy-data operator-specific-data for ueId " + ue_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             policy_operator_specific_data_delete_counter->Add(1);
             notify_subscribers(
@@ -4269,7 +4291,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No sponsor connectivity data for sponsorId " + sponsor_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          sponsor_connectivity_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -4302,7 +4324,7 @@ int main() {
                                  "Not Found",
                                  "No MBS Session Policy Control Data for polSessionId " +
                                      pol_session_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          mbs_session_pol_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -4351,19 +4373,21 @@ int main() {
     const std::string bdt_data_path_pattern =
         std::string(kApiRoot) + "/policy-data/bdt-data/{bdtReferenceId}";
 
-    routes.add_route(
-        "GET",
-        bdt_data_path_pattern,
-        [&bdt_data, &bdt_data_get_counter](const sbi_core::http2::Request& req) {
-            const auto bdt_ref_id = req.path_params.at("bdtReferenceId");
-            auto data = bdt_data.get(bdt_ref_id);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No BDT data for bdtReferenceId " + bdt_ref_id, std::nullopt);
-            }
-            bdt_data_get_counter->Add(1);
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    routes.add_route("GET",
+                     bdt_data_path_pattern,
+                     [&bdt_data, &bdt_data_get_counter](const sbi_core::http2::Request& req) {
+                         const auto bdt_ref_id = req.path_params.at("bdtReferenceId");
+                         auto data = bdt_data.get(bdt_ref_id);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No BDT data for bdtReferenceId " + bdt_ref_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         bdt_data_get_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
     routes.add_route(
         "PUT",
@@ -4417,8 +4441,11 @@ int main() {
             const auto bdt_ref_id = req.path_params.at("bdtReferenceId");
             const auto patched = bdt_data.merge_patch(bdt_ref_id, patch);
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No BDT data for bdtReferenceId " + bdt_ref_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No BDT data for bdtReferenceId " +
+                                                             bdt_ref_id,
+                                                         "DATA_NOT_FOUND");
             }
             bdt_data_patch_counter->Add(1);
             notify_subscribers_ue_less(subs_to_notify,
@@ -4438,8 +4465,11 @@ int main() {
          bdt_data_path_pattern](const sbi_core::http2::Request& req) {
             const auto bdt_ref_id = req.path_params.at("bdtReferenceId");
             if (!bdt_data.remove(bdt_ref_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No BDT data for bdtReferenceId " + bdt_ref_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No BDT data for bdtReferenceId " +
+                                                             bdt_ref_id,
+                                                         "DATA_NOT_FOUND");
             }
             bdt_data_delete_counter->Add(1);
             notify_subscribers_ue_less(subs_to_notify,
@@ -4458,20 +4488,22 @@ int main() {
     const std::string plmn_ue_policy_set_path_pattern =
         std::string(kApiRoot) + "/policy-data/plmns/{plmnId}/ue-policy-set";
 
-    routes.add_route(
-        "GET",
-        plmn_ue_policy_set_path_pattern,
-        [&plmn_ue_policy_set,
-         &plmn_ue_policy_set_get_counter](const sbi_core::http2::Request& req) {
-            const auto plmn_id = req.path_params.at("plmnId");
-            auto data = plmn_ue_policy_set.get(plmn_id);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No PLMN UE Policy Set for plmnId " + plmn_id, std::nullopt);
-            }
-            plmn_ue_policy_set_get_counter->Add(1);
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    routes.add_route("GET",
+                     plmn_ue_policy_set_path_pattern,
+                     [&plmn_ue_policy_set,
+                      &plmn_ue_policy_set_get_counter](const sbi_core::http2::Request& req) {
+                         const auto plmn_id = req.path_params.at("plmnId");
+                         auto data = plmn_ue_policy_set.get(plmn_id);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No PLMN UE Policy Set for plmnId " + plmn_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         plmn_ue_policy_set_get_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
     // --- Nudr_DataRepository: policy-data group, Slice-specific Policy Control Data resource
     // (ADR-0118, gap-closure task #106) -- real GET+PATCH-only per TS29519_Policy_Data.yaml, no
@@ -4493,7 +4525,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No Slice Policy Control Data for snssai " + snssai,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
@@ -4543,7 +4575,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No Group Policy Control Data for intGroupId " + int_group_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
@@ -4601,7 +4633,7 @@ int main() {
                                                          "No Routing IDs for nf-type " +
                                                              nf_type_it->second + " nf-group-id " +
                                                              nf_group_id_it->second,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -4653,7 +4685,7 @@ int main() {
                                                          "Not Found",
                                                          "No NF Group IDs for subscriberId " +
                                                              subscriber_id_it->second,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, result.dump());
         });
@@ -4736,7 +4768,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No subscription for subscriptionId " + subscription_id,
-                                 std::nullopt);
+                                 "SUBSCRIPTION_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
@@ -4773,7 +4805,7 @@ int main() {
                                                          "Not Found",
                                                          "No subscription for subscriptionId " +
                                                              subscription_id,
-                                                         std::nullopt);
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             nf_group_id_subscriptions_write_counter->Add(1);
             return sbi_core::http2::Response::json(200, patched->dump());
@@ -4851,8 +4883,11 @@ int main() {
                 ue_id, sst, sd, dnn_it->second, mtc_provider_it->second);
             nidd_authorization_data_get_counter->Add(1);
             if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NIDD Authorization Data for ueId " + ue_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No NIDD Authorization Data for ueId " +
+                                                             ue_id,
+                                                         "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -4902,18 +4937,20 @@ int main() {
             return resp;
         });
 
-    routes.add_route(
-        "GET",
-        nidd_authorization_path_pattern,
-        [&nidd_authorization_info](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            auto data = nidd_authorization_info.get(ue_id);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NIDD Authorization Info for ueId " + ue_id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    routes.add_route("GET",
+                     nidd_authorization_path_pattern,
+                     [&nidd_authorization_info](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto data = nidd_authorization_info.get(ue_id);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No NIDD Authorization Info for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
     routes.add_route(
         "PATCH",
@@ -4939,8 +4976,11 @@ int main() {
                     400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NIDD Authorization Info for ueId " + ue_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No NIDD Authorization Info for ueId " +
+                                                             ue_id,
+                                                         "DATA_NOT_FOUND");
             }
             nidd_authorization_write_counter->Add(1);
             notify_subscribers(subs_to_notify,
@@ -4963,8 +5003,11 @@ int main() {
          nidd_authorization_path_pattern](const sbi_core::http2::Request& req) {
             const auto ue_id = req.path_params.at("ueId");
             if (!nidd_authorization_info.remove(ue_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NIDD Authorization Info for ueId " + ue_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No NIDD Authorization Info for ueId " +
+                                                             ue_id,
+                                                         "DATA_NOT_FOUND");
             }
             nidd_authorization_delete_counter->Add(1);
             notify_subscribers(subs_to_notify,
@@ -4993,7 +5036,7 @@ int main() {
             identity_data_get_counter->Add(1);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Identity Data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No Identity Data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, data->dump());
         });
@@ -5037,18 +5080,19 @@ int main() {
     const std::string odb_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/operator-determined-barring-data";
 
-    routes.add_route("GET",
-                     odb_data_path_pattern,
-                     [&odb_data, &odb_data_get_counter](const sbi_core::http2::Request& req) {
-                         const auto ue_id = req.path_params.at("ueId");
-                         auto data = odb_data.get(ue_id);
-                         if (!data.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ODB Data for ueId " + ue_id, std::nullopt);
-                         }
-                         odb_data_get_counter->Add(1);
-                         return sbi_core::http2::Response::json(200, data->dump());
-                     });
+    routes.add_route(
+        "GET",
+        odb_data_path_pattern,
+        [&odb_data, &odb_data_get_counter](const sbi_core::http2::Request& req) {
+            const auto ue_id = req.path_params.at("ueId");
+            auto data = odb_data.get(ue_id);
+            if (!data.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No ODB Data for ueId " + ue_id, "DATA_NOT_FOUND");
+            }
+            odb_data_get_counter->Add(1);
+            return sbi_core::http2::Response::json(200, data->dump());
+        });
 
     // --- Nudr_DataRepository: V2X Subscription Data resource (ADR-0128, gap-closure task #106)
     // -- real GET-only per TS29505_Subscription_Data.yaml, seeded at startup (no create/update
@@ -5058,19 +5102,21 @@ int main() {
     const std::string v2x_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/v2x-data";
 
-    routes.add_route(
-        "GET",
-        v2x_data_path_pattern,
-        [&v2x_data, &v2x_data_get_counter](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            auto data = v2x_data.get(ue_id);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No V2X Subscription Data for ueId " + ue_id, std::nullopt);
-            }
-            v2x_data_get_counter->Add(1);
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    routes.add_route("GET",
+                     v2x_data_path_pattern,
+                     [&v2x_data, &v2x_data_get_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto data = v2x_data.get(ue_id);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No V2X Subscription Data for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         v2x_data_get_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
     // --- Nudr_DataRepository: ProSe Service Subscription Data resource (ADR-0129, gap-closure
     // task #106) -- real GET-only per TS29505_Subscription_Data.yaml (real spec operationId
@@ -5090,7 +5136,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No ProSe Service Subscription Data for ueId " + ue_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          prose_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -5114,7 +5160,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No User Consent Subscription Data for ueId " + ue_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          uc_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -5139,7 +5185,7 @@ int main() {
                     404,
                     "Not Found",
                     "No Time Synchronization Subscription Data for ueId " + ue_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             time_sync_data_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -5160,8 +5206,11 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             auto data = location_data.get(ue_id);
             if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Location Information for ueId " + ue_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No Location Information for ueId " +
+                                                             ue_id,
+                                                         "DATA_NOT_FOUND");
             }
             location_data_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -5174,19 +5223,21 @@ int main() {
     const std::string a2x_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/a2x-data";
 
-    routes.add_route(
-        "GET",
-        a2x_data_path_pattern,
-        [&a2x_data, &a2x_data_get_counter](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            auto data = a2x_data.get(ue_id);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No A2X Subscription Data for ueId " + ue_id, std::nullopt);
-            }
-            a2x_data_get_counter->Add(1);
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    routes.add_route("GET",
+                     a2x_data_path_pattern,
+                     [&a2x_data, &a2x_data_get_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto data = a2x_data.get(ue_id);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No A2X Subscription Data for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         a2x_data_get_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
     // --- Nudr_DataRepository: Ranging and Sidelink Positioning Privacy Subscription Data
     // resource (ADR-0135, gap-closure task #106) -- real GET-only per
@@ -5211,7 +5262,7 @@ int main() {
                     "Not Found",
                     "No Ranging and Sidelink Positioning Privacy Subscription Data for ueId " +
                         ue_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             rangingsl_privacy_data_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -5238,7 +5289,7 @@ int main() {
                     "Not Found",
                     "No Ranging and Sidelink Positioning Service Subscription Data for ueId " +
                         ue_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             ranging_slpos_data_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -5251,19 +5302,21 @@ int main() {
     const std::string mbs_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}/5mbs-data";
 
-    routes.add_route(
-        "GET",
-        mbs_data_path_pattern,
-        [&mbs_data, &mbs_data_get_counter](const sbi_core::http2::Request& req) {
-            const auto ue_id = req.path_params.at("ueId");
-            auto data = mbs_data.get(ue_id);
-            if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No 5MBS Subscription Data for ueId " + ue_id, std::nullopt);
-            }
-            mbs_data_get_counter->Add(1);
-            return sbi_core::http2::Response::json(200, data->dump());
-        });
+    routes.add_route("GET",
+                     mbs_data_path_pattern,
+                     [&mbs_data, &mbs_data_get_counter](const sbi_core::http2::Request& req) {
+                         const auto ue_id = req.path_params.at("ueId");
+                         auto data = mbs_data.get(ue_id);
+                         if (!data.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No 5MBS Subscription Data for ueId " + ue_id,
+                                 "DATA_NOT_FOUND");
+                         }
+                         mbs_data_get_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, data->dump());
+                     });
 
     // --- Nudr_DataRepository: Service Specific Authorization Info (Document) context-data
     // resource (ADR-0139, gap-closure task #106) -- real PUT+GET+PATCH+DELETE per
@@ -5339,7 +5392,7 @@ int main() {
                                  "Not Found",
                                  "No Service Specific Authorization Info for ueId/serviceType " +
                                      ue_id + "/" + service_type,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
@@ -5374,7 +5427,7 @@ int main() {
                                  "Not Found",
                                  "No Service Specific Authorization Info for ueId/serviceType " +
                                      ue_id + "/" + service_type,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          service_specific_auth_write_counter->Add(1);
                          notify_subscribers(
@@ -5403,7 +5456,7 @@ int main() {
                                  "Not Found",
                                  "No Service Specific Authorization Info for ueId/serviceType " +
                                      ue_id + "/" + service_type,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          service_specific_auth_delete_counter->Add(1);
                          notify_subscribers(
@@ -5451,8 +5504,10 @@ int main() {
                     "MANDATORY_IE_MISSING");
             }
             if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Group Identifiers for " + lookup_desc, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No Group Identifiers for " + lookup_desc,
+                                                         "GROUP_IDENTIFIER_NOT_FOUND");
             }
             group_identifiers_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -5503,7 +5558,7 @@ int main() {
             auto data = nssai_ack_data.get(ue_id);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NSSAI Ack Data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No NSSAI Ack Data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             nssai_ack_data_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -5554,7 +5609,7 @@ int main() {
             auto data = cag_ack_data.get(ue_id);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No CAG Ack Data for ueId " + ue_id, std::nullopt);
+                    404, "Not Found", "No CAG Ack Data for ueId " + ue_id, "DATA_NOT_FOUND");
             }
             cag_ack_data_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -5598,56 +5653,57 @@ int main() {
                          return resp;
                      });
 
-    routes.add_route("GET",
-                     sor_data_path_pattern,
-                     [&sor_data, &sor_data_get_counter](const sbi_core::http2::Request& req) {
-                         const auto ue_id = req.path_params.at("ueId");
-                         auto data = sor_data.get(ue_id);
-                         if (!data.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No SoR Data for ueId " + ue_id, std::nullopt);
-                         }
-                         sor_data_get_counter->Add(1);
-                         return sbi_core::http2::Response::json(200, data->dump());
-                     });
+    routes.add_route(
+        "GET",
+        sor_data_path_pattern,
+        [&sor_data, &sor_data_get_counter](const sbi_core::http2::Request& req) {
+            const auto ue_id = req.path_params.at("ueId");
+            auto data = sor_data.get(ue_id);
+            if (!data.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No SoR Data for ueId " + ue_id, "DATA_NOT_FOUND");
+            }
+            sor_data_get_counter->Add(1);
+            return sbi_core::http2::Response::json(200, data->dump());
+        });
 
-    routes.add_route("PATCH",
-                     sor_data_path_pattern,
-                     [&sor_data,
-                      &sor_data_write_counter,
-                      &subs_to_notify,
-                      &notify_client,
-                      sor_data_path_pattern](const sbi_core::http2::Request& req) {
-                         json patch_ops;
-                         try {
-                             patch_ops = json::parse(req.body);
-                         } catch (const json::parse_error& e) {
-                             return sbi_core::http2::problem_response(
-                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
-                         }
-                         const auto ue_id = req.path_params.at("ueId");
-                         std::optional<json> patched;
-                         try {
-                             patched = sor_data.apply_patch(ue_id, patch_ops);
-                         } catch (const json::exception& e) {
-                             return sbi_core::http2::problem_response(
-                                 400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
-                         }
-                         if (!patched.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No SoR Data for ueId " + ue_id, std::nullopt);
-                         }
-                         sor_data_write_counter->Add(1);
-                         notify_subscribers(
-                             subs_to_notify,
-                             notify_client,
-                             ue_id,
-                             resolved_location(sor_data_path_pattern, req.path_params),
-                             change_from_json_patch(patch_ops));
-                         sbi_core::http2::Response resp;
-                         resp.status = 204;
-                         return resp;
-                     });
+    routes.add_route(
+        "PATCH",
+        sor_data_path_pattern,
+        [&sor_data,
+         &sor_data_write_counter,
+         &subs_to_notify,
+         &notify_client,
+         sor_data_path_pattern](const sbi_core::http2::Request& req) {
+            json patch_ops;
+            try {
+                patch_ops = json::parse(req.body);
+            } catch (const json::parse_error& e) {
+                return sbi_core::http2::problem_response(
+                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+            }
+            const auto ue_id = req.path_params.at("ueId");
+            std::optional<json> patched;
+            try {
+                patched = sor_data.apply_patch(ue_id, patch_ops);
+            } catch (const json::exception& e) {
+                return sbi_core::http2::problem_response(
+                    400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
+            }
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No SoR Data for ueId " + ue_id, "DATA_NOT_FOUND");
+            }
+            sor_data_write_counter->Add(1);
+            notify_subscribers(subs_to_notify,
+                               notify_client,
+                               ue_id,
+                               resolved_location(sor_data_path_pattern, req.path_params),
+                               change_from_json_patch(patch_ops));
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
 
     // --- Nudr_DataRepository: Authentication UPU (Document) resource (ADR-0143, gap-closure task
     // #106) -- real PUT+GET only per TS29505_Subscription_Data.yaml, no PATCH/DELETE operation
@@ -5686,18 +5742,19 @@ int main() {
             return resp;
         });
 
-    routes.add_route("GET",
-                     upu_data_path_pattern,
-                     [&upu_data, &upu_data_get_counter](const sbi_core::http2::Request& req) {
-                         const auto ue_id = req.path_params.at("ueId");
-                         auto data = upu_data.get(ue_id);
-                         if (!data.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No UPU Data for ueId " + ue_id, std::nullopt);
-                         }
-                         upu_data_get_counter->Add(1);
-                         return sbi_core::http2::Response::json(200, data->dump());
-                     });
+    routes.add_route(
+        "GET",
+        upu_data_path_pattern,
+        [&upu_data, &upu_data_get_counter](const sbi_core::http2::Request& req) {
+            const auto ue_id = req.path_params.at("ueId");
+            auto data = upu_data.get(ue_id);
+            if (!data.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No UPU Data for ueId " + ue_id, "DATA_NOT_FOUND");
+            }
+            upu_data_get_counter->Add(1);
+            return sbi_core::http2::Response::json(200, data->dump());
+        });
 
     // --- Nudr_DataRepository: aggregate UE Update Confirmation Data resource (ADR-0147,
     // gap-closure task #106) -- real GET-only per TS29505_Subscription_Data.yaml, no
@@ -6167,8 +6224,10 @@ int main() {
             const auto subs_id = req.path_params.at("subsId");
             auto data = ee_subscriptions.get(ue_id, subs_id);
             if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No EE Subscription for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No EE Subscription for subsId " + subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             ee_subscriptions_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -6193,8 +6252,10 @@ int main() {
             // Real spec: UpdateEesubscriptions is genuinely update-only -- "update of
             // non-existing resource is rejected" (real 404), no create-via-PUT path exists.
             if (!ee_subscriptions.update(ue_id, subs_id, j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No EE Subscription for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No EE Subscription for subsId " + subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             ee_subscriptions_write_counter->Add(1);
             notify_subscribers(
@@ -6233,8 +6294,10 @@ int main() {
                     400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No EE Subscription for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No EE Subscription for subsId " + subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             ee_subscriptions_write_counter->Add(1);
             notify_subscribers(
@@ -6259,8 +6322,10 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const auto subs_id = req.path_params.at("subsId");
             if (!ee_subscriptions.remove(ue_id, subs_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No EE Subscription for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No EE Subscription for subsId " + subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             ee_subscriptions_delete_counter->Add(1);
             notify_subscribers(
@@ -6342,8 +6407,11 @@ int main() {
             const auto subs_id = req.path_params.at("subsId");
             auto data = sdm_subscriptions.get(ue_id, subs_id);
             if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SDM Subscription for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No SDM Subscription for subsId " +
+                                                             subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             sdm_subscriptions_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -6368,8 +6436,11 @@ int main() {
             // Real spec: Updatesdmsubscriptions is genuinely update-only -- "update of
             // non-existing resource is rejected" (real 404), no create-via-PUT path exists.
             if (!sdm_subscriptions.update(ue_id, subs_id, j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SDM Subscription for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No SDM Subscription for subsId " +
+                                                             subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             sdm_subscriptions_write_counter->Add(1);
             notify_subscribers(
@@ -6408,8 +6479,11 @@ int main() {
                     400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SDM Subscription for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No SDM Subscription for subsId " +
+                                                             subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             sdm_subscriptions_write_counter->Add(1);
             notify_subscribers(
@@ -6434,8 +6508,11 @@ int main() {
             const auto ue_id = req.path_params.at("ueId");
             const auto subs_id = req.path_params.at("subsId");
             if (!sdm_subscriptions.remove(ue_id, subs_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SDM Subscription for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No SDM Subscription for subsId " +
+                                                             subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             sdm_subscriptions_delete_counter->Add(1);
             notify_subscribers(
@@ -6472,7 +6549,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AMF Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          ee_amf_subscription_info_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -6552,7 +6629,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AMF Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          ee_amf_subscription_info_write_counter->Add(1);
                          notify_subscribers(subs_to_notify,
@@ -6580,7 +6657,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AMF Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          ee_amf_subscription_info_delete_counter->Add(1);
                          notify_subscribers(subs_to_notify,
@@ -6616,7 +6693,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No SMF Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          ee_smf_subscription_info_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -6695,7 +6772,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No SMF Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          ee_smf_subscription_info_write_counter->Add(1);
                          notify_subscribers(subs_to_notify,
@@ -6723,7 +6800,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No SMF Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          ee_smf_subscription_info_delete_counter->Add(1);
                          notify_subscribers(subs_to_notify,
@@ -6762,7 +6839,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No HSS Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          ee_hss_subscription_info_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -6841,7 +6918,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No HSS Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          ee_hss_subscription_info_write_counter->Add(1);
                          notify_subscribers(subs_to_notify,
@@ -6869,7 +6946,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No HSS Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          ee_hss_subscription_info_delete_counter->Add(1);
                          notify_subscribers(subs_to_notify,
@@ -6913,7 +6990,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No HSS SDM Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          sdm_hss_subscription_info_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -6980,7 +7057,7 @@ int main() {
                     404,
                     "Not Found",
                     "No HSS SDM Subscription Info for subsId " + subs_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             sdm_hss_subscription_info_write_counter->Add(1);
             notify_subscribers(
@@ -7009,7 +7086,7 @@ int main() {
                     404,
                     "Not Found",
                     "No HSS SDM Subscription Info for subsId " + subs_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             sdm_hss_subscription_info_delete_counter->Add(1);
             notify_subscribers(
@@ -7102,7 +7179,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No EE Group Subscription for subsId " + subs_id,
-                                 std::nullopt);
+                                 "SUBSCRIPTION_NOT_FOUND");
                          }
                          group_ee_subscriptions_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -7131,7 +7208,7 @@ int main() {
                                                          "Not Found",
                                                          "No EE Group Subscription for subsId " +
                                                              subs_id,
-                                                         std::nullopt);
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             group_ee_subscriptions_write_counter->Add(1);
             notify_subscribers_ue_less(
@@ -7173,7 +7250,7 @@ int main() {
                                                          "Not Found",
                                                          "No EE Group Subscription for subsId " +
                                                              subs_id,
-                                                         std::nullopt);
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             group_ee_subscriptions_write_counter->Add(1);
             notify_subscribers_ue_less(
@@ -7201,7 +7278,7 @@ int main() {
                                                          "Not Found",
                                                          "No EE Group Subscription for subsId " +
                                                              subs_id,
-                                                         std::nullopt);
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             group_ee_subscriptions_delete_counter->Add(1);
             notify_subscribers_ue_less(
@@ -7237,7 +7314,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AMF Group Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          group_amf_subscription_info_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -7317,7 +7394,7 @@ int main() {
                     404,
                     "Not Found",
                     "No AMF Group Subscription Info for subsId " + subs_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             group_amf_subscription_info_write_counter->Add(1);
             notify_subscribers_ue_less(
@@ -7345,7 +7422,7 @@ int main() {
                     404,
                     "Not Found",
                     "No AMF Group Subscription Info for subsId " + subs_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             group_amf_subscription_info_delete_counter->Add(1);
             notify_subscribers_ue_less(
@@ -7381,7 +7458,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No SMF Group Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          group_smf_subscription_info_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -7460,7 +7537,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMF Group Subscription Info for subsId " + subs_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             group_smf_subscription_info_write_counter->Add(1);
             notify_subscribers_ue_less(
@@ -7488,7 +7565,7 @@ int main() {
                     404,
                     "Not Found",
                     "No SMF Group Subscription Info for subsId " + subs_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             group_smf_subscription_info_delete_counter->Add(1);
             notify_subscribers_ue_less(
@@ -7532,7 +7609,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No HSS Group Subscription Info for subsId " + subs_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          group_hss_subscription_info_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -7611,7 +7688,7 @@ int main() {
                     404,
                     "Not Found",
                     "No HSS Group Subscription Info for subsId " + subs_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             group_hss_subscription_info_write_counter->Add(1);
             notify_subscribers_ue_less(
@@ -7639,7 +7716,7 @@ int main() {
                     404,
                     "Not Found",
                     "No HSS Group Subscription Info for subsId " + subs_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             group_hss_subscription_info_delete_counter->Add(1);
             notify_subscribers_ue_less(
@@ -7696,7 +7773,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No PDTQ data for pdtqReferenceId " + pdtq_ref_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          pdtq_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -7764,7 +7841,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No PDTQ data for pdtqReferenceId " + pdtq_ref_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          pdtq_data_write_counter->Add(1);
                          notify_subscribers_ue_less(
@@ -7788,7 +7865,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No PDTQ data for pdtqReferenceId " + pdtq_ref_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          pdtq_data_delete_counter->Add(1);
                          notify_subscribers_ue_less(
@@ -7878,8 +7955,10 @@ int main() {
             const auto subs_id = req.path_params.at("subsId");
             auto data = subs_to_notify.get(subs_id);
             if (!data.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Subs To Notify for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No Subs To Notify for subsId " + subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             subs_to_notify_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -7911,8 +7990,10 @@ int main() {
                 return expiry_problem(e);
             }
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Subs To Notify for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No Subs To Notify for subsId " + subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             subs_to_notify_write_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -7926,8 +8007,10 @@ int main() {
         [&subs_to_notify, &subs_to_notify_delete_counter](const sbi_core::http2::Request& req) {
             const auto subs_id = req.path_params.at("subsId");
             if (!subs_to_notify.remove(subs_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No Subs To Notify for subsId " + subs_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No Subs To Notify for subsId " + subs_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             subs_to_notify_delete_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -8017,7 +8100,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No Policy Data Subscription for subsId " + subs_id,
-                                 std::nullopt);
+                                 "SUBSCRIPTION_NOT_FOUND");
                          }
                          policy_data_subs_to_notify_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -8049,7 +8132,7 @@ int main() {
                                                          "Not Found",
                                                          "No Policy Data Subscription for subsId " +
                                                              subs_id,
-                                                         std::nullopt);
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             policy_data_subs_to_notify_replace_counter->Add(1);
             return sbi_core::http2::Response::json(200, replaced->dump());
@@ -8065,7 +8148,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No Policy Data Subscription for subsId " + subs_id,
-                                 std::nullopt);
+                                 "SUBSCRIPTION_NOT_FOUND");
                          }
                          policy_data_subs_to_notify_delete_counter->Add(1);
                          sbi_core::http2::Response resp;
@@ -8181,7 +8264,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No 5G VN Group matches the requested internal-group-ids",
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, result.dump());
                      });
@@ -8217,7 +8300,7 @@ int main() {
             five_g_vn_group_pp_profile_data_get_counter->Add(1);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No 5G VN Group PP Profile Data", std::nullopt);
+                    404, "Not Found", "No 5G VN Group PP Profile Data", "DATA_NOT_FOUND");
             }
             if (auto ids_it = req.query_params.find("ext-group-ids");
                 ids_it != req.query_params.end() && data->contains("allowedMtcProviders")) {
@@ -8259,7 +8342,7 @@ int main() {
                                                          "Not Found",
                                                          "No 5G VN Group for externalGroupId " +
                                                              ext_group_id,
-                                                         std::nullopt);
+                                                         "GROUP_IDENTIFIER_NOT_FOUND");
             }
             five_g_vn_groups_get_counter->Add(1);
             return sbi_core::http2::Response::json(200, data->dump());
@@ -8326,7 +8409,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No 5G VN Group for externalGroupId " + ext_group_id,
-                                 std::nullopt);
+                                 "GROUP_IDENTIFIER_NOT_FOUND");
                          }
                          five_g_vn_groups_write_counter->Add(1);
                          notify_subscribers_ue_less(
@@ -8352,7 +8435,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No 5G VN Group for externalGroupId " + ext_group_id,
-                                 std::nullopt);
+                                 "GROUP_IDENTIFIER_NOT_FOUND");
                          }
                          five_g_vn_groups_delete_counter->Add(1);
                          notify_subscribers_ue_less(
@@ -8459,7 +8542,7 @@ int main() {
                     404,
                     "Not Found",
                     "No 5G MBS Group Membership matches the requested internal-group-ids",
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, result.dump());
         });
@@ -8490,7 +8573,7 @@ int main() {
             mbs_group_pp_profile_data_get_counter->Add(1);
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No 5G MBS Group PP Profile Data", std::nullopt);
+                    404, "Not Found", "No 5G MBS Group PP Profile Data", "DATA_NOT_FOUND");
             }
             if (auto ids_it = req.query_params.find("ext-group-ids");
                 ids_it != req.query_params.end() && data->contains("allowedMbsInfos")) {
@@ -8531,7 +8614,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No 5G MBS Group Membership for externalGroupId " + ext_group_id,
-                                 std::nullopt);
+                                 "GROUP_IDENTIFIER_NOT_FOUND");
                          }
                          mbs_group_membership_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -8597,7 +8680,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No 5G MBS Group Membership for externalGroupId " + ext_group_id,
-                                 std::nullopt);
+                                 "GROUP_IDENTIFIER_NOT_FOUND");
                          }
                          mbs_group_membership_write_counter->Add(1);
                          notify_subscribers_ue_less(
@@ -8623,7 +8706,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No 5G MBS Group Membership for externalGroupId " + ext_group_id,
-                                 std::nullopt);
+                                 "GROUP_IDENTIFIER_NOT_FOUND");
                          }
                          mbs_group_membership_delete_counter->Add(1);
                          notify_subscribers_ue_less(
@@ -8655,7 +8738,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No Group EE Profile Data for ueGroupId " + ue_group_id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          group_ee_profile_data_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, data->dump());
@@ -8771,7 +8854,7 @@ int main() {
             auto updated = traffic_influence_data.merge_patch(influence_id, patch);
             if (!updated.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No influenceData with id " + influence_id, std::nullopt);
+                    404, "Not Found", "No influenceData with id " + influence_id, "DATA_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 200;
@@ -8787,7 +8870,7 @@ int main() {
             const auto influence_id = req.path_params.at("influenceId");
             if (!traffic_influence_data.remove(influence_id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No influenceData with id " + influence_id, std::nullopt);
+                    404, "Not Found", "No influenceData with id " + influence_id, "DATA_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -8841,22 +8924,24 @@ int main() {
             return resp;
         });
 
-    routes.add_route(
-        "GET",
-        influence_subs_item_path,
-        [&traffic_influence_subs](const sbi_core::http2::Request& req) {
-            const auto subscription_id = req.path_params.at("subscriptionId");
-            auto doc = traffic_influence_subs.get(subscription_id);
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No subscription with id " + subscription_id, std::nullopt);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 200;
-            resp.headers.emplace("content-type", "application/json");
-            resp.body = doc->dump();
-            return resp;
-        });
+    routes.add_route("GET",
+                     influence_subs_item_path,
+                     [&traffic_influence_subs](const sbi_core::http2::Request& req) {
+                         const auto subscription_id = req.path_params.at("subscriptionId");
+                         auto doc = traffic_influence_subs.get(subscription_id);
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No subscription with id " +
+                                                                          subscription_id,
+                                                                      "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 200;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.body = doc->dump();
+                         return resp;
+                     });
 
     routes.add_route(
         "PUT",
@@ -8926,7 +9011,7 @@ int main() {
         auto doc = pfd_data.get(id);
         if (!doc.has_value()) {
             return sbi_core::http2::problem_response(
-                404, "Not Found", "No such resource: " + id, std::nullopt);
+                404, "Not Found", "No such resource: " + id, "DATA_NOT_FOUND");
         }
         sbi_core::http2::Response resp;
         resp.status = 200;
@@ -8963,7 +9048,7 @@ int main() {
             const auto id = req.path_params.at("appId");
             if (!pfd_data.remove(id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such resource: " + id, std::nullopt);
+                    404, "Not Found", "No such resource: " + id, "DATA_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -9014,7 +9099,7 @@ int main() {
                          const auto id = req.path_params.at("bdtPolicyId");
                          if (!bdt_policy_data.remove(id)) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such resource: " + id, std::nullopt);
+                                 404, "Not Found", "No such resource: " + id, "DATA_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -9036,7 +9121,7 @@ int main() {
                          auto updated = bdt_policy_data.merge_patch(id, patch);
                          if (!updated.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such resource: " + id, std::nullopt);
+                                 404, "Not Found", "No such resource: " + id, "DATA_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 200;
@@ -9090,7 +9175,7 @@ int main() {
                          const auto id = req.path_params.at("configurationId");
                          if (!iptv_config_data.remove(id)) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such resource: " + id, std::nullopt);
+                                 404, "Not Found", "No such resource: " + id, "DATA_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -9112,7 +9197,7 @@ int main() {
                          auto updated = iptv_config_data.merge_patch(id, patch);
                          if (!updated.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such resource: " + id, std::nullopt);
+                                 404, "Not Found", "No such resource: " + id, "DATA_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 200;
@@ -9167,7 +9252,7 @@ int main() {
                          const auto id = req.path_params.at("serviceParamId");
                          if (!service_param_data.remove(id)) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such resource: " + id, std::nullopt);
+                                 404, "Not Found", "No such resource: " + id, "DATA_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -9189,7 +9274,7 @@ int main() {
                          auto updated = service_param_data.merge_patch(id, patch);
                          if (!updated.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such resource: " + id, std::nullopt);
+                                 404, "Not Found", "No such resource: " + id, "DATA_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 200;
@@ -9251,7 +9336,7 @@ int main() {
             auto doc = application_data_subs.get(id);
             if (!doc.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No subscription: " + id, std::nullopt);
+                    404, "Not Found", "No subscription: " + id, "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 200;
@@ -9294,8 +9379,10 @@ int main() {
                      [&application_data_subs](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("subsId");
                          if (!application_data_subs.remove(id)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No subscription: " + id, std::nullopt);
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No subscription: " + id,
+                                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -9352,7 +9439,7 @@ int main() {
                     404,
                     "Not Found",
                     "No access and mobility exposure data for ueId " + ue_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 200;
@@ -9383,7 +9470,7 @@ int main() {
                     404,
                     "Not Found",
                     "No access and mobility exposure data for ueId " + ue_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -9398,7 +9485,7 @@ int main() {
                     404,
                     "Not Found",
                     "No access and mobility exposure data for ueId " + ue_id,
-                    std::nullopt);
+                    "DATA_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -9445,7 +9532,7 @@ int main() {
                                                          "ueId " +
                                                              ue_id + " pduSessionId " +
                                                              pdu_session_id,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 200;
@@ -9465,7 +9552,7 @@ int main() {
                                                          "ueId " +
                                                              ue_id + " pduSessionId " +
                                                              pdu_session_id,
-                                                         std::nullopt);
+                                                         "DATA_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -9527,8 +9614,10 @@ int main() {
             }
             const auto sub_id = req.path_params.at("subId");
             if (!exposure_data_subs.get(sub_id).has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No exposure data subscription: " + sub_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No exposure data subscription: " + sub_id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             nlohmann::json j = *body;
             udr::Clock::time_point expires_at;
@@ -9549,19 +9638,21 @@ int main() {
             return resp;
         });
 
-    routes.add_route(
-        "DELETE",
-        exposure_subs_item_path,
-        [&exposure_data_subs](const sbi_core::http2::Request& req) {
-            const auto sub_id = req.path_params.at("subId");
-            if (!exposure_data_subs.remove(sub_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No exposure data subscription: " + sub_id, std::nullopt);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    routes.add_route("DELETE",
+                     exposure_subs_item_path,
+                     [&exposure_data_subs](const sbi_core::http2::Request& req) {
+                         const auto sub_id = req.path_params.at("subId");
+                         if (!exposure_data_subs.remove(sub_id)) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No exposure data subscription: " + sub_id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
 
     // --- ADR-0256: Nudr_DataRepository AIoT data (`/aiot-data/*`) ---
     // Paths from TS29506_Aiot_Data.yaml (TS 29.506 V19.2.0); every schema from
@@ -9588,7 +9679,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AIoT device profile data for aiotDevPermId " + id,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, doc->dump());
                      });
@@ -9629,7 +9720,7 @@ int main() {
                                      404,
                                      "Not Found",
                                      "No AIoT device profile data for aiotDevPermId " + id,
-                                     std::nullopt);
+                                     "DATA_NOT_FOUND");
                              }
                          } catch (const nlohmann::json::exception& e) {
                              return sbi_core::http2::problem_response(
@@ -9691,7 +9782,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AIoT device profile data for any requested device id",
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, nlohmann::json(list).dump());
                      });
@@ -9757,7 +9848,7 @@ int main() {
                          auto doc = aiot_af_authorization_data.get();
                          if (!doc.has_value()) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No AF authorization data", std::nullopt);
+                                 404, "Not Found", "No AF authorization data", "DATA_NOT_FOUND");
                          }
                          // Same lesson as the bundled GET one route above: a stored row that does
                          // not match its schema must be ANSWERED, not thrown out of the handler.
@@ -9795,7 +9886,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No AF authorization data for af-id " + af_id_it->second,
-                                 std::nullopt);
+                                 "DATA_NOT_FOUND");
                          }
                          nlohmann::json filtered;
                          filtered["afAuthData"] =
