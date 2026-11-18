@@ -1,0 +1,137 @@
+name: Fuzz nightly
+
+# ADR-0579 (ADR-0572 v0.2.0 item 5): the libFuzzer harnesses in tests/fuzz/ were never run by CI
+# (ADR-0572 B9). This runs each of them for a fixed time budget every night on the same
+# self-hosted runner as CI, so a codec crash surfaces without costing runner time per PR.
+#
+# Not part of `ci.yml`: a PR never waits for it. It shares the one lab runner, so it queues behind
+# a running CI job and a PR's CI queues behind it; the default budget keeps that to ~15 minutes
+# plus the (ccache-warm) build. `workflow_dispatch` takes a different per-target budget.
+#
+# Fuzzed: the seven targets in tests/fuzz/CMakeLists.txt (Diameter, TCAP, dialogue portion, MAP,
+# CAP, SS7 transport, LI X2/X3). Not fuzzed, deferred for future implementation: PFCP
+# (libs/pfcp-core) and NGAP (libs/ngap-generated), see the note in tests/fuzz/CMakeLists.txt.
+
+on:
+  schedule:
+    - cron: '30 1 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds_per_target:
+        description: "libFuzzer -max_total_time per target, in seconds"
+        type: string
+        default: '120'
+
+# A second nightly never starts while one is still running, and is not cancelled by one.
+concurrency:
+  group: fuzz-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Same locations as ci.yml's self-hosted legs (ADR-0363); set below from $HOME.
+  SECONDS_PER_TARGET: ${{ inputs.seconds_per_target || '120' }}
+
+jobs:
+  fuzz:
+    runs-on: [self-hosted, linux, x64, 5gc-lab]
+    # Build (ccache-warm: minutes; cold: the codec libraries only) + 7 targets x budget + slack.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Locate caches and tools (same layout as ci.yml, ADR-0363)
+        run: |
+          [ "$RUNNER_ENVIRONMENT" = "self-hosted" ] || { echo "this workflow targets the self-hosted lab runner"; exit 1; }
+          case "$SECONDS_PER_TARGET" in ''|*[!0-9]*) echo "seconds_per_target must be a number"; exit 1;; esac
+          [ "$SECONDS_PER_TARGET" -ge 10 ] && [ "$SECONDS_PER_TARGET" -le 1800 ] || { echo "seconds_per_target must be 10..1800"; exit 1; }
+          mkdir -p "$HOME/.cache/5gc-ci"
+          echo "VCPKG_ROOT=$HOME/.cache/5gc-ci/vcpkg" >> "$GITHUB_ENV"
+          echo "VCPKG_BINARY_SOURCES=clear;files,$HOME/.cache/5gc-ci/vcpkg-cache,readwrite" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$HOME/.cache/5gc-ci/ccache" >> "$GITHUB_ENV"
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
+          # ADR-0582: parallelism follows the runner's RAM (2 under 12 GiB, else 4), same rule as ci.yml.
+          MEM_GIB=$(awk '/^MemTotal:/ {print int($2/1048576)}' /proc/meminfo)
+          if [ "$MEM_GIB" -lt 12 ]; then RUNNER_JOBS=2; else RUNNER_JOBS=4; fi
+          echo "runner RAM ${MEM_GIB} GiB -> CI_JOBS=${RUNNER_JOBS}"
+          echo "CI_JOBS=${RUNNER_JOBS}" >> "$GITHUB_ENV"
+          echo "VCPKG_MAX_CONCURRENCY=${RUNNER_JOBS}" >> "$GITHUB_ENV"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
+          for t in ninja cmake clang-22 clang++-22 bison flex ccache; do
+            command -v "$t" >/dev/null || { echo "self-hosted runner is missing $t"; exit 1; }
+          done
+
+      - name: Bootstrap vcpkg
+        run: |
+          BASELINE=$(python3 -c 'import json; print(json.load(open("vcpkg.json"))["builtin-baseline"])')
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse HEAD)" != "$BASELINE" ]; then
+            git -C "$VCPKG_ROOT" fetch --quiet origin
+            git -C "$VCPKG_ROOT" checkout --quiet "$BASELINE"
+            rm -f "$VCPKG_ROOT/vcpkg"
+          fi
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+
+      - name: Install sbi-codegen Python deps
+        run: pip install -q -r tools/sbi-codegen/requirements.txt
+
+      - name: Build asn1c toolchain (idempotent)
+        run: ./scripts/setup-asn1c.sh
+
+      # libFuzzer is Clang-only and mutually exclusive with ASan/TSan (root CMakeLists.txt); the
+      # harnesses carry their own -fsanitize=fuzzer,address,undefined (tests/fuzz/CMakeLists.txt).
+      - name: Configure (clang-22, 5GC_ENABLE_FUZZING=ON)
+        run: >
+          cmake -S . -B build-fuzz -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
+          -D5GC_ENABLE_FUZZING=ON
+
+      - name: Build the fuzz targets only
+        run: >
+          cmake --build build-fuzz -- -j"${CI_JOBS:-2}"
+          fuzz_diameter fuzz_tcap_message fuzz_dialogue_portion fuzz_map_operations
+          fuzz_cap_operations fuzz_ss7_transport fuzz_li_x2x3
+
+      # One corpus directory per target outside the workspace, so a night starts from what the
+      # previous nights found. A target that finds a crash writes crash-*/oom-*/timeout-* into
+      # its artifact directory; the step fails after every target has had its turn.
+      - name: Run each target for ${{ env.SECONDS_PER_TARGET }} s
+        run: |
+          corpus_root="$HOME/.cache/5gc-ci/fuzz-corpus"
+          rm -rf fuzz-artifacts && mkdir -p fuzz-artifacts
+          failed=0
+          for t in fuzz_diameter fuzz_tcap_message fuzz_dialogue_portion fuzz_map_operations \
+                   fuzz_cap_operations fuzz_ss7_transport fuzz_li_x2x3; do
+            mkdir -p "$corpus_root/$t" "fuzz-artifacts/$t"
+            echo "::group::$t (${SECONDS_PER_TARGET}s)"
+            # `timeout` is the runner's guard against a target that hangs outside libFuzzer's own
+            # -timeout (tests/fuzz/CMakeLists.txt records one such hang, ADR-0065).
+            if ! timeout $((SECONDS_PER_TARGET + 120)) "build-fuzz/tests/fuzz/$t" \
+                   -max_total_time="$SECONDS_PER_TARGET" -timeout=25 \
+                   -artifact_prefix="fuzz-artifacts/$t/" "$corpus_root/$t"; then
+              echo "::error::$t failed (crash, leak, timeout or hang) -- see fuzz-artifacts/$t"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
+
+      - name: Keep any crashing input
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-crashes-${{ github.run_id }}
+          path: fuzz-artifacts/
+          if-no-files-found: ignore
+          retention-days: 30

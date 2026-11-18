@@ -42,6 +42,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   ([ADR-0552](docs/decisions/archive/ADR-0552-adopt-sbi-tls-and-oauth2-review-skills-adapted-from.md)).
 - The 2026-11-10 in-depth evaluation and the release order for v0.2.0, v0.3.0 and v0.4.0
   ([ADR-0572](docs/decisions/ADR-0572-release-plan-for-v0-2-0-and-v0-3-0-ordered-execution-of-the.md)).
+- `.github/workflows/fuzz-nightly.yml`: the seven libFuzzer codec harnesses run every night on the
+  lab runner, 120 s each by default, with a persistent corpus and crash artifacts (clang-22; clang-18
+  has no libFuzzer runtime on the lab machine)
+  ([ADR-0579](docs/decisions/ADR-0579-nightly-libfuzzer-run-of-the-seven-codec-harnesses-on-the.md)).
 - TMF640 `PATCH /service/{id}` (RFC 7396 merge-patch): `inactive` bars packet services at the UDR
   (`amData.odbPacketServices = ALL_PACKET_SERVICES`), `active` clears it; AMF/SMF do not enforce it
   yet
