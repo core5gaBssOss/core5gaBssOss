@@ -49,10 +49,11 @@ not implement it, and a title should not need a footnote to be true.
 - **Charging:** the CHF of TS 32.290/32.291, with Diameter Gy/Rf, Sy and CAMEL/CAP for legacy
   networks.
 - **BSS:** TM Forum SID-aligned services (TMF620, TMF632, TMF651, TMF654); products and tariffs are
-  catalog data, not code. TMF640 Service Activation (`POST`/`GET /service`) activates a subscriber's
+  catalog data, not code. TMF640 Service Activation (`POST`/`GET`/`PATCH /service`) activates a subscriber's
   network data in the UDR, with DTOs generated from the TM Forum swagger; SIM keys never enter a
-  TMF640 Service (ADR-0558, ADR-0568, ADR-0569). `DELETE /service/{id}` bars the subscriber at the UDR, then
-  removes the Service (ADR-0585).
+  TMF640 Service (ADR-0558, ADR-0568, ADR-0569). `PATCH /service/{id}` with `state: inactive` bars the
+  subscriber's packet services at the UDR, and `active` clears the bar (ADR-0576).
+  `DELETE /service/{id}` bars the subscriber at the UDR, then removes the Service (ADR-0585).
 - **OSS:** an operator console (React + JSON Forms) for NF configuration and approvals, TS 28.552
   performance counters and Prometheus business alarms.
 - **In the pipeline (R19 completeness, ADR-0539):** V2X/A2X, UAS (drones), the V2X application

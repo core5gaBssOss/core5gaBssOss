@@ -1,6 +1,6 @@
 ## ADR-0534: WWW-Authenticate on routes that check their own token; spec causes on non-404 errors (SBI-03 increment 1)
 
-**Date:** 2026-10-26. **Status:** Proposed.
+**Date:** 2026-10-26. **Status:** Accepted (user, 2026-11-18).
 
 **Context.** REVIEW-5ae0ef1 SBI-03, still open after ADR-0502. At `dc02145`, 540 of 970
 `problem_response` calls carry no `cause`: 483 are 404s, whose causes are API-specific (later

@@ -1,6 +1,6 @@
 ## ADR-0582: Self-hosted CI parallelism follows runner RAM: CI_JOBS 2 under 12 GiB, else 4
 
-**Date:** 2026-11-17. **Status:** Proposed.
+**Date:** 2026-11-17. **Status:** Accepted (user, 2026-11-18).
 
 **Context.** ADR-0581 put the laptop runner `mastermind-073-small` (about 7 GB RAM, 8 cores) into the
 `5gc-lab` pool alongside the lab host `5gc-lab-host` (15 GB). The self-hosted branch of every job's "Locate
@@ -42,3 +42,10 @@ GitHub-hosted runners. It is unchanged.
   possible later if a machine needs an exception.
 - *Key on the runner name (`$RUNNER_NAME`).* Rejected: it hard-codes a machine identity into the workflow
   and breaks silently if the runner is re-registered under another name.
+
+**Measured (2026-11-17, laptop, -j2).** These are measured times, not the expectation in *Disclosed*:
+- PR #30: cold `sanitize (asan-ubsan)` took 186 min (build step 131 min, tests 50 min).
+- PR #26 run 44106505091: warm `build` took 45 min and warm `asan-ubsan` 66 min. The lab host takes about 55 min for asan-ubsan at -j4.
+- There were no OOM kills.
+
+The *Disclosed* item about `fuzz-nightly.yml` is closed. PR #26 applied the same rule there before it merged.

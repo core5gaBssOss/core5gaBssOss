@@ -123,3 +123,18 @@ COMPONENT_STATUS.
 - No test or code changes in this ADR's PR; it fixes the plan only. The v0.1.0 release notes'
   sentence "not deployable in production yet" stays true through v0.2.0 and v0.3.0.
 - TMF664 is placed in v0.2.0 item 3 with permission to slip; everything else in v0.2.0 is fixed.
+
+**Progress (2026-11-18, `main` 3d02404f).**
+
+| v0.2.0 item | State |
+|---|---|
+| 1 Ledger hygiene | Merged, #20. |
+| 2 NRF PATCH/DELETE; ADR-0570 audit | NRF merged, #21 (ADR-0574). Audit: NEF part merged, #22 (ADR-0575). The body-, record- and peer-derived URL sites listed in ADR-0575 *Disclosed* (NEF, AUSF, SMF, AMF, bss/provisioning, PCF) are deferred for future implementation. |
+| 3 TMF640 PATCH, DELETE, notifications | PATCH merged, #23 (ADR-0576). DELETE and notifications are deferred for future implementation; TMF664 may slip to v0.3.0, as planned. |
+| 4 SBI-03 causes | NRF merged, #24 (ADR-0577). NEF merged, #25 (ADR-0578). The UDR's blocker (TS 29.505, 29.519, 29.506 not in hand) is lifted: the three specs were fetched on 2026-11-18. The other NFs are open. |
+| 5 Fuzz nightly; recorded UERANSIM run | Both merged: #26 (ADR-0579) and #27. |
+| 6 Release PR | Open; it comes last. |
+
+B10 has changed. There are now two self-hosted runners, the lab host and the laptop `mastermind-073-small`
+(ADR-0580, ADR-0581, ADR-0582). Both still sit on the developer's own machines, so B10 itself stays open.
+B9 has changed in part: the libFuzzer targets now have a nightly workflow, but coverage is still not measured.
