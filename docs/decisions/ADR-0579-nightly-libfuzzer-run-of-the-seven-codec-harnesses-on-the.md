@@ -1,6 +1,6 @@
 ## ADR-0579: Nightly libFuzzer run of the seven codec harnesses on the lab runner (ADR-0572 v0.2.0 item 5, fuzz part)
 
-**Date:** 2026-11-15. **Status:** Proposed (user, 2026-11-15: "yes start it", item 5). Item 5 of the
+**Date:** 2026-11-15. **Status:** Accepted (user, 2026-11-18). Proposed (user, 2026-11-15: "yes start it", item 5). Item 5 of the
 v0.2.0 plan (ADR-0572) has two parts; this ADR is the first, the nightly fuzz workflow. The recorded
 UERANSIM run is a separate increment (CLAUDE.md: one subsystem per turn).
 
@@ -60,3 +60,9 @@ ran them (ADR-0572 B9: "libFuzzer targets never run in CI"); `tests/fuzz/CMakeLi
   manual run is the real test.
 
 **Verified.** Local only, as above. CI/runner result to be added after the first `workflow_dispatch`.
+
+**Update (2026-11-18).** Merged to `main` in #26. The first `workflow_dispatch` run, 44230521237 on
+`main` 3d02404f (2026-11-18, 03:27-03:43 UTC, 16 min including the build), succeeded. Each of the
+seven harnesses ran for its 120 s budget. They executed 21.4M, 30.1M, 32.8M, 41.2M, 58.2M, 77.2M
+and 94.0M inputs (`Done N runs in 121 second(s)`), and none crashed. This is a time-boxed run with no
+coverage measured, not a proof that the codecs are free of bugs.

@@ -50,9 +50,20 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   (`amData.odbPacketServices = ALL_PACKET_SERVICES`), `active` clears it; AMF/SMF do not enforce it
   yet
   ([ADR-0576](docs/decisions/ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md)).
+- `simulators/ransim/README.md`: a recorded UERANSIM NG Setup, registration and PDU session run, with
+  the exact commands (ADR-0572 v0.2.0 item 5, second part).
+- A second self-hosted CI runner (the laptop `mastermind-073-small`, label `5gc-lab-small`): `lint`
+  and `docs-lint` run there, and it shares `build`, `sanitize` and `fuzz-nightly` with the lab host
+  ([ADR-0580](docs/decisions/ADR-0580-ci-lint-job-runs-on-the-laptop-runner-5gc-lab-small-fork-pr.md),
+  [ADR-0581](docs/decisions/ADR-0581-laptop-runner-also-carries-the-5gc-lab-label-and-shares.md)).
 
 ### Changed
 
+- Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
+  and `fuzz-nightly.yml`
+  ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).
+- Pull requests from forks need approval for every external contributor before CI runs
+  ([ADR-0580](docs/decisions/ADR-0580-ci-lint-job-runs-on-the-laptop-runner-5gc-lab-small-fork-pr.md)).
 - Every NF registers its configured advertised address in its NFProfile, not `127.0.0.1`
   ([ADR-0518](docs/decisions/archive/ADR-0518-nfs-register-their-advertised-address-in-the-nfprofile-not.md)).
 - The NRF keeps refusing a token request that fails TS 33.501 13.4.1.1.2, and the consumer logs the

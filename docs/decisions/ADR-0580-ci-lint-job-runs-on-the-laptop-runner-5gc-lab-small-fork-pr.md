@@ -1,6 +1,6 @@
 ## ADR-0580: CI lint job runs on the laptop runner (5gc-lab-small); fork-PR approval for all external contributors
 
-**Date:** 2026-11-16. **Status:** Proposed.
+**Date:** 2026-11-16. **Status:** Accepted (user, 2026-11-18).
 
 **Context.** Until now, every self-hosted CI job (`build`, `sanitize`, `lint` in `ci.yml`, and `fuzz` in
 `fuzz-nightly.yml`) has run on the single lab runner `5gc-lab-host` (label `5gc-lab`, ADR-0363). Jobs
