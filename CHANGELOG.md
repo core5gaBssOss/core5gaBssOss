@@ -122,6 +122,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   answer 404 with `cause` `APPLICATION_AM_CONTEXT_NOT_FOUND` (TS 29.522 table 5.17.5.3-1); the
   NEF's other 404s have no cause defined in the specifications in hand
   ([ADR-0578](docs/decisions/ADR-0578-nef-ampolicyauthorization-404-carries-application-am.md)).
+- UDR: every Nudr_DataRepository 404 carries a `cause`: `DATA_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`
+  or `GROUP_IDENTIFIER_NOT_FOUND` (TS 29.504 table 6.1.6-2, TS 29.500 table 5.2.7.2-1)
+  ([ADR-0583](docs/decisions/ADR-0583-udr-404s-carry-data-not-found-subscription-not-found-or.md)).
 
 ### Security
 
