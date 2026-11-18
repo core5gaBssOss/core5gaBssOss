@@ -123,7 +123,8 @@ public:
 
     // DELETE: loads the Service under a row lock (404 if absent), hands it to `network_write`,
     // and deletes the row before commit, so a failed UDR write deletes nothing.
-    tl::expected<void, ServiceError>
+    // Returns the deleted Service.
+    tl::expected<nlohmann::json, ServiceError>
     remove(const std::string& id,
            const std::function<tl::expected<void, ServiceError>(const nlohmann::json&)>&
                network_write);
@@ -147,12 +148,16 @@ create_service(ServiceStore& store, UdrAdapter& udr, const ValidatedService& v);
 
 // PATCH /service/{id}: plans the change, writes the UDR for state transitions, stores the merged
 // Service. A UDR 409 is answered 409, any other UDR failure 500; either way nothing is stored.
-tl::expected<nlohmann::json, ServiceError>
-patch_service(ServiceStore& store, UdrAdapter& udr, const std::string& id, const std::string& body);
+// `previous_state`, when given, receives the state the Service had before the change.
+tl::expected<nlohmann::json, ServiceError> patch_service(ServiceStore& store,
+                                                         UdrAdapter& udr,
+                                                         const std::string& id,
+                                                         const std::string& body,
+                                                         std::string* previous_state = nullptr);
 
-// DELETE /service/{id}: bars an active or inactive Service at the UDR, then deletes it. A UDR
-// 409 is answered 409, any other UDR failure 500; either way nothing is deleted.
-tl::expected<void, ServiceError>
+// DELETE /service/{id}: bars an active or inactive Service at the UDR, then deletes it and returns
+// it. A UDR 409 is answered 409, any other UDR failure 500; either way nothing is deleted.
+tl::expected<nlohmann::json, ServiceError>
 delete_service(ServiceStore& store, UdrAdapter& udr, const std::string& id);
 
 } // namespace provisioning::tmf640

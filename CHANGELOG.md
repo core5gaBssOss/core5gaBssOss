@@ -59,6 +59,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - TMF640 `DELETE /service/{id}`: an active or inactive Service is barred at the UDR, then removed;
   the subscriber stays provisioned (mapping row A5)
   ([ADR-0585](docs/decisions/ADR-0585-tmf640-delete-service-id-bars-at-the-udr-then-removes-the.md)).
+- TMF640 event notifications: `POST`/`DELETE /hub` listeners; `ServiceCreateEvent`,
+  `ServiceAttributeValueChangeEvent`, `ServiceStateChangeEvent` and `ServiceDeleteEvent` delivered best
+  effort to `{callback}/listener/<event>`, with no access token
+  ([ADR-0586](docs/decisions/ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md)).
 
 ### Changed
 

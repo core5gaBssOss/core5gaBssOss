@@ -551,6 +551,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0583](decisions/ADR-0583-udr-404s-carry-data-not-found-subscription-not-found-or.md) UDR 404s carry DATA_NOT_FOUND, SUBSCRIPTION_NOT_FOUND or GROUP_IDENTIFIER_NOT_FOUND (SBI-03, UDR part)
 - [0584](decisions/ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md) UDM 404s carry the TS 29.503 cause for their service (SBI-03, UDM part)
 - [0585](decisions/ADR-0585-tmf640-delete-service-id-bars-at-the-udr-then-removes-the.md) TMF640 DELETE /service/{id} bars at the UDR, then removes the Service
+- [0586](decisions/ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md) TMF640 event notifications: hub listeners and best-effort Service events (N1-N5)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

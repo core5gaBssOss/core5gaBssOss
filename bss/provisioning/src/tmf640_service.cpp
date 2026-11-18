@@ -284,7 +284,7 @@ tl::expected<json, ServiceError> ServiceStore::patch(
     return *next;
 }
 
-tl::expected<void, ServiceError> ServiceStore::remove(
+tl::expected<json, ServiceError> ServiceStore::remove(
     const std::string& id,
     const std::function<tl::expected<void, ServiceError>(const json&)>& network_write) {
     auto lease = pool_->acquire();
@@ -294,13 +294,14 @@ tl::expected<void, ServiceError> ServiceStore::remove(
     if (rows.empty()) {
         return tl::unexpected(ServiceError{404, "Not Found", "no Service with this id"});
     }
-    auto written = network_write(json::parse(rows[0][0].c_str()));
+    auto stored = json::parse(rows[0][0].c_str());
+    auto written = network_write(stored);
     if (!written.has_value()) {
         return tl::unexpected(written.error()); // txn rolls back: nothing deleted
     }
     txn.exec("DELETE FROM orchestration.tmf640_service WHERE id = $1", pqxx::params{id});
     txn.commit();
-    return {};
+    return stored;
 }
 
 std::optional<json> ServiceStore::get(const std::string& id) {
@@ -377,7 +378,7 @@ DeletePlan plan_delete(const json& stored) {
     return plan;
 }
 
-tl::expected<void, ServiceError>
+tl::expected<json, ServiceError>
 delete_service(ServiceStore& store, UdrAdapter& udr, const std::string& id) {
     return store.remove(id, [&](const json& stored) -> tl::expected<void, ServiceError> {
         const auto plan = plan_delete(stored);
@@ -405,8 +406,12 @@ delete_service(ServiceStore& store, UdrAdapter& udr, const std::string& id) {
 tl::expected<json, ServiceError> patch_service(ServiceStore& store,
                                                UdrAdapter& udr,
                                                const std::string& id,
-                                               const std::string& body) {
+                                               const std::string& body,
+                                               std::string* previous_state) {
     return store.patch(id, [&](const json& stored) -> tl::expected<json, ServiceError> {
+        if (previous_state != nullptr) {
+            *previous_state = stored.value("state", std::string());
+        }
         auto plan = plan_patch(stored, body);
         if (!plan.has_value()) {
             return tl::unexpected(plan.error());
