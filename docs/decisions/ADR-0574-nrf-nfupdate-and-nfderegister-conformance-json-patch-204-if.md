@@ -1,6 +1,6 @@
 ## ADR-0574: NRF NFUpdate and NFDeregister conformance: JSON Patch, 204, If-Match, 404 (TS 29.510 5.2.2.3-5.2.2.7)
 
-**Date:** 2026-11-12. **Status:** Proposed. ADR-0572 v0.2.0 item 2, first half (the NRF). The
+**Date:** 2026-11-12. **Status:** Accepted (user, 2026-11-18). ADR-0572 v0.2.0 item 2, first half (the NRF). The
 second half, the ADR-0570 audit, is deferred to its own PR (see Disclosed).
 
 **Context.** ADR-0572 B7 lists "NRF PATCH non-conformance and NRF DELETE 204" as open. Read against

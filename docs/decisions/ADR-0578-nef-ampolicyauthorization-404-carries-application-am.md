@@ -1,6 +1,6 @@
 ## ADR-0578: NEF AMPolicyAuthorization 404 carries APPLICATION_AM_CONTEXT_NOT_FOUND; the other NEF 404s have no defined cause (SBI-03, NEF part)
 
-**Date:** 2026-11-15. **Status:** Proposed (user, 2026-11-15: continue SBI-03 per ADR-0577's restated
+**Date:** 2026-11-15. **Status:** Accepted (user, 2026-11-18). Proposed (user, 2026-11-15: continue SBI-03 per ADR-0577's restated
 scope; the NEF was chosen over the UDR, below). Item 4 of the v0.2.0 plan (ADR-0572), second NF.
 Continues ADR-0502 and ADR-0577. Numbered 0578 because ADR-0576 (#23) and ADR-0577 (#24) are open.
 

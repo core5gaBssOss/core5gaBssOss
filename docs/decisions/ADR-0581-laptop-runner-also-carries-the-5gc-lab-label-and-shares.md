@@ -1,6 +1,6 @@
 ## ADR-0581: Laptop runner also carries the 5gc-lab label and shares build, sanitize and fuzz jobs
 
-**Date:** 2026-11-16. **Status:** Proposed.
+**Date:** 2026-11-16. **Status:** Accepted (user, 2026-11-18).
 
 **Context.** ADR-0580 moved `lint` and `docs-lint` to the laptop runner `mastermind-073-small` (label
 `5gc-lab-small`). Those jobs take seconds, so the laptop sat idle while the lab host `5gc-lab-host`

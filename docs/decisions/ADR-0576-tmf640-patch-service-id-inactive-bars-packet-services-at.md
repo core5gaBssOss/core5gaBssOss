@@ -1,6 +1,6 @@
 ## ADR-0576: TMF640 PATCH /service/{id}: inactive bars packet services at the UDR, active clears it (ADR-0558 P3)
 
-**Date:** 2026-11-15. **Status:** Proposed (procedure list approved by the user, 2026-11-15: PATCH
+**Date:** 2026-11-15. **Status:** Accepted (user, 2026-11-18). Proposed (procedure list approved by the user, 2026-11-15: PATCH
 also updates the stored-only fields; `Service_Update` is applied as merge-patch; the UDR path was
 to be checked first and extended only if needed). Implements ADR-0558 increment 1, step P3, and
 `docs/PROVISIONING_MAPPING.md` row A4. Item 3 of the v0.2.0 plan (ADR-0572).

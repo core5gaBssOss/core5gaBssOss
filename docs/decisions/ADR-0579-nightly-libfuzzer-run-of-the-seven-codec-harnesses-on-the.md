@@ -1,6 +1,6 @@
 ## ADR-0579: Nightly libFuzzer run of the seven codec harnesses on the lab runner (ADR-0572 v0.2.0 item 5, fuzz part)
 
-**Date:** 2026-11-15. **Status:** Proposed (user, 2026-11-15: "yes start it", item 5). Item 5 of the
+**Date:** 2026-11-15. **Status:** Accepted (user, 2026-11-18). Proposed (user, 2026-11-15: "yes start it", item 5). Item 5 of the
 v0.2.0 plan (ADR-0572) has two parts; this ADR is the first, the nightly fuzz workflow. The recorded
 UERANSIM run is a separate increment (CLAUDE.md: one subsystem per turn).
 
