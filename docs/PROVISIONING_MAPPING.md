@@ -131,6 +131,11 @@ The user approved every row below ("approve all", 2026-11-07). They are binding 
   merge-patch: `inactive` writes `amData.odbPacketServices = ALL_PACKET_SERVICES` through the UDR
   OAM PUT, `active` writes the documents without it (the PUT replaces `amData`, so that clears it).
   AMF/SMF enforcement of the barring is not built.
+- 2026-11-18, ADR-0585: TMF640 `DELETE /service/{id}` (user, 2026-11-18: "bar, then delete"). An
+  `active` or `inactive` Service is first barred at the UDR (`odbPacketServices =
+  ALL_PACKET_SERVICES`, as for A4), then its row is deleted. A pre-active Service wrote nothing, so
+  nothing is written. Row A5 still holds: the subscriber stays provisioned at the UDR, and full
+  deprovisioning is deferred for future implementation.
 
 ## Not done in this pass
 

@@ -50,6 +50,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   (`amData.odbPacketServices = ALL_PACKET_SERVICES`), `active` clears it; AMF/SMF do not enforce it
   yet
   ([ADR-0576](docs/decisions/ADR-0576-tmf640-patch-service-id-inactive-bars-packet-services-at.md)).
+- TMF640 `DELETE /service/{id}`: an active or inactive Service is barred at the UDR, then removed;
+  the subscriber stays provisioned (mapping row A5)
+  ([ADR-0585](docs/decisions/ADR-0585-tmf640-delete-service-id-bars-at-the-udr-then-removes-the.md)).
 
 ### Changed
 

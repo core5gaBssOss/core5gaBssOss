@@ -284,6 +284,25 @@ tl::expected<json, ServiceError> ServiceStore::patch(
     return *next;
 }
 
+tl::expected<void, ServiceError> ServiceStore::remove(
+    const std::string& id,
+    const std::function<tl::expected<void, ServiceError>(const json&)>& network_write) {
+    auto lease = pool_->acquire();
+    pqxx::work txn(lease.conn());
+    const auto rows = txn.exec(
+        "SELECT body FROM orchestration.tmf640_service WHERE id = $1 FOR UPDATE", pqxx::params{id});
+    if (rows.empty()) {
+        return tl::unexpected(ServiceError{404, "Not Found", "no Service with this id"});
+    }
+    auto written = network_write(json::parse(rows[0][0].c_str()));
+    if (!written.has_value()) {
+        return tl::unexpected(written.error()); // txn rolls back: nothing deleted
+    }
+    txn.exec("DELETE FROM orchestration.tmf640_service WHERE id = $1", pqxx::params{id});
+    txn.commit();
+    return {};
+}
+
 std::optional<json> ServiceStore::get(const std::string& id) {
     auto lease = pool_->acquire();
     pqxx::read_transaction txn(lease.conn());
@@ -335,6 +354,51 @@ create_service(ServiceStore& store, UdrAdapter& udr, const ValidatedService& v) 
             "provisioning: TMF640 activation of {} failed: {}", v.supi, written.error().message);
         return tl::unexpected(
             ServiceError{500, "Internal Server Error", "the UDR write failed; nothing was stored"});
+    });
+}
+
+DeletePlan plan_delete(const json& stored) {
+    DeletePlan plan;
+    for (const auto& c : stored.value("serviceCharacteristic", json::array())) {
+        const auto name = c.value("name", std::string());
+        const auto& value = c.contains("value") ? c.at("value") : json();
+        if (name == "supi" && value.is_string()) {
+            plan.supi = value.get<std::string>();
+        } else if (name == "msisdn" && value.is_string()) {
+            plan.msisdn = value.get<std::string>();
+        }
+    }
+    if (stored.contains("serviceSpecification") && stored.at("serviceSpecification").is_object()) {
+        plan.specification_id = stored.at("serviceSpecification").value("id", std::string());
+    }
+    const auto state = stored.value("state", std::string());
+    plan.bar = !plan.supi.empty() && (state == tmf_gen::ServiceStateType::active ||
+                                      state == tmf_gen::ServiceStateType::inactive);
+    return plan;
+}
+
+tl::expected<void, ServiceError>
+delete_service(ServiceStore& store, UdrAdapter& udr, const std::string& id) {
+    return store.remove(id, [&](const json& stored) -> tl::expected<void, ServiceError> {
+        const auto plan = plan_delete(stored);
+        if (!plan.bar) {
+            return {};
+        }
+        auto written = udr.provision_network(plan.supi, plan.msisdn, plan.specification_id, true);
+        if (written.has_value()) {
+            return {};
+        }
+        if (written.error().no_credentials) {
+            return tl::unexpected(
+                ServiceError{409,
+                             "Conflict",
+                             "the subscriber has no credentials at the UDR; nothing was deleted"});
+        }
+        spdlog::warn("provisioning: TMF640 DELETE of {} failed at the UDR: {}",
+                     plan.supi,
+                     written.error().message);
+        return tl::unexpected(ServiceError{
+            500, "Internal Server Error", "the UDR write failed; nothing was deleted"});
     });
 }
 
