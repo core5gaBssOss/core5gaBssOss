@@ -140,6 +140,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `MBS_POLICY_ASSOCIATION_NOT_FOUND`, `MBS_SESSION_POL_AUTH_CTXT_NOT_FOUND`, `PDTQ_POLICY_NOT_FOUND`,
   `BDT_POLICY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`)
   ([ADR-0587](docs/decisions/ADR-0587-pcf-404s-carry-the-cause-their-service-spec-defines-sbi-03.md)).
+- AMF: unknown-UE-context 404s carry `CONTEXT_NOT_FOUND`; `cancel-pos-info` for an unknown
+  location session answers 403 `LOCATION_SESSION_UNKNOWN` (TS 29.518 table 6.4.7.3-1) instead of 404
+  ([ADR-0588](docs/decisions/ADR-0588-amf-404s-carry-context-not-found-cancellocation-for-an.md)).
 
 ### Security
 
