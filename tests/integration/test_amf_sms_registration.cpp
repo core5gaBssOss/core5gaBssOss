@@ -180,8 +180,9 @@ sms_core::Bytes gmsc_cp_data() {
 }
 
 // The SMSF has a UE SMS context for `supi` iff SMSServiceParameterUpdate (an empty JSON Patch)
-// answers 204 rather than 404 -- the SMSF's own state, not the AMF's.
-int smsf_context_status(const std::string& supi) {
+// answers 204 rather than 404 -- the SMSF's own state, not the AMF's. A 404's ProblemDetails
+// cause goes to `cause` when given (TS 29.540 6.1.3.3.3.3: CONTEXT_NOT_FOUND).
+int smsf_context_status(const std::string& supi, std::string* cause = nullptr) {
     auto client = make_client();
     sbi_core::http2::ClientRequest token_req;
     token_req.method = "POST";
@@ -204,6 +205,9 @@ int smsf_context_status(const std::string& supi) {
         "Bearer " + nlohmann::json::parse(token->body).at("access_token").get<std::string>());
     patch.body = "[]";
     auto resp = client.send(patch);
+    if (resp && cause != nullptr && resp->status == 404) {
+        *cause = nlohmann::json::parse(resp->body).value("cause", std::string());
+    }
     return resp ? resp->status : -1;
 }
 
@@ -235,7 +239,9 @@ TEST(AmfSmsRegistration, NoSmsRequestedMeansNotAllowedAndNoSmsfContext) {
     std::vector<std::uint8_t> accept;
     ASSERT_NO_FATAL_FAILURE(register_ue(gnb, 1, /*sms_requested=*/false, accept));
     EXPECT_EQ(accept[4], 0x01);
-    EXPECT_EQ(smsf_context_status(nf_test::kTestSupi), 404);
+    std::string cause;
+    EXPECT_EQ(smsf_context_status(nf_test::kTestSupi, &cause), 404);
+    EXPECT_EQ(cause, "CONTEXT_NOT_FOUND");
 }
 
 // ADR-0486 increment 3b: MO SMS over NAS end to end (TS 23.502 §4.13.3.3): the UE's UL NAS

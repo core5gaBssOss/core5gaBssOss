@@ -149,6 +149,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - NWDAF: unknown VFL subscription and ML model training subscription 404s carry
   `SUBSCRIPTION_NOT_FOUND`; the BSF's 404s need no cause (TS 29.521 defines none)
   ([ADR-0590](docs/decisions/ADR-0590-nwdaf-subscription-404s-carry-subscription-not-found-bsf.md)).
+- SMSF: the PATCH, DELETE and sendsms 404s for a SUPI with no UE SMS context carry
+  `CONTEXT_NOT_FOUND` (TS 29.540)
+  ([ADR-0591](docs/decisions/ADR-0591-smsf-404s-carry-context-not-found-sbi-03.md)).
 
 ### Security
 

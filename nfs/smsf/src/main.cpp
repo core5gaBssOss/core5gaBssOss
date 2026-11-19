@@ -370,7 +370,7 @@ int main() {
             auto patched = contexts.patch(supi, patch_ops);
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE SMS context for supi " + supi, std::nullopt);
+                    404, "Not Found", "No UE SMS context for supi " + supi, "CONTEXT_NOT_FOUND");
             }
             param_update_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -389,7 +389,7 @@ int main() {
             // class as 5G-EIR's own disclosed structural gaps, ADR-0187).
             if (!contexts.remove(supi)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE SMS context for supi " + supi, std::nullopt);
+                    404, "Not Found", "No UE SMS context for supi " + supi, "CONTEXT_NOT_FOUND");
             }
             deactivation_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -406,7 +406,7 @@ int main() {
             const auto ue_context = contexts.get(supi);
             if (!ue_context.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No UE SMS context for supi " + supi, std::nullopt);
+                    404, "Not Found", "No UE SMS context for supi " + supi, "CONTEXT_NOT_FOUND");
             }
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
