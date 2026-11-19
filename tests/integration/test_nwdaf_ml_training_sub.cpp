@@ -274,6 +274,7 @@ TEST(NwdafMlTrainingSub, SubscriptionLifecycle) {
     r = call("POST", item + "/unsubscribe-info", &with_cause);
     ASSERT_TRUE(r.has_value());
     EXPECT_EQ(r->status, 404) << r->body;
+    EXPECT_EQ(json::parse(r->body).value("cause", ""), "SUBSCRIPTION_NOT_FOUND"); // ADR-0590
 
     // DELETE: 204 then 404.
     r = call("POST", std::string(kRoot) + "/subscriptions", &replacement);

@@ -1672,8 +1672,10 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
             }
             const auto id = req.path_params.at("subscriptionId");
             if (!store_.remove_training_subscription(id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "no ML model training subscription " + id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no ML model training subscription " + id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             spdlog::info("nwdaf-mtlf: ML model training subscription {} ended by consumer: {}",
                          id,

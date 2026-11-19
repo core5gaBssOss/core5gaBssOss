@@ -146,6 +146,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - SMF: unknown SM context or PDU session 404s carry `CONTEXT_NOT_FOUND`; the event-exposure GET
   carries `SUBSCRIPTION_NOT_FOUND`
   ([ADR-0589](docs/decisions/ADR-0589-smf-404s-carry-context-not-found-or-subscription-not-found.md)).
+- NWDAF: unknown VFL subscription and ML model training subscription 404s carry
+  `SUBSCRIPTION_NOT_FOUND`; the BSF's 404s need no cause (TS 29.521 defines none)
+  ([ADR-0590](docs/decisions/ADR-0590-nwdaf-subscription-404s-carry-subscription-not-found-bsf.md)).
 
 ### Security
 

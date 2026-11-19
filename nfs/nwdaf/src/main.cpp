@@ -213,7 +213,7 @@ void register_vfl_crud(sbi_core::http2::Server& server,
         const auto sub = store.get(req.path_params.at("subscriptionId"));
         if (!sub) {
             return sbi_core::http2::problem_response(
-                404, "Not Found", "no such subscription", std::nullopt);
+                404, "Not Found", "no such subscription", "SUBSCRIPTION_NOT_FOUND");
         }
         sbi_core::http2::Response resp;
         resp.status = 200;
