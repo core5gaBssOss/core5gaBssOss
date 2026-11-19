@@ -424,6 +424,7 @@ TEST(Dccf, CoordinatesCollectionThroughTheMfafDedupsAndTearsDown) {
     r = c.send(del); // a second DELETE of the same id is a 404, never a silent 204
     ASSERT_TRUE(r.has_value());
     EXPECT_EQ(r->status, 404);
+    EXPECT_EQ(json::parse(r->body).value("cause", std::string()), "SUBSCRIPTION_NOT_FOUND");
     ASSERT_EQ(admit("imsi-999700000000803"), 204);
     std::this_thread::sleep_for(3s);
     EXPECT_EQ(receiver.count("/consumer-b"), 2U)
