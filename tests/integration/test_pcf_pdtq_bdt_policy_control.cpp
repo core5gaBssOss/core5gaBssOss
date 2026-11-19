@@ -151,6 +151,7 @@ TEST(PdtqPolicyControlIntegration, CreateReadUpdateDeleteLifecycle) {
     auto delete_again_resp = client.send(delete_req);
     ASSERT_TRUE(delete_again_resp.has_value());
     EXPECT_EQ(delete_again_resp->status, 404);
+    EXPECT_EQ(json::parse(delete_again_resp->body).value("cause", ""), "PDTQ_POLICY_NOT_FOUND");
 }
 
 TEST(PdtqPolicyControlIntegration, CreateWithMissingRequiredFieldIs400) {
@@ -263,6 +264,7 @@ TEST(BdtPolicyControlIntegration, CreateReadUpdateDeleteLifecycle) {
     auto delete_again_resp = client.send(delete_req);
     ASSERT_TRUE(delete_again_resp.has_value());
     EXPECT_EQ(delete_again_resp->status, 404);
+    EXPECT_EQ(json::parse(delete_again_resp->body).value("cause", ""), "BDT_POLICY_NOT_FOUND");
 }
 
 TEST(BdtPolicyControlIntegration, CreateWithMissingRequiredFieldIs400) {

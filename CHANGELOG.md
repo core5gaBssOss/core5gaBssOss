@@ -135,6 +135,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - UDM: every 404 carries the TS 29.503 cause for its service (`CONTEXT_NOT_FOUND` for UECM
   registrations, `DATA_NOT_FOUND`, `USER_NOT_FOUND`, `GROUP_IDENTIFIER_NOT_FOUND`, `AUTHORIZATION_NOT_FOUND`)
   ([ADR-0584](docs/decisions/ADR-0584-udm-404s-carry-the-ts-29-503-cause-for-their-service-sbi-03.md)).
+- PCF: every policy-service 404 carries its spec's cause (`POLICY_ASSOCIATION_NOT_FOUND`,
+  `APPLICATION_SESSION_CONTEXT_NOT_FOUND`, `APPLICATION_AM_CONTEXT_NOT_FOUND`,
+  `MBS_POLICY_ASSOCIATION_NOT_FOUND`, `MBS_SESSION_POL_AUTH_CTXT_NOT_FOUND`, `PDTQ_POLICY_NOT_FOUND`,
+  `BDT_POLICY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`)
+  ([ADR-0587](docs/decisions/ADR-0587-pcf-404s-carry-the-cause-their-service-spec-defines-sbi-03.md)).
 
 ### Security
 
