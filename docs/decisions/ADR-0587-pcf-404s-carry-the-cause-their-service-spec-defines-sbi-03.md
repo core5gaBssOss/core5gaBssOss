@@ -39,7 +39,7 @@ Disclosed:
 - One 404 stays without a cause: the N1N2 transfer failure callback for an unknown UE policy
   association (TS 29.518 lists 404 there and defines no cause, and the callback is not a
   subscription, so `SUBSCRIPTION_NOT_FOUND` would not fit).
-- Compile-checked locally only (this host is a CI runner); CI result to be added.
+- Compile-checked locally only (this host is a CI runner). CI on PR #36 passed: build, lint, asan-ubsan and tsan (2026-11-19).
 
 **Rejected alternatives.**
 - `POLICY_CONTEXT_NOT_FOUND` for SM policy 404s: TS 29.512 table 5.7.3-2 gives it to the SMF

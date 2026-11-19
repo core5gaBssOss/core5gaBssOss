@@ -31,7 +31,7 @@ Disclosed:
 - The analytics-info 404 for an analytics ID this NWDAF does not compute is a reading of the
   YAML's 404. TS 29.520 clause 4.2 gives 204 No Content only when the requested analytics data
   does not exist, which is a different case. The status is unchanged here.
-- Compile-checked locally only (this host is a CI runner); CI result to be added.
+- Compile-checked locally only (this host is a CI runner). CI on PR #39 passed: build, lint, asan-ubsan and tsan (2026-11-19).
 
 **Rejected alternatives.**
 - `SUBSCRIPTION_NOT_FOUND` on the transfer, registration and FL-callback 404s: those resources are

@@ -24,7 +24,7 @@ Disclosed:
 - For `modify`, TS 29.502 says the 404 body is an `SmContextUpdateError` whose `error` carries the
   cause. This SMF still answers a plain `ProblemDetails`, so the cause is right but the body shape
   is not. Deferred for future implementation; the same applies to the other `*Error` wrappers.
-- Compile-checked locally only (this host is a CI runner); CI result to be added.
+- Compile-checked locally only (this host is a CI runner). CI on PR #38 passed: build, lint, asan-ubsan and tsan (2026-11-19).
 
 **Rejected alternatives.**
 - `CONTEXT_NOT_FOUND` on the NIDD 404: TS 29.542 does not define it for Nsmf_NIDD.
