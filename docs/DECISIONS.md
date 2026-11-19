@@ -554,6 +554,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0586](decisions/ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md) TMF640 event notifications: hub listeners and best-effort Service events (N1-N5)
 - [0587](decisions/ADR-0587-pcf-404s-carry-the-cause-their-service-spec-defines-sbi-03.md) PCF 404s carry the cause their service spec defines (SBI-03, PCF part)
 - [0588](decisions/ADR-0588-amf-404s-carry-context-not-found-cancellocation-for-an.md) AMF 404s carry CONTEXT_NOT_FOUND; CancelLocation for an unknown session is 403 LOCATION_SESSION_UNKNOWN (SBI-03, AMF part)
+- [0589](decisions/ADR-0589-smf-404s-carry-context-not-found-or-subscription-not-found.md) SMF 404s carry CONTEXT_NOT_FOUND or SUBSCRIPTION_NOT_FOUND (SBI-03, SMF part)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

@@ -552,7 +552,8 @@
   "ADR-0585-tmf640-delete-service-id-bars-at-the-udr-then-removes-the.md",
   "ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md",
   "ADR-0587-pcf-404s-carry-the-cause-their-service-spec-defines-sbi-03.md",
-  "ADR-0588-amf-404s-carry-context-not-found-cancellocation-for-an.md"
+  "ADR-0588-amf-404s-carry-context-not-found-cancellocation-for-an.md",
+  "ADR-0589-smf-404s-carry-context-not-found-or-subscription-not-found.md"
  ],
  "split_commit": "0530e4f"
 }

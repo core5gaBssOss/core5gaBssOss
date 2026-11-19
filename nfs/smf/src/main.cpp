@@ -3564,8 +3564,10 @@ int main() {
         [&sm_contexts, &retrieve_counter](const sbi_core::http2::Request& req) {
             const auto sm_context_ref = req.path_params.at("smContextRef");
             if (!sm_contexts.get(sm_context_ref).has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context with ref " + sm_context_ref, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No SM context with ref " + sm_context_ref,
+                                                         "CONTEXT_NOT_FOUND");
             }
             // SmContextRetrieveData is optional per spec (required: false) -- an empty
             // body is valid, not a parse error.
@@ -3653,8 +3655,10 @@ int main() {
             const auto sm_context_ref = req.path_params.at("smContextRef");
             const auto stored_ctx = sm_contexts.get(sm_context_ref);
             if (!stored_ctx.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context with ref " + sm_context_ref, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No SM context with ref " + sm_context_ref,
+                                                         "CONTEXT_NOT_FOUND");
             }
             update_counter->Add(1);
 
@@ -4618,8 +4622,10 @@ int main() {
             const auto sm_context_ref = req.path_params.at("smContextRef");
             auto stored = release_deps.sm_contexts.get(sm_context_ref);
             if (!stored.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context with ref " + sm_context_ref, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No SM context with ref " + sm_context_ref,
+                                                         "CONTEXT_NOT_FOUND");
             }
             // SmContextReleaseData is optional per spec (required: false).
             if (!req.body.empty()) {
@@ -4673,8 +4679,10 @@ int main() {
                          const auto sub_id = req.path_params.at("subId");
                          auto stored = event_subs.get(sub_id);
                          if (!stored.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such subscription", std::nullopt);
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such subscription",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
                          event_sub_get_counter->Add(1);
                          return sbi_core::http2::Response::json(200, stored->dump());
@@ -4736,6 +4744,7 @@ int main() {
             // "pdu-sessions" resource anywhere else in this build.
             const auto pdu_session_ref = req.path_params.at("pduSessionRef");
             if (!sm_contexts.get(pdu_session_ref).has_value()) {
+                // TS 29.542 table 6.1.7.3-1 defines no 404 cause, so none is set (ADR-0589).
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such PDU session: " + pdu_session_ref, std::nullopt);
             }
@@ -4777,7 +4786,7 @@ int main() {
             const auto sm_context_ref = req.path_params.at("smContextRef");
             if (!sm_contexts.get(sm_context_ref).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such SM context: " + sm_context_ref, std::nullopt);
+                    404, "Not Found", "No such SM context: " + sm_context_ref, "CONTEXT_NOT_FOUND");
             }
             send_mo_data_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -4800,8 +4809,10 @@ int main() {
             // the smContextRef id space. Stated here rather than inherited silently.
             const auto pdu_session_ref = req.path_params.at("pduSessionRef");
             if (!sm_contexts.get(pdu_session_ref).has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PDU session: " + pdu_session_ref, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such PDU session: " + pdu_session_ref,
+                                                         "CONTEXT_NOT_FOUND");
             }
             transfer_mo_data_counter->Add(1);
             sbi_core::http2::Response resp;
