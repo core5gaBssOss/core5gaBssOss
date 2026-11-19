@@ -154,6 +154,8 @@ TEST(PcfUePolicyIntegration, CreateReadUpdateDeleteLifecycle) {
     auto delete_again_resp = client.send(delete_req);
     ASSERT_TRUE(delete_again_resp.has_value());
     EXPECT_EQ(delete_again_resp->status, 404);
+    EXPECT_EQ(json::parse(delete_again_resp->body).value("cause", ""),
+              "POLICY_ASSOCIATION_NOT_FOUND");
 }
 
 TEST(PcfUePolicyIntegration, CreateWithMissingRequiredFieldIs400) {
@@ -252,6 +254,7 @@ TEST(PcfEventExposureIntegration, CreateReadReplaceDeleteLifecycle) {
     auto replace_missing_resp = client.send(replace_missing_req);
     ASSERT_TRUE(replace_missing_resp.has_value());
     EXPECT_EQ(replace_missing_resp->status, 404);
+    EXPECT_EQ(json::parse(replace_missing_resp->body).value("cause", ""), "SUBSCRIPTION_NOT_FOUND");
 
     sbi_core::http2::ClientRequest delete_req;
     delete_req.method = "DELETE";
@@ -264,6 +267,7 @@ TEST(PcfEventExposureIntegration, CreateReadReplaceDeleteLifecycle) {
     auto delete_again_resp = client.send(delete_req);
     ASSERT_TRUE(delete_again_resp.has_value());
     EXPECT_EQ(delete_again_resp->status, 404);
+    EXPECT_EQ(json::parse(delete_again_resp->body).value("cause", ""), "SUBSCRIPTION_NOT_FOUND");
 }
 
 TEST(PcfEventExposureIntegration, CreateWithMissingRequiredFieldIs400) {

@@ -215,6 +215,7 @@ TEST(AmfIntegration, MissingUeContextIs404AndTamperedTokenIs401) {
     auto release_resp = client.send(release_req);
     ASSERT_TRUE(release_resp.has_value());
     EXPECT_EQ(release_resp->status, 404);
+    EXPECT_EQ(json::parse(release_resp->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 
     sbi_core::http2::ClientRequest tampered_req;
     tampered_req.method = "POST";
@@ -291,6 +292,7 @@ TEST(AmfIntegration, CreateUEContextOverMultipartThenEBIAssignmentAndRelease) {
     auto release_again = client.send(release_req);
     ASSERT_TRUE(release_again.has_value());
     EXPECT_EQ(release_again->status, 404);
+    EXPECT_EQ(json::parse(release_again->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 }
 
 TEST(AmfIntegration, RelocateAndCancelRelocateUEContextOverMultipart) {
@@ -352,6 +354,7 @@ TEST(AmfIntegration, RelocateAndCancelRelocateUEContextOverMultipart) {
     auto relocate_missing_resp = client.send(relocate_missing_req);
     ASSERT_TRUE(relocate_missing_resp.has_value());
     EXPECT_EQ(relocate_missing_resp->status, 404);
+    EXPECT_EQ(json::parse(relocate_missing_resp->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 
     // Non-multipart body on a multipart-only operation must 400, not be silently accepted.
     sbi_core::http2::ClientRequest wrong_content_type_req;

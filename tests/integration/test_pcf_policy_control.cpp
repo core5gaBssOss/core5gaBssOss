@@ -169,10 +169,12 @@ TEST(PcfIntegration, AmPolicyAssociationFullLifecycle) {
     auto get_again = client.send(get_req);
     ASSERT_TRUE(get_again.has_value());
     EXPECT_EQ(get_again->status, 404);
+    EXPECT_EQ(json::parse(get_again->body).value("cause", ""), "POLICY_ASSOCIATION_NOT_FOUND");
 
     auto delete_again = client.send(delete_req);
     ASSERT_TRUE(delete_again.has_value());
     EXPECT_EQ(delete_again->status, 404);
+    EXPECT_EQ(json::parse(delete_again->body).value("cause", ""), "POLICY_ASSOCIATION_NOT_FOUND");
 }
 
 TEST(PcfIntegration, SmPolicyFullLifecycleUsesRequestSuppliedDefaults) {
@@ -273,10 +275,12 @@ TEST(PcfIntegration, SmPolicyFullLifecycleUsesRequestSuppliedDefaults) {
     auto get_again = client.send(get_req);
     ASSERT_TRUE(get_again.has_value());
     EXPECT_EQ(get_again->status, 404);
+    EXPECT_EQ(json::parse(get_again->body).value("cause", ""), "POLICY_ASSOCIATION_NOT_FOUND");
 
     auto delete_again = client.send(delete_req);
     ASSERT_TRUE(delete_again.has_value());
     EXPECT_EQ(delete_again->status, 404);
+    EXPECT_EQ(json::parse(delete_again->body).value("cause", ""), "POLICY_ASSOCIATION_NOT_FOUND");
 }
 
 TEST(PcfIntegration, SmPolicyWithoutSubscribedDefaultsUsesFixedFallback) {
@@ -335,6 +339,20 @@ TEST(PcfIntegration, MissingResourceIs404AndTamperedTokenIs401) {
     auto get_resp = client.send(get_req);
     ASSERT_TRUE(get_resp.has_value());
     EXPECT_EQ(get_resp->status, 404);
+    EXPECT_EQ(json::parse(get_resp->body).value("cause", ""), "POLICY_ASSOCIATION_NOT_FOUND");
+
+    // TS 29.514 table 5.7.3-1: an unknown Individual Application Session Context (ADR-0587).
+    const std::string pa_token = fetch_token(client, "npcf-policyauthorization");
+    ASSERT_FALSE(pa_token.empty());
+    sbi_core::http2::ClientRequest app_req;
+    app_req.method = "GET";
+    app_req.url = "https://127.0.0.1:7783/npcf-policyauthorization/v1/app-sessions/nonexistent";
+    app_req.headers.emplace("authorization", "Bearer " + pa_token);
+    auto app_resp = client.send(app_req);
+    ASSERT_TRUE(app_resp.has_value());
+    EXPECT_EQ(app_resp->status, 404);
+    EXPECT_EQ(json::parse(app_resp->body).value("cause", ""),
+              "APPLICATION_SESSION_CONTEXT_NOT_FOUND");
 
     sbi_core::http2::ClientRequest tampered_req = get_req;
     tampered_req.headers.erase("authorization");
