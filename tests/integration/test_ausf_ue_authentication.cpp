@@ -218,6 +218,7 @@ TEST(AusfIntegration, FiveGAkaSuccessfulAuthenticationCrossChecksHxresAndKseaf) 
     auto delete_again = client.send(delete_req);
     ASSERT_TRUE(delete_again.has_value());
     EXPECT_EQ(delete_again->status, 404);
+    EXPECT_EQ(json::parse(delete_again->body).value("cause", std::string()), "CONTEXT_NOT_FOUND");
 }
 
 TEST(AusfIntegration, FiveGAkaWrongResStarIsAuthenticationFailure) {
@@ -495,6 +496,7 @@ TEST(AusfIntegration, DeregisterRemovesContextThenSecondDeregisterIs404) {
     auto dereg_again = client.send(dereg_req);
     ASSERT_TRUE(dereg_again.has_value());
     EXPECT_EQ(dereg_again->status, 404);
+    EXPECT_EQ(json::parse(dereg_again->body).value("cause", std::string()), "CONTEXT_NOT_FOUND");
 }
 
 TEST(AusfIntegration, UnknownSupiIs404AndTamperedTokenIs401) {
@@ -523,6 +525,7 @@ TEST(AusfIntegration, UnknownSupiIs404AndTamperedTokenIs401) {
     auto resp = client.send(req);
     ASSERT_TRUE(resp.has_value());
     EXPECT_EQ(resp->status, 404);
+    EXPECT_EQ(json::parse(resp->body).value("cause", std::string()), "USER_NOT_FOUND");
 
     sbi_core::http2::ClientRequest tampered_req = req;
     tampered_req.headers.erase("authorization");

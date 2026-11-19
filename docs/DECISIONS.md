@@ -557,6 +557,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0589](decisions/ADR-0589-smf-404s-carry-context-not-found-or-subscription-not-found.md) SMF 404s carry CONTEXT_NOT_FOUND or SUBSCRIPTION_NOT_FOUND (SBI-03, SMF part)
 - [0590](decisions/ADR-0590-nwdaf-subscription-404s-carry-subscription-not-found-bsf.md) NWDAF subscription 404s carry SUBSCRIPTION_NOT_FOUND; BSF and the other NWDAF 404s have no defined cause (SBI-03)
 - [0591](decisions/ADR-0591-smsf-404s-carry-context-not-found-sbi-03.md) SMSF 404s carry CONTEXT_NOT_FOUND (SBI-03)
+- [0593](decisions/ADR-0593-ausf-404s-carry-user-not-found-or-context-not-found-mfaf.md) AUSF 404s carry USER_NOT_FOUND or CONTEXT_NOT_FOUND; MFAF and CHF need no cause (SBI-03)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

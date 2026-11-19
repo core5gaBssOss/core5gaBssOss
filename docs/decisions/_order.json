@@ -555,7 +555,8 @@
   "ADR-0588-amf-404s-carry-context-not-found-cancellocation-for-an.md",
   "ADR-0589-smf-404s-carry-context-not-found-or-subscription-not-found.md",
   "ADR-0590-nwdaf-subscription-404s-carry-subscription-not-found-bsf.md",
-  "ADR-0591-smsf-404s-carry-context-not-found-sbi-03.md"
+  "ADR-0591-smsf-404s-carry-context-not-found-sbi-03.md",
+  "ADR-0593-ausf-404s-carry-user-not-found-or-context-not-found-mfaf.md"
  ],
  "split_commit": "0530e4f"
 }
