@@ -152,6 +152,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - SMSF: the PATCH, DELETE and sendsms 404s for a SUPI with no UE SMS context carry
   `CONTEXT_NOT_FOUND` (TS 29.540)
   ([ADR-0591](docs/decisions/ADR-0591-smsf-404s-carry-context-not-found-sbi-03.md)).
+- NSSF: PATCH and DELETE of `nssai-availability/{nfId}` for an unknown nfId answer 404 with
+  `RESOURCE_NOT_FOUND` (TS 29.531)
+  ([ADR-0592](docs/decisions/ADR-0592-nssf-nssai-availability-404s-carry-resource-not-found-sbi-03.md)).
 
 ### Security
 
