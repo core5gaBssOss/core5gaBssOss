@@ -29,7 +29,7 @@ Disclosed: four 404s stay without a cause.
   `CONTEXT_NOT_FOUND` would be false, because the context exists. The spec answer for a CM-IDLE
   UE is paging, which is deferred for future implementation (ADR-0523).
 
-Compile-checked locally only (this host is a CI runner); CI result to be added.
+Compile-checked locally only (this host is a CI runner). CI on PR #37 passed: build, lint, asan-ubsan and tsan (2026-11-19).
 
 **Rejected alternatives.**
 - Keep 404 on `cancel-pos-info` and add a cause: TS 29.518 defines no 404 cause for it, so any
