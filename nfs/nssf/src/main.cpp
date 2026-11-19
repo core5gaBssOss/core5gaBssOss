@@ -580,8 +580,11 @@ int main() {
             }
             auto patched = availability_store.patch(nf_id, patch_ops);
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NSSAI availability data for nfId " + nf_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No NSSAI availability data for nfId " +
+                                                             nf_id,
+                                                         "RESOURCE_NOT_FOUND");
             }
             avail_patch_counter->Add(1);
 
@@ -606,8 +609,11 @@ int main() {
         [&availability_store, &avail_delete_counter](const sbi_core::http2::Request& req) {
             const auto nf_id = req.path_params.at("nfId");
             if (!availability_store.remove(nf_id)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No NSSAI availability data for nfId " + nf_id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No NSSAI availability data for nfId " +
+                                                             nf_id,
+                                                         "RESOURCE_NOT_FOUND");
             }
             avail_delete_counter->Add(1);
             sbi_core::http2::Response resp;
