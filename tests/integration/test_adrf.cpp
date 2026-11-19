@@ -655,6 +655,7 @@ TEST(Adrf, StorageSubscriptionTowardsAnNwdafStoresItsAnalytics) {
                        json{{"transRefId", trans_ref_id_2}}));
     ASSERT_TRUE(r.has_value()) << r.error();
     EXPECT_EQ(r->status, 404) << r->body;
+    EXPECT_EQ(json::parse(r->body).value("cause", std::string()), "SUBSCRIPTION_NOT_FOUND");
 
     // The NWDAF must no longer hold the ADRF's subscription: its own resource answers 404.
     // (Verified indirectly -- the collection record names the resource; the ADRF deleted it.)

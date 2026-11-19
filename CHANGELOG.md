@@ -155,6 +155,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - NSSF: PATCH and DELETE of `nssai-availability/{nfId}` for an unknown nfId answer 404 with
   `RESOURCE_NOT_FOUND` (TS 29.531)
   ([ADR-0592](docs/decisions/ADR-0592-nssf-nssai-availability-404s-carry-resource-not-found-sbi-03.md)).
+- ADRF: `request-storage-sub-removal` for an unknown storage subscription answers 404 with
+  `SUBSCRIPTION_NOT_FOUND`; the ML model file GET with a non-numeric id carries `ML_MODEL_NOT_FOUND`
+  ([ADR-0594](docs/decisions/ADR-0594-adrf-storage-sub-removal-and-model-file-404s-carry-their.md)).
 
 ### Security
 
