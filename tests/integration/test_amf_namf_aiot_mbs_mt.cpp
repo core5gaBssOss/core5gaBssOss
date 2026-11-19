@@ -285,6 +285,7 @@ TEST(AmfMtIntegration, ProvideDomainSelectionInfo404ThenHonestlyEmpty200) {
     auto missing_resp = client.send(get_req);
     ASSERT_TRUE(missing_resp.has_value());
     EXPECT_EQ(missing_resp->status, 404);
+    EXPECT_EQ(json::parse(missing_resp->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 
     const json create_json = sbi_gen::UeContextCreateData{};
     auto create_req =
@@ -332,6 +333,7 @@ TEST(AmfMtIntegration, EnableUeReachability404ThenUnreachableWithoutNgap) {
     auto missing_resp = client.send(reach_req);
     ASSERT_TRUE(missing_resp.has_value());
     EXPECT_EQ(missing_resp->status, 404);
+    EXPECT_EQ(json::parse(missing_resp->body).value("cause", ""), "CONTEXT_NOT_FOUND");
 
     const json create_json = sbi_gen::UeContextCreateData{};
     auto create_req =
