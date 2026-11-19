@@ -3,7 +3,7 @@
 **Date:** 2026-11-20. **Status:** Proposed.
 
 **Context.** SBI-03 (`docs/reviews/REVIEW-5ae0ef1.md`), v0.2.0 item 4 (ADR-0572), AUSF part. The
-AUSF had 11 cause-less 404s; 9 now carry a cause. TS 29.509 (j70) was fetched for this (`specs/3gpp/MANIFEST.tsv`). The
+AUSF had 11 cause-less 404s; 9 now carry a cause. TS 29.509 (j60, the latest Rel-19 version) was fetched for this (`specs/3gpp/MANIFEST.tsv`). The
 MFAF (TS 29.576) and CHF (TS 32.291) 404s were checked in the same pass.
 
 **Decision:**
