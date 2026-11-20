@@ -146,7 +146,7 @@ Three machines are registered (ADR-0580, ADR-0581, ADR-0582, ADR-0596):
 - Self-hosted `build-tools` is a symlink to `~/.cache/5gc-ci/build-tools` on each runner. asn1c 0.9.29
   compiles its skeleton directory in as an absolute path, so a cache copied from another checkout
   breaks every asn1c-generated file (`asn_application.h` not found). `scripts/setup-asn1c.sh`
-  detects that and rebuilds (ADR-0598, PR #48); until it is merged, the manual fix is
+  detects that and rebuilds (ADR-0598, merged in #48 as 62f87da1); before that the manual fix was
   `rm -rf ~/.cache/5gc-ci/build-tools/asn1c` on the affected runner.
 - The 2026-11-20 relabel incident (a label PUT on one runner coincided with two runners losing
   `5gc-lab`; re-added by POST and verified) is recorded in ADR-0596.

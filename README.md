@@ -441,7 +441,7 @@ program and `clang-format-18`/`clang-tidy-18`), and
 ```sh
 git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
 ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
-scripts/setup-asn1c.sh   # patched asn1c for the NGAP/LI ASN.1 targets; idempotent
+scripts/setup-asn1c.sh   # patched asn1c for the NGAP/LI ASN.1 targets; idempotent; rebuilds a cached asn1c built for another path (ADR-0598)
 
 cmake -S . -B build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
