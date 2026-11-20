@@ -161,6 +161,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - ADRF: `request-storage-sub-removal` for an unknown storage subscription answers 404 with
   `SUBSCRIPTION_NOT_FOUND`; the ML model file GET with a non-numeric id carries `ML_MODEL_NOT_FOUND`
   ([ADR-0594](docs/decisions/ADR-0594-adrf-storage-sub-removal-and-model-file-404s-carry-their.md)).
+- DCCF: DELETE of an unknown data or analytics subscription answers 404 with
+  `SUBSCRIPTION_NOT_FOUND`, as its PUT already did
+  ([ADR-0595](docs/decisions/ADR-0595-dccf-subscription-delete-404-carries-subscription-not-found.md)).
 
 ### Security
 

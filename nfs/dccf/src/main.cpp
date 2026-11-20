@@ -960,8 +960,11 @@ int main() {
             const auto id = req.path_params.at("subscriptionId");
             const auto sub = store.get_subscription(id);
             if (!sub || sub->kind != kind) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "no such Individual DCCF Subscription " + id, std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "no such Individual DCCF Subscription " +
+                                                             id,
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             leave_collection(id, *sub);
             store.remove_subscription(id);

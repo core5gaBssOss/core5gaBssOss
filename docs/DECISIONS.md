@@ -560,6 +560,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0592](decisions/ADR-0592-nssf-nssai-availability-404s-carry-resource-not-found-sbi-03.md) NSSF NSSAI availability 404s carry RESOURCE_NOT_FOUND (SBI-03)
 - [0593](decisions/ADR-0593-ausf-404s-carry-user-not-found-or-context-not-found-mfaf.md) AUSF 404s carry USER_NOT_FOUND or CONTEXT_NOT_FOUND; MFAF and CHF need no cause (SBI-03)
 - [0594](decisions/ADR-0594-adrf-storage-sub-removal-and-model-file-404s-carry-their.md) ADRF storage-sub-removal and model-file 404s carry their cause (SBI-03)
+- [0595](decisions/ADR-0595-dccf-subscription-delete-404-carries-subscription-not-found.md) DCCF subscription DELETE 404 carries SUBSCRIPTION_NOT_FOUND (SBI-03)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
