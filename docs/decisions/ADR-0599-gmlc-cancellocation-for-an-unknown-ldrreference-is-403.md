@@ -22,8 +22,7 @@ ever issued, so every valid CancelLocation takes this path. TS 29.515 (j60) was 
 
 **Verified.** Local, 2026-11-20, on the master machine: `integration_tests
 --gtest_filter='GmlcAuthorization.*'` passes (2 tests). With the `main.cpp` change reverted and `gmlc`
-rebuilt, the new test fails (`resp.status` is 404). Targeted test only, not a full `ctest`. CI result
-to be added.
+rebuilt, the new test fails (`resp.status` is 404). Targeted test only, not a full `ctest`. CI on PR #49 passed: build, lint, asan-ubsan and tsan (2026-11-20).
 
 **Disclosed.**
 - The YAML (`TS29515_Ngmlc_Location.yaml`, `cancel-location`) also lists `'404'`, through the common

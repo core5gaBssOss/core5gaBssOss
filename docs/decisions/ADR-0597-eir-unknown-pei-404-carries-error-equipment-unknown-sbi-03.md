@@ -25,7 +25,7 @@ Disclosed:
 **Verified.** Local, 2026-11-20, on the master machine: `integration_tests
 --gtest_filter='EirAuthorization.*'` passes (2 tests). With the `main.cpp` change reverted and `eir`
 rebuilt, `EirAuthorization.UnknownPeiIs404ErrorEquipmentUnknown` fails (`cause` is `""`). Targeted
-test only, not a full `ctest`. CI result to be added.
+test only, not a full `ctest`. CI on PR #47 passed: build, lint, asan-ubsan and tsan (2026-11-20).
 
 **Rejected alternatives.**
 - A generic TS 29.500 cause (`RESOURCE_URI_STRUCTURE_NOT_FOUND`): it is for an unmatched URI path

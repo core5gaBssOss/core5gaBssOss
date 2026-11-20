@@ -124,14 +124,14 @@ COMPONENT_STATUS.
   sentence "not deployable in production yet" stays true through v0.2.0 and v0.3.0.
 - TMF664 is placed in v0.2.0 item 3 with permission to slip; everything else in v0.2.0 is fixed.
 
-**Progress (2026-11-18, `main` 3d02404f).**
+**Progress (2026-11-20, `main` cc995945).**
 
 | v0.2.0 item | State |
 |---|---|
 | 1 Ledger hygiene | Merged, #20. |
 | 2 NRF PATCH/DELETE; ADR-0570 audit | NRF merged, #21 (ADR-0574). Audit: NEF part merged, #22 (ADR-0575). The body-, record- and peer-derived URL sites listed in ADR-0575 *Disclosed* (NEF, AUSF, SMF, AMF, bss/provisioning, PCF) are deferred for future implementation. |
-| 3 TMF640 PATCH, DELETE, notifications | PATCH merged, #23 (ADR-0576). DELETE and notifications are deferred for future implementation; TMF664 may slip to v0.3.0, as planned. |
-| 4 SBI-03 causes | NRF merged, #24 (ADR-0577). NEF merged, #25 (ADR-0578). The UDR's blocker (TS 29.505, 29.519, 29.506 not in hand) is lifted: the three specs were fetched on 2026-11-18. The other NFs are open. |
+| 3 TMF640 PATCH, DELETE, notifications | PATCH merged, #23 (ADR-0576); DELETE merged, #34 (ADR-0585); notifications merged, #35 (ADR-0586). TMF664 may slip to v0.3.0, as planned. |
+| 4 SBI-03 causes | Merged: NRF #24 (ADR-0577), NEF AM policy #25 (ADR-0578), UDR #32, UDM #33, PCF #36, AMF #37, SMF #38, NWDAF/BSF #39, SMSF #41, NSSF #42, AUSF/MFAF/CHF #43, ADRF #44, DCCF #45, EIR #47, GMLC #49 (ADR-0583, 0584, 0587..0595, 0597, 0599). LMF #50 (ADR-0600) open. NSACF needs no change. Open: the NEF's 171 cause-less 404 sites (scan of `main` cc995945), one NF PR; BSS services are an open question. |
 | 5 Fuzz nightly; recorded UERANSIM run | Both merged: #26 (ADR-0579) and #27. |
 | 6 Release PR | Open; it comes last. |
 
