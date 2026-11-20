@@ -385,7 +385,7 @@ int main() {
             }
             if (udm_resp->status == 404) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "User does not exist in the HPLMN", std::nullopt);
+                    404, "Not Found", "User does not exist in the HPLMN", "USER_NOT_FOUND");
             }
             if (udm_resp->status != 200) {
                 return sbi_core::http2::problem_response(
@@ -553,7 +553,7 @@ int main() {
                                                          "Not Found",
                                                          "No 5G-AKA authentication context " +
                                                              auth_ctx_id,
-                                                         std::nullopt);
+                                                         "CONTEXT_NOT_FOUND");
             }
             const auto res_star = aka_crypto::from_hex<16>(body->resStar);
             if (!res_star) {
@@ -600,7 +600,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No 5G-AKA authentication context " + auth_ctx_id,
-                                 std::nullopt);
+                                 "CONTEXT_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -624,7 +624,7 @@ int main() {
                                                          "Not Found",
                                                          "No EAP-AKA' authentication context " +
                                                              auth_ctx_id,
-                                                         std::nullopt);
+                                                         "CONTEXT_NOT_FOUND");
             }
             auto packet = aka_crypto::eap::base64_decode(body->eapPayload);
             if (!packet.has_value() || packet->size() < 2) {
@@ -682,7 +682,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No EAP-AKA' authentication context " + auth_ctx_id,
-                                 std::nullopt);
+                                 "CONTEXT_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -703,7 +703,7 @@ int main() {
                                                          "Not Found",
                                                          "No authentication context for supi " +
                                                              body->supi,
-                                                         std::nullopt);
+                                                         "CONTEXT_NOT_FOUND");
             }
             deregister_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -784,7 +784,7 @@ int main() {
             }
             if (udm_resp->status == 404) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "User does not exist in the HPLMN", std::nullopt);
+                    404, "Not Found", "User does not exist in the HPLMN", "USER_NOT_FOUND");
             }
             if (udm_resp->status != 200) {
                 return sbi_core::http2::problem_response(
@@ -891,7 +891,7 @@ int main() {
                                                          "Not Found",
                                                          "No ProSe authentication context " +
                                                              auth_ctx_id,
-                                                         std::nullopt);
+                                                         "CONTEXT_NOT_FOUND");
             }
             auto packet = aka_crypto::eap::base64_decode(body->eapPayload);
             if (!packet.has_value() || packet->size() < 2) {
@@ -950,7 +950,7 @@ int main() {
                                  404,
                                  "Not Found",
                                  "No ProSe authentication context " + auth_ctx_id,
-                                 std::nullopt);
+                                 "CONTEXT_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
