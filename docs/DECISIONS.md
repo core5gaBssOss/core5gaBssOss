@@ -561,6 +561,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0593](decisions/ADR-0593-ausf-404s-carry-user-not-found-or-context-not-found-mfaf.md) AUSF 404s carry USER_NOT_FOUND or CONTEXT_NOT_FOUND; MFAF and CHF need no cause (SBI-03)
 - [0594](decisions/ADR-0594-adrf-storage-sub-removal-and-model-file-404s-carry-their.md) ADRF storage-sub-removal and model-file 404s carry their cause (SBI-03)
 - [0595](decisions/ADR-0595-dccf-subscription-delete-404-carries-subscription-not-found.md) DCCF subscription DELETE 404 carries SUBSCRIPTION_NOT_FOUND (SBI-03)
+- [0596](decisions/ADR-0596-runner-topology-mastermind-007-and-mastermind-073-carry-all.md) Runner topology: MASTERMIND-007 and mastermind-073 carry all self-hosted CI; mastermindAI is the master machine, fallback only
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
