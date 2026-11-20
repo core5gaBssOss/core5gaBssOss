@@ -1192,7 +1192,7 @@ int main() {
                     404,
                     "Not Found",
                     "no storage subscription for that transRefId / dataSetId",
-                    std::nullopt);
+                    "SUBSCRIPTION_NOT_FOUND");
             }
             return no_content();
         });
@@ -1732,7 +1732,7 @@ int main() {
                 id = std::stoll(req.path_params.at("modelUniqueId"));
             } catch (const std::exception&) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "no such ML model", std::nullopt);
+                    404, "Not Found", "no such ML model", "ML_MODEL_NOT_FOUND");
             }
             const auto read = models.get_bytes(id);
             if (!read) {
