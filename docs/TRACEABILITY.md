@@ -3831,7 +3831,7 @@ corrected before commit).
 |---|---|
 | `DetermineLocation` valid input | Live curl: real `501` (no real LPP/GNSS backend, disclosed) |
 | `DetermineLocation` both ecgi+ncgi | Live curl: real `400` (real declared mutual-exclusivity constraint) |
-| `CancelLocation` | Live curl: real `404` |
+| `CancelLocation` | Live curl: real `404`. Since ADR-0600: `403` `LOCATION_SESSION_UNKNOWN` (TS 29.572 table 6.1.4.3.2-2), `LmfAuthorization.CancelLocationForUnknownLdrReferenceIs403LocationSessionUnknown` |
 | `UpSubscriptions` / `DeleteSubscription` | Live curl: real `201`+`Location` / real `204`; repeated delete: real `404` |
 | `LocationContextTransfer` | Live curl: real `204` |
 | `LocationMeasure` | Live curl: real `501` (no real PRU/NRPPa backend, disclosed) |
