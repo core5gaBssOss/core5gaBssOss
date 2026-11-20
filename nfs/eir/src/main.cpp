@@ -241,11 +241,12 @@ int main() {
 
             auto status = statuses.get(pei_it->second);
             if (!status.has_value()) {
+                // TS 29.511 6.1.3.2.3.1 / table 6.1.5.3-1: equipment unknown to the EIR.
                 return sbi_core::http2::problem_response(404,
                                                          "PEI Not Found",
                                                          "No equipment status for pei " +
                                                              pei_it->second,
-                                                         std::nullopt);
+                                                         "ERROR_EQUIPMENT_UNKNOWN");
             }
 
             sbi_gen::EirResponseData resp_body;
