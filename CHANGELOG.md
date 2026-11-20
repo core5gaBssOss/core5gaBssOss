@@ -167,6 +167,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - GMLC: CancelLocation for an unknown `ldrReference` answers 403 `LOCATION_SESSION_UNKNOWN`
   (TS 29.515), not a cause-less 404
   ([ADR-0599](docs/decisions/ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md)).
+- EIR: the GetEquipmentStatus 404 for an unknown PEI carries `ERROR_EQUIPMENT_UNKNOWN`
+  (TS 29.511)
+  ([ADR-0597](docs/decisions/ADR-0597-eir-unknown-pei-404-carries-error-equipment-unknown-sbi-03.md)).
 
 ### Security
 
