@@ -131,3 +131,22 @@ Measured 2026-10-11, full table and options in ADR-0482. In short: clang-tidy-18
 time in `google-runtime-int` (3 findings); clang-tidy-22 (26.04 archive) is ~7-14x faster per file
 with the same 3 findings. The extracted 21/22 binaries used for the measurement live in
 `build-tools/lint-cmp/` (gitignored).
+
+## Runners today (2026-11-20)
+
+Added 2026-11-20; the single-runner text above is kept as the record of the 2026-10-11 restore.
+Three machines are registered (ADR-0580, ADR-0581, ADR-0582, ADR-0596):
+
+| Machine | Runner name | Labels | Role |
+|---|---|---|---|
+| MASTERMIND-007 (the lab host this file was written for) | `5gc-lab-host` | `self-hosted, Linux, X64, 5gc-lab, 5gc-lab-small` | Carries self-hosted CI (lint, build, sanitizers, fuzz) |
+| mastermind-073 (laptop) | `mastermind-073-small` | `self-hosted, Linux, X64, 5gc-lab, 5gc-lab-small` | Carries self-hosted CI, shared with the lab host; CI_JOBS from RAM (ADR-0582) |
+| mastermindAI (new laptop, master machine) | `5gc-lab-mastermindAI` | `self-hosted, Linux, X64, 5gc-master` | Development machine; CI fallback only. No workflow targets `5gc-master`; a job moves there only by a `runs-on` PR that cites a recorded failure (ADR-0596) |
+
+- Self-hosted `build-tools` is a symlink to `~/.cache/5gc-ci/build-tools` on each runner. asn1c 0.9.29
+  compiles its skeleton directory in as an absolute path, so a cache copied from another checkout
+  breaks every asn1c-generated file (`asn_application.h` not found). `scripts/setup-asn1c.sh`
+  detects that and rebuilds (ADR-0598, PR #48); until it is merged, the manual fix is
+  `rm -rf ~/.cache/5gc-ci/build-tools/asn1c` on the affected runner.
+- The 2026-11-20 relabel incident (a label PUT on one runner coincided with two runners losing
+  `5gc-lab`; re-added by POST and verified) is recorded in ADR-0596.
