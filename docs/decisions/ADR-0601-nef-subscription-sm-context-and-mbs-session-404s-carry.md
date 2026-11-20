@@ -78,11 +78,12 @@ What the specifications define for a 404:
   share ids.
 - Targeted test only, not a full `ctest`. See Verified.
 
-**Verified (2026-11-21, master machine, in a separate worktree).** `nef`, `nrf` and
-`integration_tests` build clean (0 failed steps). The new test has **not been run** yet: the
-worktree has no `certs/` (gitignored), so the spawned NRF could not open its JWT key, and copying
-the keys from the main checkout was not permitted. So it is not yet shown that the test passes
-with the fix or fails without it. Both are still to be done, then the CI result.
+**Verified (2026-11-21, master machine).** `nef`, `nrf` and `integration_tests` build clean (0
+failed steps). Run from the main checkout (which has `certs/`) at this commit:
+`integration_tests --gtest_filter='NefSbi03Causes.*'` passes (1 test, 14 requests). With
+`nfs/nef/src/main.cpp` reverted to `main` cc995945 and `nef` rebuilt, the test fails: the 404s
+come back with an empty `cause` where `SUBSCRIPTION_NOT_FOUND` is expected. Targeted test only, not
+a full `ctest`. CI result to be added.
 
 **Rejected alternatives.**
 
