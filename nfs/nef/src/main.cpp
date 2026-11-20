@@ -344,6 +344,13 @@ constexpr const char* kTrainingApiRoot = "/nnef-training/v1";
 constexpr const char* kVflInferenceApiRoot = "/nnef-vfl-inference/v1";
 constexpr const char* kVflTrainingApiRoot = "/nnef-vfl-training/v1";
 
+// 404 causes (SBI-03, ADR-0601). An unknown Individual ... Subscription resource (YAML tag) answers
+// SUBSCRIPTION_NOT_FOUND (TS 29.500 table 5.2.7.2-1), on GET too, as ADR-0589/ADR-0590 did; so
+// does a monitoring notification for an unknown subscription. Nnef_SMContext release/update/
+// deliver answer CONTEXT_NOT_FOUND (TS 29.541 table 6.1.7.3-1). An unknown Individual MBS Session
+// answers MBS_SESSION_CONTEXT_NOT_FOUND (TS 29.522 table 5.20.7.3-1). The other 404s keep no cause:
+// their APIs define none for an unknown resource.
+
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
@@ -1317,18 +1324,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kDnaiMappingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&dnai_map_subs](const sbi_core::http2::Request& req) {
-            const auto id = req.path_params.at("subscriptionId");
-            auto sub = dnai_map_subs.get(id);
-            if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No DNAI mapping subscription " + id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, sub->dump());
-        });
+    server.add_route("GET",
+                     std::string(kDnaiMappingApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&dnai_map_subs](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         auto sub = dnai_map_subs.get(id);
+                         if (!sub.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No DNAI mapping subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, sub->dump());
+                     });
 
     server.add_route(
         "DELETE",
@@ -1375,18 +1384,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kEasDeploymentApiRoot) + "/subscriptions/{subscriptionId}",
-        [&eas_deploy_subs](const sbi_core::http2::Request& req) {
-            const auto id = req.path_params.at("subscriptionId");
-            auto sub = eas_deploy_subs.get(id);
-            if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No EAS deployment subscription " + id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, sub->dump());
-        });
+    server.add_route("GET",
+                     std::string(kEasDeploymentApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&eas_deploy_subs](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         auto sub = eas_deploy_subs.get(id);
+                         if (!sub.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No EAS deployment subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, sub->dump());
+                     });
 
     server.add_route(
         "DELETE",
@@ -1459,7 +1470,7 @@ int main() {
             }
             if (!sm_contexts.remove(id)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context " + id, std::nullopt);
+                    404, "Not Found", "No SM context " + id, "CONTEXT_NOT_FOUND");
             }
             sm_context_release_counter->Add(1);
             // Real, disclosed simplification: no real small-data-rate-control tracking exists to
@@ -1484,7 +1495,7 @@ int main() {
             }
             if (!sm_contexts.update(id, json(*body))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context " + id, std::nullopt);
+                    404, "Not Found", "No SM context " + id, "CONTEXT_NOT_FOUND");
             }
             sm_context_update_counter->Add(1);
             sbi_core::http2::Response resp;
@@ -1499,7 +1510,7 @@ int main() {
             const auto id = req.path_params.at("smContextId");
             if (!sm_contexts.get(id).has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No SM context " + id, std::nullopt);
+                    404, "Not Found", "No SM context " + id, "CONTEXT_NOT_FOUND");
             }
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
@@ -1599,18 +1610,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kEcsAddressApiRoot) + "/subscriptions/{subscriptionId}",
-        [&ecs_addr_subs](const sbi_core::http2::Request& req) {
-            const auto id = req.path_params.at("subscriptionId");
-            auto sub = ecs_addr_subs.get(id);
-            if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No ECS address subscription " + id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, sub->dump());
-        });
+    server.add_route("GET",
+                     std::string(kEcsAddressApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&ecs_addr_subs](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         auto sub = ecs_addr_subs.get(id);
+                         if (!sub.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No ECS address subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, sub->dump());
+                     });
 
     server.add_route(
         "PUT",
@@ -1706,18 +1719,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
-        [&event_exposure_subs](const sbi_core::http2::Request& req) {
-            const auto id = req.path_params.at("subscriptionId");
-            auto sub = event_exposure_subs.get(id);
-            if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No event exposure subscription " + id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, sub->dump());
-        });
+    server.add_route("GET",
+                     std::string(kEventExposureApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&event_exposure_subs](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         auto sub = event_exposure_subs.get(id);
+                         if (!sub.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No event exposure subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, sub->dump());
+                     });
 
     server.add_route(
         "PUT",
@@ -2111,18 +2126,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-        [&af_net_status](const sbi_core::http2::Request& req) {
-            auto d = af_net_status.get(req.path_params.at("scsAsId"),
-                                       req.path_params.at("subscriptionId"));
-            if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such network status subscription", std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, d->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfNetStatusApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+                     [&af_net_status](const sbi_core::http2::Request& req) {
+                         auto d = af_net_status.get(req.path_params.at("scsAsId"),
+                                                    req.path_params.at("subscriptionId"));
+                         if (!d.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such network status subscription",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, d->dump());
+                     });
 
     server.add_route(
         "PUT",
@@ -2218,17 +2235,18 @@ int main() {
                          return resp;
                      });
 
-    server.add_route("GET",
-                     std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-                     [&af_bdt](const sbi_core::http2::Request& req) {
-                         auto d = af_bdt.get(req.path_params.at("scsAsId"),
-                                             req.path_params.at("subscriptionId"));
-                         if (!d.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such BDT subscription", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, d->dump());
-                     });
+    server.add_route(
+        "GET",
+        std::string(kAfBdtApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&af_bdt](const sbi_core::http2::Request& req) {
+            auto d =
+                af_bdt.get(req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"));
+            if (!d.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such BDT subscription", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, d->dump());
+        });
 
     server.add_route(
         "PUT",
@@ -2323,24 +2341,27 @@ int main() {
                      [&af_cp_prov](const sbi_core::http2::Request& req) {
                          if (!af_cp_prov.remove(req.path_params.at("scsAsId"),
                                                 req.path_params.at("subscriptionId"))) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such CP provisioning", std::nullopt);
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such CP provisioning",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
                          return resp;
                      });
-    server.add_route("GET",
-                     std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
-                     [&af_cp_prov](const sbi_core::http2::Request& req) {
-                         auto doc = af_cp_prov.get(req.path_params.at("scsAsId"),
-                                                   req.path_params.at("subscriptionId"));
-                         if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such CP provisioning", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, doc->dump());
-                     });
+    server.add_route(
+        "GET",
+        std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&af_cp_prov](const sbi_core::http2::Request& req) {
+            auto doc =
+                af_cp_prov.get(req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"));
+            if (!doc.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such CP provisioning", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, doc->dump());
+        });
     server.add_route(
         "PUT",
         std::string(kAfCpProvApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
@@ -3804,35 +3825,38 @@ int main() {
                          resp.body = j.dump();
                          return resp;
                      });
-    server.add_route("DELETE",
-                     std::string(kAfMbsSessionApiRoot) +
-                         "/mbs-sessions/subscriptions/{subscriptionId}",
-                     [&af_mbs_session](const sbi_core::http2::Request& req) {
-                         if (!af_mbs_session.remove("", req.path_params.at("subscriptionId"))) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such MBS session resource", std::nullopt);
-                         }
-                         sbi_core::http2::Response resp;
-                         resp.status = 204;
-                         return resp;
-                     });
-    server.add_route("GET",
-                     std::string(kAfMbsSessionApiRoot) +
-                         "/mbs-sessions/subscriptions/{subscriptionId}",
-                     [&af_mbs_session](const sbi_core::http2::Request& req) {
-                         auto doc = af_mbs_session.get("", req.path_params.at("subscriptionId"));
-                         if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such MBS session resource", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, doc->dump());
-                     });
+    server.add_route(
+        "DELETE",
+        std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/subscriptions/{subscriptionId}",
+        [&af_mbs_session](const sbi_core::http2::Request& req) {
+            if (!af_mbs_session.remove("", req.path_params.at("subscriptionId"))) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such MBS session resource", "SUBSCRIPTION_NOT_FOUND");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+    server.add_route(
+        "GET",
+        std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/subscriptions/{subscriptionId}",
+        [&af_mbs_session](const sbi_core::http2::Request& req) {
+            auto doc = af_mbs_session.get("", req.path_params.at("subscriptionId"));
+            if (!doc.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such MBS session resource", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, doc->dump());
+        });
     server.add_route("DELETE",
                      std::string(kAfMbsSessionApiRoot) + "/mbs-sessions/{mbsSessionRef}",
                      [&af_mbs_session](const sbi_core::http2::Request& req) {
                          if (!af_mbs_session.remove("", req.path_params.at("mbsSessionRef"))) {
                              return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such MBS session resource", std::nullopt);
+                                 404,
+                                 "Not Found",
+                                 "No such MBS session resource",
+                                 "MBS_SESSION_CONTEXT_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -3871,8 +3895,10 @@ int main() {
                                                          "INVALID_MSG_FORMAT");
             }
             if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such MBS session resource", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such MBS session resource",
+                                                         "MBS_SESSION_CONTEXT_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -3962,24 +3988,27 @@ int main() {
                      [&af_time_sync](const sbi_core::http2::Request& req) {
                          if (!af_time_sync.remove(req.path_params.at("afId"),
                                                   req.path_params.at("subscriptionId"))) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such time sync resource", std::nullopt);
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such time sync resource",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
                          return resp;
                      });
-    server.add_route("GET",
-                     std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-                     [&af_time_sync](const sbi_core::http2::Request& req) {
-                         auto doc = af_time_sync.get(req.path_params.at("afId"),
-                                                     req.path_params.at("subscriptionId"));
-                         if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such time sync resource", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, doc->dump());
-                     });
+    server.add_route(
+        "GET",
+        std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&af_time_sync](const sbi_core::http2::Request& req) {
+            auto doc =
+                af_time_sync.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
+            if (!doc.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such time sync resource", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, doc->dump());
+        });
     server.add_route(
         "PUT",
         std::string(kAfTimeSyncApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
@@ -4253,8 +4282,10 @@ int main() {
                      std::string(kAfUeAddressApiRoot) + "/subscriptions/{subscriptionId}",
                      [&af_ue_address](const sbi_core::http2::Request& req) {
                          if (!af_ue_address.remove("", req.path_params.at("subscriptionId"))) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such UE address resource", std::nullopt);
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such UE address resource",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -4265,8 +4296,10 @@ int main() {
                      [&af_ue_address](const sbi_core::http2::Request& req) {
                          auto doc = af_ue_address.get("", req.path_params.at("subscriptionId"));
                          if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such UE address resource", std::nullopt);
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such UE address resource",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, doc->dump());
                      });
@@ -4432,8 +4465,10 @@ int main() {
             auto doc =
                 af_5glan_pp.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
             if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such 5GLAN parameter provisioning",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
@@ -4450,8 +4485,10 @@ int main() {
             json j = *body;
             if (!af_5glan_pp.put(
                     req.path_params.at("afId"), req.path_params.at("subscriptionId"), j)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such 5GLAN parameter provisioning",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -4473,8 +4510,10 @@ int main() {
             const auto sub_id = req.path_params.at("subscriptionId");
             auto updated = af_5glan_pp.get(af_id, sub_id);
             if (!updated.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such 5GLAN parameter provisioning",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             const json body = json::parse(req.body);
             if (body.contains("5gLanParams")) {
@@ -4494,24 +4533,28 @@ int main() {
                     sbi_core::http2::dto_error_cause(e));
             }
             if (!af_5glan_pp.put(af_id, sub_id, *updated)) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such 5GLAN parameter provisioning",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, updated->dump());
         });
-    server.add_route(
-        "DELETE",
-        std::string(kAf5glanPpApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&af_5glan_pp](const sbi_core::http2::Request& req) {
-            if (!af_5glan_pp.remove(req.path_params.at("afId"),
-                                    req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such 5GLAN parameter provisioning", std::nullopt);
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE",
+                     std::string(kAf5glanPpApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_5glan_pp](const sbi_core::http2::Request& req) {
+                         if (!af_5glan_pp.remove(req.path_params.at("afId"),
+                                                 req.path_params.at("subscriptionId"))) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such 5GLAN parameter provisioning",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
     // TS29522_AMInfluence -- /3gpp-am-influence/v1, root and method set read from the YAML
     // (ADR-0326).
     server.add_route("GET",
@@ -4550,18 +4593,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&af_am_influence](const sbi_core::http2::Request& req) {
-            auto doc = af_am_influence.get(req.path_params.at("afId"),
-                                           req.path_params.at("subscriptionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AM influence subscription", std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_am_influence](const sbi_core::http2::Request& req) {
+                         auto doc = af_am_influence.get(req.path_params.at("afId"),
+                                                        req.path_params.at("subscriptionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such AM influence subscription",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route(
         "PUT",
         std::string(kAfAmInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
@@ -4653,17 +4698,18 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
-                     std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-                     [&af_apply_bdt](const sbi_core::http2::Request& req) {
-                         auto doc = af_apply_bdt.get(req.path_params.at("afId"),
-                                                     req.path_params.at("subscriptionId"));
-                         if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such applied BDT policy", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, doc->dump());
-                     });
+    server.add_route(
+        "GET",
+        std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&af_apply_bdt](const sbi_core::http2::Request& req) {
+            auto doc =
+                af_apply_bdt.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
+            if (!doc.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such applied BDT policy", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, doc->dump());
+        });
     server.add_route(
         "PATCH",
         std::string(kAfApplyBdtApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
@@ -4678,7 +4724,7 @@ int main() {
                                                     json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such applied BDT policy", std::nullopt);
+                    404, "Not Found", "No such applied BDT policy", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -4687,8 +4733,10 @@ int main() {
                      [&af_apply_bdt](const sbi_core::http2::Request& req) {
                          if (!af_apply_bdt.remove(req.path_params.at("afId"),
                                                   req.path_params.at("subscriptionId"))) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such applied BDT policy", std::nullopt);
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such applied BDT policy",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -4732,18 +4780,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfDnaiMappingApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&af_dnai_mapping](const sbi_core::http2::Request& req) {
-            auto doc = af_dnai_mapping.get(req.path_params.at("afId"),
-                                           req.path_params.at("subscriptionId"));
-            if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such DNAI mapping subscription", std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, doc->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfDnaiMappingApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_dnai_mapping](const sbi_core::http2::Request& req) {
+                         auto doc = af_dnai_mapping.get(req.path_params.at("afId"),
+                                                        req.path_params.at("subscriptionId"));
+                         if (!doc.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such DNAI mapping subscription",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, doc->dump());
+                     });
     server.add_route("DELETE",
                      std::string(kAfDnaiMappingApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
                      [&af_dnai_mapping](const sbi_core::http2::Request& req) {
@@ -5205,16 +5255,17 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
-                     std::string(kAfMsEventApiRoot) + "/subscriptions/{subscriptionId}",
-                     [&af_ms_event](const sbi_core::http2::Request& req) {
-                         auto doc = af_ms_event.get("", req.path_params.at("subscriptionId"));
-                         if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such MS event subscription", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, doc->dump());
-                     });
+    server.add_route(
+        "GET",
+        std::string(kAfMsEventApiRoot) + "/subscriptions/{subscriptionId}",
+        [&af_ms_event](const sbi_core::http2::Request& req) {
+            auto doc = af_ms_event.get("", req.path_params.at("subscriptionId"));
+            if (!doc.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such MS event subscription", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, doc->dump());
+        });
     server.add_route(
         "PUT",
         std::string(kAfMsEventApiRoot) + "/subscriptions/{subscriptionId}",
@@ -5287,8 +5338,10 @@ int main() {
             auto doc =
                 af_musa.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
             if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such member UE selection subscription", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such member UE selection subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
@@ -5381,17 +5434,18 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
-                     std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-                     [&af_pdtq](const sbi_core::http2::Request& req) {
-                         auto doc = af_pdtq.get(req.path_params.at("afId"),
-                                                req.path_params.at("subscriptionId"));
-                         if (!doc.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such PDTQ policy negotiation", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, doc->dump());
-                     });
+    server.add_route(
+        "GET",
+        std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&af_pdtq](const sbi_core::http2::Request& req) {
+            auto doc =
+                af_pdtq.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
+            if (!doc.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such PDTQ policy negotiation", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, doc->dump());
+        });
     server.add_route(
         "PATCH",
         std::string(kAfPdtqApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
@@ -5405,7 +5459,7 @@ int main() {
                                                json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PDTQ policy negotiation", std::nullopt);
+                    404, "Not Found", "No such PDTQ policy negotiation", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -5415,7 +5469,7 @@ int main() {
         [&af_pdtq](const sbi_core::http2::Request& req) {
             if (!af_pdtq.remove(req.path_params.at("afId"), req.path_params.at("subscriptionId"))) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such PDTQ policy negotiation", std::nullopt);
+                    404, "Not Found", "No such PDTQ policy negotiation", "SUBSCRIPTION_NOT_FOUND");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -5555,8 +5609,10 @@ int main() {
             auto doc =
                 af_vfl_infer.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
             if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL inference subscription", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such VFL inference subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
@@ -5660,8 +5716,10 @@ int main() {
         [&af_vfl_train](const sbi_core::http2::Request& req) {
             auto doc = af_vfl_train.get(req.path_params.at("afId"), req.path_params.at("subId"));
             if (!doc.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such VFL training subscription", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such VFL training subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, doc->dump());
         });
@@ -5784,8 +5842,10 @@ int main() {
             auto d =
                 af_analytics.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
             if (!d.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such analytics exposure subscription", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such analytics exposure subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, d->dump());
         });
@@ -5966,17 +6026,18 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
-                     std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-                     [&af_ims_event](const sbi_core::http2::Request& req) {
-                         auto d = af_ims_event.get(req.path_params.at("afId"),
-                                                   req.path_params.at("subscriptionId"));
-                         if (!d.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such IMS event subscription", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, d->dump());
-                     });
+    server.add_route(
+        "GET",
+        std::string(kAfImsEventApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&af_ims_event](const sbi_core::http2::Request& req) {
+            auto d =
+                af_ims_event.get(req.path_params.at("afId"), req.path_params.at("subscriptionId"));
+            if (!d.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such IMS event subscription", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, d->dump());
+        });
 
     server.add_route(
         "PUT",
@@ -6731,8 +6792,10 @@ int main() {
                          auto d = af_acs_subscriptions.get(req.path_params.at("afId"),
                                                            req.path_params.at("subscriptionId"));
                          if (!d.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such ACS configuration", std::nullopt);
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such ACS configuration",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
                          return sbi_core::http2::Response::json(200, d->dump());
                      });
@@ -6752,7 +6815,7 @@ int main() {
             json j = *body;
             if (!af_acs_subscriptions.put(af_id, id, j)) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ACS configuration", std::nullopt);
+                    404, "Not Found", "No such ACS configuration", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, j.dump());
         });
@@ -6771,7 +6834,7 @@ int main() {
                                                             json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such ACS configuration", std::nullopt);
+                    404, "Not Found", "No such ACS configuration", "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, patched->dump());
         });
@@ -6783,8 +6846,10 @@ int main() {
                          const auto af_id = req.path_params.at("afId");
                          const auto id = req.path_params.at("subscriptionId");
                          if (!af_acs_subscriptions.remove(af_id, id)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such ACS configuration", std::nullopt);
+                             return sbi_core::http2::problem_response(404,
+                                                                      "Not Found",
+                                                                      "No such ACS configuration",
+                                                                      "SUBSCRIPTION_NOT_FOUND");
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -6883,18 +6948,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
-        [&af_service_param_subs](const sbi_core::http2::Request& req) {
-            auto sub = af_service_param_subs.get(req.path_params.at("afId"),
-                                                 req.path_params.at("subscriptionId"));
-            if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such service parameter subscription", std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, sub->dump());
-        });
+    server.add_route("GET",
+                     std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+                     [&af_service_param_subs](const sbi_core::http2::Request& req) {
+                         auto sub = af_service_param_subs.get(req.path_params.at("afId"),
+                                                              req.path_params.at("subscriptionId"));
+                         if (!sub.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No such service parameter subscription",
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, sub->dump());
+                     });
 
     server.add_route(
         "PUT",
@@ -7273,7 +7340,7 @@ int main() {
                 // The AF deleted its subscription but UDM has not stopped reporting yet. 404 tells
                 // UDM this callback is dead rather than silently accepting reports for nobody.
                 return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such monitoring subscription", std::nullopt);
+                    404, "Not Found", "No such monitoring subscription", "SUBSCRIPTION_NOT_FOUND");
             }
             const auto destination = subscription->value("notificationDestination", std::string{});
             if (destination.empty()) {
@@ -7474,18 +7541,18 @@ int main() {
             return resp;
         });
 
-    server.add_route("GET",
-                     std::string(kAfMonitoringEventApiRoot) +
-                         "/{scsAsId}/subscriptions/{subscriptionId}",
-                     [&af_monitoring_subs](const sbi_core::http2::Request& req) {
-                         auto sub = af_monitoring_subs.get(req.path_params.at("scsAsId"),
-                                                           req.path_params.at("subscriptionId"));
-                         if (!sub.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No such monitoring subscription", std::nullopt);
-                         }
-                         return sbi_core::http2::Response::json(200, sub->dump());
-                     });
+    server.add_route(
+        "GET",
+        std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&af_monitoring_subs](const sbi_core::http2::Request& req) {
+            auto sub = af_monitoring_subs.get(req.path_params.at("scsAsId"),
+                                              req.path_params.at("subscriptionId"));
+            if (!sub.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such monitoring subscription", "SUBSCRIPTION_NOT_FOUND");
+            }
+            return sbi_core::http2::Response::json(200, sub->dump());
+        });
 
     server.add_route(
         "PUT",
@@ -7739,8 +7806,10 @@ int main() {
             auto sub = af_qos_subs.get(req.path_params.at("scsAsId"),
                                        req.path_params.at("subscriptionId"));
             if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such AsSessionWithQoS subscription", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such AsSessionWithQoS subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -7967,8 +8036,10 @@ int main() {
             auto sub = af_traffic_influence_subs.get(req.path_params.at("afId"),
                                                      req.path_params.at("subscriptionId"));
             if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No such traffic influence subscription", std::nullopt);
+                return sbi_core::http2::problem_response(404,
+                                                         "Not Found",
+                                                         "No such traffic influence subscription",
+                                                         "SUBSCRIPTION_NOT_FOUND");
             }
             return sbi_core::http2::Response::json(200, sub->dump());
         });
@@ -8089,18 +8160,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kTrafficInfluenceDataApiRoot) + "/subscriptions/{subscriptionId}",
-        [&traffic_influence_subs](const sbi_core::http2::Request& req) {
-            const auto id = req.path_params.at("subscriptionId");
-            auto sub = traffic_influence_subs.get(id);
-            if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No traffic influence subscription " + id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, sub->dump());
-        });
+    server.add_route("GET",
+                     std::string(kTrafficInfluenceDataApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&traffic_influence_subs](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         auto sub = traffic_influence_subs.get(id);
+                         if (!sub.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No traffic influence subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, sub->dump());
+                     });
 
     server.add_route(
         "PUT",
@@ -8350,18 +8423,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kVflInferenceApiRoot) + "/subscriptions/{subscriptionId}",
-        [&vfl_inference_subs](const sbi_core::http2::Request& req) {
-            const auto id = req.path_params.at("subscriptionId");
-            auto sub = vfl_inference_subs.get(id);
-            if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL inference subscription " + id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, sub->dump());
-        });
+    server.add_route("GET",
+                     std::string(kVflInferenceApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&vfl_inference_subs](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         auto sub = vfl_inference_subs.get(id);
+                         if (!sub.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No VFL inference subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, sub->dump());
+                     });
 
     server.add_route(
         "PUT",
@@ -8456,18 +8531,20 @@ int main() {
             return resp;
         });
 
-    server.add_route(
-        "GET",
-        std::string(kVflTrainingApiRoot) + "/subscriptions/{subscriptionId}",
-        [&vfl_training_subs](const sbi_core::http2::Request& req) {
-            const auto id = req.path_params.at("subscriptionId");
-            auto sub = vfl_training_subs.get(id);
-            if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No VFL training subscription " + id, std::nullopt);
-            }
-            return sbi_core::http2::Response::json(200, sub->dump());
-        });
+    server.add_route("GET",
+                     std::string(kVflTrainingApiRoot) + "/subscriptions/{subscriptionId}",
+                     [&vfl_training_subs](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         auto sub = vfl_training_subs.get(id);
+                         if (!sub.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No VFL training subscription " + id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         return sbi_core::http2::Response::json(200, sub->dump());
+                     });
 
     server.add_route(
         "PUT",

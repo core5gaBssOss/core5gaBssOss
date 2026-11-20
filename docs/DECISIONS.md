@@ -566,6 +566,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0598](decisions/ADR-0598-setup-asn1c-sh-rebuilds-a-cached-asn1c-whose-compiled-in.md) setup-asn1c.sh rebuilds a cached asn1c whose compiled-in skeleton path is not this checkout's
 - [0599](decisions/ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md) GMLC CancelLocation for an unknown ldrReference is 403 LOCATION_SESSION_UNKNOWN (SBI-03, GMLC part)
 - [0600](decisions/ADR-0600-lmf-cancellocation-for-an-unknown-ldrreference-is-403.md) LMF CancelLocation for an unknown ldrReference is 403 LOCATION_SESSION_UNKNOWN (SBI-03, LMF part)
+- [0601](decisions/ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md) NEF subscription, SM context and MBS session 404s carry their spec cause (SBI-03, NEF part 2)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
