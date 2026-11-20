@@ -20,7 +20,8 @@
 // "no real positioning backend exists" rather than a fabricated location. `CancelLocation` cancels
 // a previously-requested location determination by its `ldrReference` -- since `RequestLocation`
 // above never creates one (disclosed 501), no `ldrReference` this project's GMLC has ever issued
-// can be valid, so this always returns the real `404` after input validation -- not a stub, the
+// can be valid, so this always returns `403 LOCATION_SESSION_UNKNOWN` after input validation (TS
+// 29.515 table 6.1.3.3.2-2; ADR-0599) -- not a stub, the
 // honest real behavior given the system's own actual state, not a fabricated success.
 //
 // What IS fully, really implemented, independent of LMF: `UpdateLocation` (a real VGMLC->HGMLC
@@ -274,12 +275,13 @@ int main() {
             cancel_location_counter->Add(1);
             // Real, disclosed -- see this file's own top comment: RequestLocation never issues
             // a real ldrReference in this project, so no cancellation request can ever match
-            // one. The real, honest 404, not a fabricated success.
+            // one. TS 29.515 table 6.1.3.3.2-2 answers an unknown location context with 403
+            // LOCATION_SESSION_UNKNOWN (table 6.1.6.3-1), not a fabricated success (ADR-0599).
             return sbi_core::http2::problem_response(
-                404,
-                "Not Found",
+                403,
+                "Forbidden",
                 "No active location request for ldrReference " + body->ldrReference,
-                std::nullopt);
+                "LOCATION_SESSION_UNKNOWN");
         });
 
     server.add_route(

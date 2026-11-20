@@ -164,6 +164,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - DCCF: DELETE of an unknown data or analytics subscription answers 404 with
   `SUBSCRIPTION_NOT_FOUND`, as its PUT already did
   ([ADR-0595](docs/decisions/ADR-0595-dccf-subscription-delete-404-carries-subscription-not-found.md)).
+- GMLC: CancelLocation for an unknown `ldrReference` answers 403 `LOCATION_SESSION_UNKNOWN`
+  (TS 29.515), not a cause-less 404
+  ([ADR-0599](docs/decisions/ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md)).
 
 ### Security
 

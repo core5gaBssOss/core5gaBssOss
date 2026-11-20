@@ -560,7 +560,8 @@
   "ADR-0593-ausf-404s-carry-user-not-found-or-context-not-found-mfaf.md",
   "ADR-0594-adrf-storage-sub-removal-and-model-file-404s-carry-their.md",
   "ADR-0595-dccf-subscription-delete-404-carries-subscription-not-found.md",
-  "ADR-0596-runner-topology-mastermind-007-and-mastermind-073-carry-all.md"
+  "ADR-0596-runner-topology-mastermind-007-and-mastermind-073-carry-all.md",
+  "ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md"
  ],
  "split_commit": "0530e4f"
 }
