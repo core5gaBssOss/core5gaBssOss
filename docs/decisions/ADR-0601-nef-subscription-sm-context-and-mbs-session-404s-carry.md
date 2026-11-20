@@ -1,6 +1,6 @@
 ## ADR-0601: NEF subscription, SM context and MBS session 404s carry their spec cause (SBI-03, NEF part 2)
 
-**Date:** 2026-11-20. **Status:** Proposed.
+**Date:** 2026-11-20. **Status:** Proposed; the GET reading and the four open candidates accepted (user, 2026-11-21).
 
 **Context.** SBI-03 (`docs/reviews/REVIEW-5ae0ef1.md`), v0.2.0 item 4 (ADR-0572), NEF part 2.
 ADR-0578 gave the AM-policy context 404s their cause and left the NEF's other 171 cause-less 404s
@@ -57,8 +57,8 @@ What the specifications define for a 404:
   notification, not retrieval. The GET sites follow ADR-0589 (SMF) and ADR-0590 (NWDAF), which did
   the same so that one resource answers one cause. If that reading is not wanted, the 21 GET-only
   sites plus the 8 GETs of the newly covered resources (29 in all) can be reverted without touching
-  the rest.
-- **Candidates deliberately left open** (listed for a decision, not changed):
+  the rest. User, 2026-11-21: keep the reading ("keep reading").
+- **Candidates deliberately left without a cause** (user, 2026-11-21: agreed, they stay cause-less):
   - NIDD `downlink-data-deliveries/{id}` PUT/PATCH/DELETE: TS 29.122 4.4.5.3.1 answers 404
     `ALREADY_DELIVERED` once buffered data has been delivered. This NEF cannot tell "already
     delivered" from "never existed", and the cause applies only with the
