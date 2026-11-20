@@ -3787,7 +3787,7 @@ See ADR-0188 in `docs/DECISIONS.md` for full disclosure.
 |---|---|
 | `RequestLocation` valid input | Live curl: real `501` `ProblemDetails` (no real LMF backend, disclosed) |
 | `RequestLocation` malformed input | Live curl: real `400` |
-| `CancelLocation` | Live curl: real `404` (no `ldrReference` this GMLC ever issued can be valid) |
+| `CancelLocation` | Live curl: real `404` (no `ldrReference` this GMLC ever issued can be valid). Since ADR-0599: `403` `LOCATION_SESSION_UNKNOWN` (TS 29.515 table 6.1.3.3.2-2), `GmlcAuthorization.CancelLocationForUnknownLdrReferenceIs403LocationSessionUnknown` |
 | `UpdateLocation` with supi | Live curl: real `204`; without supi/gpsi: real `400` |
 | `LocationUpdateSubcribe` | Live curl: real `204` |
 | `PrivacyCheckIdMapping` | Live curl: real `200`, only matched gpsi<->appLayerId pairs returned, unknowns silently omitted |
