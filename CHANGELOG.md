@@ -170,6 +170,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - EIR: the GetEquipmentStatus 404 for an unknown PEI carries `ERROR_EQUIPMENT_UNKNOWN`
   (TS 29.511)
   ([ADR-0597](docs/decisions/ADR-0597-eir-unknown-pei-404-carries-error-equipment-unknown-sbi-03.md)).
+- CI: `scripts/setup-asn1c.sh` rebuilds a cached asn1c whose compiled-in skeleton path is not
+  this checkout's, instead of reusing it; a stale runner cache had broken every asn1c-generated
+  file (`asn_application.h` not found)
+  ([ADR-0598](docs/decisions/ADR-0598-setup-asn1c-sh-rebuilds-a-cached-asn1c-whose-compiled-in.md)).
 
 ### Security
 

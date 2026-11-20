@@ -22,9 +22,21 @@ ASN1C_VERSION="0.9.29"
 ASN1C_PREFIX="${BUILD_TOOLS_DIR}/asn1c"
 WORK_DIR="${BUILD_TOOLS_DIR}/.asn1c-src"
 
+# asn1c compiles its skeleton directory (<prefix>/share/asn1c) into the binary as an absolute path.
+# A cached build is reusable only if that path is this checkout's own and still holds the
+# skeletons: a runner cache built under the repo's former name pointed at a directory that was
+# later removed, and every asn1c-generated file then failed on a missing asn_application.h
+# (ADR-0598). Such a build is removed and rebuilt here rather than reused.
 if [[ -x "${ASN1C_PREFIX}/bin/asn1c" ]]; then
-    echo "asn1c already built at ${ASN1C_PREFIX}/bin/asn1c -- remove that directory to rebuild from scratch."
-    exit 0
+    BUILT_SKELETONS="$(grep -aoE '/[^[:cntrl:]]*/share/asn1c' "${ASN1C_PREFIX}/bin/asn1c" | head -n 1 || true)"
+    if [[ "${BUILT_SKELETONS}" == "${ASN1C_PREFIX}/share/asn1c" &&
+          -f "${ASN1C_PREFIX}/share/asn1c/asn_application.h" ]]; then
+        echo "asn1c already built at ${ASN1C_PREFIX}/bin/asn1c -- remove that directory to rebuild from scratch."
+        exit 0
+    fi
+    echo "asn1c at ${ASN1C_PREFIX}/bin/asn1c reads its skeletons from '${BUILT_SKELETONS:-<not found>}'," \
+        "not ${ASN1C_PREFIX}/share/asn1c (or they are missing) -- rebuilding (ADR-0598)."
+    rm -rf "${ASN1C_PREFIX}"
 fi
 
 mkdir -p "${WORK_DIR}"
