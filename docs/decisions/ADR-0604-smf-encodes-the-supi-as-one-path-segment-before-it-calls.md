@@ -69,3 +69,8 @@ that UE's context.
   shown to pass with the fix or to fail without it. To be run in the main checkout
   (`--gtest_filter='SmfIntegration.SupiWithPathCharactersCannotReachAnotherUesAmfContext'`), once
   with this commit and once with `nfs/smf/src/main.cpp` reverted. CI result to be added.
+- Run by the lead in the
+  main checkout (2026-11-21), one Debug build of main ea82f83f with the code and tests of PRs #55, #56 and #57 applied together: `SmfIntegration.SupiWithPathCharactersCannotReachAnotherUesAmfContext` passes. With
+  `nfs/smf/src/main.cpp` reverted to ea82f83f and `smf` rebuilt, it fails at
+  `test_smf_pdu_session.cpp:492` and `:494`: the AMF received `ueContextId`
+  `imsi-999700000000001` (the other UE). Targeted test only, not a full `ctest`.
