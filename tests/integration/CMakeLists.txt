@@ -147,7 +147,12 @@ add_executable(integration_tests
     test_roaming_interconnect_postgres.cpp
     test_chf_diameter_rar.cpp
     test_sctp_accept_timeout.cpp
+    test_amf_peer_uri_encoding.cpp
 )
+# ADR-0605: the AMF's own URI builders (header-only nfs/amf/src/peer_uris.hpp), for this one file
+# only, so no other test in the target can pick up an AMF-private header by accident.
+set_source_files_properties(test_amf_peer_uri_encoding.cpp PROPERTIES
+    INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/nfs/amf/src)
 # ngap_core/ngap_generated (ADR-0260): test_smf_n2sminfo_dispatch.cpp builds REAL PER-encoded
 # NGAP transfers to drive SMF's N2SmInfoType branches. Asserting on bytes SMF returns is not
 # enough for those -- the branches only run on a transfer that actually decodes, so the test

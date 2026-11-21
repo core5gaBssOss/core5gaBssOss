@@ -185,6 +185,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - UDM: when the UDR answers 503 or 429, the Nudm_UEAU auth-data operations answer 502
   `INBOUND_SERVER_ERROR` (TS 29.500 6.4.2.1), not a cause-less 503
   ([ADR-0602](docs/decisions/ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md)).
+- AMF: the SUPI is encoded as one path segment in the Nsmsf_SMService Activate and UplinkSMS URIs
+  and in the `smContextStatusUri` it gives the SMF, so a SUPI with `?` or `/` (the AMF's NAS
+  decoder writes `?` for an invalid BCD digit) can no longer reach another subscriber's resource
+  ([ADR-0605](docs/decisions/ADR-0605-amf-encodes-the-supi-as-one-path-segment-in-the-uris-it.md)).
 
 ### Security
 
