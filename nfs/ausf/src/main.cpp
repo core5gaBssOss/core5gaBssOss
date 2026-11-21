@@ -52,6 +52,7 @@
 #include "sbi_core/otel.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
+#include "sbi_core/uri.hpp"
 #include "sbi_core/uuid.hpp"
 
 #include <boost/asio/io_context.hpp>
@@ -369,7 +370,11 @@ int main() {
 
             sbi_core::http2::ClientRequest udm_http_req;
             udm_http_req.method = "POST";
-            udm_http_req.url = udm_base + "/nudm-ueau/v1/" + body->supiOrSuci +
+            // ADR-0603 (ADR-0570 class): supiOrSuci comes from the request body and the
+            // TS29571 SupiOrSuci pattern ends in `|.+`, so it may hold '/', '?', '#' or '%'.
+            // Encode it as one path segment so it cannot name another UDM resource.
+            udm_http_req.url = udm_base + "/nudm-ueau/v1/" +
+                               sbi_core::uri::encode_path_segment(body->supiOrSuci) +
                                "/security-information/generate-auth-data";
             udm_http_req.headers.emplace("content-type", "application/json");
             udm_http_req.headers.emplace("authorization", "Bearer " + *token);
@@ -768,7 +773,9 @@ int main() {
 
             sbi_core::http2::ClientRequest udm_http_req;
             udm_http_req.method = "POST";
-            udm_http_req.url = udm_base + "/nudm-ueau/v1/" + *body->supiOrSuci +
+            // ADR-0603: same encoding as the ue-authentications site above.
+            udm_http_req.url = udm_base + "/nudm-ueau/v1/" +
+                               sbi_core::uri::encode_path_segment(*body->supiOrSuci) +
                                "/prose-security-information/generate-av";
             udm_http_req.headers.emplace("content-type", "application/json");
             udm_http_req.headers.emplace("authorization", "Bearer " + *token);

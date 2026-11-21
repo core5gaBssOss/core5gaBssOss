@@ -534,3 +534,40 @@ TEST(AusfIntegration, UnknownSupiIs404AndTamperedTokenIs401) {
     ASSERT_TRUE(tampered_resp.has_value());
     EXPECT_EQ(tampered_resp->status, 401);
 }
+
+// ADR-0603 (ADR-0570 class, AUSF part): supiOrSuci comes from the request body and goes into the
+// UDM path `/nudm-ueau/v1/{supiOrSuci}/security-information/generate-auth-data`. The TS29571
+// SupiOrSuci pattern ends in `|.+`, so a '/' or '?' passes it. This value, sent unencoded, makes
+// the AUSF POST to the seeded subscriber's own generate-auth-data path (the rest becomes a
+// query), so the AUSF would authenticate imsi-999700000000001 (201) for a request that never
+// named it as its identity. Encoded as one segment, the UDM sees one unknown id and refuses it.
+TEST(AusfIntegration, SupiOrSuciWithPathCharactersCannotReachAnotherSubscriber) {
+    auto t = spawn_all();
+    auto client = make_client();
+    ASSERT_TRUE(wait_reachable(
+        client,
+        "https://127.0.0.1:7782/nausf-auth/v1/ue-authentications/nonexistent/eap-session",
+        50))
+        << "ausf never became reachable";
+
+    const std::string token = fetch_token(client, "nausf-auth");
+    ASSERT_FALSE(token.empty());
+
+    sbi_gen::AuthenticationInfo body{};
+    body.supiOrSuci = "imsi-999700000000001/security-information/generate-auth-data?";
+    body.servingNetworkName = kServingNetworkName;
+
+    sbi_core::http2::ClientRequest req;
+    req.method = "POST";
+    req.url = "https://127.0.0.1:7782/nausf-auth/v1/ue-authentications";
+    req.headers.emplace("content-type", "application/json");
+    req.headers.emplace("authorization", "Bearer " + token);
+    req.body = json(body).dump();
+
+    auto resp = client.send(req);
+    ASSERT_TRUE(resp.has_value());
+    EXPECT_NE(resp->status, 201) << "the AUSF authenticated another subscriber: " << resp->body;
+    EXPECT_EQ(resp->status, 404) << resp->body;
+    EXPECT_EQ(json::parse(resp->body).value("cause", std::string()), "USER_NOT_FOUND")
+        << resp->body;
+}

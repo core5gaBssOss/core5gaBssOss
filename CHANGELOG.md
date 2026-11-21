@@ -185,6 +185,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - UDM: when the UDR answers 503 or 429, the Nudm_UEAU auth-data operations answer 502
   `INBOUND_SERVER_ERROR` (TS 29.500 6.4.2.1), not a cause-less 503
   ([ADR-0602](docs/decisions/ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md)).
+- AUSF: the `supiOrSuci` of a ue-authentications or prose-authentications request is encoded as
+  one path segment before it goes into the UDM URI, so a value with `/` or `?` can no longer reach
+  another subscriber's resource
+  ([ADR-0603](docs/decisions/ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md)).
 
 ### Security
 
