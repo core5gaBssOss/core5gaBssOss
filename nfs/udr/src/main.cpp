@@ -645,6 +645,7 @@
 #include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
+#include "sbi_core/problem_details.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
 #include "sbi_core/store_quota.hpp"
@@ -658,13 +659,16 @@
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <stop_token>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded DB URL/deployment literal in source, see
 // nf_config.hpp's own comment.
@@ -994,9 +998,39 @@ sbi_core::http2::Response quota_refused(sbi_core::Refusal refusal, const std::st
                                              "INSUFFICIENT_RESOURCES");
 }
 
-// TS 29.500 table 5.2.7.2-1: an optional IE (the expiry) with an incorrect value.
-sbi_core::http2::Response expiry_problem(const std::invalid_argument& e) {
-    return sbi_core::http2::problem_response(400, "Bad Request", e.what(), "OPTIONAL_IE_INCORRECT");
+// The subscription's expiry attribute: the one member every subscribe and modify below hands to
+// sbi_core::confirm_expiry_in.
+const json::json_pointer& expiry_at() {
+    static const json::json_pointer at("/expiry");
+    return at;
+}
+
+// TS 29.500 table 5.2.7.2-1: an optional IE (the expiry) with an incorrect value. NOTE 1
+// (ADR-0609): invalidParams names the member `at` that confirm_expiry_in refused, as a JSON
+// Pointer. On a modify that is the member of the patched resource; the index of the patch operation
+// that wrote it is not known here (the whole patch is applied before the expiry is confirmed), so
+// the reason does not name one.
+sbi_core::http2::Response expiry_problem(const std::invalid_argument& e,
+                                         const json::json_pointer& at) {
+    return sbi_core::http2::problem_response(400,
+                                             "Bad Request",
+                                             e.what(),
+                                             "OPTIONAL_IE_INCORRECT",
+                                             {sbi_core::invalid_body_ie(at, e.what())});
+}
+
+// TS 29.500 table 5.2.7.2-1 NOTE 1 (ADR-0609): one invalidParams entry, "query <name>", for each
+// of the required query parameters `names` that `req` does not carry.
+std::vector<sbi_core::InvalidParam>
+missing_query_params(const sbi_core::http2::Request& req,
+                     std::initializer_list<std::string_view> names) {
+    std::vector<sbi_core::InvalidParam> missing;
+    for (const auto name : names) {
+        if (req.query_params.find(std::string(name)) == req.query_params.end()) {
+            missing.push_back(sbi_core::invalid_query_param(name));
+        }
+    }
+    return missing;
 }
 
 } // namespace
@@ -4623,7 +4657,8 @@ int main() {
                     400,
                     "Bad Request",
                     "nf-type and nf-group-id are both required query parameters",
-                    "MANDATORY_QUERY_PARAM_MISSING");
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    missing_query_params(req, {"nf-type", "nf-group-id"}));
             }
             auto data = routing_ids.get(nf_type_it->second, nf_group_id_it->second);
             routing_ids_get_counter->Add(1);
@@ -4669,7 +4704,8 @@ int main() {
                     400,
                     "Bad Request",
                     "nf-type and subscriberId are both required query parameters",
-                    "MANDATORY_QUERY_PARAM_MISSING");
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    missing_query_params(req, {"nf-type", "subscriberId"}));
             }
             const auto nf_types = sbi_core::http2::split_form_array(nf_type_it->second);
             json result = json::object();
@@ -4733,10 +4769,10 @@ int main() {
             json body = *parsed;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    body, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at =
+                    sbi_core::confirm_expiry_in(body, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (const auto refused = nf_group_id_subscriptions.create(
                     subscription_id, body, expires_at, req.token_sub)) {
@@ -4773,43 +4809,42 @@ int main() {
                          return sbi_core::http2::Response::json(200, data->dump());
                      });
 
-    routes.add_route(
-        "PATCH",
-        nf_group_id_subscriptions_individual_path_pattern,
-        [&nf_group_id_subscriptions,
-         &nf_group_id_subscriptions_write_counter,
-         subscription_max_lifetime](const sbi_core::http2::Request& req) {
-            json patch_ops;
-            try {
-                patch_ops = json::parse(req.body);
-            } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
-            }
-            const auto subscription_id = req.path_params.at("subscriptionId");
-            std::optional<json> patched;
-            try {
-                patched = nf_group_id_subscriptions.apply_patch(
-                    subscription_id, patch_ops, [&](json& doc) {
-                        return sbi_core::confirm_expiry_in(
-                            doc, json::json_pointer("/expiry"), subscription_max_lifetime);
-                    });
-            } catch (const json::exception& e) {
-                return sbi_core::http2::problem_response(
-                    400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
-            } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
-            }
-            if (!patched.has_value()) {
-                return sbi_core::http2::problem_response(404,
-                                                         "Not Found",
-                                                         "No subscription for subscriptionId " +
-                                                             subscription_id,
-                                                         "SUBSCRIPTION_NOT_FOUND");
-            }
-            nf_group_id_subscriptions_write_counter->Add(1);
-            return sbi_core::http2::Response::json(200, patched->dump());
-        });
+    routes.add_route("PATCH",
+                     nf_group_id_subscriptions_individual_path_pattern,
+                     [&nf_group_id_subscriptions,
+                      &nf_group_id_subscriptions_write_counter,
+                      subscription_max_lifetime](const sbi_core::http2::Request& req) {
+                         json patch_ops;
+                         try {
+                             patch_ops = json::parse(req.body);
+                         } catch (const json::parse_error& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
+                         }
+                         const auto subscription_id = req.path_params.at("subscriptionId");
+                         std::optional<json> patched;
+                         try {
+                             patched = nf_group_id_subscriptions.apply_patch(
+                                 subscription_id, patch_ops, [&](json& doc) {
+                                     return sbi_core::confirm_expiry_in(
+                                         doc, expiry_at(), subscription_max_lifetime);
+                                 });
+                         } catch (const json::exception& e) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
+                         } catch (const std::invalid_argument& e) {
+                             return expiry_problem(e, expiry_at());
+                         }
+                         if (!patched.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 404,
+                                 "Not Found",
+                                 "No subscription for subscriptionId " + subscription_id,
+                                 "SUBSCRIPTION_NOT_FOUND");
+                         }
+                         nf_group_id_subscriptions_write_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, patched->dump());
+                     });
 
     routes.add_route("DELETE",
                      nf_group_id_subscriptions_individual_path_pattern,
@@ -4852,29 +4887,34 @@ int main() {
             const auto mtc_provider_it = req.query_params.find("mtc-provider-information");
             if (single_nssai_it == req.query_params.end() || dnn_it == req.query_params.end() ||
                 mtc_provider_it == req.query_params.end()) {
-                return sbi_core::http2::problem_response(400,
-                                                         "Bad Request",
-                                                         "single-nssai, dnn and "
-                                                         "mtc-provider-information are all "
-                                                         "required query parameters",
-                                                         "MANDATORY_QUERY_PARAM_MISSING");
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Bad Request",
+                    "single-nssai, dnn and "
+                    "mtc-provider-information are all "
+                    "required query parameters",
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    missing_query_params(req, {"single-nssai", "dnn", "mtc-provider-information"}));
             }
             json snssai;
             try {
                 snssai = json::parse(single_nssai_it->second);
             } catch (const json::parse_error& e) {
-                return sbi_core::http2::problem_response(400,
-                                                         "Bad Request",
-                                                         std::string("malformed single-nssai: ") +
-                                                             e.what(),
-                                                         "MANDATORY_QUERY_PARAM_INCORRECT");
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Bad Request",
+                    std::string("malformed single-nssai: ") + e.what(),
+                    "MANDATORY_QUERY_PARAM_INCORRECT",
+                    {sbi_core::invalid_query_param("single-nssai", "not valid JSON")});
             }
             if (!snssai.contains("sst") || !snssai.at("sst").is_number_integer()) {
                 return sbi_core::http2::problem_response(
                     400,
                     "Bad Request",
                     "single-nssai is missing required field sst",
-                    "MANDATORY_IE_MISSING");
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_query_param("single-nssai",
+                                                   "sst is missing or not an integer")});
             }
             const int sst = snssai.at("sst").get<int>();
             const std::string sd = snssai.value("sd", "");
@@ -5501,7 +5541,11 @@ int main() {
                     400,
                     "Bad Request",
                     "At least one of ext-group-id or int-group-id is required",
-                    "MANDATORY_IE_MISSING");
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_query_param(
+                         "ext-group-id", "one of ext-group-id or int-group-id is required"),
+                     sbi_core::invalid_query_param(
+                         "int-group-id", "one of ext-group-id or int-group-id is required")});
             }
             if (!data.has_value()) {
                 return sbi_core::http2::problem_response(404,
@@ -5831,7 +5875,8 @@ int main() {
                     400,
                     "Bad Request",
                     "Required query parameter context-dataset-names is missing",
-                    "MANDATORY_QUERY_PARAM_MISSING");
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    {sbi_core::invalid_query_param("context-dataset-names")});
             }
             const auto ue_id = req.path_params.at("ueId");
             const auto names = sbi_core::http2::split_form_array(names_it->second);
@@ -7900,7 +7945,8 @@ int main() {
                     400,
                     "Bad Request",
                     "Required query parameter ue-id is missing",
-                    "MANDATORY_QUERY_PARAM_MISSING");
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    {sbi_core::invalid_query_param("ue-id")});
             }
             auto subs = subs_to_notify.list_by_ue_id(ue_id_it->second);
             json arr = json::array();
@@ -7928,10 +7974,9 @@ int main() {
             json j = *body;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at = sbi_core::confirm_expiry_in(j, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (const auto refused =
                     subs_to_notify.create(subs_id, body->ueId, j, expires_at, req.token_sub)) {
@@ -7980,14 +8025,13 @@ int main() {
             std::optional<json> patched;
             try {
                 patched = subs_to_notify.apply_patch(subs_id, patch_ops, [&](json& doc) {
-                    return sbi_core::confirm_expiry_in(
-                        doc, json::json_pointer("/expiry"), subscription_max_lifetime);
+                    return sbi_core::confirm_expiry_in(doc, expiry_at(), subscription_max_lifetime);
                 });
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
                     400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(404,
@@ -8069,10 +8113,9 @@ int main() {
             json j = *body;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at = sbi_core::confirm_expiry_in(j, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (const auto refused = policy_data_subs_to_notify.create(
                     subs_id, std::nullopt, j, expires_at, req.token_sub)) {
@@ -8121,10 +8164,9 @@ int main() {
             json j = *body;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at = sbi_core::confirm_expiry_in(j, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             auto replaced = policy_data_subs_to_notify.replace(subs_id, j, expires_at);
             if (!replaced.has_value()) {
@@ -8244,7 +8286,8 @@ int main() {
                                  400,
                                  "Bad Request",
                                  "internal-group-ids is a required query parameter",
-                                 "MANDATORY_QUERY_PARAM_MISSING");
+                                 "MANDATORY_QUERY_PARAM_MISSING",
+                                 {sbi_core::invalid_query_param("internal-group-ids")});
                          }
                          const auto requested_ids =
                              sbi_core::http2::split_form_array(ids_it->second);
@@ -8523,7 +8566,8 @@ int main() {
                     400,
                     "Bad Request",
                     "internal-group-ids is a required query parameter",
-                    "MANDATORY_QUERY_PARAM_MISSING");
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    {sbi_core::invalid_query_param("internal-group-ids")});
             }
             const auto requested_ids = sbi_core::http2::split_form_array(ids_it->second);
             json result = json::object();
@@ -8905,10 +8949,9 @@ int main() {
             nlohmann::json j = *body;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at = sbi_core::confirm_expiry_in(j, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (const auto stored =
                     traffic_influence_subs.put(subscription_id, j, expires_at, req.token_sub);
@@ -8957,10 +9000,9 @@ int main() {
             nlohmann::json j = *body;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at = sbi_core::confirm_expiry_in(j, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (const auto stored =
                     traffic_influence_subs.put(subscription_id, j, expires_at, req.token_sub);
@@ -9311,10 +9353,9 @@ int main() {
             nlohmann::json j = *body;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at = sbi_core::confirm_expiry_in(j, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (const auto stored =
                     application_data_subs.put(subs_id, j, expires_at, req.token_sub);
@@ -9358,10 +9399,9 @@ int main() {
             nlohmann::json j = *body;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at = sbi_core::confirm_expiry_in(j, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (const auto stored = application_data_subs.put(id, j, expires_at, req.token_sub);
                 !stored) {
@@ -9580,10 +9620,9 @@ int main() {
             nlohmann::json j = *body;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at = sbi_core::confirm_expiry_in(j, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (const auto stored = exposure_data_subs.put(sub_id, j, expires_at, req.token_sub);
                 !stored) {
@@ -9622,10 +9661,9 @@ int main() {
             nlohmann::json j = *body;
             udr::Clock::time_point expires_at;
             try {
-                expires_at = sbi_core::confirm_expiry_in(
-                    j, json::json_pointer("/expiry"), subscription_max_lifetime);
+                expires_at = sbi_core::confirm_expiry_in(j, expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, expiry_at());
             }
             if (const auto stored = exposure_data_subs.put(sub_id, j, expires_at, req.token_sub);
                 !stored) {
@@ -9693,46 +9731,48 @@ int main() {
     // already makes for AmfContext3gpp and UpdateSmfContext (see this file's header comment) --
     // the spec permits either, and fabricating report items with no real per-op tracking behind
     // them would be inventing content.
-    routes.add_route("PATCH",
-                     aiot_profile_item_path,
-                     [&aiot_device_profile_data](const sbi_core::http2::Request& req) {
-                         nlohmann::json patch_ops;
-                         try {
-                             patch_ops = nlohmann::json::parse(req.body);
-                         } catch (const nlohmann::json::parse_error& e) {
-                             return sbi_core::http2::problem_response(
-                                 400,
-                                 "Bad Request",
-                                 std::string("malformed JSON Patch: ") + e.what(),
-                                 "INVALID_MSG_FORMAT");
-                         }
-                         if (!patch_ops.is_array()) {
-                             return sbi_core::http2::problem_response(
-                                 400,
-                                 "Bad Request",
-                                 "an RFC 6902 JSON Patch body must be an array",
-                                 "MANDATORY_IE_INCORRECT");
-                         }
-                         const auto id = req.path_params.at("aiotDevPermId");
-                         try {
-                             if (!aiot_device_profile_data.patch(id, patch_ops).has_value()) {
-                                 return sbi_core::http2::problem_response(
-                                     404,
-                                     "Not Found",
-                                     "No AIoT device profile data for aiotDevPermId " + id,
-                                     "DATA_NOT_FOUND");
-                             }
-                         } catch (const nlohmann::json::exception& e) {
-                             return sbi_core::http2::problem_response(
-                                 400,
-                                 "Bad Request",
-                                 std::string("JSON Patch could not be applied: ") + e.what(),
-                                 "INVALID_MSG_FORMAT");
-                         }
-                         sbi_core::http2::Response resp;
-                         resp.status = 204;
-                         return resp;
-                     });
+    routes.add_route(
+        "PATCH",
+        aiot_profile_item_path,
+        [&aiot_device_profile_data](const sbi_core::http2::Request& req) {
+            nlohmann::json patch_ops;
+            try {
+                patch_ops = nlohmann::json::parse(req.body);
+            } catch (const nlohmann::json::parse_error& e) {
+                return sbi_core::http2::problem_response(400,
+                                                         "Bad Request",
+                                                         std::string("malformed JSON Patch: ") +
+                                                             e.what(),
+                                                         "INVALID_MSG_FORMAT");
+            }
+            if (!patch_ops.is_array()) {
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Bad Request",
+                    "an RFC 6902 JSON Patch body must be an array",
+                    "MANDATORY_IE_INCORRECT",
+                    {sbi_core::invalid_body_ie(json::json_pointer(), "the body must be an array")});
+            }
+            const auto id = req.path_params.at("aiotDevPermId");
+            try {
+                if (!aiot_device_profile_data.patch(id, patch_ops).has_value()) {
+                    return sbi_core::http2::problem_response(
+                        404,
+                        "Not Found",
+                        "No AIoT device profile data for aiotDevPermId " + id,
+                        "DATA_NOT_FOUND");
+                }
+            } catch (const nlohmann::json::exception& e) {
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Bad Request",
+                    std::string("JSON Patch could not be applied: ") + e.what(),
+                    "INVALID_MSG_FORMAT");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
 
     // `requester-aiot-devices-id` is a REQUIRED query parameter on this operation, so there is
     // deliberately no unfiltered "list every profile" behaviour: its absence is a 400, not an
@@ -9747,7 +9787,8 @@ int main() {
                                  400,
                                  "Bad Request",
                                  "requester-aiot-devices-id is a required query parameter",
-                                 "MANDATORY_QUERY_PARAM_MISSING");
+                                 "MANDATORY_QUERY_PARAM_MISSING",
+                                 {sbi_core::invalid_query_param("requester-aiot-devices-id")});
                          }
                          const auto ids = sbi_core::http2::split_form_array(ids_it->second);
                          if (ids.empty()) {
@@ -9816,17 +9857,20 @@ int main() {
                                                      "INVALID_MSG_FORMAT");
         }
         if (!patch_ops.is_array()) {
-            return sbi_core::http2::problem_response(400,
-                                                     "Bad Request",
-                                                     "an RFC 6902 JSON Patch body must be an array",
-                                                     "MANDATORY_IE_INCORRECT");
+            return sbi_core::http2::problem_response(
+                400,
+                "Bad Request",
+                "an RFC 6902 JSON Patch body must be an array",
+                "MANDATORY_IE_INCORRECT",
+                {sbi_core::invalid_body_ie(json::json_pointer(), "the body must be an array")});
         }
         if (req.query_params.find("supported-features") == req.query_params.end()) {
             return sbi_core::http2::problem_response(
                 400,
                 "Bad Request",
                 "supported-features is a required query parameter",
-                "MANDATORY_QUERY_PARAM_MISSING");
+                "MANDATORY_QUERY_PARAM_MISSING",
+                {sbi_core::invalid_query_param("supported-features")});
         }
         return sbi_core::http2::problem_response(
             501,

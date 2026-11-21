@@ -40,6 +40,7 @@ add_executable(integration_tests
     test_udr_store_bounds.cpp
     test_udr_unprovisioned_writes.cpp
     test_udr_404_causes.cpp
+    test_udr_invalid_params.cpp
     test_udr_ondatachange_webhook.cpp
     test_sbi_core_concurrency.cpp
     test_http2_route_precedence.cpp

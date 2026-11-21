@@ -216,6 +216,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   URI (Establishment Accept and Release Command), so a SUPI with `/` or `?` can no longer reach
   another UE's AMF context
   ([ADR-0604](docs/decisions/ADR-0604-smf-encodes-the-supi-as-one-path-segment-before-it-calls.md)).
+- UDR: the 400s whose cause TS 29.500 Table 5.2.7.2-1 NOTE 1 covers now carry `invalidParams`
+  naming the query parameter(s) that are missing or wrong (only the absent ones, where several are
+  required), `/expiry` for a subscription expiry that is not a date-time, or `""` for a JSON Patch
+  body that is not an array; statuses and causes are unchanged
+  ([ADR-0609](docs/decisions/ADR-0609-udr-problemdetails-carry-invalidparams-sbi-03-step-2-udr.md)).
 
 ### Security
 
