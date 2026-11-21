@@ -2,6 +2,10 @@
 
 #include "sbi_core/json_serde.hpp"
 
+#include <algorithm>
+#include <array>
+#include <utility>
+
 namespace sbi_core {
 
 void to_json(nlohmann::json& j, const InvalidParam& v) {
@@ -58,6 +62,50 @@ ProblemDetails make_problem_details(std::int32_t status,
     pd.detail = std::move(detail);
     pd.cause = std::move(cause);
     return pd;
+}
+
+ProblemDetails make_problem_details(std::int32_t status,
+                                    std::string title,
+                                    std::string detail,
+                                    std::optional<std::string> cause,
+                                    std::vector<InvalidParam> invalid_params) {
+    auto pd = make_problem_details(status, std::move(title), std::move(detail), std::move(cause));
+    if (!invalid_params.empty()) {
+        pd.invalid_params = std::move(invalid_params);
+    }
+    return pd;
+}
+
+InvalidParam invalid_body_ie(const nlohmann::json::json_pointer& pointer,
+                             std::optional<std::string> reason) {
+    return {pointer.to_string(), std::move(reason)};
+}
+
+InvalidParam invalid_header(std::string_view name, std::optional<std::string> reason) {
+    return {"header " + std::string(name), std::move(reason)};
+}
+
+InvalidParam invalid_query_param(std::string_view name, std::optional<std::string> reason) {
+    return {"query " + std::string(name), std::move(reason)};
+}
+
+InvalidParam invalid_path_variable(std::string_view name, std::optional<std::string> reason) {
+    return {"{" + std::string(name) + "}", std::move(reason)};
+}
+
+bool table_5272_note1_applies(std::string_view cause) {
+    // TS 29.500 V19.7.0 Table 5.2.7.2-1, the rows whose description ends "(NOTE 1)".
+    static constexpr std::array<std::string_view, 8> kNote1 = {
+        "INVALID_QUERY_PARAM",
+        "MANDATORY_QUERY_PARAM_INCORRECT",
+        "OPTIONAL_QUERY_PARAM_INCORRECT",
+        "MANDATORY_QUERY_PARAM_MISSING",
+        "MANDATORY_IE_INCORRECT",
+        "OPTIONAL_IE_INCORRECT",
+        "MANDATORY_IE_MISSING",
+        "MISSING_PARAMETER",
+    };
+    return std::ranges::find(kNote1, cause) != kNote1.end();
 }
 
 } // namespace sbi_core
