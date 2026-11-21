@@ -64,6 +64,7 @@ add_subdirectory(libs/nf-config) # ADR-0449: sbi-core now links nf_config, so it
 add_subdirectory(libs/sbi-core)
 add_subdirectory(libs/sbi-generated)
 add_subdirectory(libs/tmf-generated) # ADR-0568: TM Forum DTOs (TMF640, ADR-0558)
+add_subdirectory(libs/tmf-core) # ADR-0612: shared TM Forum Error helper (BSS SBI-03)
 add_subdirectory(libs/aka-crypto)
 add_subdirectory(libs/nas-alg-provider) # ADR-0479
 add_subdirectory(libs/ngap-generated)
