@@ -63,6 +63,13 @@ cross-subscriber path today; it is fixed because the class is the same as ADR-05
   `--gtest_filter=AmfPeerUriEncoding.*` in the main checkout, plus the revert check (restore
   `nfs/amf/src/peer_uris.hpp`'s two `encode_path_segment(supi)` calls to plain `std::string(supi)`
   and expect the victim assertion to fail). Not a full `ctest`. CI result to be added.
+- Run by the lead in the
+  main checkout (2026-11-21), one Debug build of main ea82f83f with the code and tests of PRs #55, #56 and #57 applied together: `AmfPeerUriEncoding.SupiWithQueryCharacterCannotActivateSmsForAnotherSubscriber`
+  passes. With both `encode_path_segment(supi)` calls in `peer_uris.hpp` replaced by
+  `std::string(supi)` and `integration_tests` rebuilt, it fails: the builder assertions
+  (`test_amf_peer_uri_encoding.cpp:62`, `:64`, `:66`) show a raw `?` and `/` in the URIs,
+  and the other subscriber's context answers 204 (`:100`), so the Activate reached it. Targeted
+  test only, not a full `ctest`.
 
 **Disclosed.**
 
