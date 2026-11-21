@@ -185,6 +185,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - UDM: when the UDR answers 503 or 429, the Nudm_UEAU auth-data operations answer 502
   `INBOUND_SERVER_ERROR` (TS 29.500 6.4.2.1), not a cause-less 503
   ([ADR-0602](docs/decisions/ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md)).
+- NEF re-encodes the traffic-influence id `{afId}-{subscriptionId}` before it builds the UDR
+  `influenceData` URI, and the SUPI and GPSI (from the AF's `externalId` / `msisdn`) before it
+  builds a Nudm_SDM or Nudm_EE URI, so an encoded `/` or `?` no longer reaches another resource
+  (ADR-0570 class, NEF part 2;
+  [ADR-0606](docs/decisions/ADR-0606-nef-encodes-the-traffic-influence-id-and-the-ue-ids-it-puts.md)).
 
 ### Security
 
