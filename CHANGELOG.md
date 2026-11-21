@@ -63,6 +63,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `ServiceAttributeValueChangeEvent`, `ServiceStateChangeEvent` and `ServiceDeleteEvent` delivered best
   effort to `{callback}/listener/<event>`, with no access token
   ([ADR-0586](docs/decisions/ADR-0586-tmf640-event-notifications-hub-listeners-and-best-effort.md)).
+- sbi-core: `problem_response` and `make_problem_details` can carry a ProblemDetails
+  `invalidParams` array (TS 29.500 Table 5.2.7.2-1 NOTE 1), with builders for the four `param`
+  encodings of `TS29571_CommonData.yaml`. No NF sends it yet; NFs follow one per PR
+  ([ADR-0607](docs/decisions/ADR-0607-sbi-core-problemdetails-carry-invalidparams-sbi-03-step-1.md)).
 
 ### Changed
 

@@ -571,7 +571,8 @@
   "ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md",
   "ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md",
   "ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md",
-  "ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md"
+  "ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md",
+  "ADR-0607-sbi-core-problemdetails-carry-invalidparams-sbi-03-step-1.md"
  ],
  "split_commit": "0530e4f"
 }

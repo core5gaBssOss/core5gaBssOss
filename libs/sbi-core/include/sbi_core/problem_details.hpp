@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Fields transcribed verbatim from TS29571_CommonData.yaml, components.schemas.ProblemDetails
@@ -54,5 +55,39 @@ ProblemDetails make_problem_details(std::int32_t status,
                                     std::string title,
                                     std::string detail,
                                     std::optional<std::string> cause = std::nullopt);
+
+// Same, with an invalidParams array (ADR-0607). An empty `invalid_params` leaves the attribute
+// out: the YAML gives invalidParams minItems 1, so an empty array would not conform.
+ProblemDetails make_problem_details(std::int32_t status,
+                                    std::string title,
+                                    std::string detail,
+                                    std::optional<std::string> cause,
+                                    std::vector<InvalidParam> invalid_params);
+
+// Builders for InvalidParam.param in the four encodings its YAML description defines
+// (TS29571_CommonData.yaml, components.schemas.InvalidParam.properties.param, ADR-0607):
+//  - an attribute in a JSON body: the attribute's name encoded as a JSON Pointer (RFC 6901). Taking
+//    a json_pointer, not a string, makes the escaping of '~' and '/' the library's, not the
+//    caller's;
+//  - an HTTP header: "header " plus the header's name;
+//  - a query parameter: "query " plus the query parameter's name;
+//  - a variable part of a resource URI path: the variable's name including "{" and "}" as the
+//    OpenAPI notation writes it. `name` is given without the braces, e.g. "supi" -> "{supi}".
+InvalidParam invalid_body_ie(const nlohmann::json::json_pointer& pointer,
+                             std::optional<std::string> reason = std::nullopt);
+InvalidParam invalid_header(std::string_view name,
+                            std::optional<std::string> reason = std::nullopt);
+InvalidParam invalid_query_param(std::string_view name,
+                                 std::optional<std::string> reason = std::nullopt);
+InvalidParam invalid_path_variable(std::string_view name,
+                                   std::optional<std::string> reason = std::nullopt);
+
+// True for the causes TS 29.500 Table 5.2.7.2-1 marks with NOTE 1 (V19.7.0: "'invalidParams'
+// attribute shall be included in the 'ProblemDetails' data structure indicating unsupported,
+// missing or incorrect IE(s) or query parameter(s) or 3gpp-Sbi-Discovery-* header(s)."):
+// INVALID_QUERY_PARAM, MANDATORY_QUERY_PARAM_INCORRECT, OPTIONAL_QUERY_PARAM_INCORRECT,
+// MANDATORY_QUERY_PARAM_MISSING, MANDATORY_IE_INCORRECT, OPTIONAL_IE_INCORRECT,
+// MANDATORY_IE_MISSING and MISSING_PARAMETER.
+bool table_5272_note1_applies(std::string_view cause);
 
 } // namespace sbi_core
