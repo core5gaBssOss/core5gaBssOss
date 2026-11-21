@@ -131,7 +131,7 @@ COMPONENT_STATUS.
 | 1 Ledger hygiene | Merged, #20. |
 | 2 NRF PATCH/DELETE; ADR-0570 audit | NRF merged, #21 (ADR-0574). Audit: NEF part merged, #22 (ADR-0575). The body-, record- and peer-derived URL sites listed in ADR-0575 *Disclosed* (NEF, AUSF, SMF, AMF, bss/provisioning, PCF) are deferred for future implementation. |
 | 3 TMF640 PATCH, DELETE, notifications | PATCH merged, #23 (ADR-0576); DELETE merged, #34 (ADR-0585); notifications merged, #35 (ADR-0586). TMF664 may slip to v0.3.0, as planned. |
-| 4 SBI-03 causes | Merged: NRF #24 (ADR-0577), NEF AM policy #25 (ADR-0578), UDR #32, UDM #33, PCF #36, AMF #37, SMF #38, NWDAF/BSF #39, SMSF #41, NSSF #42, AUSF/MFAF/CHF #43, ADRF #44, DCCF #45, EIR #47, GMLC #49 (ADR-0583, 0584, 0587..0595, 0597, 0599). LMF #50 (ADR-0600) merged. NSACF needs no change. Open: the NEF's 171 cause-less 404 sites (scan of `main` cc995945), one NF PR; BSS services are an open question. |
+| 4 SBI-03 causes | Merged: NRF #24 (ADR-0577), NEF AM policy #25 (ADR-0578), UDR #32, UDM #33, PCF #36, AMF #37, SMF #38, NWDAF/BSF #39, SMSF #41, NSSF #42, AUSF/MFAF/CHF #43, ADRF #44, DCCF #45, EIR #47, GMLC #49 (ADR-0583, 0584, 0587..0595, 0597, 0599). LMF #50 (ADR-0600) merged. NSACF needs no change. NEF part 2 merged, #52 (ADR-0601): 50 more NEF 404s carry their cause, the other 121 have none defined. UDM 502 for a UDR 503/429: #53 (ADR-0602) open. Open: `invalidParams`; BSS services are an open question. |
 | 5 Fuzz nightly; recorded UERANSIM run | Both merged: #26 (ADR-0579) and #27. |
 | 6 Release PR | Open; it comes last. |
 
