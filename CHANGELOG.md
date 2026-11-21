@@ -230,6 +230,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   telescopic-mapping query parameter; one site, the reconstructed request's authority inside a
   JOSE-protected response, still has none
   ([ADR-0610](docs/decisions/ADR-0610-sepp-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md)).
+- AMF: the SUPI is encoded as one path segment in the Nsmsf_SMService Activate and UplinkSMS URIs
+  and in the `smContextStatusUri` it gives the SMF, so a SUPI with `?` or `/` (the AMF's NAS
+  decoder writes `?` for an invalid BCD digit) can no longer reach another subscriber's resource
+  ([ADR-0605](docs/decisions/ADR-0605-amf-encodes-the-supi-as-one-path-segment-in-the-uris-it.md)).
 
 ### Security
 

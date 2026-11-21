@@ -570,6 +570,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0602](decisions/ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md) UDM answers 502 INBOUND_SERVER_ERROR when the UDR answers 503 or 429 (SBI-03, UDM part 2)
 - [0603](decisions/ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md) AUSF encodes supiOrSuci as one path segment before it calls the UDM (ADR-0570 class, AUSF part)
 - [0604](decisions/ADR-0604-smf-encodes-the-supi-as-one-path-segment-before-it-calls.md) SMF encodes the SUPI as one path segment before it calls the AMF (ADR-0570 class, SMF part)
+- [0605](decisions/ADR-0605-amf-encodes-the-supi-as-one-path-segment-in-the-uris-it.md) AMF encodes the SUPI as one path segment in the URIs it builds (ADR-0570 class, AMF part)
 - [0606](decisions/ADR-0606-nef-encodes-the-traffic-influence-id-and-the-ue-ids-it-puts.md) NEF encodes the traffic-influence id and the UE ids it puts into UDR and UDM URIs (ADR-0570 class, NEF part 2)
 - [0607](decisions/ADR-0607-sbi-core-problemdetails-carry-invalidparams-sbi-03-step-1.md) sbi-core ProblemDetails carry invalidParams (SBI-03 step 1, TS 29.500 Table 5.2.7.2-1 NOTE 1)
 - [0608](decisions/ADR-0608-udsf-problemdetails-carry-invalidparams-sbi-03-step-2.md) UDSF ProblemDetails carry invalidParams (SBI-03 step 2)
