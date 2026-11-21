@@ -115,6 +115,7 @@
 #include "sbi_core/otel.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
+#include "sbi_core/uri.hpp"
 #include "sbi_core/uuid.hpp"
 
 #include <boost/asio/io_context.hpp>
@@ -2089,7 +2090,10 @@ bool send_release_command_via_amf(ReleaseDeps& d,
 
     sbi_core::http2::ClientRequest r;
     r.method = "POST";
-    r.url = d.amf_base_url + "/namf-comm/v1/ue-contexts/" + stored.value("supi", std::string{}) +
+    // ADR-0604 (ADR-0570 class): the stored SUPI came from the CreateSMContext body and the TS29571
+    // Supi pattern ends in `|.+`, so it may hold '/', '?', '#' or '%'. One path segment, encoded.
+    r.url = d.amf_base_url + "/namf-comm/v1/ue-contexts/" +
+            sbi_core::uri::encode_path_segment(stored.value("supi", std::string{})) +
             "/n1-n2-messages";
     r.headers.emplace("content-type", encoded.content_type_header);
     r.headers.emplace("authorization", "Bearer " + *token);
@@ -3144,8 +3148,11 @@ int main() {
 
                         sbi_core::http2::ClientRequest amf_http_req;
                         amf_http_req.method = "POST";
+                        // ADR-0604: the body's SUPI is one path segment, encoded, as in
+                        // send_release_command_via_amf.
                         amf_http_req.url = amf_base_url + "/namf-comm/v1/ue-contexts/" +
-                                           *body->supi + "/n1-n2-messages";
+                                           sbi_core::uri::encode_path_segment(*body->supi) +
+                                           "/n1-n2-messages";
                         amf_http_req.headers.emplace("content-type",
                                                      n1n2_encoded.content_type_header);
                         amf_http_req.headers.emplace("authorization", "Bearer " + *amf_token);

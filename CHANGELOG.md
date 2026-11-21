@@ -194,6 +194,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   builds a Nudm_SDM or Nudm_EE URI, so an encoded `/` or `?` no longer reaches another resource
   (ADR-0570 class, NEF part 2;
   [ADR-0606](docs/decisions/ADR-0606-nef-encodes-the-traffic-influence-id-and-the-ue-ids-it-puts.md)).
+- SMF: the SUPI is encoded as one path segment before it goes into the AMF N1N2MessageTransfer
+  URI (Establishment Accept and Release Command), so a SUPI with `/` or `?` can no longer reach
+  another UE's AMF context
+  ([ADR-0604](docs/decisions/ADR-0604-smf-encodes-the-supi-as-one-path-segment-before-it-calls.md)).
 
 ### Security
 
