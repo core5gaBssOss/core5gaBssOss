@@ -78,3 +78,9 @@ The `externalId` site is the strongest of the four: the AF chooses it, and an `e
   (`-fsyntax-only` with the build's flags); both are clang-format-18 clean.
 - The new test was not run here: it needs the lab `certs/`, which this worktree may not read. It
   has not yet been shown to fail without the fix.
+- Run by the lead in the
+  main checkout (2026-11-21), one Debug build of main ea82f83f with the code and tests of PRs #55, #56 and #57 applied together: `NefEncodedAfId.*` passes (2 tests, the ADR-0575 one included). With
+  `nfs/nef/src/main.cpp` reverted to ea82f83f and `nef` rebuilt, the new
+  `TrafficInfluenceAfIdWithQueryCharacterNeverLandsOnAnotherUdrResource` fails at
+  `test_nef_encoded_af_id.cpp:154` (404 for the record's own resource) and `:156` (204 for the
+  other resource); the ADR-0575 test still passes. Targeted test only, not a full `ctest`.
