@@ -23,8 +23,7 @@ was fetched on 2026-11-20 (`specs/3gpp/MANIFEST.tsv`).
 
 **Verified.** Local, 2026-11-20, on the master machine: `integration_tests
 --gtest_filter='LmfAuthorization.*'` passes (2 tests). With the `main.cpp` change reverted and `lmf`
-rebuilt, the new test fails (`resp.status` is 404). Targeted test only, not a full `ctest`. CI result
-to be added.
+rebuilt, the new test fails (`resp.status` is 404). Targeted test only, not a full `ctest`. CI on PR #50 (rebased onto 62f87da1) passed: build, lint, asan-ubsan and tsan (2026-11-21).
 
 **Disclosed.**
 - The YAML lists `'404'` for this operation through the common TS 29.500 table 5.2.7.1-1 set. The
