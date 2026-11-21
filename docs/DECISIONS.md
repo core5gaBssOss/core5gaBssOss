@@ -568,6 +568,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0600](decisions/ADR-0600-lmf-cancellocation-for-an-unknown-ldrreference-is-403.md) LMF CancelLocation for an unknown ldrReference is 403 LOCATION_SESSION_UNKNOWN (SBI-03, LMF part)
 - [0601](decisions/ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md) NEF subscription, SM context and MBS session 404s carry their spec cause (SBI-03, NEF part 2)
 - [0602](decisions/ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md) UDM answers 502 INBOUND_SERVER_ERROR when the UDR answers 503 or 429 (SBI-03, UDM part 2)
+- [0604](decisions/ADR-0604-smf-encodes-the-supi-as-one-path-segment-before-it-calls.md) SMF encodes the SUPI as one path segment before it calls the AMF (ADR-0570 class, SMF part)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
