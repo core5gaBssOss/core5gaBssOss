@@ -39,9 +39,12 @@ authenticated a subscriber the request had not named as its identity.
   UDM sees one unknown id. Without the fix the UDM serves the seeded subscriber's vectors and the
   AUSF answers 201.
 
-**Verified.** See the report of the PR that carries this ADR: the worktree it was written in has no
-`certs/`, so the integration test was compiled there but not run. Its run, the check that it fails
-without the fix, and the CI result are still to be added.
+**Verified (2026-11-21, master machine, main checkout at this commit).** `ausf`, `udm`, `udr`,
+`nrf` and `integration_tests` build clean (0 failed steps). With Valkey and the UDR Postgres up,
+`AusfIntegration.SupiOrSuciWithPathCharactersCannotReachAnotherSubscriber` passes (404
+`USER_NOT_FOUND`). With `nfs/ausf/src/main.cpp` restored from 16b5e7fd and `ausf` rebuilt, it fails:
+the AUSF answers **201** and starts authenticating the seeded subscriber, so the bug was real.
+Targeted test only, not a full `ctest`. CI result to be added.
 
 **Disclosed.**
 - Only the 5G AKA / EAP-AKA' path has a test. The ProSe site gets the same call with the same
