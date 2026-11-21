@@ -8,6 +8,7 @@
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/jwt.hpp"
 #include "sbi_core/multipart.hpp"
+#include "sbi_core/problem_details.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -59,6 +60,15 @@ Response problem(int status,
                  const std::string& title,
                  const std::string& detail,
                  const std::optional<std::string>& cause = std::nullopt);
+// Same, with the ProblemDetails invalidParams attribute (ADR-0607, ADR-0608): TS 29.500 Table
+// 5.2.7.2-1 NOTE 1 requires it for the causes sbi_core::table_5272_note1_applies() names. Each
+// entry comes from sbi_core::invalid_query_param / invalid_body_ie / invalid_header /
+// invalid_path_variable; an empty list writes the same body as the overload above.
+Response problem(int status,
+                 const std::string& title,
+                 const std::string& detail,
+                 const std::optional<std::string>& cause,
+                 std::vector<sbi_core::InvalidParam> invalid_params);
 // ExtendedProblemDetails = ProblemDetails + ProblemDetailsExtension (anyOf Record | RecordMeta).
 // The Record alternative is used with only its (required) `meta`: blocks are opaque bytes and have
 // no JSON representation.

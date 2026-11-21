@@ -101,6 +101,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - 402 finished ADRs are archived under `docs/decisions/archive/`; the 52 live ADRs are the pending
   work
   ([ADR-0573](docs/decisions/ADR-0573-archiving-rule-widened-adrs-dated-before-the-2026-10-review.md)).
+- UDSF: 400s with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carry `invalidParams` naming the query
+  parameter (`query filter`, `query limit-range`, ...) or, for a MetaSchema tag without `sort`, the
+  JSON Pointer `/metaTags/<i>/sort`. The multipart Content-Id 400 still has none
+  ([ADR-0608](docs/decisions/ADR-0608-udsf-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
 
 ### Fixed
 

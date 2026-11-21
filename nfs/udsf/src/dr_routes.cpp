@@ -800,19 +800,24 @@ void add_dr_routes(sbi_core::http2::Server& server, Ctx& ctx) {
                     "Bad Request",
                     "tag-count-filter needs the AdvancedCounting feature, which this UDSF "
                     "does not support (ADR-0400)",
-                    std::string("INVALID_QUERY_PARAM"));
+                    std::string("INVALID_QUERY_PARAM"),
+                    {sbi_core::invalid_query_param("tag-count-filter")});
             }
             const auto filter_text = query(req, "filter");
             if (!filter_text) {
                 return problem(400,
                                "Bad Request",
                                "the filter query parameter is required",
-                               std::string("MANDATORY_QUERY_PARAM_MISSING"));
+                               std::string("MANDATORY_QUERY_PARAM_MISSING"),
+                               {sbi_core::invalid_query_param("filter")});
             }
             auto expr = parse_filter_param(*filter_text);
             if (!expr) {
-                return problem(
-                    400, "Bad Request", expr.error(), std::string("INVALID_QUERY_PARAM"));
+                return problem(400,
+                               "Bad Request",
+                               expr.error(),
+                               std::string("INVALID_QUERY_PARAM"),
+                               {sbi_core::invalid_query_param("filter", expr.error())});
             }
             const bool count_only = query_flag(req, "count-indicator");
             const auto retrieve = query(req, "retrieve-records");
@@ -820,27 +825,36 @@ void add_dr_routes(sbi_core::http2::Server& server, Ctx& ctx) {
                 return problem(400,
                                "Bad Request",
                                "unknown RetrieveRecords value " + *retrieve,
-                               std::string("INVALID_QUERY_PARAM"));
+                               std::string("INVALID_QUERY_PARAM"),
+                               {sbi_core::invalid_query_param("retrieve-records")});
             }
             if (count_only && retrieve) {
                 return problem(400,
                                "Bad Request",
                                "count-indicator and retrieve-records are mutually exclusive",
-                               std::string("INVALID_QUERY_PARAM"));
+                               std::string("INVALID_QUERY_PARAM"),
+                               {sbi_core::invalid_query_param("count-indicator"),
+                                sbi_core::invalid_query_param("retrieve-records")});
             }
             auto limit = query_uint(req, "limit-range");
             auto max_kb = query_uint(req, "max-payload-size");
             if (!limit || !max_kb) {
-                return problem(400,
-                               "Bad Request",
-                               !limit ? limit.error() : max_kb.error(),
-                               std::string("INVALID_QUERY_PARAM"));
+                return problem(
+                    400,
+                    "Bad Request",
+                    !limit ? limit.error() : max_kb.error(),
+                    std::string("INVALID_QUERY_PARAM"),
+                    {sbi_core::invalid_query_param(!limit ? "limit-range" : "max-payload-size",
+                                                   !limit ? limit.error() : max_kb.error())});
             }
             auto index = ctx.store.record_index(*s);
             auto matched = evaluate(*expr, *index);
             if (!matched) {
-                return problem(
-                    400, "Bad Request", matched.error(), std::string("INVALID_QUERY_PARAM"));
+                return problem(400,
+                               "Bad Request",
+                               matched.error(),
+                               std::string("INVALID_QUERY_PARAM"),
+                               {sbi_core::invalid_query_param("filter", matched.error())});
             }
             if (matched->empty()) {
                 return empty(204);
@@ -916,18 +930,25 @@ void add_dr_routes(sbi_core::http2::Server& server, Ctx& ctx) {
                 return problem(400,
                                "Bad Request",
                                "the filter query parameter is required",
-                               std::string("MANDATORY_QUERY_PARAM_MISSING"));
+                               std::string("MANDATORY_QUERY_PARAM_MISSING"),
+                               {sbi_core::invalid_query_param("filter")});
             }
             auto expr = parse_filter_param(*filter_text);
             if (!expr) {
-                return problem(
-                    400, "Bad Request", expr.error(), std::string("INVALID_QUERY_PARAM"));
+                return problem(400,
+                               "Bad Request",
+                               expr.error(),
+                               std::string("INVALID_QUERY_PARAM"),
+                               {sbi_core::invalid_query_param("filter", expr.error())});
             }
             auto index = ctx.store.record_index(*s);
             auto matched = evaluate(*expr, *index);
             if (!matched) {
-                return problem(
-                    400, "Bad Request", matched.error(), std::string("INVALID_QUERY_PARAM"));
+                return problem(400,
+                               "Bad Request",
+                               matched.error(),
+                               std::string("INVALID_QUERY_PARAM"),
+                               {sbi_core::invalid_query_param("filter", matched.error())});
             }
             std::vector<std::string> deleted;
             std::vector<std::string> failed;
@@ -982,8 +1003,11 @@ void add_dr_routes(sbi_core::http2::Server& server, Ctx& ctx) {
             }
             auto limit = query_uint(req, "limit-range");
             if (!limit) {
-                return problem(
-                    400, "Bad Request", limit.error(), std::string("INVALID_QUERY_PARAM"));
+                return problem(400,
+                               "Bad Request",
+                               limit.error(),
+                               std::string("INVALID_QUERY_PARAM"),
+                               {sbi_core::invalid_query_param("limit-range", limit.error())});
             }
             const auto neg = negotiate(kDrFeatures, query(req, "supported-features"));
             json arr = json::array();
@@ -1188,7 +1212,8 @@ void add_dr_routes(sbi_core::http2::Server& server, Ctx& ctx) {
                     return problem(400,
                                    "Bad Request",
                                    std::string("invalid client-id: ") + e.what(),
-                                   std::string("INVALID_QUERY_PARAM"));
+                                   std::string("INVALID_QUERY_PARAM"),
+                                   {sbi_core::invalid_query_param("client-id")});
                 }
             } else {
                 cid.nfId = query(req, "nfId");
@@ -1198,7 +1223,8 @@ void add_dr_routes(sbi_core::http2::Server& server, Ctx& ctx) {
                 return problem(400,
                                "Bad Request",
                                "client-id (nfId and/or nfSetId) is required",
-                               std::string("MANDATORY_QUERY_PARAM_MISSING"));
+                               std::string("MANDATORY_QUERY_PARAM_MISSING"),
+                               {sbi_core::invalid_query_param("client-id")});
             }
             const bool get_previous = query_flag(req, "get-previous");
             const auto c = conditions(req);
@@ -1284,14 +1310,18 @@ void add_dr_routes(sbi_core::http2::Server& server, Ctx& ctx) {
                                "schemaId in the body differs from the URI",
                                std::string("INVALID_MSG_FORMAT"));
             }
-            for (const auto& t : ms.metaTags) {
+            for (std::size_t i = 0; i < ms.metaTags.size(); ++i) {
+                const auto& t = ms.metaTags[i];
                 const auto& k = t.keyType.value;
                 if ((k == "SEARCH_KEY" || k == "SEARCH_AND_COUNT_KEY") && !t.sort) {
-                    return problem(400,
-                                   "Bad Request",
-                                   "TagType.sort shall be present for " + k +
-                                       " (table 6.1.6.2.16-1)",
-                                   std::string("MANDATORY_IE_MISSING"));
+                    // The body was parsed into ms whole, so ms.metaTags[i] is body["metaTags"][i].
+                    return problem(
+                        400,
+                        "Bad Request",
+                        "TagType.sort shall be present for " + k + " (table 6.1.6.2.16-1)",
+                        std::string("MANDATORY_IE_MISSING"),
+                        {sbi_core::invalid_body_ie(
+                            json::json_pointer("/metaTags/" + std::to_string(i) + "/sort"))});
                 }
             }
             const bool get_previous = query_flag(req, "get-previous");

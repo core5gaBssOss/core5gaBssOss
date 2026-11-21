@@ -21,6 +21,20 @@ Response problem(int status,
     return r;
 }
 
+Response problem(int status,
+                 const std::string& title,
+                 const std::string& detail,
+                 const std::optional<std::string>& cause,
+                 std::vector<sbi_core::InvalidParam> invalid_params) {
+    Response r;
+    r.status = status;
+    r.headers.emplace("content-type", "application/problem+json");
+    r.body = nlohmann::json(sbi_core::make_problem_details(
+                                status, title, detail, cause, std::move(invalid_params)))
+                 .dump();
+    return r;
+}
+
 Response extended_problem(int status,
                           const std::string& title,
                           const std::string& detail,
