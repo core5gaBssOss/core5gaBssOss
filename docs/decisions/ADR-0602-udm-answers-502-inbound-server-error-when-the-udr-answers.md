@@ -46,7 +46,12 @@ attempting to fulfil the request (see clause 6.4.2.1)."
   then 500. The test asserts 502 `INBOUND_SERVER_ERROR` for the first two and a cause-less 503 for
   the 500.
 
-**Verified.** See the PR. CI result to be added.
+**Verified (2026-11-21, master machine, main checkout at this commit).** `udm`, `nrf` and
+`integration_tests` build clean (0 failed steps). `integration_tests
+--gtest_filter='UdmUdrOverload.*'` passes (1 test). With `nfs/udm/src/main.cpp`,
+`udr_auth_source.cpp` and `udr_auth_source.hpp` restored from cc995945 and `udm` rebuilt, the test
+fails: the UDR 503 and the UDR 429 both come back as 503 with an empty `cause`. Targeted test only,
+not a full `ctest`; the compare-and-swap PATCH path has no test of its own. CI result to be added.
 
 **Disclosed.**
 
