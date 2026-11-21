@@ -70,6 +70,7 @@ add_executable(integration_tests
     test_udr_aiot_data.cpp
     test_udr_oam_provisioning.cpp
     test_udm_ueau_from_udr.cpp
+    test_udm_udr_overload.cpp
     test_product_catalog_lossless.cpp
     test_balance_lossless.cpp
     test_party_lossless.cpp

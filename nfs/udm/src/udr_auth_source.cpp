@@ -39,6 +39,13 @@ std::string str_or_empty(const json& doc, const char* key) {
     return (it != doc.end() && it->is_string()) ? it->get<std::string>() : std::string();
 }
 
+// TS 29.500 6.4.2.1: a UDR 503 or 429 is relayed as 502 INBOUND_SERVER_ERROR; any other
+// unexpected UDR status stays the 503 it was (ADR-0534, ADR-0602).
+AuthDataError error_for_udr_status(long status) {
+    return (status == 503 || status == 429) ? AuthDataError::UdrOverloaded
+                                            : AuthDataError::Unavailable;
+}
+
 } // namespace
 
 aka_crypto::Sqn sqn_add(const aka_crypto::Sqn& sqn, std::uint64_t n) {
@@ -79,7 +86,7 @@ UdrAuthSubscriptionSource::fetch(const std::string& supi) {
     if (resp->status != 200) {
         // The body is not logged: a UDR error body is harmless, but a 2xx-ish one is not.
         spdlog::warn("udm: UDR QueryAuthSubsData returned HTTP {}", resp->status);
-        return tl::unexpected(AuthDataError::Unavailable);
+        return tl::unexpected(error_for_udr_status(resp->status));
     }
     json doc;
     try {
@@ -149,7 +156,7 @@ tl::expected<bool, AuthDataError> UdrAuthSubscriptionSource::compare_and_swap_sq
         return false;
     }
     spdlog::warn("udm: UDR ModifyAuthenticationSubscription returned HTTP {}", resp->status);
-    return tl::unexpected(AuthDataError::Unavailable);
+    return tl::unexpected(error_for_udr_status(resp->status));
 }
 
 tl::expected<AuthenticationSubscription, AuthDataError>
