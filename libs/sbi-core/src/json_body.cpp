@@ -88,7 +88,16 @@ Response problem_response(int status,
                           const std::string& title,
                           const std::string& detail,
                           std::optional<std::string> cause) {
-    auto pd = sbi_core::make_problem_details(status, title, detail, std::move(cause));
+    return problem_response(status, title, detail, std::move(cause), {});
+}
+
+Response problem_response(int status,
+                          const std::string& title,
+                          const std::string& detail,
+                          std::optional<std::string> cause,
+                          std::vector<sbi_core::InvalidParam> invalid_params) {
+    auto pd = sbi_core::make_problem_details(
+        status, title, detail, std::move(cause), std::move(invalid_params));
     nlohmann::json j = pd;
     Response r;
     r.status = status;

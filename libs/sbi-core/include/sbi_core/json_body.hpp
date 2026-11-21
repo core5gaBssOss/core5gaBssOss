@@ -9,6 +9,7 @@
 #include <optional>
 #include <string_view>
 #include <tl/expected.hpp>
+#include <vector>
 
 // Shared request-body helpers for NF request handlers: build a ProblemDetails error response, and
 // parse a JSON (or multipart/related-wrapped JSON) request body into a generated sbi_gen DTO.
@@ -29,6 +30,16 @@ Response problem_response(int status,
                           const std::string& title,
                           const std::string& detail,
                           std::optional<std::string> cause);
+
+// Same, with the ProblemDetails invalidParams attribute (ADR-0607). TS 29.500 Table 5.2.7.2-1
+// NOTE 1 requires it for the causes sbi_core::table_5272_note1_applies() names; build each entry
+// with sbi_core::invalid_body_ie / invalid_header / invalid_query_param / invalid_path_variable.
+// An empty list writes the same body as the four-argument overload (minItems 1 in the YAML).
+Response problem_response(int status,
+                          const std::string& title,
+                          const std::string& detail,
+                          std::optional<std::string> cause,
+                          std::vector<sbi_core::InvalidParam> invalid_params);
 
 // The TS 29.500 Table 5.2.7.2-1 cause for a failed read of a JSON body into a DTO: a member that
 // is absent (nlohmann out_of_range) is MANDATORY_IE_MISSING, one of the wrong type or value
