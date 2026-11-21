@@ -53,11 +53,11 @@ cross-subscriber path today; it is fixed because the class is the same as ADR-05
   (`set_source_files_properties(... INCLUDE_DIRECTORIES ...)`), so no other test in the target can
   pick up an AMF-private header.
 
-**Verified (2026-11-21, master machine, worktree build).** See the section below; only what is
-written there was run.
+**Verified (2026-11-21, master machine, fresh worktree build).** Only what is listed here was run.
 
-- `nfs/amf/src/ngap_task.cpp` and `tests/integration/test_amf_peer_uri_encoding.cpp` compile
-  (`-fsyntax-only` with the main checkout's compile flags).
+- `cmake --build build --target amf integration_tests` completed; a second `ninja -n` on the same
+  targets reports no work to do. `integration_tests --gtest_list_tests` lists
+  `AmfPeerUriEncoding.SupiWithQueryCharacterCannotActivateSmsForAnotherSubscriber`.
 - `clang-format-18 --dry-run -Werror` is clean on every changed C++ file.
 - The test was **not** run here: it needs `certs/`, which this worktree may not read. The lead runs
   `--gtest_filter=AmfPeerUriEncoding.*` in the main checkout, plus the revert check (restore
