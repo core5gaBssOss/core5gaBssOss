@@ -19,7 +19,7 @@ Unchanged: PUT and DELETE of an unknown `data-collection-profiles/{profileId}`
 (Ndccf_ContextManagement). A profile is not a subscription, no cause is defined for it, and
 TS 29.500 clause 5.2.7.2 answers an unknown resource with a plain 404.
 
-Disclosed: compile-checked locally only (this host is a CI runner); CI result to be added.
+Disclosed: compile-checked locally only (this host is a CI runner); the PR's sanitizer runs were cancelled after merge, before they finished (build and lint passed). On `main`: asan-ubsan passed at fdbeb4af and tsan at cc995945 (2026-11-20, runs 44763962285 and 44791974533), both containing this change.
 
 **Rejected alternatives.**
 - Leaving the DELETE cause-less while the PUT on the same resource sends `SUBSCRIPTION_NOT_FOUND`.

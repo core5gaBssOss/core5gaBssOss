@@ -21,7 +21,7 @@ Disclosed:
 
 - The DELETE and sendsms causes have no test of their own; they share the PATCH's code path shape
   (the same `contexts` lookup and the same `problem_response` call).
-- Compile-checked locally only (this host is a CI runner); CI result to be added.
+- Compile-checked locally only (this host is a CI runner); CI on PR #41 passed: build, lint, asan-ubsan and tsan (2026-11-19).
 
 **Rejected alternatives.**
 - `USER_NOT_FOUND` on the PATCH 404: TS 29.540 uses it for a subscriber unknown to the UDM, which

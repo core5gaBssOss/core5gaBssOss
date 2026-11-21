@@ -158,7 +158,7 @@ By phase:
 
 | Phase | What | Status |
 |---|---|---|
-| 0 | Foundations: CMake+vcpkg skeleton, `libs/sbi-core` (HTTP/2, OAuth2, ProblemDetails, headers, logging, tracing), TLS 1.3 + mTLS | Done |
+| 0 | Foundations: CMake+vcpkg skeleton, `libs/sbi-core` (HTTP/2, OAuth2, ProblemDetails, headers, logging, tracing), TLS 1.3 + mTLS | Done. ProblemDetails `cause` (REVIEW-5ae0ef1 SBI-03, v0.2.0 item 4): since 2026-11-15 the 404s of these NFs send the cause their spec defines, one NF per PR (NRF, NEF for AM policy only, then every NEF 404 with a defined cause since ADR-0601, UDR, UDM, PCF, AMF, SMF, NWDAF, SMSF, NSSF, AUSF, ADRF, DCCF, EIR, GMLC, LMF; ADR-0577..0601), and the UDM answers 502 `INBOUND_SERVER_ERROR` when its UDR is overloaded (ADR-0602); BSF, MFAF, CHF and NSACF need none. Open: the rest of the NEF (closed 2026-11-21 by ADR-0601, #52), `invalidParams`, BSS services (status: docs/reviews/REVIEW-5ae0ef1.md) |
 | 1 | Codegen spine: `tools/sbi-codegen`, generated DTOs/serializers from the R19 YAML | Done |
 | 2 | Control-plane core: NRF, AMF, SMF, UDM, UDR, AUSF, PCF; UE registration + PDU session establishment end-to-end | Done |
 | 3 | User plane: N4/PFCP, UPF datapath (an eBPF/XDP uplink GTP-U decapsulation path; lab veth/netns fixture, not a gNB-facing N3; no downlink and no LI hook) | Done for what is stated |
@@ -441,7 +441,7 @@ program and `clang-format-18`/`clang-tidy-18`), and
 ```sh
 git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
 ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
-scripts/setup-asn1c.sh   # patched asn1c for the NGAP/LI ASN.1 targets; idempotent
+scripts/setup-asn1c.sh   # patched asn1c for the NGAP/LI ASN.1 targets; idempotent; rebuilds a cached asn1c built for another path (ADR-0598)
 
 cmake -S . -B build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
@@ -453,7 +453,9 @@ ctest --test-dir build --output-on-failure
 Sanitizer builds: add `-D5GC_ENABLE_ASAN=ON` or `-D5GC_ENABLE_TSAN=ON` at configure time (mutually
 exclusive). CI runs both, plus `clang-format`/`clang-tidy`, on every push that changes code (a
 pull request whose whole diff against `main` is docs, or a docs-only push to `main`, runs lint only, ADR-0469) — see
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml). Self-hosted CI runs on two machines, MASTERMIND-007 and mastermind-073, which share every
+`5gc-lab` job; the master machine (mastermindAI) carries only the `5gc-master` label and is a
+fallback (ADR-0580, ADR-0581, ADR-0582, ADR-0596; inventory: `docs/project-context/host-toolchain.md`).
 
 Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`. For the whole lab use `make lab-up`, which adds the generated `deploy/docker/docker-compose.lab.yml`: since ADR-0514 the Valkey NFs log in with their own ACL users, and only the overlay's configs carry them (ADR-0571).
 

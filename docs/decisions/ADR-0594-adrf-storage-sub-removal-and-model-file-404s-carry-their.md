@@ -26,7 +26,7 @@ Unchanged, because the spec defines no cause for them:
 Disclosed:
 
 - The model-file cause has no test of its own.
-- Compile-checked locally only (this host is a CI runner); CI result to be added.
+- Compile-checked locally only (this host is a CI runner); the PR's sanitizer runs were cancelled after merge, before they finished (build and lint passed). On `main`: asan-ubsan passed at fdbeb4af and tsan at cc995945 (2026-11-20, runs 44763962285 and 44791974533), both containing this change.
 
 **Rejected alternatives.**
 - `DATA_NOT_FOUND` or `CONTEXT_NOT_FOUND` on the storage-subscription removal: neither is defined

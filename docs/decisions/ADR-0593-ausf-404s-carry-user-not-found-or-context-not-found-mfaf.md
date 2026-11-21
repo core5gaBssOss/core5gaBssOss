@@ -35,7 +35,7 @@ Disclosed:
 
 - `CONTEXT_NOT_FOUND` on the `{authCtxId}` 404s rests on table 6.1.7.3-1, not on a per-method
   row. The eap-session and prose-auth causes have no test of their own.
-- Compile-checked locally only (this host is a CI runner); CI result to be added.
+- Compile-checked locally only (this host is a CI runner); CI on PR #43 passed: build, lint, asan-ubsan and tsan (2026-11-19).
 
 **Rejected alternatives.**
 - Leaving the `{authCtxId}` 404s cause-less because their per-method tables have no 404 row: the

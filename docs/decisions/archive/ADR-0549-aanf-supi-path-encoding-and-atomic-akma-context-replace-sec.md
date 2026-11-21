@@ -11,7 +11,7 @@ The review hinted at a format check (`imsi-<digits>` / `nai-…`). That check ca
 **Decision:**
 
 1. **The SUPI check matches the spec pattern, no more.** `supi_conforms()` rejects only what `.+` cannot match: an empty value, or one containing a line terminator (`\r`, `\n`, U+2028, U+2029). A failure returns 400 `MANDATORY_IE_INCORRECT`, "supi does not match the TS 29.571 Supi pattern".
-2. **The SUPI is percent-encoded as a path segment** wherever the AAnF puts it into a UDM URL. The new header `libs/sbi-core/include/sbi_core/uri.hpp` provides `sbi_core::uri::encode_path_segment`, which follows RFC 3986 §3.3 `pchar` (TS 29.501 §5.2.3). It keeps unreserved characters, sub-delims, `:` and `@`, and encodes every other byte as `%XX` in uppercase hex.
+2. **The SUPI is percent-encoded as a path segment** wherever the AAnF puts it into a UDM URL. The new header `libs/sbi-core/include/sbi_core/uri.hpp` provides `sbi_core::uri::encode_path_segment`, which follows RFC 3986 §3.3 `pchar` (TS 29.501 §5.1.3.2 f); until 2026-11-21 this read §5.2.3, which is the clause on custom operations, not path segments). It keeps unreserved characters, sub-delims, `:` and `@`, and encodes every other byte as `%XX` in uppercase hex.
 3. **The sbi-core server decodes path parameters after splitting on `/`.** `Http2Server` now passes each `{param}` through `percent_decode(segment, false)` once the path has been split, with `+` kept literal as RFC 3986 requires for paths. An encoded `%2F` therefore stays inside its one segment and reaches the handler as `/`.
 4. **`AkmaStore::put` and `remove_supi` each run as one Valkey Lua `EVAL`.**
    - `put` reads the old A-KID, deletes it if it differs, and writes both keys in one script.

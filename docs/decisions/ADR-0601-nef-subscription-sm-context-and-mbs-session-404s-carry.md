@@ -83,7 +83,7 @@ failed steps). Run from the main checkout (which has `certs/`) at this commit:
 `integration_tests --gtest_filter='NefSbi03Causes.*'` passes (1 test, 14 requests). With
 `nfs/nef/src/main.cpp` reverted to `main` cc995945 and `nef` rebuilt, the test fails: the 404s
 come back with an empty `cause` where `SUBSCRIPTION_NOT_FOUND` is expected. Targeted test only, not
-a full `ctest`. CI result to be added.
+a full `ctest`. CI on PR #52 (rebased onto 16b5e7fd) passed: build, lint, asan-ubsan and tsan (2026-11-21).
 
 **Rejected alternatives.**
 

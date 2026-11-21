@@ -18,7 +18,7 @@ NSSAI availability data for. TS 29.531 (j70) was fetched for this (`specs/3gpp/M
 Disclosed:
 
 - The PATCH cause has no test of its own; it is the same lookup and the same call as the DELETE.
-- Compile-checked locally only (this host is a CI runner); CI result to be added.
+- Compile-checked locally only (this host is a CI runner); CI on PR #42 passed: build, lint, asan-ubsan and tsan (2026-11-19).
 
 **Rejected alternatives.**
 - `SUBSCRIPTION_NOT_FOUND` or `CONTEXT_NOT_FOUND` on these 404s: TS 29.531 names

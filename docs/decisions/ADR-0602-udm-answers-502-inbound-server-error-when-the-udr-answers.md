@@ -51,7 +51,8 @@ attempting to fulfil the request (see clause 6.4.2.1)."
 --gtest_filter='UdmUdrOverload.*'` passes (1 test). With `nfs/udm/src/main.cpp`,
 `udr_auth_source.cpp` and `udr_auth_source.hpp` restored from cc995945 and `udm` rebuilt, the test
 fails: the UDR 503 and the UDR 429 both come back as 503 with an empty `cause`. Targeted test only,
-not a full `ctest`; the compare-and-swap PATCH path has no test of its own. CI result to be added.
+not a full `ctest`; the compare-and-swap PATCH path has no test of its own. CI on PR #53 (run 44873516296, rebased onto 12b9c268) passed: build, lint,
+asan-ubsan and tsan (2026-11-21). Merged as ea82f83f.
 
 **Disclosed.**
 
