@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sbi_core/problem_details.hpp"
+
 #include <cstdint>
 #include <deque>
 #include <map>
@@ -90,6 +92,8 @@ struct Decision {
     std::optional<sbi_gen::SecNegotiateRspData> response;
     std::optional<std::string> cause;
     std::string detail;
+    // TS 29.500 table 5.2.7.2-1 NOTE 1 (ADR-0610): the IEs a NOTE 1 cause refers to.
+    std::vector<sbi_core::InvalidParam> invalid_params;
     std::optional<Context> context; // to store (TLS selected)
     bool teardown = false;          // NONE: delete the context for this peer
 };
@@ -184,6 +188,8 @@ struct ParamDecision {
     std::optional<sbi_gen::SecParamExchRspData> response;
     std::optional<std::string> cause;
     std::string detail;
+    // TS 29.500 table 5.2.7.2-1 NOTE 1 (ADR-0610): the IEs a NOTE 1 cause refers to.
+    std::vector<sbi_core::InvalidParam> invalid_params;
     std::optional<PrinsContext> context; // to store
 };
 

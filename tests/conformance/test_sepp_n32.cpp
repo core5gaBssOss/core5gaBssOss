@@ -298,6 +298,56 @@ TEST(SeppN32, PrinsIsSelectedByLocalPreference) {
     EXPECT_EQ(sepp::negotiate(pb, req, false).response->selectedSecCapability.value, "TLS");
 }
 
+// ADR-0610 (TS 29.500 table 5.2.7.2-1 NOTE 1): the refusals with a NOTE 1 cause name the IE as
+// a JSON Pointer into the request body; the others carry no invalidParams.
+TEST(SeppN32, Note1RefusalsNameTheInvalidIe) {
+    const auto params = [](const std::vector<sbi_core::InvalidParam>& v) {
+        std::vector<std::string> out;
+        for (const auto& p : v) {
+            out.push_back(p.param);
+        }
+        return out;
+    };
+    using Names = std::vector<std::string>;
+    auto req = sepp::make_request(policy_a(), policy_a().peers[0], std::nullopt, false);
+
+    auto wrong_plmn = req;
+    wrong_plmn.targetPlmnId = sbi_gen::PlmnId_CommonData{"001", "09"};
+    auto d = sepp::negotiate(policy_b(), wrong_plmn, false);
+    EXPECT_EQ(d.cause, "OPTIONAL_IE_INCORRECT");
+    EXPECT_EQ(params(d.invalid_params), Names{"/targetPlmnId"});
+
+    auto bad_id = req;
+    bad_id.n32HandshakeId = "xyz";
+    d = sepp::negotiate(policy_b(), bad_id, false);
+    EXPECT_EQ(d.cause, "OPTIONAL_IE_INCORRECT");
+    EXPECT_EQ(params(d.invalid_params), Names{"/n32HandshakeId"});
+
+    auto stranger = req;
+    stranger.sender = "sepp.5gc.mnc009.mcc001.3gppnetwork.org";
+    EXPECT_TRUE(sepp::negotiate(policy_b(), stranger, false).invalid_params.empty());
+
+    sepp::Context cap;
+    cap.security = "PRINS";
+    cap.peer_fqdn = kA;
+    sbi_gen::SecParamExchReqData pr;
+    pr.n32fContextId = "not-hex";
+    pr.jweCipherSuiteList = std::vector<std::string>{"A128GCM"};
+    auto p = sepp::exchange_params(policy_b(), cap, std::nullopt, pr, std::nullopt, false);
+    EXPECT_EQ(p.cause, "MANDATORY_IE_INCORRECT");
+    EXPECT_EQ(params(p.invalid_params), Names{"/n32fContextId"});
+
+    pr.n32fContextId = "0123456789abcdef";
+    pr.jweCipherSuiteList.reset();
+    p = sepp::exchange_params(policy_b(), cap, std::nullopt, pr, std::nullopt, false);
+    EXPECT_EQ(p.cause, "MANDATORY_IE_MISSING");
+    EXPECT_EQ(params(p.invalid_params), (Names{"/jweCipherSuiteList", "/protectionPolicyInfo"}));
+
+    p = sepp::exchange_params(policy_b(), std::nullopt, std::nullopt, pr, std::nullopt, false);
+    EXPECT_EQ(p.cause, "NEGOTIATION_NOT_ALLOWED");
+    EXPECT_TRUE(p.invalid_params.empty());
+}
+
 TEST(SeppN32, ParameterExchangeNegotiatesCiphersThenPolicy) {
     auto pb = policy_b();
     pb.jwe_cipher_suites = {"A256GCM", "A128GCM"};

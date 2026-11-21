@@ -26,11 +26,15 @@ const PeerConfig* find_peer(const NegotiationPolicy& policy, const std::string& 
     return it == policy.peers.end() ? nullptr : &*it;
 }
 
-Decision reject(int status, std::string cause, std::string detail) {
+Decision reject(int status,
+                std::string cause,
+                std::string detail,
+                std::vector<sbi_core::InvalidParam> invalid_params = {}) {
     Decision d;
     d.status = status;
     d.cause = std::move(cause);
     d.detail = std::move(detail);
+    d.invalid_params = std::move(invalid_params);
     return d;
 }
 
@@ -156,10 +160,18 @@ Decision negotiate(const NegotiationPolicy& policy,
     if (request.targetPlmnId &&
         home_network_domain(request.targetPlmnId->mcc, request.targetPlmnId->mnc) !=
             home_network_domain(policy.own_mcc, policy.own_mnc)) {
-        return reject(400, "OPTIONAL_IE_INCORRECT", "targetPlmnId is not a PLMN this SEPP serves");
+        return reject(400,
+                      "OPTIONAL_IE_INCORRECT",
+                      "targetPlmnId is not a PLMN this SEPP serves",
+                      {sbi_core::invalid_body_ie(nlohmann::json::json_pointer("/targetPlmnId"),
+                                                 "not a PLMN this SEPP serves")});
     }
     if (request.n32HandshakeId && !is_handshake_id(*request.n32HandshakeId)) {
-        return reject(400, "OPTIONAL_IE_INCORRECT", "n32HandshakeId must be 16 hexadecimal digits");
+        return reject(400,
+                      "OPTIONAL_IE_INCORRECT",
+                      "n32HandshakeId must be 16 hexadecimal digits",
+                      {sbi_core::invalid_body_ie(nlohmann::json::json_pointer("/n32HandshakeId"),
+                                                 "must be 16 hexadecimal digits")});
     }
 
     sbi_gen::SecNegotiateRspData rsp;
@@ -492,10 +504,14 @@ ParamDecision exchange_params(const NegotiationPolicy& policy,
                               const std::optional<std::vector<std::uint8_t>>& master_key,
                               bool outgoing_in_progress) {
     ParamDecision d;
-    const auto fail = [&](int status, std::string cause, std::string detail) {
+    const auto fail = [&](int status,
+                          std::string cause,
+                          std::string detail,
+                          std::vector<sbi_core::InvalidParam> invalid_params = {}) {
         d.status = status;
         d.cause = std::move(cause);
         d.detail = std::move(detail);
+        d.invalid_params = std::move(invalid_params);
         return d;
     };
     if (!capability || capability->security != sbi_gen::SecurityCapability::PRINS) {
@@ -504,7 +520,11 @@ ParamDecision exchange_params(const NegotiationPolicy& policy,
                     "PRINS was not selected in a security capability negotiation with this SEPP");
     }
     if (!is_handshake_id(request.n32fContextId)) { // same 16-hex-digit pattern
-        return fail(400, "MANDATORY_IE_INCORRECT", "n32fContextId must be 16 hexadecimal digits");
+        return fail(400,
+                    "MANDATORY_IE_INCORRECT",
+                    "n32fContextId must be 16 hexadecimal digits",
+                    {sbi_core::invalid_body_ie(nlohmann::json::json_pointer("/n32fContextId"),
+                                               "must be 16 hexadecimal digits")});
     }
     sbi_gen::SecParamExchRspData rsp;
     rsp.sender = policy.own_fqdn;
@@ -567,10 +587,16 @@ ParamDecision exchange_params(const NegotiationPolicy& policy,
         d.context = std::move(ctx);
         return d;
     }
+    // Both are optional in SecParamExchReqData; one of them is what this SEPP can process, so
+    // both are named as the missing alternatives.
     return fail(400,
                 "MANDATORY_IE_MISSING",
                 "neither jweCipherSuiteList nor protectionPolicyInfo (security profiles and RI "
-                "security information are not supported)");
+                "security information are not supported)",
+                {sbi_core::invalid_body_ie(nlohmann::json::json_pointer("/jweCipherSuiteList"),
+                                           "absent, and protectionPolicyInfo is absent"),
+                 sbi_core::invalid_body_ie(nlohmann::json::json_pointer("/protectionPolicyInfo"),
+                                           "absent, and jweCipherSuiteList is absent")});
 }
 
 std::string telescopic_label(const std::string& foreign_fqdn) {
