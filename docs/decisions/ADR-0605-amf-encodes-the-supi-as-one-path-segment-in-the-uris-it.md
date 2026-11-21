@@ -36,7 +36,7 @@ cross-subscriber path today; it is fixed because the class is the same as ADR-05
 
 - The three subscriber-derived URIs are built by header-only helpers in
   `nfs/amf/src/peer_uris.hpp` (`smsf_ue_context`, `smsf_send_sms`, `sm_context_status_callback`),
-  each putting the SUPI through `sbi_core::uri::encode_path_segment` (TS 29.501 5.2.3, RFC 3986
+  each putting the SUPI through `sbi_core::uri::encode_path_segment` (TS 29.501 5.1.3.2 f), RFC 3986
   3.3). The value is encoded where the URI is built; the SUPI stays raw as the local key, in logs
   and in JSON bodies. An `imsi-<digits>` or `nai-user@realm` SUPI is unchanged byte for byte. The
   SMSF's and the AMF's own sbi_core server decode the segment back after splitting the path
