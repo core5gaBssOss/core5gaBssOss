@@ -5,6 +5,9 @@
 // `.../serviceParamData/victim?-<sub>` -- and the UDR stored the document under `victim`, a
 // resource that belongs to someone else. With the fix the whole id is re-encoded as one segment.
 //
+// ADR-0606 (ADR-0570 class, NEF part 2): the traffic-influence routes put the same
+// `{afId}-{subscriptionId}` into Nudr_DR influenceData/{influenceId}; they were not encoded.
+//
 // Drives nrf, udr and nef as real processes over TLS 1.3 + mTLS HTTP/2 with real NRF tokens.
 // Needs the UDR's Postgres (udr-postgres-local locally, a service container in CI).
 
@@ -109,4 +112,46 @@ TEST(NefEncodedAfId, ServiceParameterAfIdWithQueryCharacterNeverLandsOnAnotherUd
     EXPECT_EQ(udr_delete(client, std::string(kVictimId) + "?-" + sub_id), 204);
     // ... and nothing was written to the resource the `?` would have cut the path at.
     EXPECT_EQ(udr_delete(client, kVictimId), 404);
+}
+
+TEST(NefEncodedAfId, TrafficInfluenceAfIdWithQueryCharacterNeverLandsOnAnotherUdrResource) {
+    constexpr const char* kUdrInfluenceData =
+        "https://127.0.0.1:7781/nudr-dr/v2/application-data/influenceData/";
+    // Decoded by the NEF's server to "victim-adr0606?".
+    constexpr const char* kInjectedOnTheWire = "victim-adr0606%3F";
+    constexpr const char* kVictim = "victim-adr0606";
+    auto d = spawn_all();
+    ASSERT_GT(d.nef.pid(), 0);
+    auto client = make_client();
+    nf_test::attach_test_tokens(client);
+    const std::string collection = std::string(kNefBase) + "/3gpp-traffic-influence/v1/" +
+                                   kInjectedOnTheWire + "/subscriptions";
+    ASSERT_TRUE(wait_reachable(client, collection, 200)) << "nef never reachable";
+    const auto influence_delete = [&](const std::string& influence_id) {
+        sbi_core::http2::ClientRequest req;
+        req.method = "DELETE";
+        req.url = kUdrInfluenceData + sbi_core::uri::encode_path_segment(influence_id);
+        auto resp = client.send(req);
+        return resp.has_value() ? resp->status : 0;
+    };
+    // A leftover from an earlier run would make the check below meaningless.
+    influence_delete(kVictim);
+
+    sbi_core::http2::ClientRequest post;
+    post.method = "POST";
+    post.url = collection;
+    post.headers.emplace("content-type", "application/json");
+    post.body = json{{"afAppId", "app-adr0606"}, {"anyUeInd", true}}.dump();
+    auto created = client.send(post);
+    ASSERT_TRUE(created.has_value()) << created.error();
+    ASSERT_EQ(created->status, 201) << created->body;
+    const auto location = created->headers.find("location");
+    ASSERT_NE(location, created->headers.end());
+    const std::string sub_id = location->second.substr(location->second.find_last_of('/') + 1);
+    ASSERT_FALSE(sub_id.empty());
+
+    // The influence record is at the one resource `{afId}-{subscriptionId}`, `?` included ...
+    EXPECT_EQ(influence_delete(std::string(kVictim) + "?-" + sub_id), 204);
+    // ... and nothing was written to the resource the `?` would have cut the path at.
+    EXPECT_EQ(influence_delete(kVictim), 404);
 }
