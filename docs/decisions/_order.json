@@ -564,7 +564,9 @@
   "ADR-0597-eir-unknown-pei-404-carries-error-equipment-unknown-sbi-03.md",
   "ADR-0598-setup-asn1c-sh-rebuilds-a-cached-asn1c-whose-compiled-in.md",
   "ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md",
-  "ADR-0600-lmf-cancellocation-for-an-unknown-ldrreference-is-403.md"
+  "ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md",
+  "ADR-0600-lmf-cancellocation-for-an-unknown-ldrreference-is-403.md",
+  "ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md"
  ],
  "split_commit": "0530e4f"
 }

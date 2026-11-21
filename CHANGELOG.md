@@ -177,6 +177,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - LMF: CancelLocation for an unknown `ldrReference` answers 403 `LOCATION_SESSION_UNKNOWN`
   (TS 29.572), not a cause-less 404
   ([ADR-0600](docs/decisions/ADR-0600-lmf-cancellocation-for-an-unknown-ldrreference-is-403.md)).
+- NEF: 50 more 404s carry their cause: `SUBSCRIPTION_NOT_FOUND` on subscription resources
+  (including GET and the monitoring notification callback), `CONTEXT_NOT_FOUND` on Nnef_SMContext
+  (TS 29.541), `MBS_SESSION_CONTEXT_NOT_FOUND` on MBS sessions (TS 29.522); the remaining 121 have
+  no cause defined
+  ([ADR-0601](docs/decisions/ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md)).
 
 ### Security
 
