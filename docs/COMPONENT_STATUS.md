@@ -11,7 +11,7 @@ The complete component list for this project, in scope per `CLAUDE.md` and
 **Keep this file current.** When a component is added or its status changes, update its row and the
 totals in the same commit.
 
-Last updated: 2026-11-21 (rows re-checked against `main` cc995945; the SBI-03 PRs #32-#49 change conformance, not component status, so no row moved).
+Last updated: 2026-11-21 (rows re-checked against `main` d55cc7b0; the SBI-03 PRs #32-#53 and the AUSF URL-encoding fix #54 change conformance, not component status, so no row moved).
 
 ## 5G Core, Tier 1: all 13 built
 

@@ -28,7 +28,7 @@ authenticated a subscriber the request had not named as its identity.
 **Decision:**
 
 - Both UDM sites put the value through `sbi_core::uri::encode_path_segment`, the helper of
-  ADR-0570/ADR-0575 (TS 29.501 5.2.3; RFC 3986 3.3). Any SUPI that matches the specific
+  ADR-0570/ADR-0575 (TS 29.501 5.1.3.2 f), corrected on 2026-11-21 from a wrong "5.2.3"; RFC 3986 3.3). Any SUPI that matches the specific
   alternatives (`imsi-<digits>`, `nai-user@realm`, a `suci-...` of hex digits and dashes) is
   unchanged byte for byte: every character in it is unreserved or `@`. Only values with characters
   outside RFC 3986 `pchar` change on the wire, and the UDM's server decodes them back after it
@@ -44,7 +44,8 @@ authenticated a subscriber the request had not named as its identity.
 `AusfIntegration.SupiOrSuciWithPathCharactersCannotReachAnotherSubscriber` passes (404
 `USER_NOT_FOUND`). With `nfs/ausf/src/main.cpp` restored from 16b5e7fd and `ausf` rebuilt, it fails:
 the AUSF answers **201** and starts authenticating the seeded subscriber, so the bug was real.
-Targeted test only, not a full `ctest`. CI result to be added.
+Targeted test only, not a full `ctest`. CI on PR #54 (run 44912960619, rebased onto ea82f83f) passed:
+build, lint, asan-ubsan and tsan (2026-11-21). Merged as d55cc7b0.
 
 **Disclosed.**
 - Only the 5G AKA / EAP-AKA' path has a test. The ProSe site gets the same call with the same
