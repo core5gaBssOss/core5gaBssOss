@@ -565,8 +565,10 @@
   "ADR-0598-setup-asn1c-sh-rebuilds-a-cached-asn1c-whose-compiled-in.md",
   "ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md",
   "ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md",
+  "ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md",
   "ADR-0600-lmf-cancellocation-for-an-unknown-ldrreference-is-403.md",
-  "ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md"
+  "ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md",
+  "ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md"
  ],
  "split_commit": "0530e4f"
 }

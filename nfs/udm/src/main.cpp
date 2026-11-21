@@ -426,7 +426,8 @@ void push_subscriber_data_to_vlr(const std::string& vlr_address,
 }
 
 // ADR-0383: maps a UDR auth-data failure onto the Nudm_UEAU responses the YAML documents for the
-// vector-generation operations (404, 500, 503 are all listed; no cause value is invented).
+// vector-generation operations (404, 500, 502, 503 are all listed; no cause value is invented).
+// ADR-0602: a UDR 503/429 is 502 INBOUND_SERVER_ERROR per TS 29.500 6.4.2.1.
 sbi_core::http2::Response auth_data_problem(udm::AuthDataError err, const std::string& supi) {
     switch (err) {
         case udm::AuthDataError::NotFound:
@@ -438,6 +439,12 @@ sbi_core::http2::Response auth_data_problem(udm::AuthDataError err, const std::s
                                                      "Authentication subscription for " + supi +
                                                          " is not usable for AKA",
                                                      "SYSTEM_FAILURE");
+        case udm::AuthDataError::UdrOverloaded:
+            return sbi_core::http2::problem_response(
+                502,
+                "Bad Gateway",
+                "Authentication data repository (UDR) answered 503 or 429",
+                "INBOUND_SERVER_ERROR");
         case udm::AuthDataError::Unavailable:
             break;
     }

@@ -182,6 +182,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   (TS 29.541), `MBS_SESSION_CONTEXT_NOT_FOUND` on MBS sessions (TS 29.522); the remaining 121 have
   no cause defined
   ([ADR-0601](docs/decisions/ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md)).
+- UDM: when the UDR answers 503 or 429, the Nudm_UEAU auth-data operations answer 502
+  `INBOUND_SERVER_ERROR` (TS 29.500 6.4.2.1), not a cause-less 503
+  ([ADR-0602](docs/decisions/ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md)).
 
 ### Security
 

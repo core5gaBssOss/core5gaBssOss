@@ -27,8 +27,10 @@ namespace udm {
 
 enum class AuthDataError {
     NotFound,    // UDR has no authentication-subscription for this SUPI -> 404
-    Unavailable, // UDR unreachable, token failure, or CAS retries exhausted -> 503
-    Invalid,     // UDR returned a document the AKA path cannot use -> 500
+    Unavailable, // UDR unreachable, token failure, other UDR status, CAS retries exhausted -> 503
+    // The UDR answered 503 or 429: TS 29.500 6.4.2.1 -> 502 Bad Gateway, INBOUND_SERVER_ERROR.
+    UdrOverloaded,
+    Invalid, // UDR returned a document the AKA path cannot use -> 500
 };
 
 // Advances a 48-bit SQN by n, mod 2^48.
