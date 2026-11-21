@@ -569,6 +569,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0601](decisions/ADR-0601-nef-subscription-sm-context-and-mbs-session-404s-carry.md) NEF subscription, SM context and MBS session 404s carry their spec cause (SBI-03, NEF part 2)
 - [0602](decisions/ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md) UDM answers 502 INBOUND_SERVER_ERROR when the UDR answers 503 or 429 (SBI-03, UDM part 2)
 - [0603](decisions/ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md) AUSF encodes supiOrSuci as one path segment before it calls the UDM (ADR-0570 class, AUSF part)
+- [0606](decisions/ADR-0606-nef-encodes-the-traffic-influence-id-and-the-ue-ids-it-puts.md) NEF encodes the traffic-influence id and the UE ids it puts into UDR and UDM URIs (ADR-0570 class, NEF part 2)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

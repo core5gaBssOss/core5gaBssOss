@@ -427,7 +427,9 @@ bool push_influence_to_udr(sbi_core::http2::Client& udr_client,
                            const std::string& influence_id,
                            const std::optional<sbi_gen::TrafficInfluData>& data) {
     sbi_core::http2::ClientRequest req;
-    req.url = udr_base_url + "/nudr-dr/v2/application-data/influenceData/" + influence_id;
+    // ADR-0606: influence_id is `{afId}-{subscriptionId}`, built from the decoded request path.
+    req.url = udr_base_url + "/nudr-dr/v2/application-data/influenceData/" +
+              sbi_core::uri::encode_path_segment(influence_id);
     if (data.has_value()) {
         req.method = "PUT";
         req.headers.emplace("content-type", "application/json");
@@ -3334,8 +3336,9 @@ int main() {
             if (!body->anonInd.value_or(false) && data.supi) {
                 sbi_core::http2::ClientRequest udm_req;
                 udm_req.method = "GET";
-                udm_req.url =
-                    udm_base_url + "/nudm-sdm/v2/" + *data.supi + "/id-translation-result";
+                udm_req.url = udm_base_url + "/nudm-sdm/v2/" +
+                              sbi_core::uri::encode_path_segment(*data.supi) +
+                              "/id-translation-result";
                 if (const auto udm_resp = udr_client.send(udm_req);
                     udm_resp && udm_resp->status == 200) {
                     const auto r = json::parse(udm_resp->body, nullptr, false);
@@ -7491,7 +7494,9 @@ int main() {
 
                 sbi_core::http2::ClientRequest udm_req;
                 udm_req.method = "POST";
-                udm_req.url = udm_base_url + "/nudm-ee/v1/" + *gpsi + "/ee-subscriptions";
+                // ADR-0606: the GPSI is built from the AF's externalId / msisdn (request body).
+                udm_req.url = udm_base_url + "/nudm-ee/v1/" +
+                              sbi_core::uri::encode_path_segment(*gpsi) + "/ee-subscriptions";
                 udm_req.headers.emplace("content-type", "application/json");
                 udm_req.body = json(ee).dump();
                 auto udm_resp = udr_client.send(udm_req);
@@ -7627,8 +7632,11 @@ int main() {
             if (ee.has_value()) {
                 sbi_core::http2::ClientRequest del;
                 del.method = "DELETE";
-                del.url =
-                    udm_base_url + "/nudm-ee/v1/" + ee->first + "/ee-subscriptions/" + ee->second;
+                // ADR-0606: ee->first is the GPSI (encoded); ee->second is the last segment of
+                // the UDM's own Location, already in URI form, so it is used as given.
+                del.url = udm_base_url + "/nudm-ee/v1/" +
+                          sbi_core::uri::encode_path_segment(ee->first) + "/ee-subscriptions/" +
+                          ee->second;
                 if (auto r = udr_client.send(del); !r.has_value() || r->status >= 300) {
                     spdlog::warn("nef: UDM ee-subscription {} could not be deleted -- UDM may keep "
                                  "reporting events for a subscription the AF has removed",
@@ -8636,7 +8644,8 @@ int main() {
             for (const auto& [ue, ee_id] : ee_gone) {
                 sbi_core::http2::ClientRequest del;
                 del.method = "DELETE";
-                del.url = udm_base_url + "/nudm-ee/v1/" + ue + "/ee-subscriptions/" + ee_id;
+                del.url = udm_base_url + "/nudm-ee/v1/" + sbi_core::uri::encode_path_segment(ue) +
+                          "/ee-subscriptions/" + ee_id;
                 if (auto r = udr_client.send(del); !r.has_value() || r->status >= 300) {
                     spdlog::warn("nef: UDM ee-subscription {} of an expired monitoring "
                                  "subscription not deleted; its own expiry ends it at the UDM",
