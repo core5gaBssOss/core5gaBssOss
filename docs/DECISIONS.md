@@ -565,6 +565,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0597](decisions/ADR-0597-eir-unknown-pei-404-carries-error-equipment-unknown-sbi-03.md) EIR unknown-PEI 404 carries ERROR_EQUIPMENT_UNKNOWN (SBI-03, EIR part)
 - [0598](decisions/ADR-0598-setup-asn1c-sh-rebuilds-a-cached-asn1c-whose-compiled-in.md) setup-asn1c.sh rebuilds a cached asn1c whose compiled-in skeleton path is not this checkout's
 - [0599](decisions/ADR-0599-gmlc-cancellocation-for-an-unknown-ldrreference-is-403.md) GMLC CancelLocation for an unknown ldrReference is 403 LOCATION_SESSION_UNKNOWN (SBI-03, GMLC part)
+- [0600](decisions/ADR-0600-lmf-cancellocation-for-an-unknown-ldrreference-is-403.md) LMF CancelLocation for an unknown ldrReference is 403 LOCATION_SESSION_UNKNOWN (SBI-03, LMF part)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

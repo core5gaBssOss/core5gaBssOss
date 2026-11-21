@@ -174,6 +174,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   this checkout's, instead of reusing it; a stale runner cache had broken every asn1c-generated
   file (`asn_application.h` not found)
   ([ADR-0598](docs/decisions/ADR-0598-setup-asn1c-sh-rebuilds-a-cached-asn1c-whose-compiled-in.md)).
+- LMF: CancelLocation for an unknown `ldrReference` answers 403 `LOCATION_SESSION_UNKNOWN`
+  (TS 29.572), not a cause-less 404
+  ([ADR-0600](docs/decisions/ADR-0600-lmf-cancellocation-for-an-unknown-ldrreference-is-403.md)).
 
 ### Security
 

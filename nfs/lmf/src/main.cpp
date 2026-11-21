@@ -32,7 +32,8 @@
 // the real, documented `501 Not Implemented` response the YAML itself declares. `CancelLocation`
 // cancels a previously-requested location determination by its `ldrReference` -- since
 // `DetermineLocation` never creates one (disclosed above), no cancellation request can ever have
-// one to match, so this always returns the real `404` -- the honest real behavior, not a
+// one to match, so this always returns `403 LOCATION_SESSION_UNKNOWN` (TS 29.572 table
+// 6.1.4.3.2-2; ADR-0600) -- the honest real behavior, not a
 // fabricated success.
 //
 // What IS fully, really implemented, independent of any RF/GNSS/LPP capability:
@@ -407,13 +408,14 @@ int main() {
                          cancel_location_counter->Add(1);
                          // Real, disclosed -- see this file's own top comment: DetermineLocation
                          // never issues a real ldrReference in this project, so no cancellation
-                         // request can ever match one. The real, honest 404, not a fabricated
-                         // success.
+                         // request can ever match one. TS 29.572 answers an unknown location
+                         // context with 403 LOCATION_SESSION_UNKNOWN (table 6.1.7.3-1), not a
+                         // fabricated success (ADR-0600).
                          return sbi_core::http2::problem_response(
-                             404,
-                             "Not Found",
+                             403,
+                             "Forbidden",
                              "No active location request for ldrReference " + body->ldrReference,
-                             std::nullopt);
+                             "LOCATION_SESSION_UNKNOWN");
                      });
 
     server.add_route("POST",
