@@ -77,6 +77,8 @@ disclosed: the nlohmann exception gives no JSON Pointer.
 units in this worktree. Not built, and the integration tests were not run here: they need the lab
 certificates, which this worktree does not read. The lead runs them in the main checkout.
 
+**Verified by the lead, 2026-11-22, main checkout (runner 23 idle).** Tree: 55ba4d06 (#58) plus this PR and #64. Built nrf, udm, udr and integration_tests. The first run found one bug: `suci_not_deconcealed` passed `"{supiOrSuci}"` to `invalid_path_variable`, which adds the braces itself, so the param read `{{supiOrSuci}}`; `UdmInvalidParams.SuciThatCannotBeDeconcealedNamesThePathVariable` failed. Fixed to `"supiOrSuci"` (commit 9a7512be). After the fix `UdmInvalidParams.*` 7/7 pass. With `nfs/udm/src/main.cpp` restored to 55ba4d06 and rebuilt, all 7 fail. Regression: `--gtest_filter='Nrf*:Udm*'` 67/67 pass (315 s). Only these filters were run, not a full ctest.
+
 **Rejected alternatives.**
 - *Change the two `MANDATORY_IE_MISSING` query-parameter causes to
   `MANDATORY_QUERY_PARAM_MISSING` here.* A cause change is a behaviour change outside this step.
