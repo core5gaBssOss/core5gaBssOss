@@ -86,6 +86,8 @@ send no invalidParams, as ADR-0607 disclosed: the nlohmann exception gives no JS
 units in this worktree. Not built, and the integration tests were not run here: they need the lab
 certificates, which this worktree does not read.
 
+**Verified by the lead, 2026-11-22, main checkout (runner 23 idle).** Tree: this branch at 7c3502cf on 55ba4d06 (#58). Built nrf, upf, smf, pcf and integration_tests. `SmfInvalidParams.*` 2/2 pass. With `nfs/smf/src/main.cpp` restored to 55ba4d06 and rebuilt, both fail. Regression: `--gtest_filter='Smf*:PduSession*:AmfNgapTestGnb.*'` 26/26 pass (247 s). Only these filters were run, not a full ctest.
+
 **Rejected alternatives.**
 - *Name all four members on the create 400, as its detail does.* Only the absent ones are wrong;
   naming a present member would tell the consumer to fix something that is fine.
