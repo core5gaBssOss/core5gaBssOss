@@ -34,17 +34,17 @@ sbi_core::http2::Client make_client() {
     return sbi_core::http2::Client(std::move(tls));
 }
 
+// ADR-0617: `max_attempts` x 100 ms is the base bound (5 s for the callers here), scaled for
+// sanitizer builds by nf_test::wait_until_ready; under ASan this gave up before the NF listened.
 bool wait_reachable(sbi_core::http2::Client& client, const std::string& url, int max_attempts) {
-    for (int attempt = 0; attempt < max_attempts; ++attempt) {
-        sbi_core::http2::ClientRequest req;
-        req.method = "GET";
-        req.url = url;
-        if (client.send(req).has_value()) {
-            return true;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    return false;
+    return nf_test::wait_until_ready(
+        [&] {
+            sbi_core::http2::ClientRequest req;
+            req.method = "GET";
+            req.url = url;
+            return client.send(req).has_value();
+        },
+        std::chrono::milliseconds(100) * max_attempts);
 }
 
 std::string fetch_token(sbi_core::http2::Client& client, const std::string& scope) {
@@ -62,6 +62,30 @@ std::string fetch_token(sbi_core::http2::Client& client, const std::string& scop
     return json::parse(resp->body).at("access_token").get<std::string>();
 }
 
+// ADR-0617: the UDR accepting TCP is not the UDR being usable by the UDM. The UDR listens first
+// and sends its NFRegister after, and until that lands the NRF refuses the UDM's own nudr-dr token
+// ("no registered UDR offers nudr-dr to a UDM") and the UDM answers 503. CI run 45014671318 hit
+// exactly that: the test's request reached the UDM ~40 ms after the UDR's port opened and before
+// its registration. So wait for the NRF to issue a nudr-dr token towards a UDR -- the same token
+// test_udr_404_causes.cpp and the other UDR tests obtain as the test AF -- which it does only once
+// a UDR is registered. 5 s base, scaled for sanitizer builds.
+bool wait_udr_registered_with_nrf() {
+    nf_test::register_test_af();
+    sbi_core::http2::ClientRequest req;
+    req.method = "POST";
+    req.url = std::string(nf_test::kTestNrfBase) + "/oauth2/token";
+    req.headers.emplace("content-type", "application/x-www-form-urlencoded");
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=nudr-dr&targetNfType=UDR";
+    return nf_test::wait_until_ready(
+        [&] {
+            const auto resp = nf_test::test_af_client().send(req);
+            return resp.has_value() && resp->status == 200;
+        },
+        std::chrono::seconds(5));
+}
+
 } // namespace
 
 TEST(UdmIntegration, GenerateAuthDataFor5GAkaSubscriberProducesDistinctVectors) {
@@ -74,6 +98,7 @@ TEST(UdmIntegration, GenerateAuthDataFor5GAkaSubscriberProducesDistinctVectors) 
     // ADR-0383: UDM reads authentication data from the UDR over Nudr.
     nf_test::SpawnedProcess udr(UDR_PATH);
     ASSERT_TRUE(nf_test::wait_tcp_listening(7781)) << "udr never started listening";
+    ASSERT_TRUE(wait_udr_registered_with_nrf()) << "udr never registered with the nrf";
 
     auto client = make_client();
     ASSERT_TRUE(wait_reachable(
@@ -135,6 +160,7 @@ TEST(UdmIntegration, GenerateAuthDataForEapAkaPrimeSubscriberReturnsEapAkaPrimeV
     // ADR-0383: UDM reads authentication data from the UDR over Nudr.
     nf_test::SpawnedProcess udr(UDR_PATH);
     ASSERT_TRUE(nf_test::wait_tcp_listening(7781)) << "udr never started listening";
+    ASSERT_TRUE(wait_udr_registered_with_nrf()) << "udr never registered with the nrf";
 
     auto client = make_client();
     ASSERT_TRUE(wait_reachable(
@@ -183,6 +209,7 @@ TEST(UdmIntegration, ConfirmAuthThenDeleteAuthLifecycle) {
     // ADR-0383: UDM reads authentication data from the UDR over Nudr.
     nf_test::SpawnedProcess udr(UDR_PATH);
     ASSERT_TRUE(nf_test::wait_tcp_listening(7781)) << "udr never started listening";
+    ASSERT_TRUE(wait_udr_registered_with_nrf()) << "udr never registered with the nrf";
 
     auto client = make_client();
     ASSERT_TRUE(wait_reachable(
@@ -252,6 +279,7 @@ TEST(UdmIntegration, GenerateAuthDataUnknownSupiIs404AndTamperedTokenIs401) {
     // ADR-0383: UDM reads authentication data from the UDR over Nudr.
     nf_test::SpawnedProcess udr(UDR_PATH);
     ASSERT_TRUE(nf_test::wait_tcp_listening(7781)) << "udr never started listening";
+    ASSERT_TRUE(wait_udr_registered_with_nrf()) << "udr never registered with the nrf";
 
     auto client = make_client();
     ASSERT_TRUE(wait_reachable(

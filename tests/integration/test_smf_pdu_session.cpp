@@ -44,17 +44,17 @@ sbi_core::http2::Client make_client() {
     return sbi_core::http2::Client(std::move(tls));
 }
 
+// ADR-0617: `max_attempts` x 100 ms is the base bound (5 s for the callers here), scaled for
+// sanitizer builds by nf_test::wait_until_ready; under ASan this gave up before the NF listened.
 bool wait_reachable(sbi_core::http2::Client& client, const std::string& url, int max_attempts) {
-    for (int attempt = 0; attempt < max_attempts; ++attempt) {
-        sbi_core::http2::ClientRequest req;
-        req.method = "POST";
-        req.url = url;
-        if (client.send(req).has_value()) {
-            return true;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    return false;
+    return nf_test::wait_until_ready(
+        [&] {
+            sbi_core::http2::ClientRequest req;
+            req.method = "POST";
+            req.url = url;
+            return client.send(req).has_value();
+        },
+        std::chrono::milliseconds(100) * max_attempts);
 }
 
 std::string fetch_token(sbi_core::http2::Client& client) {
@@ -132,13 +132,9 @@ TEST(SmfIntegration, FullSmContextLifecycleOverRealHttp2) {
         sbi_core::http2::ClientRequest probe;
         probe.method = "GET";
         probe.url = "https://127.0.0.1:7783/npcf-am-policy-control/v1/policies/nonexistent";
-        bool pcf_up = false;
-        for (int attempt = 0; attempt < 50 && !pcf_up; ++attempt) {
-            pcf_up = client.send(probe).has_value();
-            if (!pcf_up) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-        }
+        // ADR-0617: 5 s on a plain build (the 50 x 100 ms it always was), scaled for sanitizers.
+        const bool pcf_up = nf_test::wait_until_ready(
+            [&] { return client.send(probe).has_value(); }, std::chrono::seconds(5));
         ASSERT_TRUE(pcf_up) << "pcf never became reachable";
     }
 
@@ -436,13 +432,9 @@ TEST(SmfIntegration, SupiWithPathCharactersCannotReachAnotherUesAmfContext) {
         sbi_core::http2::ClientRequest probe;
         probe.method = "GET";
         probe.url = "https://127.0.0.1:7783/npcf-am-policy-control/v1/policies/nonexistent";
-        bool pcf_up = false;
-        for (int attempt = 0; attempt < 50 && !pcf_up; ++attempt) {
-            pcf_up = client.send(probe).has_value();
-            if (!pcf_up) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-        }
+        // ADR-0617: 5 s on a plain build (the 50 x 100 ms it always was), scaled for sanitizers.
+        const bool pcf_up = nf_test::wait_until_ready(
+            [&] { return client.send(probe).has_value(); }, std::chrono::seconds(5));
         ASSERT_TRUE(pcf_up) << "pcf never became reachable";
     }
     const std::string token = fetch_token(client);

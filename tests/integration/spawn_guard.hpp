@@ -32,14 +32,19 @@
 // that is task #166's RAII-cleanup territory and is deliberately left open here. NFs started
 // manually outside ctest are likewise unaffected.
 
+#include <algorithm>
 #include <arpa/inet.h>
+#include <charconv>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <string_view>
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <system_error>
 #include <thread>
 #include <unistd.h>
 
@@ -145,27 +150,104 @@ private:
     pid_t pid_ = -1;
 };
 
+// ADR-0617: how long a test waits for a spawned NF to come up, as a deadline rather than an
+// attempt count, scaled for builds that start NFs slowly.
+//
+// Why a scale at all: under `sanitize (asan-ubsan)` on the lab runners (~7 GB RAM, a few hundred
+// MB free while nine ASan NF binaries of 150-400 MB each are paged in at once) the UDR has been
+// seen to log "starting" ~8 s after it was spawned and "listening" ~10.3 s after -- just past the
+// ~10 s every AMF/LI test allowed it, so the test gave up a few tens of milliseconds before the NF
+// it was waiting for answered. Plain builds start the same NF in well under a second, so the base
+// bounds below are the ones the tests always had; only instrumented builds get longer.
+//
+//   * TEST_READINESS_TIMEOUT_SCALE (a positive number, e.g. "2" or "0.5") overrides everything,
+//     for a developer on a slow machine or a CI leg that wants a different margin;
+//   * otherwise a ThreadSanitizer build waits 5x and an AddressSanitizer build 3x the base;
+//   * otherwise 1x.
+//
+// The scale only lengthens how long a test waits for an NF to start. It changes no assertion
+// about what the NF then does, and a passing run is no slower: the wait returns the moment the
+// probe succeeds.
+inline constexpr double kSanitizerReadinessScale =
+#if defined(__SANITIZE_THREAD__)
+    5.0;
+#elif defined(__SANITIZE_ADDRESS__)
+    3.0;
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+    5.0;
+#elif __has_feature(address_sanitizer)
+    3.0;
+#else
+    1.0;
+#endif
+#else
+    1.0;
+#endif
+
+inline double readiness_timeout_scale() {
+    if (const char* env = std::getenv("TEST_READINESS_TIMEOUT_SCALE"); env != nullptr) {
+        const std::string_view text(env);
+        double value = 0.0;
+        const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (ec == std::errc() && end == text.data() + text.size() && value > 0.0) {
+            return value;
+        }
+        // Not a positive number: ignored rather than fatal, so a typo cannot make every wait 0 s.
+    }
+    return kSanitizerReadinessScale;
+}
+
+inline std::chrono::milliseconds readiness_timeout(std::chrono::milliseconds base) {
+    return std::chrono::milliseconds(static_cast<std::chrono::milliseconds::rep>(
+        static_cast<double>(base.count()) * readiness_timeout_scale()));
+}
+
+// Calls `probe` until it returns true or readiness_timeout(base_timeout) has elapsed, sleeping
+// `poll` between calls. A deadline rather than an attempt count, so the bound holds whatever each
+// probe costs: a refused connect returns at once, a half-up TLS listener can take far longer, and
+// an attempt count means a different wall-clock bound in each case. The probe is always tried
+// once more at the deadline, so an NF that comes up during the last sleep is not missed.
+template <typename Probe>
+bool wait_until_ready(Probe&& probe,
+                      std::chrono::milliseconds base_timeout,
+                      std::chrono::milliseconds poll = std::chrono::milliseconds(100)) {
+    const auto deadline = std::chrono::steady_clock::now() + readiness_timeout(base_timeout);
+    for (;;) {
+        if (probe()) {
+            return true;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return false;
+        }
+        std::this_thread::sleep_for(
+            std::min<std::chrono::steady_clock::duration>(poll, deadline - now));
+    }
+}
+
 // True once something accepts TCP connections on 127.0.0.1:port. For NFs that only bind after
 // startup work completes -- e.g. the UDR binds after seeding the AKA test subscribers the UDM
 // reads (ADR-0383) -- this is a readiness check without needing an SBI client.
+//
+// `max_attempts` keeps its old meaning as a base bound of max_attempts x 100 ms (10 s by
+// default), now scaled per ADR-0617 -- so every existing caller gets the sanitizer margin
+// unchanged.
 inline bool wait_tcp_listening(unsigned short port, int max_attempts = 100) {
-    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+    const auto accepts = [port] {
         const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (fd >= 0) {
-            sockaddr_in addr{};
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(port);
-            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-            const bool ok =
-                ::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == 0;
-            ::close(fd);
-            if (ok) {
-                return true;
-            }
+        if (fd < 0) {
+            return false;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    return false;
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        const bool ok = ::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == 0;
+        ::close(fd);
+        return ok;
+    };
+    return wait_until_ready(accepts, std::chrono::milliseconds(100) * max_attempts);
 }
 
 } // namespace nf_test

@@ -213,19 +213,20 @@ std::array<std::uint8_t, 16> uuid_bytes(const std::string& uuid) {
     return out;
 }
 
+// ADR-0617: 10 s per peer on a plain build (the 200 x 50 ms it always was), scaled for sanitizer
+// builds by nf_test::wait_until_ready -- under ASan the UDR has needed ~10.3 s here.
 void wait_for_sbi_peers(const std::vector<const char*>& urls) {
     auto client = make_client("hello-nf");
     for (const char* url : urls) {
-        bool reachable = false;
-        for (int attempt = 0; attempt < 200 && !reachable; ++attempt) {
-            sbi_core::http2::ClientRequest req;
-            req.method = "GET";
-            req.url = url;
-            reachable = client.send(req).has_value();
-            if (!reachable) {
-                std::this_thread::sleep_for(50ms);
-            }
-        }
+        const bool reachable = nf_test::wait_until_ready(
+            [&] {
+                sbi_core::http2::ClientRequest req;
+                req.method = "GET";
+                req.url = url;
+                return client.send(req).has_value();
+            },
+            10s,
+            50ms);
         ASSERT_TRUE(reachable) << "NF never became reachable: " << url;
     }
 }

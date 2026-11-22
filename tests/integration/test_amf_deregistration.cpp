@@ -98,21 +98,21 @@ sbi_core::http2::Client make_client() {
 }
 
 // Same load-bearing reason test_amf_ngap_handover.cpp's own copy documents: AMF's NGAP listener is
-// up long before AUSF/UDM/UDR/PCF/SMF are, and none of AMF's own calls to them retry.
-void wait_for_sbi_peers(const std::vector<const char*>& urls, int max_attempts = 200) {
+// up long before AUSF/UDM/UDR/PCF/SMF are, and none of AMF's own calls to them retry. ADR-0617:
+// 10 s per peer on a plain build, scaled for sanitizer builds (nf_test::wait_until_ready).
+void wait_for_sbi_peers(const std::vector<const char*>& urls,
+                        std::chrono::milliseconds base_timeout = std::chrono::seconds(10)) {
     auto client = make_client();
     for (const char* url : urls) {
-        bool reachable = false;
-        for (int attempt = 0; attempt < max_attempts && !reachable; ++attempt) {
-            sbi_core::http2::ClientRequest req;
-            req.method = "GET";
-            req.url = url;
-            if (client.send(req).has_value()) {
-                reachable = true;
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
+        const bool reachable = nf_test::wait_until_ready(
+            [&] {
+                sbi_core::http2::ClientRequest req;
+                req.method = "GET";
+                req.url = url;
+                return client.send(req).has_value();
+            },
+            base_timeout,
+            std::chrono::milliseconds(50));
         ASSERT_TRUE(reachable) << "NF never became reachable: " << url;
     }
 }
