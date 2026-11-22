@@ -106,3 +106,5 @@ three body-parse cases call `tmf_core::parse_json_body` directly, so they check 
 this service's DTOs rather than the route's call site. The `product-catalog` and
 `test_product_catalog_tmf_error` CMake targets were not built, and no `ctest` was run. The live
 service was not driven over HTTP.
+
+**Verified by the lead, 2026-11-22, main checkout (runner 23 idle).** Tree: origin/main db66244e plus #61 (tmf-core) and all five BSS PRs (#65, #66, #69, #70, #71) applied together; the only conflicts were the `conformance_tests` source line and one comment in `tests/conformance/CMakeLists.txt`, resolved by keeping both sides. Built provisioning, roaming-interconnect, product-catalog, subscriber-management, balance-management, conformance_tests, test_tmf640_service, test_product_catalog_tmf_error and integration_tests. The whole `conformance_tests` binary: 650/650 pass. `test_tmf640_service` 26/26. `test_product_catalog_tmf_error` 8/8. `UdrOamProvisioning*` 10/10. The services were not driven over HTTP. No full ctest.
