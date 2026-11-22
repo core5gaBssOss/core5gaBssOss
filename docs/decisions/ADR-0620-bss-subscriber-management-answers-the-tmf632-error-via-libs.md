@@ -118,3 +118,5 @@ tmf-core include (the only diagnostic is the existing `-Wmissing-field-initializ
 build's `subscriber_management_store`, `sbi_core`, `bss_sid` and `tmf_generated` archives (their
 sources match this branch), passes 12 of 12. `clang-format-18 --dry-run -Werror` is clean on every
 changed C++ file. CMake has not been reconfigured and no full `ctest` has run.
+
+**Verified by the lead, 2026-11-22, main checkout (runner 23 idle).** Tree: origin/main db66244e plus #61 (tmf-core) and all five BSS PRs (#65, #66, #69, #70, #71) applied together; the only conflicts were the `conformance_tests` source line and one comment in `tests/conformance/CMakeLists.txt`, resolved by keeping both sides. Built provisioning, roaming-interconnect, product-catalog, subscriber-management, balance-management, conformance_tests, test_tmf640_service, test_product_catalog_tmf_error and integration_tests. The whole `conformance_tests` binary: 650/650 pass. `test_tmf640_service` 26/26. `test_product_catalog_tmf_error` 8/8. `UdrOamProvisioning*` 10/10. The services were not driven over HTTP. No full ctest.
