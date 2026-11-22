@@ -35,9 +35,13 @@
 //   look up/create a Subscriber record from a real SUPI) does not exist yet -- this is the data
 //   model + API, not yet wired into the control-plane NFs. A real, disclosed gap, not silently
 //   assumed done.
+// - Errors (ADR-0620): the TMF632 routes' 400s, 409 and 404s are the TMF632 `Error` body via
+//   libs/tmf-core; the internal Account/Subscriber routes answer ProblemDetails without a 3GPP
+//   cause (api_errors.hpp). The sbi-core framework's own errors (404 no route, 405, 501, 413, the
+//   duplicate-member 400, the TPS ceiling's and pool-exhaustion 503s, an uncaught exception's
+//   500) are still ProblemDetails -- BSS SBI-03 PR 7.
 
 #include "sbi_core/http2_server.hpp"
-#include "sbi_core/json_body.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
 #include "sbi_core/otel.hpp"
@@ -49,8 +53,10 @@
 
 #include <cstdlib>
 
+#include "api_errors.hpp"
 #include "bss_sid/party.hpp"
 #include "store.hpp"
+#include "tmf_core/error.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded DB URL/deployment literal in source.
 #include "nf_config/nf_config.hpp"
@@ -65,25 +71,16 @@
 namespace {
 
 using nlohmann::json;
+using subscriber_management::guarded_internal;
+using subscriber_management::guarded_tmf;
+using subscriber_management::internal_not_found;
+using subscriber_management::parse_internal_json_body;
+using subscriber_management::party_not_found;
 
 constexpr const char* kPartyApiRoot = "/tmf-api/party/v4";
 constexpr const char* kProjectApiRoot = "/bss-api/subscriberManagement/v1";
 
 } // namespace
-
-// ADR-0386: relational-model rejections are client errors, not 500s.
-template <typename Handler> auto guarded(Handler handler) {
-    return [handler = std::move(handler)](
-               const sbi_core::http2::Request& req) -> sbi_core::http2::Response {
-        try {
-            return handler(req);
-        } catch (const subscriber_management::InvalidRequest& e) {
-            return sbi_core::http2::problem_response(400, "Bad Request", e.what(), std::nullopt);
-        } catch (const subscriber_management::Conflict& e) {
-            return sbi_core::http2::problem_response(409, "Conflict", e.what(), std::nullopt);
-        }
-    };
-}
 
 int main() {
     const auto config = nf_config::load("subscriber-management", CONFIG_DIR);
@@ -143,86 +140,84 @@ int main() {
 
     // --- TMF632 Individual (E1) ---
 
-    server.add_route(
-        "POST",
-        std::string(kPartyApiRoot) + "/individual",
-        guarded(
-            [&individual_store, &individual_create_counter](const sbi_core::http2::Request& req) {
-                sbi_core::http2::Response err;
-                auto body = sbi_core::http2::parse_json_body<bss_sid::Individual>(req, err);
-                if (!body.has_value()) {
-                    return err;
-                }
-                const auto id = individual_store.create(*body);
-                individual_create_counter->Add(1);
-                const auto stored = individual_store.get(id);
+    server.add_route("POST",
+                     std::string(kPartyApiRoot) + "/individual",
+                     guarded_tmf([&individual_store,
+                                  &individual_create_counter](const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = tmf_core::parse_json_body<bss_sid::Individual>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto id = individual_store.create(*body);
+                         individual_create_counter->Add(1);
+                         const auto stored = individual_store.get(id);
 
-                sbi_core::http2::Response resp;
-                resp.status = 201;
-                resp.headers.emplace("content-type", "application/json");
-                resp.headers.emplace("location", std::string(kPartyApiRoot) + "/individual/" + id);
-                resp.body = json(*stored).dump();
-                return resp;
-            }));
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kPartyApiRoot) + "/individual/" + id);
+                         resp.body = json(*stored).dump();
+                         return resp;
+                     }));
 
     server.add_route("GET",
                      std::string(kPartyApiRoot) + "/individual",
-                     guarded([&individual_store](const sbi_core::http2::Request&) {
+                     guarded_tmf([&individual_store](const sbi_core::http2::Request&) {
                          const auto individuals = individual_store.list();
                          return sbi_core::http2::Response::json(200, json(individuals).dump());
                      }));
 
     server.add_route("GET",
                      std::string(kPartyApiRoot) + "/individual/{id}",
-                     guarded([&individual_store](const sbi_core::http2::Request& req) {
+                     guarded_tmf([&individual_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto individual = individual_store.get(id);
                          if (!individual.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Individual " + id, std::nullopt);
+                             return party_not_found("Individual", id);
                          }
                          return sbi_core::http2::Response::json(200, json(*individual).dump());
                      }));
 
     // --- TMF632 Organization (E10 enterprise hierarchy) ---
 
-    server.add_route(
-        "POST",
-        std::string(kPartyApiRoot) + "/organization",
-        guarded([&organization_store,
-                 &organization_create_counter](const sbi_core::http2::Request& req) {
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<bss_sid::Organization>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto id = organization_store.create(*body);
-            organization_create_counter->Add(1);
-            const auto stored = organization_store.get(id);
+    server.add_route("POST",
+                     std::string(kPartyApiRoot) + "/organization",
+                     guarded_tmf([&organization_store, &organization_create_counter](
+                                     const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body = tmf_core::parse_json_body<bss_sid::Organization>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         const auto id = organization_store.create(*body);
+                         organization_create_counter->Add(1);
+                         const auto stored = organization_store.get(id);
 
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location", std::string(kPartyApiRoot) + "/organization/" + id);
-            resp.body = json(*stored).dump();
-            return resp;
-        }));
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location",
+                                              std::string(kPartyApiRoot) + "/organization/" + id);
+                         resp.body = json(*stored).dump();
+                         return resp;
+                     }));
 
     server.add_route("GET",
                      std::string(kPartyApiRoot) + "/organization",
-                     guarded([&organization_store](const sbi_core::http2::Request&) {
+                     guarded_tmf([&organization_store](const sbi_core::http2::Request&) {
                          const auto organizations = organization_store.list();
                          return sbi_core::http2::Response::json(200, json(organizations).dump());
                      }));
 
     server.add_route("GET",
                      std::string(kPartyApiRoot) + "/organization/{id}",
-                     guarded([&organization_store](const sbi_core::http2::Request& req) {
+                     guarded_tmf([&organization_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto organization = organization_store.get(id);
                          if (!organization.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Organization " + id, std::nullopt);
+                             return party_not_found("Organization", id);
                          }
                          return sbi_core::http2::Response::json(200, json(*organization).dump());
                      }));
@@ -232,39 +227,39 @@ int main() {
     server.add_route(
         "POST",
         std::string(kProjectApiRoot) + "/account",
-        guarded([&account_store, &account_create_counter](const sbi_core::http2::Request& req) {
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<subscriber_management::Account>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            const auto id = account_store.create(*body);
-            account_create_counter->Add(1);
-            const auto stored = account_store.get(id);
+        guarded_internal(
+            [&account_store, &account_create_counter](const sbi_core::http2::Request& req) {
+                sbi_core::http2::Response err;
+                auto body = parse_internal_json_body<subscriber_management::Account>(req, err);
+                if (!body.has_value()) {
+                    return err;
+                }
+                const auto id = account_store.create(*body);
+                account_create_counter->Add(1);
+                const auto stored = account_store.get(id);
 
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location", std::string(kProjectApiRoot) + "/account/" + id);
-            resp.body = json(*stored).dump();
-            return resp;
-        }));
+                sbi_core::http2::Response resp;
+                resp.status = 201;
+                resp.headers.emplace("content-type", "application/json");
+                resp.headers.emplace("location", std::string(kProjectApiRoot) + "/account/" + id);
+                resp.body = json(*stored).dump();
+                return resp;
+            }));
 
     server.add_route("GET",
                      std::string(kProjectApiRoot) + "/account",
-                     guarded([&account_store](const sbi_core::http2::Request&) {
+                     guarded_internal([&account_store](const sbi_core::http2::Request&) {
                          const auto accounts = account_store.list();
                          return sbi_core::http2::Response::json(200, json(accounts).dump());
                      }));
 
     server.add_route("GET",
                      std::string(kProjectApiRoot) + "/account/{id}",
-                     guarded([&account_store](const sbi_core::http2::Request& req) {
+                     guarded_internal([&account_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto account = account_store.get(id);
                          if (!account.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Account " + id, std::nullopt);
+                             return internal_not_found("No Account " + id);
                          }
                          return sbi_core::http2::Response::json(200, json(*account).dump());
                      }));
@@ -274,11 +269,10 @@ int main() {
     server.add_route(
         "POST",
         std::string(kProjectApiRoot) + "/subscriber",
-        guarded([&subscriber_store,
-                 &subscriber_create_counter](const sbi_core::http2::Request& req) {
+        guarded_internal([&subscriber_store,
+                          &subscriber_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
-            auto body =
-                sbi_core::http2::parse_json_body<subscriber_management::Subscriber>(req, err);
+            auto body = parse_internal_json_body<subscriber_management::Subscriber>(req, err);
             if (!body.has_value()) {
                 return err;
             }
@@ -296,19 +290,18 @@ int main() {
 
     server.add_route("GET",
                      std::string(kProjectApiRoot) + "/subscriber",
-                     guarded([&subscriber_store](const sbi_core::http2::Request&) {
+                     guarded_internal([&subscriber_store](const sbi_core::http2::Request&) {
                          const auto subscribers = subscriber_store.list();
                          return sbi_core::http2::Response::json(200, json(subscribers).dump());
                      }));
 
     server.add_route("GET",
                      std::string(kProjectApiRoot) + "/subscriber/{id}",
-                     guarded([&subscriber_store](const sbi_core::http2::Request& req) {
+                     guarded_internal([&subscriber_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto subscriber = subscriber_store.get(id);
                          if (!subscriber.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Subscriber " + id, std::nullopt);
+                             return internal_not_found("No Subscriber " + id);
                          }
                          return sbi_core::http2::Response::json(200, json(*subscriber).dump());
                      }));
@@ -320,12 +313,11 @@ int main() {
     // separate TMF-looking subpath, since this is project-internal, not a real TM Forum resource).
     server.add_route("GET",
                      std::string(kProjectApiRoot) + "/subscriber/by-supi/{supi}",
-                     guarded([&subscriber_store](const sbi_core::http2::Request& req) {
+                     guarded_internal([&subscriber_store](const sbi_core::http2::Request& req) {
                          const auto supi = req.path_params.at("supi");
                          const auto subscriber = subscriber_store.get_by_supi(supi);
                          if (!subscriber.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No Subscriber with supi " + supi, std::nullopt);
+                             return internal_not_found("No Subscriber with supi " + supi);
                          }
                          return sbi_core::http2::Response::json(200, json(*subscriber).dump());
                      }));
