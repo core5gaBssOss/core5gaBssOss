@@ -73,6 +73,8 @@ clang-format-18 clean. `Udsf.InvalidParamsNameTheParameter` was **not run** here
 integration fixture needs the lab certificates (`certs/`), which this session does not use. It is
 to be run by the reviewer; CI result to be added. No other test was run.
 
+**Verified by the lead (2026-11-22, main checkout, master machine with its CI runner idle).** One Debug build of ADR-0607's commit 55ba4d06 with the code and tests of PRs #60 (including the subs-to-notify route fix), #62 and #63 applied together. `udsf_integration_tests --gtest_filter='Udsf.*'` passes (13 of 13, `Udsf.InvalidParamsNameTheParameter` included). With `nfs/udsf/src/dr_routes.cpp` and `timer_routes.cpp` restored to 55ba4d06 and `udsf` rebuilt, `InvalidParamsNameTheParameter` fails. Targeted tests only, not a full `ctest`.
+
 **Rejected alternatives.**
 - *Name the multipart part's Content-Id as `header Content-Id`.* The YAML's "header " encoding is
   for an HTTP header of the request; a body part's MIME header is not one. Misleading.
