@@ -571,6 +571,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0603](decisions/ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md) AUSF encodes supiOrSuci as one path segment before it calls the UDM (ADR-0570 class, AUSF part)
 - [0604](decisions/ADR-0604-smf-encodes-the-supi-as-one-path-segment-before-it-calls.md) SMF encodes the SUPI as one path segment before it calls the AMF (ADR-0570 class, SMF part)
 - [0606](decisions/ADR-0606-nef-encodes-the-traffic-influence-id-and-the-ue-ids-it-puts.md) NEF encodes the traffic-influence id and the UE ids it puts into UDR and UDM URIs (ADR-0570 class, NEF part 2)
+- [0607](decisions/ADR-0607-sbi-core-problemdetails-carry-invalidparams-sbi-03-step-1.md) sbi-core ProblemDetails carry invalidParams (SBI-03 step 1, TS 29.500 Table 5.2.7.2-1 NOTE 1)
 - [0617](decisions/ADR-0617-integration-tests-wait-for-spawned-nfs-against-a-deadline.md) Integration tests wait for spawned NFs against a deadline that scales under sanitizers
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
