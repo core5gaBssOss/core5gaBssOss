@@ -84,6 +84,8 @@ needs the lab certificates, which this worktree does not have. Not run: the rest
 `/reformattedData/aad` site and the exchange-params sites are not exercised end to end (the
 latter by the conformance test only). CI result to be added.
 
+**Verified by the lead (2026-11-22, main checkout, master machine with its CI runner idle).** One Debug build of ADR-0607's commit 55ba4d06 with the code and tests of PRs #60 (including the subs-to-notify route fix), #62 and #63 applied together. `sepp_e2e_integration_tests` passes (5 of 5, `SeppEndToEnd.Note1ErrorsNameTheInvalidParam` included). With `nfs/sepp/src/main.cpp` restored to 55ba4d06 (n32.cpp kept, so the decisions still carry the list but main.cpp drops it) and `sepp` rebuilt, `Note1ErrorsNameTheInvalidParam` fails. Targeted tests only, not a full `ctest`.
+
 **Disclosed.**
 
 - `POLICY_MISMATCH` (TS 29.573 6.2.4.2.2, "may include the invalidParams attribute"): not sent with
