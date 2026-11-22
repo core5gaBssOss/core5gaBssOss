@@ -84,6 +84,12 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   Forum `Error` via `libs/tmf-core` instead of 3GPP ProblemDetails. Statuses are unchanged; the
   sbi-core framework's own errors are not covered yet
   ([ADR-0616](docs/decisions/ADR-0616-bss-roaming-interconnect-answers-the-tmf651-error-via-libs.md)).
+- `bss/provisioning` builds its TMF640 errors with `tmf_core::error_response`. The local
+  `tmf_error` lambda no longer builds the body, `reason` is the status's reason phrase, and the
+  content type is now `application/json;charset=utf-8`. The internal
+  `GET /provisioning/v1/customerOrder/{id}` 404 is now ProblemDetails without a cause, replacing
+  the ad-hoc `{"error": "order not found"}` body. No status changes
+  ([ADR-0615](docs/decisions/ADR-0615-bss-provisioning-adopts-the-shared-tm-forum-error-helper.md)).
 - Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
   and `fuzz-nightly.yml`
   ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).
