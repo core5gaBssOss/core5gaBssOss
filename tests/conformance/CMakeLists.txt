@@ -80,6 +80,15 @@ target_link_libraries(test_li_x1_gating PRIVATE li_core GTest::gtest GTest::gtes
 target_compile_features(test_li_x1_gating PRIVATE cxx_std_23)
 gtest_discover_tests(test_li_x1_gating)
 
+# ADR-0619: bss/product-catalog's TMF620 error responses (src/tmf_errors.hpp) against the TM Forum
+# Error definition read from the vendored TMF640 swagger. Its own binary: product_catalog_store
+# (store.hpp's InvalidRequest/Conflict) + tmf_core + gtest, no database, no network.
+add_executable(test_product_catalog_tmf_error test_product_catalog_tmf_error.cpp)
+target_link_libraries(test_product_catalog_tmf_error PRIVATE product_catalog_store tmf_core GTest::gtest GTest::gtest_main)
+target_compile_definitions(test_product_catalog_tmf_error PRIVATE TMF640_SWAGGER_PATH="${CMAKE_SOURCE_DIR}/specs/tmforum/TMF640-ServiceActivation-v4.0.0.swagger.json")
+target_compile_features(test_product_catalog_tmf_error PRIVATE cxx_std_23)
+gtest_discover_tests(test_product_catalog_tmf_error)
+
 # ADR-0568: round-trip of the generated TMF640 DTOs (TM Forum swagger, specs/tmforum). Its own
 # binary: tmf_generated + gtest only.
 add_executable(test_tmf640_dtos test_tmf640_dtos.cpp)

@@ -90,6 +90,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `GET /provisioning/v1/customerOrder/{id}` 404 is now ProblemDetails without a cause, replacing
   the ad-hoc `{"error": "order not found"}` body. No status changes
   ([ADR-0615](docs/decisions/ADR-0615-bss-provisioning-adopts-the-shared-tm-forum-error-helper.md)).
+- `bss/product-catalog` (TMF620 Product Catalog Management) answers its handler errors, a store
+  rejection (400), a store conflict (409), a bad `POST` body (400) and an unknown id on `GET` or
+  `DELETE` (404), as the TM Forum `Error` via `libs/tmf-core` instead of 3GPP ProblemDetails.
+  Statuses are unchanged; the sbi-core framework's own errors are not covered yet
+  ([ADR-0619](docs/decisions/ADR-0619-bss-product-catalog-answers-the-tmf620-error-via-libs-tmf.md)).
 - Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
   and `fuzz-nightly.yml`
   ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).
