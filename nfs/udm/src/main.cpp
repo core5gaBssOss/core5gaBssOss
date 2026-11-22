@@ -504,7 +504,7 @@ sbi_core::http2::Response suci_not_deconcealed(const std::string& raw_supi_or_su
         "Could not de-conceal SUCI " + raw_supi_or_suci +
             " (malformed, unsupported protection scheme, or MAC verification failed)",
         "MANDATORY_IE_INCORRECT",
-        {sbi_core::invalid_path_variable("{supiOrSuci}", "could not be de-concealed")});
+        {sbi_core::invalid_path_variable("supiOrSuci", "could not be de-concealed")});
 }
 
 } // namespace
