@@ -5962,6 +5962,38 @@ int main() {
     // `QueryContextData`/`ue-update-confirmation-data`: this is a live view with no independent
     // existence, so an empty result (all fields absent) is a real `200 {}`, not a `404`. ---
 
+    // The Subs To Notify collection GET is registered here, before `/subscription-data/{ueId}`:
+    // the router takes the first route that matches (Http2RoutePrecedence), so registered after it,
+    // `GET .../subscription-data/subs-to-notify` was answered as UE `subs-to-notify`'s subscribed
+    // data (200 `{}`) and the collection GET was unreachable (ADR-0609). The rest of the Subs To
+    // Notify routes stay below; only the collection GET can collide with `{ueId}`.
+    const std::string subs_to_notify_collection_path_pattern =
+        std::string(kApiRoot) + "/subscription-data/subs-to-notify";
+    const std::string subs_to_notify_individual_path_pattern =
+        std::string(kApiRoot) + "/subscription-data/subs-to-notify/{subsId}";
+
+    routes.add_route(
+        "GET",
+        subs_to_notify_collection_path_pattern,
+        [&subs_to_notify, &subs_to_notify_list_counter](const sbi_core::http2::Request& req) {
+            const auto ue_id_it = req.query_params.find("ue-id");
+            if (ue_id_it == req.query_params.end()) {
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Bad Request",
+                    "Required query parameter ue-id is missing",
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    {sbi_core::invalid_query_param("ue-id")});
+            }
+            auto subs = subs_to_notify.list_by_ue_id(ue_id_it->second);
+            json arr = json::array();
+            for (auto& s : subs) {
+                arr.push_back(std::move(s));
+            }
+            subs_to_notify_list_counter->Add(1);
+            return sbi_core::http2::Response::json(200, arr.dump());
+        });
+
     const std::string ue_subscribed_data_path_pattern =
         std::string(kApiRoot) + "/subscription-data/{ueId}";
 
@@ -7928,34 +7960,8 @@ int main() {
     // `ue-id` query filter), GET+PATCH+DELETE on the individual document (genuinely no PUT exists
     // for this resource), per TS29505_Subscription_Data.yaml. Real, disclosed: `subsId` is
     // server-generated (real UUID v4, same precedent as ee-subscriptions); this project stores the
-    // POST body's own optional `ueId` field to back the real `ue-id` collection filter. ---
-
-    const std::string subs_to_notify_collection_path_pattern =
-        std::string(kApiRoot) + "/subscription-data/subs-to-notify";
-    const std::string subs_to_notify_individual_path_pattern =
-        std::string(kApiRoot) + "/subscription-data/subs-to-notify/{subsId}";
-
-    routes.add_route(
-        "GET",
-        subs_to_notify_collection_path_pattern,
-        [&subs_to_notify, &subs_to_notify_list_counter](const sbi_core::http2::Request& req) {
-            const auto ue_id_it = req.query_params.find("ue-id");
-            if (ue_id_it == req.query_params.end()) {
-                return sbi_core::http2::problem_response(
-                    400,
-                    "Bad Request",
-                    "Required query parameter ue-id is missing",
-                    "MANDATORY_QUERY_PARAM_MISSING",
-                    {sbi_core::invalid_query_param("ue-id")});
-            }
-            auto subs = subs_to_notify.list_by_ue_id(ue_id_it->second);
-            json arr = json::array();
-            for (auto& s : subs) {
-                arr.push_back(std::move(s));
-            }
-            subs_to_notify_list_counter->Add(1);
-            return sbi_core::http2::Response::json(200, arr.dump());
-        });
+    // POST body's own optional `ueId` field to back the real `ue-id` collection filter. The
+    // collection GET is registered further up, before `/subscription-data/{ueId}` (ADR-0609). ---
 
     routes.add_route(
         "POST",

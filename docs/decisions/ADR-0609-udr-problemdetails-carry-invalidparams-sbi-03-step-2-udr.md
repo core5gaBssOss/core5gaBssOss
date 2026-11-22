@@ -40,6 +40,20 @@ naming only what the handler itself knows. A recount on this branch finds 15 suc
   invalidParams is the one that was checked.
 - No status code, cause, title or detail changed.
 
+**Second change: the Subs To Notify collection GET was unreachable.** Running
+`UdrInvalidParams.MissingUeIdNamesTheQueryParameter` on 2026-11-22 showed that `GET
+/nudr-dr/v2/subscription-data/subs-to-notify` answered 200 `{}`. The sbi-core router takes the first
+route that matches (`Http2RoutePrecedence.LiteralSegmentIsShadowedWhenRegisteredAfterTheParameterRoute`),
+and `/subscription-data/{ueId}` was registered before the literal `subs-to-notify` route, so the
+request was answered as the subscribed data of a UE called `subs-to-notify`. This was already the
+case on `main`: the collection GET (ADR-0149) could never be reached, with or without `ue-id`. The
+collection GET is now registered before `/subscription-data/{ueId}`; the other Subs To Notify routes
+stay where they were (none of them collides). A script that compares the `add_route` registrations
+of every NF and BSS service on `main` (same method, an earlier parameter segment where a later
+route has a literal) found this as the only shadowed route. It sees only `add_route` calls whose
+path is a literal or a named `kApiRoot` variable in the same file. The user approved putting this
+fix in this PR (2026-11-22).
+
 **Out of scope, unchanged.** The UDR's `parse_json_body` sites (422 `MANDATORY_IE_MISSING` /
 `MANDATORY_IE_INCORRECT` from a generated `from_json`) still send no invalidParams, as ADR-0607
 disclosed: the nlohmann exception gives no JSON Pointer.
