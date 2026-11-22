@@ -88,3 +88,5 @@ body-parse cases call `tmf_core::parse_json_body` directly, so they check the he
 service's DTO rather than the route's call site. The
 `roaming-interconnect` and `conformance_tests` CMake targets were not built, and no `ctest` was
 run.
+
+**Verified by the lead, 2026-11-22, main checkout (runner 23 idle).** Tree: 55ba4d06 (#58) plus #61 (tmf-core), #65 and #66 applied together; the only conflict was the `conformance_tests` source line in `tests/conformance/CMakeLists.txt`, resolved by keeping every test file. Built provisioning, roaming-interconnect, conformance_tests, test_tmf640_service and integration_tests. `conformance_tests --gtest_filter='TmfError.*:RoamingInterconnect*'` 18/18 pass (the 7 new `RoamingInterconnectTmfError.*` among them). The live roaming-interconnect service was not driven over HTTP. Only these filters were run, not a full ctest.
