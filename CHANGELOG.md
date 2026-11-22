@@ -91,6 +91,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ### Fixed
 
+- NF integration tests no longer give up on a spawned NF that is still starting under the
+  sanitizer jobs. Readiness waits use one deadline helper, `nf_test::wait_until_ready`. Its bound
+  is 3x under ASan and 5x under TSan, or the value of `TEST_READINESS_TIMEOUT_SCALE`; plain builds
+  keep their bounds. `test_udm_ueau.cpp` also waits until the UDR is registered with the NRF
+  ([ADR-0617](docs/decisions/ADR-0617-integration-tests-wait-for-spawned-nfs-against-a-deadline.md)).
 - NRF NFUpdate, NFDeregister, UpdateSubscription and NFStatusUnSubscribe follow TS 29.510
   5.2.2.3-5.2.2.7: PATCH takes `application/json-patch+json` only (415 otherwise), is applied,
   validated and stored atomically, answers 204, 409 for an inapplicable op, 412 for a stale

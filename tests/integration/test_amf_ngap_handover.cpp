@@ -103,20 +103,22 @@ sbi_core::http2::Client make_client() {
 //
 // Any completed HTTP response counts as ready -- a 404 from a real listener is exactly the proof
 // wanted. Only a connection failure means "not up yet".
-void wait_for_sbi_peers(const std::vector<const char*>& urls, int max_attempts = 200) {
+//
+// ADR-0617: 10 s per peer on a plain build (the 200 x 50 ms it always was), scaled for sanitizer
+// builds -- under ASan the UDR has needed ~10.3 s here, and this wait gave up just before it.
+void wait_for_sbi_peers(const std::vector<const char*>& urls,
+                        std::chrono::milliseconds base_timeout = std::chrono::seconds(10)) {
     auto client = make_client();
     for (const char* url : urls) {
-        bool reachable = false;
-        for (int attempt = 0; attempt < max_attempts && !reachable; ++attempt) {
-            sbi_core::http2::ClientRequest req;
-            req.method = "GET";
-            req.url = url;
-            if (client.send(req).has_value()) {
-                reachable = true;
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
+        const bool reachable = nf_test::wait_until_ready(
+            [&] {
+                sbi_core::http2::ClientRequest req;
+                req.method = "GET";
+                req.url = url;
+                return client.send(req).has_value();
+            },
+            base_timeout,
+            std::chrono::milliseconds(50));
         ASSERT_TRUE(reachable) << "NF never became reachable, so a procedure that depends on it "
                                   "would stall with no reply rather than fail: "
                                << url;
@@ -825,6 +827,19 @@ TEST(AmfNgapTestGnb, RegistrationAndPduSessionReachNsacf) {
         });
     receiver.start();
     std::thread receiver_thread([&receiver_ioc] { receiver_ioc.run(); });
+    // ADR-0617: an ASSERT_* below that returns early (e.g. wait_for_sbi_peers) must not destroy a
+    // still-joinable std::thread -- that is std::terminate, which ctest reported as "Subprocess
+    // aborted" (CI runs 44976336166 and PR #56) instead of the assertion that actually failed.
+    struct StopReceiver {
+        boost::asio::io_context& ioc;
+        std::thread& thread;
+        ~StopReceiver() {
+            ioc.stop();
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
+    } stop_receiver{receiver_ioc, receiver_thread};
 
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_GT(nrf.pid(), 0);

@@ -33,17 +33,17 @@ sbi_core::http2::Client make_client() {
     return sbi_core::http2::Client(std::move(tls));
 }
 
+// ADR-0617: `max_attempts` x 100 ms is the base bound (5 s for the callers here), scaled for
+// sanitizer builds by nf_test::wait_until_ready; under ASan this gave up before the NF listened.
 bool wait_reachable(sbi_core::http2::Client& client, const std::string& url, int max_attempts) {
-    for (int attempt = 0; attempt < max_attempts; ++attempt) {
-        sbi_core::http2::ClientRequest req;
-        req.method = "GET";
-        req.url = url;
-        if (client.send(req).has_value()) {
-            return true;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    return false;
+    return nf_test::wait_until_ready(
+        [&] {
+            sbi_core::http2::ClientRequest req;
+            req.method = "GET";
+            req.url = url;
+            return client.send(req).has_value();
+        },
+        std::chrono::milliseconds(100) * max_attempts);
 }
 
 std::string fetch_token(sbi_core::http2::Client& client, const std::string& scope) {
