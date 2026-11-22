@@ -117,6 +117,12 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `cause`, and their parse error no longer quotes the input. Statuses are unchanged; the sbi-core
   framework's own errors are not covered yet
   ([ADR-0620](docs/decisions/ADR-0620-bss-subscriber-management-answers-the-tmf632-error-via-libs.md)).
+- `bss/balance-management` (TMF654 Prepay Balance Management) answers its handler errors, a store
+  rejection (400), a bad `POST` body (400), a missing `bucket.id` (400), a missing
+  `partyAccount.id` filter (400) and an unknown resource id (404), as the TM Forum `Error` via
+  `libs/tmf-core` instead of 3GPP ProblemDetails. Statuses are unchanged; the sbi-core framework's
+  own errors are not covered yet
+  ([ADR-0618](docs/decisions/ADR-0618-bss-balance-management-answers-the-tmf654-error-via-libs.md)).
 - Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
   and `fuzz-nightly.yml`
   ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).

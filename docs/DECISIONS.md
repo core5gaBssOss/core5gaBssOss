@@ -598,6 +598,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0629](decisions/ADR-0629-nssf-problemdetails-carry-invalidparams-sbi-03-step-2.md) NSSF ProblemDetails carry invalidParams (SBI-03 step 2)
 - [0630](decisions/ADR-0630-chf-problemdetails-carry-invalidparams-sbi-03-step-2-chf.md) CHF ProblemDetails carry invalidParams (SBI-03 step 2, CHF)
 - [0620](decisions/ADR-0620-bss-subscriber-management-answers-the-tmf632-error-via-libs.md) bss/subscriber-management answers the TMF632 Error via libs/tmf-core (BSS SBI-03 PR 6)
+- [0618](decisions/ADR-0618-bss-balance-management-answers-the-tmf654-error-via-libs.md) bss/balance-management answers the TMF654 Error via libs/tmf-core (BSS SBI-03 PR 4)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

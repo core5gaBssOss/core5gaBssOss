@@ -6,7 +6,8 @@ target_link_libraries(balance_management_store PUBLIC bss_sid libpqxx::pqxx nf_c
 target_include_directories(balance_management_store PUBLIC src)
 
 add_executable(balance-management src/main.cpp)
-target_link_libraries(balance-management PRIVATE sbi_core bss_sid balance_management_store nf_config)
+# ADR-0618: the TMF654 error responses (src/balance_errors.hpp) are libs/tmf-core's TM Forum Error.
+target_link_libraries(balance-management PRIVATE sbi_core bss_sid balance_management_store nf_config tmf_core)
 # See nfs/hello-nf/CMakeLists.txt for why this is a compile-time absolute path.
 # CONFIG_DIR: docs/DECISIONS.md ADR-0077 -- separate checked-in config/balance-management.json.
 target_compile_definitions(balance-management PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs" CONFIG_DIR="${CMAKE_SOURCE_DIR}/config")
