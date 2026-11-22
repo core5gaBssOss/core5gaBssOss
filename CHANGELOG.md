@@ -234,6 +234,12 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   and in the `smContextStatusUri` it gives the SMF, so a SUPI with `?` or `/` (the AMF's NAS
   decoder writes `?` for an invalid BCD digit) can no longer reach another subscriber's resource
   ([ADR-0605](docs/decisions/ADR-0605-amf-encodes-the-supi-as-one-path-segment-in-the-uris-it.md)).
+- NRF: the 400s whose cause TS 29.500 Table 5.2.7.2-1 NOTE 1 covers now carry `invalidParams`:
+  the absent required members of a RetrieveKeyReq, NFProfile or SubscriptionData body as JSON
+  Pointers (only the absent ones), `query target-nf-type` for a discovery without it, or the
+  `requester-plmn-list` / `requester-snssais` query parameter that is not a JSON array; statuses
+  and causes are unchanged
+  ([ADR-0613](docs/decisions/ADR-0613-nrf-problemdetails-carry-invalidparams-sbi-03-step-2-nrf.md)).
 
 ### Security
 

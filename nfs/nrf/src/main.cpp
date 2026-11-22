@@ -53,11 +53,13 @@
 #include <atomic>
 #include <fstream>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <regex>
 #include <sstream>
 #include <thread>
 #include <unordered_set>
+#include <vector>
 
 // ADR-0193/ADR-0194: TS29510_Nnrf_Bootstrapping.yaml, the Tier-A gap that started the
 // full-project YAML coverage audit -- see docs/CAPABILITY_GAP_ANALYSIS.md's own ADR-0193 section.
@@ -95,6 +97,21 @@ constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 
 // The sbi-core helper (json_body.hpp); a local copy lagged behind it (no cause, ADR-0502).
 using sbi_core::http2::problem_response;
+
+// TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0613): one invalidParams entry, a JSON Pointer to the
+// top-level member, for each of the required members `names` that the JSON object `body` lacks.
+// Top-level only: every caller below checks required members of the request body's root object.
+std::vector<sbi_core::InvalidParam> missing_body_members(const json& body,
+                                                         std::initializer_list<const char*> names) {
+    std::vector<sbi_core::InvalidParam> missing;
+    for (const char* name : names) {
+        if (!body.contains(name)) {
+            missing.push_back(
+                sbi_core::invalid_body_ie(json::json_pointer("/" + std::string(name))));
+        }
+    }
+    return missing;
+}
 
 // application/x-www-form-urlencoded parsing for POST /oauth2/token. Minimal: splits on '&'/'=',
 // percent-decodes values. Good enough for the fixed field set AccessTokenReq actually needs here.
@@ -597,10 +614,14 @@ int main() {
                 return problem_response(400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!body.contains("issuer") || !body.contains("headerParameters")) {
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0613): invalidParams names each absent
+                // required RetrieveKeyReq member (TS29510_Nnrf_AccessToken.yaml), not a present
+                // one.
                 return problem_response(400,
                                         "Missing mandatory IE",
                                         "RetrieveKeyReq requires issuer and headerParameters",
-                                        "MANDATORY_IE_MISSING");
+                                        "MANDATORY_IE_MISSING",
+                                        missing_body_members(body, {"issuer", "headerParameters"}));
             }
             const auto requested_issuer = body.at("issuer").get<std::string>();
             if (requested_issuer != nrf_instance_id) {
@@ -660,10 +681,14 @@ int main() {
             for (const char* required : {"nfInstanceId", "nfType", "nfStatus"}) {
                 if (!profile.contains(required)) {
                     nfs_reg_fail_encode_counter->Add(1);
-                    return problem_response(400,
-                                            "Missing mandatory IE",
-                                            std::string("NFProfile missing '") + required + "'",
-                                            "MANDATORY_IE_MISSING");
+                    // NOTE 1 (ADR-0613): the detail names the first absent member; invalidParams
+                    // names every absent one of NFProfile's three required members.
+                    return problem_response(
+                        400,
+                        "Missing mandatory IE",
+                        std::string("NFProfile missing '") + required + "'",
+                        "MANDATORY_IE_MISSING",
+                        missing_body_members(profile, {"nfInstanceId", "nfType", "nfStatus"}));
                 }
             }
             if (auto err = validate_nf_profile(profile); err.has_value()) {
@@ -815,10 +840,13 @@ int main() {
             }
             if (target_type.empty()) {
                 nfs_disc_fail_input_counter->Add(1);
+                // NOTE 1 (ADR-0613). Also reached when target-nf-type is present with an empty
+                // value; the parameter named is the same either way.
                 return problem_response(400,
                                         "Missing mandatory query parameter",
                                         "target-nf-type is required",
-                                        "MANDATORY_QUERY_PARAM_MISSING");
+                                        "MANDATORY_QUERY_PARAM_MISSING",
+                                        {sbi_core::invalid_query_param("target-nf-type")});
             }
             // TS 33.501 13.3.1.3 / TS 29.510 6.2.3.2.3.1: requester info for the allowed* checks
             // (ADR-0477). requester-plmn-list / requester-snssais are JSON-encoded arrays.
@@ -838,10 +866,13 @@ int main() {
                         *dst = json::parse(it->second, nullptr, false);
                         if (!dst->is_array()) {
                             nfs_disc_fail_input_counter->Add(1);
-                            return problem_response(400,
-                                                    "Invalid query parameter",
-                                                    std::string(name) + " must be a JSON array",
-                                                    "MANDATORY_IE_INCORRECT");
+                            // NOTE 1 (ADR-0613): the query parameter that is not a JSON array.
+                            return problem_response(
+                                400,
+                                "Invalid query parameter",
+                                std::string(name) + " must be a JSON array",
+                                "MANDATORY_IE_INCORRECT",
+                                {sbi_core::invalid_query_param(name, "not a JSON array")});
                         }
                     }
                 }
@@ -915,10 +946,13 @@ int main() {
                 return problem_response(400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!sub_data.contains("nfStatusNotificationUri")) {
-                return problem_response(400,
-                                        "Missing mandatory IE",
-                                        "SubscriptionData requires nfStatusNotificationUri",
-                                        "MANDATORY_IE_MISSING");
+                // NOTE 1 (ADR-0613): SubscriptionData's one required member.
+                return problem_response(
+                    400,
+                    "Missing mandatory IE",
+                    "SubscriptionData requires nfStatusNotificationUri",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/nfStatusNotificationUri"))});
             }
             auto created = sub_registry->create(sub_data);
             sbi_core::http2::Response resp;
