@@ -240,6 +240,13 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `requester-plmn-list` / `requester-snssais` query parameter that is not a JSON array; statuses
   and causes are unchanged
   ([ADR-0613](docs/decisions/ADR-0613-nrf-problemdetails-carry-invalidparams-sbi-03-step-2-nrf.md)).
+- UDM: the 400s whose cause TS 29.500 Table 5.2.7.2-1 NOTE 1 covers now carry `invalidParams`
+  naming the query parameter that is missing (`authenticated-ind`, `shared-data-ids`, or both
+  `ext-group-id` and `int-group-id`), `{supiOrSuci}` or `/suci` for a SUCI that cannot be
+  de-concealed, `/servingNetworkId` for an eap-aka-prime generate-av without it, or `/expires` /
+  `/reportingOptions/expiry` for a subscription expiry that is not a date-time; statuses and causes
+  are unchanged
+  ([ADR-0614](docs/decisions/ADR-0614-udm-problemdetails-carry-invalidparams-sbi-03-step-2-udm.md)).
 
 ### Security
 
