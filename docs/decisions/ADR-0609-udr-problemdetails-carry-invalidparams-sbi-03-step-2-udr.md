@@ -76,6 +76,8 @@ disclosed: the nlohmann exception gives no JSON Pointer.
 **Verified.** See the PR for what was built and run on this machine; the integration tests need
 the lab certificates, which this worktree does not read.
 
+**Verified by the lead (2026-11-22, main checkout, master machine with its CI runner idle).** One Debug build of ADR-0607's commit 55ba4d06 with the code and tests of PRs #60 (including the subs-to-notify route fix), #62 and #63 applied together. `integration_tests --gtest_filter='UdrInvalidParams.*'` passes (5 of 5), and `UdrIntegration.OnDataChangeWebhookDeliveredOnPutPatchDelete` (which uses the subs-to-notify collection) still passes. With `nfs/udr/src/main.cpp` restored to 55ba4d06 and `udr` rebuilt, all 5 `UdrInvalidParams.*` tests fail. Before the route fix, `MissingUeIdNamesTheQueryParameter` failed even with the invalidParams change (200 `{}`), which is how the shadowed route was found. Targeted tests only, not a full `ctest`.
+
 **Rejected alternatives.**
 - *Name every required query parameter at the multi-parameter sites, present or not.* The NOTE
   asks for the missing ones; listing a present one would be wrong.
