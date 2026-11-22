@@ -29,9 +29,12 @@
 // - PATCH/DELETE not implemented this turn.
 // - RoamingCdrFileStore exists (store.hpp) but has no HTTP route here -- real, disclosed, P4.11's
 //   own scope, not silently narrowed away.
+// - Errors (ADR-0616): the handlers' 400s and 404 are the TMF651 `Error` body via libs/tmf-core
+//   (tmf_errors.hpp). The sbi-core framework's own errors (404 no route, 405, 501, 413, the
+//   duplicate-member 400, the TPS ceiling's and pool-exhaustion 503s, an uncaught exception's
+//   500) are still ProblemDetails -- BSS SBI-03 PR 7.
 
 #include "sbi_core/http2_server.hpp"
-#include "sbi_core/json_body.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
 #include "sbi_core/otel.hpp"
@@ -45,6 +48,8 @@
 
 #include "bss_sid/agreement.hpp"
 #include "store.hpp"
+#include "tmf_core/error.hpp"
+#include "tmf_errors.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded DB URL/deployment literal in source.
 #include "nf_config/nf_config.hpp"
@@ -59,22 +64,11 @@
 namespace {
 
 using nlohmann::json;
+using roaming_interconnect::guarded;
 
 constexpr const char* kApiRoot = "/tmf-api/agreementManagement/v4";
 
 } // namespace
-
-// ADR-0387: relational-model rejections are client errors, not 500s.
-template <typename Handler> auto guarded(Handler handler) {
-    return [handler = std::move(handler)](
-               const sbi_core::http2::Request& req) -> sbi_core::http2::Response {
-        try {
-            return handler(req);
-        } catch (const roaming_interconnect::InvalidRequest& e) {
-            return sbi_core::http2::problem_response(400, "Bad Request", e.what(), std::nullopt);
-        }
-    };
-}
 
 int main() {
     const auto config = nf_config::load("roaming-interconnect", CONFIG_DIR);
@@ -128,8 +122,7 @@ int main() {
         guarded([&agreement_store, &agreement_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
-                sbi_core::http2::parse_json_body<roaming_interconnect::InterconnectAgreement>(req,
-                                                                                              err);
+                tmf_core::parse_json_body<roaming_interconnect::InterconnectAgreement>(req, err);
             if (!body.has_value()) {
                 return err;
             }
@@ -158,8 +151,7 @@ int main() {
                          const auto id = req.path_params.at("id");
                          const auto agreement = agreement_store.get(id);
                          if (!agreement.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No InterconnectAgreement " + id, std::nullopt);
+                             return roaming_interconnect::agreement_not_found(id);
                          }
                          return sbi_core::http2::Response::json(200, json(*agreement).dump());
                      }));

@@ -10,7 +10,8 @@ target_link_libraries(roaming_interconnect_store PUBLIC bss_sid libpqxx::pqxx ta
 target_include_directories(roaming_interconnect_store PUBLIC src)
 
 add_executable(roaming-interconnect src/main.cpp)
-target_link_libraries(roaming-interconnect PRIVATE sbi_core bss_sid roaming_interconnect_store nf_config)
+# ADR-0616: the TMF651 error responses (src/tmf_errors.hpp) are libs/tmf-core's TM Forum Error.
+target_link_libraries(roaming-interconnect PRIVATE sbi_core bss_sid roaming_interconnect_store nf_config tmf_core)
 # See nfs/hello-nf/CMakeLists.txt for why this is a compile-time absolute path.
 # CONFIG_DIR: docs/DECISIONS.md ADR-0077 -- separate checked-in config/roaming-interconnect.json.
 target_compile_definitions(roaming-interconnect PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs" CONFIG_DIR="${CMAKE_SOURCE_DIR}/config")
