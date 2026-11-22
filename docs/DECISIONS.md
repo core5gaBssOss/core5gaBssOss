@@ -591,6 +591,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0637](decisions/ADR-0637-mfaf-problemdetails-carry-invalidparams-sbi-03-step-2-mfaf.md) MFAF ProblemDetails carry invalidParams (SBI-03 step 2, MFAF)
 - [0638](decisions/ADR-0638-tsctsf-problemdetails-carry-invalidparams-sbi-03-step-2.md) TSCTSF ProblemDetails carry invalidParams (SBI-03 step 2, TSCTSF)
 - [0639](decisions/ADR-0639-aanf-problemdetails-carry-invalidparams-sbi-03-step-2-aanf.md) AAnF ProblemDetails carry invalidParams (SBI-03 step 2, AAnF)
+- [0621](decisions/ADR-0621-smf-problemdetails-carry-invalidparams-sbi-03-step-2-smf.md) SMF ProblemDetails carry invalidParams (SBI-03 step 2, SMF)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

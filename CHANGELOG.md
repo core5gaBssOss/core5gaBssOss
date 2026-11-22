@@ -293,6 +293,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `/gpsi`, or `/supi` off its pattern on register-anchorkey, `/afId` on retrieve-applicationkey and
   `/supi` on remove-context; statuses and causes are unchanged
   ([ADR-0639](docs/decisions/ADR-0639-aanf-problemdetails-carry-invalidparams-sbi-03-step-2-aanf.md)).
+- SMF: the 400s whose cause TS 29.500 Table 5.2.7.2-1 NOTE 1 covers now carry `invalidParams`:
+  a CreateSMContext without `supi`, `pduSessionId`, `dnn` or `sNssai` names each absent member,
+  and an UpdateSMContext whose `n2SmInfo` binary part does not decode as the transfer its
+  `n2SmInfoType` declares names `/n2SmInfo`; statuses and causes are unchanged
+  ([ADR-0621](docs/decisions/ADR-0621-smf-problemdetails-carry-invalidparams-sbi-03-step-2-smf.md)).
 
 ### Security
 
