@@ -95,3 +95,5 @@ linked them by hand into the `test_tmf640_service` binary against the build's ot
 26 of 26 tests passed, 6 of them the new `Provisioning*` cases. `clang-format-18 --dry-run
 -Werror` is clean on every changed C++ file. CMake has not been reconfigured and no full `ctest`
 has run.
+
+**Verified by the lead, 2026-11-22, main checkout (runner 23 idle).** Tree: 55ba4d06 (#58) plus #61 (tmf-core), #65 and #66 applied together; the only conflict was the `conformance_tests` source line in `tests/conformance/CMakeLists.txt`, resolved by keeping every test file. Built provisioning, roaming-interconnect, conformance_tests, test_tmf640_service and integration_tests. `test_tmf640_service` 26/26 pass (6 new). `UdrOamProvisioning*` 10/10 pass, including `Tmf640ActivationWritesNetworkDataOnlyAndStoresTheService` against a local `orchestration` database built from `deploy/db/orchestration/schema.sql`. No revert run: the new tests call the new helpers, so the old tree does not compile them. The route lambdas were not driven over HTTP. Only these binaries and filters were run, not a full ctest.
