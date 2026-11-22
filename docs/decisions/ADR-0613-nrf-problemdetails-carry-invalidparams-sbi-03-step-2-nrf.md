@@ -76,6 +76,8 @@ compile (`-fsyntax-only`, flags from the main checkout's `compile_commands.json`
 the integration tests need the lab certificates, which this worktree does not read; the lead runs
 them in the main checkout.
 
+**Verified by the lead, 2026-11-22, main checkout (runner 23 idle).** Tree: 55ba4d06 (#58) plus this PR and #67. Built nrf, udm, udr and integration_tests. `NrfInvalidParams.*` 5/5 pass. With `nfs/nrf/src/main.cpp` restored to 55ba4d06 and rebuilt, all 5 fail. Regression: `--gtest_filter='Nrf*:Udm*'` 67/67 pass (315 s). Only these filters were run, not a full ctest.
+
 **Rejected alternatives.**
 - *Name every required member at the multi-member sites, present or not.* NOTE 1 asks for the
   missing ones; listing a present one would be wrong.
