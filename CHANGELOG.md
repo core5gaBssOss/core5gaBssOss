@@ -189,6 +189,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   one path segment before it goes into the UDM URI, so a value with `/` or `?` can no longer reach
   another subscriber's resource
   ([ADR-0603](docs/decisions/ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md)).
+- NEF re-encodes the traffic-influence id `{afId}-{subscriptionId}` before it builds the UDR
+  `influenceData` URI, and the SUPI and GPSI (from the AF's `externalId` / `msisdn`) before it
+  builds a Nudm_SDM or Nudm_EE URI, so an encoded `/` or `?` no longer reaches another resource
+  (ADR-0570 class, NEF part 2;
+  [ADR-0606](docs/decisions/ADR-0606-nef-encodes-the-traffic-influence-id-and-the-ue-ids-it-puts.md)).
 
 ### Security
 
