@@ -575,9 +575,11 @@
   "ADR-0602-udm-answers-502-inbound-server-error-when-the-udr-answers.md",
   "ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md",
   "ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md",
+  "ADR-0603-ausf-encodes-supiorsuci-as-one-path-segment-before-it-calls.md",
   "ADR-0604-smf-encodes-the-supi-as-one-path-segment-before-it-calls.md",
   "ADR-0606-nef-encodes-the-traffic-influence-id-and-the-ue-ids-it-puts.md",
   "ADR-0607-sbi-core-problemdetails-carry-invalidparams-sbi-03-step-1.md",
+  "ADR-0611-vendor-the-tmf620-tmf632-tmf651-and-tmf654-swaggers-the-bss.md",
   "ADR-0617-integration-tests-wait-for-spawned-nfs-against-a-deadline.md"
  ],
  "split_commit": "0530e4f"

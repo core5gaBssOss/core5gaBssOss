@@ -11,7 +11,7 @@ The specification material this repository builds from, and the documents it cit
 | `3gpp/33128-attachments/` | TS 33.128 ASN.1 and XSD attachments | `li_generated`, LI X1 validation | © 3GPP Organizational Partners |
 | `3gpp/MANIFEST.tsv` | the exact 3GPP spec versions the code cites | `tools/specs/fetch_3gpp_specs.py --from-manifest` | project file |
 | `etsi/` | ETSI forge schemas and ASN.1 (TS 102 232, 103 120, 103 221, 103 280) | `li_core`, `li_generated`, conformance tests | BSD-3-Clause, `etsi/LICENSE`; provenance in `etsi/SOURCES.md` |
-| `tmforum/` | TM Forum Open API swagger (TMF640 v4.0.0), byte-for-byte copies; provenance and hashes in `tmforum/SOURCES.md` | `tmf_generated` codegen (ADR-0568), TMF640 in the provisioning module (ADR-0558) | Apache-2.0, `tmforum/LICENSE` |
+| `tmforum/` | TM Forum Open API swagger (TMF640 v4.0.0; TMF620 v4.1.0, TMF632 v4.0.0, TMF651 v4.0.0, TMF654 v4.0.0 since ADR-0611), byte-for-byte copies; provenance and hashes in `tmforum/SOURCES.md` | `tmf_generated` codegen (ADR-0568), TMF640 in the provisioning module (ADR-0558); the other four are the reference for the hand-written BSS handlers (ADR-0611) | Apache-2.0, `tmforum/LICENSE` |
 | `MAC-AUSF.TXT` | the project's own implementation notes for the TS 33.501 SoR-MAC derivations | AUSF (reference) | project file, Apache-2.0 |
 
 ## Not in the repository: specification documents
