@@ -1022,6 +1022,89 @@ TEST_F(Udsf, TimerService) {
     EXPECT_EQ(send("DELETE", tbase() + "/timers?expired-filter=null").status, 204);
 }
 
+// TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0608): a 400 with a NOTE 1 cause carries invalidParams
+// naming the parameter, encoded as TS29571_CommonData.yaml InvalidParam.param describes it
+// ("query " + name for a query parameter, a JSON Pointer for a body attribute).
+TEST_F(Udsf, InvalidParamsNameTheParameter) {
+    const auto params = [](const sbi_core::http2::ClientResponse& r) {
+        std::vector<std::string> out;
+        const auto j = json::parse(r.body);
+        for (const auto& p : j.at("invalidParams")) {
+            out.push_back(p.at("param").get<std::string>());
+        }
+        return out;
+    };
+    using V = std::vector<std::string>;
+    const json any{{"op", "GTE"}, {"tag", ""}, {"value", ""}};
+
+    // SearchRecord: the mandatory filter is absent.
+    auto r = send("GET", base() + "/records");
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(cause(r), "MANDATORY_QUERY_PARAM_MISSING");
+    EXPECT_EQ(params(r), V{"query filter"});
+    // An optional query parameter this UDSF does not support.
+    r = send("GET", base() + "/records?tag-count-filter=" + pct("{}"));
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(cause(r), "INVALID_QUERY_PARAM");
+    EXPECT_EQ(params(r), V{"query tag-count-filter"});
+    // A filter that is not a SearchExpression: the reason is the parser's own text.
+    r = send("GET", base() + "/records?filter=" + pct("[1]"));
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(cause(r), "INVALID_QUERY_PARAM");
+    EXPECT_EQ(params(r), V{"query filter"});
+    EXPECT_EQ(json::parse(r.body)["invalidParams"][0].value("reason", ""),
+              "SearchExpression must be a JSON object");
+    r = send("GET", base() + "/records?filter=" + pct(any.dump()) + "&retrieve-records=ALL");
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(params(r), V{"query retrieve-records"});
+    r = send("GET",
+             base() + "/records?filter=" + pct(any.dump()) +
+                 "&count-indicator=true&retrieve-records=ONLY_META");
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(params(r), (V{"query count-indicator", "query retrieve-records"}));
+    r = send("GET", base() + "/records?filter=" + pct(any.dump()) + "&max-payload-size=x");
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(params(r), V{"query max-payload-size"});
+
+    // BulkDeleteRecords and GetNotificationSubscriptions.
+    r = send("DELETE", base() + "/records");
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(params(r), V{"query filter"});
+    r = send("GET", base() + "/subs-to-notify?limit-range=x");
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(cause(r), "INVALID_QUERY_PARAM");
+    EXPECT_EQ(params(r), V{"query limit-range"});
+
+    // DeleteNotificationSubscription: client-id is a required query parameter.
+    r = send("DELETE", base() + "/subs-to-notify/none");
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(cause(r), "MANDATORY_QUERY_PARAM_MISSING");
+    EXPECT_EQ(params(r), V{"query client-id"});
+
+    // CreateOrReplaceMetaSchema: TagType.sort is missing on the second metaTags entry, so the
+    // param is a JSON Pointer into the request body.
+    const json schema{
+        {"schemaId", "schip"},
+        {"metaTags",
+         json::array({{{"tagName", "supi"}, {"keyType", "SEARCH_KEY"}, {"sort", true}},
+                      {{"tagName", "dnn"}, {"keyType", "SEARCH_AND_COUNT_KEY"}}})}};
+    r = send("PUT", base() + "/meta-schemas/schip", schema.dump(), "application/json");
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(cause(r), "MANDATORY_IE_MISSING");
+    EXPECT_EQ(params(r), V{"/metaTags/1/sort"});
+
+    // Nudsf_Timer search: neither filter nor expired-filter, then a RecordIdList filter.
+    r = send("GET", tbase() + "/timers");
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(cause(r), "MANDATORY_QUERY_PARAM_MISSING");
+    EXPECT_EQ(params(r), (V{"query filter", "query expired-filter"}));
+    r = send("GET",
+             tbase() + "/timers?filter=" + pct(json{{"recordIdList", json::array({"a"})}}.dump()));
+    ASSERT_EQ(r.status, 400) << r.body;
+    EXPECT_EQ(cause(r), "INVALID_QUERY_PARAM");
+    EXPECT_EQ(params(r), V{"query filter"});
+}
+
 // TS 29.500 6.7.3: an invalid token is 401 + WWW-Authenticate; a token without the service
 // scope is 403 insufficient_scope; the right scope passes.
 TEST_F(Udsf, OAuth2Enforcement) {

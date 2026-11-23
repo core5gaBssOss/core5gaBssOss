@@ -572,6 +572,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0604](decisions/ADR-0604-smf-encodes-the-supi-as-one-path-segment-before-it-calls.md) SMF encodes the SUPI as one path segment before it calls the AMF (ADR-0570 class, SMF part)
 - [0606](decisions/ADR-0606-nef-encodes-the-traffic-influence-id-and-the-ue-ids-it-puts.md) NEF encodes the traffic-influence id and the UE ids it puts into UDR and UDM URIs (ADR-0570 class, NEF part 2)
 - [0607](decisions/ADR-0607-sbi-core-problemdetails-carry-invalidparams-sbi-03-step-1.md) sbi-core ProblemDetails carry invalidParams (SBI-03 step 1, TS 29.500 Table 5.2.7.2-1 NOTE 1)
+- [0608](decisions/ADR-0608-udsf-problemdetails-carry-invalidparams-sbi-03-step-2.md) UDSF ProblemDetails carry invalidParams (SBI-03 step 2)
 - [0609](decisions/ADR-0609-udr-problemdetails-carry-invalidparams-sbi-03-step-2-udr.md) UDR ProblemDetails carry invalidParams (SBI-03 step 2, UDR)
 - [0610](decisions/ADR-0610-sepp-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md) SEPP ProblemDetails carry invalidParams (SBI-03 step 2, TS 29.500 Table 5.2.7.2-1 NOTE 1)
 - [0611](decisions/ADR-0611-vendor-the-tmf620-tmf632-tmf651-and-tmf654-swaggers-the-bss.md) Vendor the TMF620, TMF632, TMF651 and TMF654 swaggers the BSS services cite (BSS SBI-03 PR 0)

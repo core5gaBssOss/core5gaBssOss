@@ -124,7 +124,9 @@ void add_timer_routes(sbi_core::http2::Server& server, Ctx& ctx) {
             return tl::unexpected(problem(400,
                                           "Bad Request",
                                           "filter or expired-filter shall be present",
-                                          std::string("MANDATORY_QUERY_PARAM_MISSING")));
+                                          std::string("MANDATORY_QUERY_PARAM_MISSING"),
+                                          {sbi_core::invalid_query_param("filter"),
+                                           sbi_core::invalid_query_param("expired-filter")}));
         }
         auto index = ctx.store.timer_index(s);
         std::set<std::string> ids;
@@ -132,18 +134,27 @@ void add_timer_routes(sbi_core::http2::Server& server, Ctx& ctx) {
             auto expr = parse_filter_param(*filter_text);
             if (!expr) {
                 return tl::unexpected(
-                    problem(400, "Bad Request", expr.error(), std::string("INVALID_QUERY_PARAM")));
+                    problem(400,
+                            "Bad Request",
+                            expr.error(),
+                            std::string("INVALID_QUERY_PARAM"),
+                            {sbi_core::invalid_query_param("filter", expr.error())}));
             }
             if (uses_id_list(*expr)) {
                 return tl::unexpected(problem(400,
                                               "Bad Request",
                                               "a RecordIdList does not select timers",
-                                              std::string("INVALID_QUERY_PARAM")));
+                                              std::string("INVALID_QUERY_PARAM"),
+                                              {sbi_core::invalid_query_param("filter")}));
             }
             auto m = evaluate(*expr, *index);
             if (!m) {
                 return tl::unexpected(
-                    problem(400, "Bad Request", m.error(), std::string("INVALID_QUERY_PARAM")));
+                    problem(400,
+                            "Bad Request",
+                            m.error(),
+                            std::string("INVALID_QUERY_PARAM"),
+                            {sbi_core::invalid_query_param("filter", m.error())}));
             }
             ids = std::move(*m);
         } else {
