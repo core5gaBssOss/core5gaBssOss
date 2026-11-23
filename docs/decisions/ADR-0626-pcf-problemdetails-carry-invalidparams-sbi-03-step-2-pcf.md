@@ -69,6 +69,8 @@ a syntax-only compile (`-fsyntax-only`, flags from the main checkout's `compile_
 both. No full build and no test run in this worktree: the integration tests need the lab
 certificates, which this worktree does not read.
 
+**Verified by the lead, 2026-11-23, main checkout (runner 23 idle).** Tree: origin/main 9119d75f plus #77 (AUSF) and #78 (PCF) applied together; the only conflict was both test files appended to the integration_tests list, resolved by keeping both. Full build. `AusfInvalidParams.*` 1/1 and `PcfInvalidParams.*` 2/2 pass. With nfs/ausf/src/main.cpp and nfs/pcf/src/main.cpp restored to main and rebuilt, all 3 fail. Regression: `--gtest_filter='Ausf*:Pcf*'` 25/25 pass. One of them, PcfChfN28Integration.FullLoopSubscribeStatusChangeNotifyUnsubscribe, failed on the first run only because the local Doris had no `chf_cdr` database (the CHF exits at startup). It passed once nfs/chf/schema.doris.sql was applied as CI does. Only these filters were run, not a full ctest.
+
 **Rejected alternatives.**
 - *Parse the member name out of `e.what()` at the `evSubsc` site.* nlohmann's message text is not
   an interface; the handler checks the one required member directly instead.
