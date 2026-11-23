@@ -131,6 +131,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   Npcf_PolicyAuthorization create, `/evSubsc/eventNotifUri` on Npcf_AMPolicyAuthorization update).
   Causes and status codes are unchanged
   ([ADR-0626](docs/decisions/ADR-0626-pcf-problemdetails-carry-invalidparams-sbi-03-step-2-pcf.md)).
+- CHF: the two 400s the CHF answers itself with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carry
+  `invalidParams` naming the body member as a JSON Pointer (`/billNo`, ... on
+  `POST /internal-billing/v1/runs`, `/currentStatus` on the `/chf-admin/v1/policy-counters` PUT).
+  Causes and status codes are unchanged; the Nchf routes' `parse_json_body` 400s still have none
+  ([ADR-0630](docs/decisions/ADR-0630-chf-problemdetails-carry-invalidparams-sbi-03-step-2-chf.md)).
 
 ### Fixed
 
