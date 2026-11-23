@@ -1379,10 +1379,13 @@ int main() {
                 return err;
             }
             if (!body->ascReqData.has_value()) {
-                return sbi_core::http2::problem_response(400,
-                                                         "Missing mandatory IE",
-                                                         "AppSessionContext requires ascReqData",
-                                                         "MANDATORY_IE_MISSING");
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1: invalidParams names the IE (ADR-0626).
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Missing mandatory IE",
+                    "AppSessionContext requires ascReqData",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/ascReqData"), "missing")});
             }
 
             // ADR-0526, TS 29.514 4.2.2.2 / TS 29.513: session binding to the PDU session's SM
@@ -2128,11 +2131,19 @@ int main() {
                     try {
                         (void)ev.get<sbi_gen::AmEventsSubscData>();
                     } catch (const json::exception& e) {
+                        // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0626): name the merged member.
+                        // eventNotifUri is AmEventsSubscData's one required member and is read
+                        // first, so its absence is named; any other failure names evSubsc.
+                        const bool notif_uri_absent = !ev.contains("eventNotifUri");
                         return sbi_core::http2::problem_response(
                             400,
                             "evSubsc does not yield an AmEventsSubscData",
                             e.what(),
-                            sbi_core::http2::dto_error_cause(e));
+                            sbi_core::http2::dto_error_cause(e),
+                            {notif_uri_absent
+                                 ? sbi_core::invalid_body_ie(
+                                       json::json_pointer("/evSubsc/eventNotifUri"), "missing")
+                                 : sbi_core::invalid_body_ie(json::json_pointer("/evSubsc"))});
                     }
                     j["evSubsc"] = std::move(ev);
                 }

@@ -126,6 +126,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `/mLEventSubscs/<i>/mLEvent`, both members of an unmet oneOf/anyOf, `""` for an empty Fetch
   body), in the AnLF and the MTLF. Causes and status codes are unchanged
   ([ADR-0625](docs/decisions/ADR-0625-nwdaf-problemdetails-carry-invalidparams-sbi-03-step-2-nwdaf.md)).
+- PCF: the two 400s the PCF answers itself with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carry
+  `invalidParams` naming the body member as a JSON Pointer (`/ascReqData` on
+  Npcf_PolicyAuthorization create, `/evSubsc/eventNotifUri` on Npcf_AMPolicyAuthorization update).
+  Causes and status codes are unchanged
+  ([ADR-0626](docs/decisions/ADR-0626-pcf-problemdetails-carry-invalidparams-sbi-03-step-2-pcf.md)).
 
 ### Fixed
 
