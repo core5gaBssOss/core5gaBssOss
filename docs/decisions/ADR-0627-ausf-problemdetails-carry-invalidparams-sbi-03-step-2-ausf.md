@@ -55,6 +55,8 @@ disclosed: the nlohmann exception gives no JSON Pointer.
 **Verified.** clang-format-18 and a syntax-only compile of the two changed translation units. The
 integration test was not built or run in this worktree: it needs the lab certificates.
 
+**Verified by the lead, 2026-11-23, main checkout (runner 23 idle).** Tree: origin/main 9119d75f plus #77 (AUSF) and #78 (PCF) applied together; the only conflict was both test files appended to the integration_tests list, resolved by keeping both. Full build. `AusfInvalidParams.*` 1/1 and `PcfInvalidParams.*` 2/2 pass. With nfs/ausf/src/main.cpp and nfs/pcf/src/main.cpp restored to main and rebuilt, all 3 fail. Regression: `--gtest_filter='Ausf*:Pcf*'` 25/25 pass. One of them, PcfChfN28Integration.FullLoopSubscribeStatusChangeNotifyUnsubscribe, failed on the first run only because the local Doris had no `chf_cdr` database (the CHF exits at startup). It passed once nfs/chf/schema.doris.sql was applied as CI does. Only these filters were run, not a full ctest.
+
 **Rejected alternatives.**
 - *Change the cause to one that fits an optional IE.* A cause change is a behaviour change
   outside this step.
