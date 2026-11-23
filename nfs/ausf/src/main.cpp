@@ -1000,7 +1000,12 @@ int main() {
                     "Missing mandatory IE",
                     "This build requires the requester to supply sorHeader -- AUSF-side "
                     "construction of the SOR header (TS 24.501 9.11.3.51) is not implemented",
-                    "MANDATORY_IE_MISSING");
+                    "MANDATORY_IE_MISSING",
+                    // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0627): name the absent member of
+                    // SorInfo (TS29509_Nausf_SoRProtection.yaml) as a JSON Pointer.
+                    {sbi_core::invalid_body_ie(
+                        json::json_pointer("/sorHeader"),
+                        "absent; this build does not construct the SOR header itself")});
             }
             const auto sor_header_bytes = aka_crypto::eap::base64_decode(*body->sorHeader);
             if (!sor_header_bytes.has_value()) {
