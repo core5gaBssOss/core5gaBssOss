@@ -71,9 +71,10 @@ protected:
         sbi_core::http2::ClientRequest req;
         req.method = method;
         req.url = std::string(kNefBase) + path;
-        if (!content_type.empty()) {
-            req.headers.emplace("content-type", content_type);
-        }
+        // An empty content_type sends "content-type:" with no value. libcurl then sends no
+        // Content-Type at all; without that line it would add its own default
+        // "application/x-www-form-urlencoded" for a POST (CURLOPT_POSTFIELDS in http2_client.cpp).
+        req.headers.emplace("content-type", content_type);
         req.body = body;
         auto resp = client_.send(req);
         if (!resp.has_value()) {
