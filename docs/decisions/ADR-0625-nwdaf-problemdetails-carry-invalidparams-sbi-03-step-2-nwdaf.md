@@ -90,6 +90,8 @@ syntax-only compile (`-fsyntax-only`, flags from the main checkout's `compile_co
 in this worktree: the integration tests need the lab certificates, which this worktree does not
 read.
 
+**Verified by the lead, 2026-11-23, main checkout (runner 23 idle).** Tree: origin/main 9119d75f plus #75 (ADRF) and #76 (NWDAF) applied together; the only conflict was both test files appended to the integration_tests list, resolved by keeping both. Full build. Containers: Valkey, the ADRF model-store Postgres on 5438 (nfs/adrf/schema.sql) and Apache Doris 4.1.3 with the `chf_features` and `adrf_data` schemas applied as CI does (nfs/chf/schema.features.doris.sql, nfs/adrf/schema.doris.sql). Note: the NWDAF also needs Doris (feature store) at startup. The first run failed only because Doris was still starting. `AdrfInvalidParams.*` 13/13 and `NwdafInvalidParams.*` 8/8 pass. With nfs/adrf/src/main.cpp, nfs/nwdaf/src/main.cpp and nfs/nwdaf/src/mtlf.cpp restored to main and rebuilt, all 21 fail. Regression: `--gtest_filter='Adrf*:Nwdaf*'` 38 tests: 35 pass, 3 skipped (the DCCF-dependent Adrf.StorageSubscriptionThroughTheDccfStoresSourceData and two NwdafPhaseC tests), none fail. Only these filters were run, not a full ctest.
+
 **Rejected alternatives.**
 - *Name only one member at the oneOf / anyOf sites.* Neither is "the" missing one; the handler
   knows only that none of the alternatives is present, so both are named with a reason that says
