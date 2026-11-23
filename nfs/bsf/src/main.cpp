@@ -69,6 +69,7 @@
 #include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
+#include "sbi_core/problem_details.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
 #include "sbi_core/uuid.hpp"
@@ -441,12 +442,14 @@ int main() {
                 return err;
             }
             if (!body->supi.has_value()) {
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1: invalidParams names the IE (ADR-0628).
                 return sbi_core::http2::problem_response(
                     400,
                     "Missing mandatory IE",
                     "PcfBinding requires supi for this project's own real duplicate-check (see "
                     "this file's own top comment, simplification 1)",
-                    "MANDATORY_IE_MISSING");
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/supi"), "missing")});
             }
 
             if (auto existing =
@@ -787,10 +790,17 @@ int main() {
         [&pcf_mbs_bindings, &get_mbs_binding_counter](const sbi_core::http2::Request& req) {
             auto mbs_session_id = get_json_query_param<json>(req, "mbs-session-id");
             if (!mbs_session_id.has_value()) {
-                return sbi_core::http2::problem_response(400,
-                                                         "Missing mandatory query parameter",
-                                                         "mbs-session-id is required",
-                                                         "MANDATORY_QUERY_PARAM_MISSING");
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1: invalidParams names the query parameter
+                // (ADR-0628). get_json_query_param also returns nullopt for a value that is not
+                // JSON; the reason says which of the two happened.
+                const bool present = req.query_params.contains("mbs-session-id");
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Missing mandatory query parameter",
+                    "mbs-session-id is required",
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    {sbi_core::invalid_query_param("mbs-session-id",
+                                                   present ? "not JSON" : "missing")});
             }
             get_mbs_binding_counter->Add(1);
             json results = json::array();

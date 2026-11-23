@@ -600,6 +600,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0620](decisions/ADR-0620-bss-subscriber-management-answers-the-tmf632-error-via-libs.md) bss/subscriber-management answers the TMF632 Error via libs/tmf-core (BSS SBI-03 PR 6)
 - [0618](decisions/ADR-0618-bss-balance-management-answers-the-tmf654-error-via-libs.md) bss/balance-management answers the TMF654 Error via libs/tmf-core (BSS SBI-03 PR 4)
 - [0624](decisions/ADR-0624-adrf-problemdetails-carry-invalidparams-sbi-03-step-2-adrf.md) ADRF ProblemDetails carry invalidParams (SBI-03 step 2, ADRF)
+- [0628](decisions/ADR-0628-bsf-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md) BSF ProblemDetails carry invalidParams (SBI-03 step 2, TS 29.500 Table 5.2.7.2-1 NOTE 1)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
