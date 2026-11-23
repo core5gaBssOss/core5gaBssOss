@@ -16,6 +16,8 @@
 #include <regex>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include "spawn_guard.hpp"
 
@@ -346,4 +348,113 @@ TEST(SeppEndToEnd, PrinsAgreesOnOneKeyAndForwardsJoseProtected) {
                                std::string(kSeppA) + " terminated by the peer"),
               std::string::npos)
         << read(log_b);
+}
+
+// ADR-0610 (TS 29.500 table 5.2.7.2-1 NOTE 1): a SEPP answer with a NOTE 1 cause names the IE,
+// header or query parameter in invalidParams[].param, in the encodings of TS29571_CommonData.yaml
+// InvalidParam.param. SEPP B alone: its SBI port (7822) for the NF-side and telescopic sites, its
+// N32 port (7823) for N32-c and N32-f over TLS.
+namespace {
+
+std::vector<std::string> invalid_param_names(const std::string& body) {
+    std::vector<std::string> out;
+    const auto j = json::parse(body);
+    for (const auto& p : j.value("invalidParams", json::array())) {
+        out.push_back(p.at("param").get<std::string>());
+    }
+    return out;
+}
+
+} // namespace
+
+TEST(SeppEndToEnd, Note1ErrorsNameTheInvalidParam) {
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    const auto cfg_b = write_config_b();
+    ::setenv("SEPP_CONFIG_FILE", cfg_b.c_str(), 1);
+    nf_test::SpawnedProcess sepp_b{SEPP_PATH};
+    ::unsetenv("SEPP_CONFIG_FILE");
+    using Names = std::vector<std::string>;
+
+    // NF side: no telescopic FQDN and no 3gpp-Sbi-Target-apiRoot -> MANDATORY_IE_MISSING.
+    sbi_core::http2::Client consumer(tls("hello-nf"));
+    sbi_core::http2::ClientRequest nf_req;
+    nf_req.method = "GET";
+    nf_req.url = "https://127.0.0.1:7822/bootstrapping";
+    const auto missing = send_retrying(consumer, nf_req, 400, 20s);
+    ASSERT_EQ(missing.status, 400) << missing.body;
+    EXPECT_EQ(json::parse(missing.body).value("cause", ""), "MANDATORY_IE_MISSING");
+    EXPECT_EQ(invalid_param_names(missing.body), Names{"header 3gpp-Sbi-Target-apiRoot"})
+        << missing.body;
+
+    // NF side: a target in SEPP B's own PLMN -> MANDATORY_IE_INCORRECT.
+    auto own = nf_req;
+    own.headers.emplace("3gpp-sbi-target-apiroot", kNrfB);
+    const auto o = consumer.send(own);
+    ASSERT_TRUE(o.has_value());
+    ASSERT_EQ(o->status, 400) << o->body;
+    EXPECT_EQ(json::parse(o->body).value("cause", ""), "MANDATORY_IE_INCORRECT");
+    EXPECT_EQ(invalid_param_names(o->body), Names{"header 3gpp-Sbi-Target-apiRoot"}) << o->body;
+
+    // Telescopic mapping: neither query parameter, both, and a foreign-fqdn of this PLMN.
+    sbi_core::http2::ClientRequest map;
+    map.method = "GET";
+    const std::vector<std::pair<std::string, Names>> queries{
+        {"", Names{"query foreign-fqdn", "query telescopic-label"}},
+        {"?foreign-fqdn=nrf.5gc.mnc001.mcc001.3gppnetwork.org&telescopic-label=tel-0",
+         Names{"query foreign-fqdn", "query telescopic-label"}},
+        {"?foreign-fqdn=nrf.5gc.mnc002.mcc001.3gppnetwork.org", Names{"query foreign-fqdn"}},
+    };
+    for (const auto& [query, want] : queries) {
+        map.url = "https://127.0.0.1:7822/nsepp-telescopic/v1/mapping" + query;
+        const auto m = consumer.send(map);
+        ASSERT_TRUE(m.has_value()) << query;
+        ASSERT_EQ(m->status, 400) << query << " " << m->body;
+        EXPECT_EQ(json::parse(m->body).value("cause", ""), "INVALID_QUERY_PARAM") << query;
+        EXPECT_EQ(invalid_param_names(m->body), want) << query << " " << m->body;
+    }
+
+    // N32-c exchange-capability from SEPP A (its certificate) with an incorrect optional IE.
+    sbi_core::http2::Client peer(tls("sepp"));
+    sbi_core::http2::ClientRequest neg;
+    neg.method = "POST";
+    neg.url = "https://127.0.0.1:7823/n32c-handshake/v1/exchange-capability";
+    neg.headers.emplace("content-type", "application/json");
+    const json good{{"sender", kSeppA}, {"supportedSecCapabilityList", json::array({"TLS"})}};
+    auto wrong_plmn = good;
+    wrong_plmn["targetPlmnId"] = json{{"mcc", "001"}, {"mnc", "09"}};
+    auto bad_id = good;
+    bad_id["n32HandshakeId"] = "xyz";
+    const std::vector<std::pair<json, std::string>> refusals{{wrong_plmn, "/targetPlmnId"},
+                                                             {bad_id, "/n32HandshakeId"}};
+    for (const auto& [body, want] : refusals) {
+        neg.body = body.dump();
+        const auto n = peer.send(neg);
+        ASSERT_TRUE(n.has_value());
+        ASSERT_EQ(n->status, 400) << n->body;
+        EXPECT_EQ(json::parse(n->body).value("cause", ""), "OPTIONAL_IE_INCORRECT");
+        EXPECT_EQ(invalid_param_names(n->body), Names{want}) << n->body;
+    }
+
+    // A valid negotiation creates the N32-c context; then N32-f over TLS without, and with a
+    // wrong, 3gpp-Sbi-Target-apiRoot.
+    neg.body = good.dump();
+    const auto ok = peer.send(neg);
+    ASSERT_TRUE(ok.has_value());
+    ASSERT_EQ(ok->status, 200) << ok->body;
+    sbi_core::http2::ClientRequest fwd;
+    fwd.method = "GET";
+    fwd.url = "https://127.0.0.1:7823/bootstrapping";
+    fwd.headers.emplace("via", std::string("2.0 SEPP-") + kSeppA);
+    const auto f = peer.send(fwd);
+    ASSERT_TRUE(f.has_value());
+    ASSERT_EQ(f->status, 400) << f->body;
+    EXPECT_EQ(json::parse(f->body).value("cause", ""), "MANDATORY_IE_MISSING");
+    EXPECT_EQ(invalid_param_names(f->body), Names{"header 3gpp-Sbi-Target-apiRoot"}) << f->body;
+    fwd.headers.emplace("3gpp-sbi-target-apiroot",
+                        "https://nrf.5gc.mnc009.mcc001.3gppnetwork.org:7777");
+    const auto w = peer.send(fwd);
+    ASSERT_TRUE(w.has_value());
+    ASSERT_EQ(w->status, 400) << w->body;
+    EXPECT_EQ(json::parse(w->body).value("cause", ""), "MANDATORY_IE_INCORRECT");
+    EXPECT_EQ(invalid_param_names(w->body), Names{"header 3gpp-Sbi-Target-apiRoot"}) << w->body;
 }

@@ -221,6 +221,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   required), `/expiry` for a subscription expiry that is not a date-time, or `""` for a JSON Patch
   body that is not an array; statuses and causes are unchanged
   ([ADR-0609](docs/decisions/ADR-0609-udr-problemdetails-carry-invalidparams-sbi-03-step-2-udr.md)).
+- SEPP: 400 answers with a TS 29.500 Table 5.2.7.2-1 / 5.2.7.4-1 NOTE 1 cause carry
+  `invalidParams` naming the N32-c / N32-f IE (JSON Pointer), `3gpp-Sbi-Target-apiRoot` header or
+  telescopic-mapping query parameter; one site, the reconstructed request's authority inside a
+  JOSE-protected response, still has none
+  ([ADR-0610](docs/decisions/ADR-0610-sepp-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md)).
 
 ### Security
 

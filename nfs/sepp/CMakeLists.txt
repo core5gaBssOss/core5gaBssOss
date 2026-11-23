@@ -2,7 +2,7 @@
 add_library(sepp_n32 STATIC src/n32.cpp src/prins_codec.cpp src/trust_anchors.cpp)
 target_include_directories(sepp_n32 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 find_package(OpenSSL REQUIRED)
-target_link_libraries(sepp_n32 PUBLIC sbi_generated OpenSSL::Crypto)
+target_link_libraries(sepp_n32 PUBLIC sbi_generated sbi_core OpenSSL::Crypto)
 
 add_executable(sepp src/main.cpp)
 target_link_libraries(sepp PRIVATE sepp_n32 sbi_core sbi_generated nf_config)

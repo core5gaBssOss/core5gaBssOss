@@ -110,16 +110,20 @@ http2::TlsConfig n32_tls() {
 
 // TS 29.500 5.2.7: ProblemDetails with the application error cause; the Server header names this
 // SEPP as the originator (TS 29.500 6.10.10 / table 5.2.2.2-2: "SEPP-<SEPP FQDN>").
+// `invalid_params`: TS 29.500 table 5.2.7.2-1 NOTE 1 (ADR-0610); empty leaves the attribute out.
 http2::Response problem(int status,
                         const std::string& title,
                         const std::string& detail,
                         const std::optional<std::string>& cause,
-                        const std::string& own_fqdn) {
+                        const std::string& own_fqdn,
+                        std::vector<sbi_core::InvalidParam> invalid_params = {}) {
     http2::Response r;
     r.status = status;
     r.headers.emplace("content-type", "application/problem+json");
     r.headers.emplace("server", "SEPP-" + own_fqdn);
-    r.body = json(sbi_core::make_problem_details(status, title, detail, cause)).dump();
+    r.body = json(sbi_core::make_problem_details(
+                      status, title, detail, cause, std::move(invalid_params)))
+                 .dump();
     return r;
 }
 
@@ -476,7 +480,8 @@ int main() {
                                                  : "Forbidden",
                                d.detail,
                                d.cause,
-                               policy.own_fqdn);
+                               policy.own_fqdn,
+                               d.invalid_params);
             }
             if (d.teardown) {
                 contexts.erase(lower(body.sender));
@@ -540,7 +545,8 @@ int main() {
                                                  : "Forbidden",
                                d.detail,
                                d.cause,
-                               policy.own_fqdn);
+                               policy.own_fqdn,
+                               d.invalid_params);
             }
             if (d.context) {
                 prins.put(*d.context);
@@ -642,7 +648,11 @@ int main() {
                            "Bad Request",
                            "no metaData in the reformatted message",
                            "MANDATORY_IE_INCORRECT",
-                           policy.own_fqdn);
+                           policy.own_fqdn,
+                           // metaData travels inside aad (a DataToIntegrityProtectBlock,
+                           // base64url); aad is the IE of this request body that lacks it.
+                           {sbi_core::invalid_body_ie(json::json_pointer("/reformattedData/aad"),
+                                                      "carries no decodable metaData")});
         }
         const auto pc = prins.by_local_id(meta->n32fContextId);
         if (!pc) {
@@ -815,15 +825,18 @@ int main() {
                            "Bad Request",
                            "3gpp-Sbi-Target-apiRoot is required on N32-f",
                            "MANDATORY_IE_MISSING",
-                           policy.own_fqdn);
+                           policy.own_fqdn,
+                           {sbi_core::invalid_header("3gpp-Sbi-Target-apiRoot", "missing")});
         }
         if (sepp::network_domain_of_host(sepp::host_of(*target)) != own_domain) {
             refused->Add(1);
-            return problem(400,
-                           "Bad Request",
-                           "3gpp-Sbi-Target-apiRoot " + *target + " is not in PLMN " + own_domain,
-                           "MANDATORY_IE_INCORRECT",
-                           policy.own_fqdn);
+            return problem(
+                400,
+                "Bad Request",
+                "3gpp-Sbi-Target-apiRoot " + *target + " is not in PLMN " + own_domain,
+                "MANDATORY_IE_INCORRECT",
+                policy.own_fqdn,
+                {sbi_core::invalid_header("3gpp-Sbi-Target-apiRoot", "not in PLMN " + own_domain)});
         }
         const auto [authority, prefix] = split_api_root(*target);
         // A target apiRoot without a port is the https default (e.g. one rebuilt from a telescopic
@@ -858,22 +871,28 @@ int main() {
         const bool has_fqdn = fqdn != req.query_params.end();
         const bool has_label = label != req.query_params.end();
         if (has_fqdn == has_label) {
+            const std::string one_of_reason =
+                has_fqdn ? "both present; exactly one is allowed" : "both absent; one is required";
             return problem(400,
                            "Bad Request",
                            "exactly one of foreign-fqdn and telescopic-label is required",
                            "INVALID_QUERY_PARAM",
-                           policy.own_fqdn);
+                           policy.own_fqdn,
+                           {sbi_core::invalid_query_param("foreign-fqdn", one_of_reason),
+                            sbi_core::invalid_query_param("telescopic-label", one_of_reason)});
         }
         sbi_gen::TelescopicMapping mapping;
         if (has_fqdn) {
             // 5.4.2: only an FQDN of another PLMN has a telescopic form.
             const auto domain = sepp::network_domain_of_host(fqdn->second);
             if (!domain || *domain == own_domain) {
-                return problem(400,
-                               "Bad Request",
-                               "foreign-fqdn " + fqdn->second + " is not an FQDN of another PLMN",
-                               "INVALID_QUERY_PARAM",
-                               policy.own_fqdn);
+                return problem(
+                    400,
+                    "Bad Request",
+                    "foreign-fqdn " + fqdn->second + " is not an FQDN of another PLMN",
+                    "INVALID_QUERY_PARAM",
+                    policy.own_fqdn,
+                    {sbi_core::invalid_query_param("foreign-fqdn", "not an FQDN of another PLMN")});
             }
             mapping.telescopicLabel = telescopic.label_for(fqdn->second);
             mapping.seppDomain = policy.own_fqdn;
@@ -917,15 +936,24 @@ int main() {
                            "Bad Request",
                            "neither a telescopic FQDN nor 3gpp-Sbi-Target-apiRoot names the target",
                            "MANDATORY_IE_MISSING",
-                           policy.own_fqdn);
+                           policy.own_fqdn,
+                           {sbi_core::invalid_header("3gpp-Sbi-Target-apiRoot", "missing")});
         }
         const auto domain = sepp::network_domain_of_host(sepp::host_of(*target));
         if (!domain || *domain == own_domain) {
+            // A target rebuilt from a telescopic FQDN came from the request URI, not a header:
+            // no InvalidParam encoding names a URI authority, so none is sent then.
+            std::vector<sbi_core::InvalidParam> invalid;
+            if (!via_telescopic) {
+                invalid.push_back(
+                    sbi_core::invalid_header("3gpp-Sbi-Target-apiRoot", "not in a remote PLMN"));
+            }
             return problem(400,
                            "Bad Request",
                            "3gpp-Sbi-Target-apiRoot " + *target + " is not in a remote PLMN",
                            "MANDATORY_IE_INCORRECT",
-                           policy.own_fqdn);
+                           policy.own_fqdn,
+                           std::move(invalid));
         }
         const auto ctx = contexts.by_domain(*domain);
         if (ctx && ctx->security != "TLS") {
