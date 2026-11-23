@@ -30,6 +30,7 @@
 #include "ngap_core/ngap_codec.hpp"
 #include "ngap_core/sctp_socket.hpp"
 #include "ngap_handover.hpp"
+#include "peer_uris.hpp"
 
 extern "C" {
 #include <AMF-UE-NGAP-ID.h>
@@ -1641,7 +1642,8 @@ bool activate_sms_at_smsf(const PeerEndpoints& peers,
     }
     sbi_core::http2::ClientRequest http_req;
     http_req.method = "PUT";
-    http_req.url = peers.smsf_base + "/nsmsf-sms/v2/ue-contexts/" + supi;
+    // ADR-0605: the SUPI is encoded as one path segment (peer_uris.hpp).
+    http_req.url = amf::peer_uris::smsf_ue_context(peers.smsf_base, supi);
     http_req.headers.emplace("content-type", "application/json");
     http_req.headers.emplace("authorization", "Bearer " + *token);
     http_req.body =
@@ -2049,7 +2051,8 @@ bool try_relay_uplink_sms(const PeerEndpoints& peers,
 
     sbi_core::http2::ClientRequest http_req;
     http_req.method = "POST";
-    http_req.url = peers.smsf_base + "/nsmsf-sms/v2/ue-contexts/" + auth_state.supi + "/sendsms";
+    // ADR-0605: the SUPI is encoded as one path segment (peer_uris.hpp).
+    http_req.url = amf::peer_uris::smsf_send_sms(peers.smsf_base, auth_state.supi);
     http_req.headers.emplace("content-type", encoded.content_type_header);
     http_req.headers.emplace("authorization", "Bearer " + *token);
     http_req.body = encoded.body;
@@ -2252,9 +2255,10 @@ void handle_uplink_nas_transport_pdu_session_establishment(const PeerEndpoints& 
     // disclosed-deferred-callback shape as peers.self_base's other use (PCF's notificationUri).
     // ADR-0523: one URI per PDU session -- TS 29.502's SmContextStatusNotification names no SM
     // context, so the URI is what tells the AMF which session the SMF released (step 11).
-    create_data.smContextStatusUri = peers.self_base + "/namf-callback/v1/sm-context-status/" +
-                                     auth_state.supi + "/" +
-                                     std::to_string(outcome->pdu_session_id);
+    // ADR-0605: the SUPI is encoded as one path segment, so the SMF's notification reaches this
+    // UE's own session on the callback route however the SUPI is spelled.
+    create_data.smContextStatusUri = amf::peer_uris::sm_context_status_callback(
+        peers.self_base, auth_state.supi, outcome->pdu_session_id);
     create_data.supi = auth_state.supi;
     create_data.pduSessionId = outcome->pdu_session_id;
     create_data.dnn = *outcome->dnn;
