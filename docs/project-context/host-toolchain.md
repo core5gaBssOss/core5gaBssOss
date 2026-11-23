@@ -132,16 +132,16 @@ time in `google-runtime-int` (3 findings); clang-tidy-22 (26.04 archive) is ~7-1
 with the same 3 findings. The extracted 21/22 binaries used for the measurement live in
 `build-tools/lint-cmp/` (gitignored).
 
-## Runners today (2026-11-20)
+## Runners today (2026-11-20, updated 2026-11-23)
 
 Added 2026-11-20; the single-runner text above is kept as the record of the 2026-10-11 restore.
 Three machines are registered (ADR-0580, ADR-0581, ADR-0582, ADR-0596):
 
 | Machine | Runner name | Labels | Role |
 |---|---|---|---|
-| MASTERMIND-007 (the lab host this file was written for) | `5gc-lab-host` | `self-hosted, Linux, X64, 5gc-lab, 5gc-lab-small` | Carries self-hosted CI (lint, build, sanitizers, fuzz) |
-| mastermind-073 (laptop) | `mastermind-073-small` | `self-hosted, Linux, X64, 5gc-lab, 5gc-lab-small` | Carries self-hosted CI, shared with the lab host; CI_JOBS from RAM (ADR-0582) |
-| mastermindAI (new laptop, master machine) | `5gc-lab-mastermindAI` | `self-hosted, Linux, X64, 5gc-master` | Development machine; CI fallback only. No workflow targets `5gc-master`; a job moves there only by a `runs-on` PR that cites a recorded failure (ADR-0596) |
+| MASTERMIND-007 (the lab host this file was written for) | `5gc-lab-host` | `self-hosted, Linux, X64, 5gc-lab, 5gc-lab-small` | Carries self-hosted CI (lint, build, sanitizers, fuzz). Since 2026-11-23 the only runner with `5gc-lab`, so it runs every build, sanitize and fuzz job, and lint too |
+| mastermind-073 (laptop) | `mastermind-073-small` | `self-hosted, Linux, X64, 5gc-lab, 5gc-lab-small` until 2026-11-23; since then `self-hosted, Linux, X64, 5gc-lab-small` | Carries self-hosted CI, shared with the lab host; CI_JOBS from RAM (ADR-0582). Since 2026-11-23 lint only (the `5gc-lab-small` jobs), see below |
+| mastermindAI (new laptop, master machine) | `5gc-lab-mastermindAI` | `self-hosted, Linux, X64, 5gc-master` | Development machine; CI fallback only. No workflow targets `5gc-master`; a job moves there only by a `runs-on` PR that cites a recorded failure (ADR-0596). CI labels were put on it on 2026-11-21 and removed on 2026-11-22 (port contention with local tests); it carries only `5gc-master` again |
 
 - Self-hosted `build-tools` is a symlink to `~/.cache/5gc-ci/build-tools` on each runner. asn1c 0.9.29
   compiles its skeleton directory in as an absolute path, so a cache copied from another checkout
@@ -150,3 +150,22 @@ Three machines are registered (ADR-0580, ADR-0581, ADR-0582, ADR-0596):
   `rm -rf ~/.cache/5gc-ci/build-tools/asn1c` on the affected runner.
 - The 2026-11-20 relabel incident (a label PUT on one runner coincided with two runners losing
   `5gc-lab`; re-added by POST and verified) is recorded in ADR-0596.
+
+### Update 2026-11-23 (user decisions 2026-11-22 and 2026-11-23)
+
+- `5gc-lab-host` (MASTERMIND-007) carries `5gc-lab` + `5gc-lab-small` and runs build, sanitize and
+  lint (`ci.yml` jobs on `5gc-lab`, the lint job and `docs-lint.yml` on `5gc-lab-small`; the nightly
+  `fuzz-nightly.yml` is on `5gc-lab` too).
+- `mastermind-073-small` (mastermind-073) carries only `5gc-lab-small` since 2026-11-23 and runs
+  lint only. The user removed its `5gc-lab` label after ASan jobs there (6.9 GB RAM, Doris running
+  beside the tests) repeatedly failed when spawned NFs took ~30 s to start (PRs #56, #58, #61, #60).
+- `5gc-lab-mastermindAI` (the master machine, runner 23) carries only `5gc-master` and is fallback
+  only. CI labels were put on it briefly on 2026-11-21 and removed on 2026-11-22 after port
+  contention with local tests run on the same machine. Local tests there run only when this runner
+  is idle; NF processes are never killed by name.
+- Related: ADR-0617 (#68, db66244e). Integration tests now wait for spawned NFs against a
+  `steady_clock` deadline that is scaled 3x under ASan and 5x under TSan
+  (`TEST_READINESS_TIMEOUT_SCALE` overrides), instead of a fixed attempt count. That change is in
+  the test harness; the label change above is the infrastructure side of the same failures.
+- Effect: every build and sanitize job now queues on one machine (007), so B10 in ADR-0572 (CI on
+  the developer's own machines, serial) is unchanged in substance.

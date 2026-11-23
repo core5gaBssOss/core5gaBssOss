@@ -95,6 +95,12 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `DELETE` (404), as the TM Forum `Error` via `libs/tmf-core` instead of 3GPP ProblemDetails.
   Statuses are unchanged; the sbi-core framework's own errors are not covered yet
   ([ADR-0619](docs/decisions/ADR-0619-bss-product-catalog-answers-the-tmf620-error-via-libs-tmf.md)).
+- Docs: `docs/TRACEABILITY.md` rows for ADR-0604, 0606, 0607, 0609, 0610, 0611, 0612 and 0617,
+  the REVIEW-5ae0ef1 SBI-03 ledger row, the ADR-0572 progress table, `docs/COMPONENT_STATUS.md`,
+  the runner inventory in `docs/project-context/host-toolchain.md` and README brought current with
+  `main` 3837d995 (SBI-03 `invalidParams` step 1 and the UDR and SEPP step 2, the BSS TMF `Error`
+  series PR 0 and PR 1, the NEF and SMF URL-encoding fixes, the sanitizer-scaled readiness waits,
+  and the 2026-11-22/23 runner label changes). No code changes.
 - Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
   and `fuzz-nightly.yml`
   ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).

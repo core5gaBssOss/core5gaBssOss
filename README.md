@@ -158,7 +158,7 @@ By phase:
 
 | Phase | What | Status |
 |---|---|---|
-| 0 | Foundations: CMake+vcpkg skeleton, `libs/sbi-core` (HTTP/2, OAuth2, ProblemDetails, headers, logging, tracing), TLS 1.3 + mTLS | Done. ProblemDetails `cause` (REVIEW-5ae0ef1 SBI-03, v0.2.0 item 4): since 2026-11-15 the 404s of these NFs send the cause their spec defines, one NF per PR (NRF, NEF for AM policy only, then every NEF 404 with a defined cause since ADR-0601, UDR, UDM, PCF, AMF, SMF, NWDAF, SMSF, NSSF, AUSF, ADRF, DCCF, EIR, GMLC, LMF; ADR-0577..0601), and the UDM answers 502 `INBOUND_SERVER_ERROR` when its UDR is overloaded (ADR-0602); BSF, MFAF, CHF and NSACF need none. Open: the rest of the NEF (closed 2026-11-21 by ADR-0601, #52), `invalidParams`, BSS services (status: docs/reviews/REVIEW-5ae0ef1.md) |
+| 0 | Foundations: CMake+vcpkg skeleton, `libs/sbi-core` (HTTP/2, OAuth2, ProblemDetails, headers, logging, tracing), TLS 1.3 + mTLS | Done. ProblemDetails `cause` (REVIEW-5ae0ef1 SBI-03, v0.2.0 item 4): since 2026-11-15 the 404s of these NFs send the cause their spec defines, one NF per PR (NRF, NEF for AM policy only, then every NEF 404 with a defined cause since ADR-0601, UDR, UDM, PCF, AMF, SMF, NWDAF, SMSF, NSSF, AUSF, ADRF, DCCF, EIR, GMLC, LMF; ADR-0577..0601), and the UDM answers 502 `INBOUND_SERVER_ERROR` when its UDR is overloaded (ADR-0602); BSF, MFAF, CHF and NSACF need none. Open: the rest of the NEF (closed 2026-11-21 by ADR-0601, #52), `invalidParams`, BSS services (status: docs/reviews/REVIEW-5ae0ef1.md). Update 2026-11-23: `invalidParams` (TS 29.500 Table 5.2.7.2-1 NOTE 1) is in progress: sbi-core can carry it (ADR-0607, #58), and the UDR (ADR-0609, #60) and SEPP (ADR-0610, #62) send it for every NOTE 1 answer whose parameter they know; UDSF, NRF, UDM and SMF are open PRs (#63, #64, #67, #72); the 422s of the JSON parse helpers still carry none (ADR-0607). BSS services: the user chose the TM Forum `Error` for the TMF servers (ADR-0612); the TMF620/632/651/654 swaggers are vendored (ADR-0611, #59) and `libs/tmf-core` builds the `Error` (ADR-0612, #61); moving each BSS service onto it is in open PRs #65, #66, #69, #70, #71. Request values put into a peer's URI path are encoded as one path segment (ADR-0570 class) in the UDM, NEF, AUSF and SMF (ADR-0570, ADR-0575, ADR-0606, ADR-0603, ADR-0604); the AMF is open PR #56 |
 | 1 | Codegen spine: `tools/sbi-codegen`, generated DTOs/serializers from the R19 YAML | Done |
 | 2 | Control-plane core: NRF, AMF, SMF, UDM, UDR, AUSF, PCF; UE registration + PDU session establishment end-to-end | Done |
 | 3 | User plane: N4/PFCP, UPF datapath (an eBPF/XDP uplink GTP-U decapsulation path; lab veth/netns fixture, not a gNB-facing N3; no downlink and no LI hook) | Done for what is stated |
@@ -456,6 +456,11 @@ pull request whose whole diff against `main` is docs, or a docs-only push to `ma
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Self-hosted CI runs on two machines, MASTERMIND-007 and mastermind-073, which share every
 `5gc-lab` job; the master machine (mastermindAI) carries only the `5gc-master` label and is a
 fallback (ADR-0580, ADR-0581, ADR-0582, ADR-0596; inventory: `docs/project-context/host-toolchain.md`).
+Update 2026-11-23: mastermind-073 now carries only `5gc-lab-small` and runs lint only, because its
+ASan jobs failed while spawned NFs took ~30 s to start; every `5gc-lab` build and sanitize job runs
+on MASTERMIND-007. The master machine's CI labels, briefly added on 2026-11-21, were removed on
+2026-11-22. Integration tests wait for spawned NFs against a deadline scaled 3x under ASan and 5x
+under TSan (ADR-0617, #68).
 
 Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`. For the whole lab use `make lab-up`, which adds the generated `deploy/docker/docker-compose.lab.yml`: since ADR-0514 the Valkey NFs log in with their own ACL users, and only the overlay's configs carry them (ADR-0571).
 

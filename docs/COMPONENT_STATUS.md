@@ -11,7 +11,7 @@ The complete component list for this project, in scope per `CLAUDE.md` and
 **Keep this file current.** When a component is added or its status changes, update its row and the
 totals in the same commit.
 
-Last updated: 2026-11-21 (rows re-checked against `main` d55cc7b0; the SBI-03 PRs #32-#53 and the AUSF URL-encoding fix #54 change conformance, not component status, so no row moved).
+Last updated: 2026-11-23 (rows re-checked against `main` 3837d995; no status changed and no total moved. Since 2026-11-21: NEF and SMF URL-encoding fixes #55 (ADR-0606) and #57 (ADR-0604); sbi-core `invalidParams` support #58 (ADR-0607); UDR and SEPP send `invalidParams` for the TS 29.500 Table 5.2.7.2-1 NOTE 1 causes, #60 (ADR-0609) and #62 (ADR-0610); the TMF620/632/651/654 swaggers are vendored, #59 (ADR-0611), and the new library `libs/tmf-core` builds the TM Forum `Error`, #61 (ADR-0612), not yet used by any BSS service; the integration-test harness waits for spawned NFs against a sanitizer-scaled deadline, #68 (ADR-0617). sbi-core, tmf-core and the test harness are libraries/tooling and have no row of their own. Previously: 2026-11-21, rows re-checked against `main` d55cc7b0; the SBI-03 PRs #32-#53 and the AUSF URL-encoding fix #54 change conformance, not component status, so no row moved).
 
 ## 5G Core, Tier 1: all 13 built
 
@@ -19,14 +19,14 @@ Last updated: 2026-11-21 (rows re-checked against `main` d55cc7b0; the SBI-03 PR
 |---|---|---|
 | 1 | NRF | ✅ Built |
 | 2 | AMF | ✅ Built |
-| 3 | SMF | ✅ Built |
+| 3 | SMF | ✅ Built (2026-11-23: SUPI encoded as one path segment in the AMF N1N2MessageTransfer URI, ADR-0604) |
 | 4 | UPF | ✅ Built |
 | 5 | PCF | ✅ Built |
 | 6 | UDM | ✅ Built |
-| 7 | UDR | ✅ Built |
+| 7 | UDR | ✅ Built (2026-11-23: NOTE 1 answers carry `invalidParams`; Subs To Notify collection GET reachable again, ADR-0609) |
 | 8 | AUSF | ✅ Built |
 | 9 | NSSF | ✅ Built |
-| 10 | NEF | ✅ Built |
+| 10 | NEF | ✅ Built (2026-11-23: traffic-influence id and UE ids encoded in UDR/UDM URIs, ADR-0606) |
 | 11 | SCP | ✅ Built |
 | 12 | BSF | ✅ Built |
 | 13 | CHF | ✅ Built |
@@ -50,7 +50,7 @@ Last updated: 2026-11-21 (rows re-checked against `main` d55cc7b0; the SBI-03 PR
 | 26 | NSSAAF | 🕒 Already in Pipeline |
 | 27 | AAnF | ⚠️ Partial: AKMA anchor key, application key, context removal with the AUSF/UDM sides, GPSI, NEF path, roaming check (ADR-0495..0497); service-disable notification in pipeline |
 | 28 | UDSF | ✅ Built |
-| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492), PRINS with JOSE-protected forwarding (ADR-0493/0494), certificate-bound N32-c sender and N32-f correlation (ADR-0491), per-PLMN trust anchors (ADR-0529); not built: roaming intermediaries, N32-f keepalive PINGs, TLSCOR OPTIONS, SNDN32F, topology hiding, message filtering, URI_PARAM and multipart protection, replay detection, renegotiation, the N32-f/N32-c certificate PLMN subset check |
+| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492), PRINS with JOSE-protected forwarding (ADR-0493/0494), certificate-bound N32-c sender and N32-f correlation (ADR-0491), per-PLMN trust anchors (ADR-0529); not built: roaming intermediaries, N32-f keepalive PINGs, TLSCOR OPTIONS, SNDN32F, topology hiding, message filtering, URI_PARAM and multipart protection, replay detection, renegotiation, the N32-f/N32-c certificate PLMN subset check; 2026-11-23: NOTE 1 answers carry `invalidParams` (ADR-0610) |
 
 ## 5G Core, Tier 3: all 18 already in pipeline
 
