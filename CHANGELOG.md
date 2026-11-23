@@ -297,6 +297,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   absent required query parameter(s), `query nf-type` and/or `query nf-id`; status and cause are
   unchanged. The `parse_json_body` and post-PATCH DTO sites still have none
   ([ADR-0629](docs/decisions/ADR-0629-nssf-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
+- ADRF: every answer with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carries `invalidParams` naming
+  the query parameter(s) or body IE(s) (JSON Pointer; every member of a oneOf / anyOf of which none
+  is present; `/mlModels/<i>/<member>` for a missing MLModel member; `""` for an empty
+  remove-stored-mlmodel list); statuses and causes are unchanged
+  ([ADR-0624](docs/decisions/ADR-0624-adrf-problemdetails-carry-invalidparams-sbi-03-step-2-adrf.md)).
 - AMF: the SUPI is encoded as one path segment in the Nsmsf_SMService Activate and UplinkSMS URIs
   and in the `smContextStatusUri` it gives the SMF, so a SUPI with `?` or `/` (the AMF's NAS
   decoder writes `?` for an invalid BCD digit) can no longer reach another subscriber's resource
