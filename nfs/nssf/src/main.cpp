@@ -69,10 +69,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
@@ -409,12 +411,20 @@ int main() {
         "GET",
         std::string(kNsSelectionApiRoot) + "/network-slice-information",
         [&nssai_catalog, &ns_selection_counter](const sbi_core::http2::Request& req) {
-            if (req.query_params.find("nf-type") == req.query_params.end() ||
-                req.query_params.find("nf-id") == req.query_params.end()) {
+            // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0629): invalidParams names each absent one of
+            // the two required query parameters (TS29531_Nnssf_NSSelection.yaml), "query <name>".
+            std::vector<sbi_core::InvalidParam> missing;
+            for (const char* name : {"nf-type", "nf-id"}) {
+                if (req.query_params.find(name) == req.query_params.end()) {
+                    missing.push_back(sbi_core::invalid_query_param(name));
+                }
+            }
+            if (!missing.empty()) {
                 return sbi_core::http2::problem_response(400,
                                                          "Missing mandatory query parameter",
                                                          "nf-type and nf-id are required",
-                                                         "MANDATORY_QUERY_PARAM_MISSING");
+                                                         "MANDATORY_QUERY_PARAM_MISSING",
+                                                         std::move(missing));
             }
             ns_selection_counter->Add(1);
 
