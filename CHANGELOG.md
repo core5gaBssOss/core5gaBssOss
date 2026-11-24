@@ -358,6 +358,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   and an UpdateSMContext whose `n2SmInfo` binary part does not decode as the transfer its
   `n2SmInfoType` declares names `/n2SmInfo`; statuses and causes are unchanged
   ([ADR-0621](docs/decisions/ADR-0621-smf-problemdetails-carry-invalidparams-sbi-03-step-2-smf.md)).
+- 5G-EIR: GetEquipmentStatus's 400 `MANDATORY_QUERY_PARAM_MISSING` carries `invalidParams`
+  naming the absent required query parameter, `query pei`; status and cause are unchanged. An
+  empty `pei` still falls through to the 404 `ERROR_EQUIPMENT_UNKNOWN` without one
+  ([ADR-0633](docs/decisions/ADR-0633-5g-eir-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
 
 ### Security
 
