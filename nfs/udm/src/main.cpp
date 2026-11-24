@@ -92,6 +92,7 @@
 #include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
+#include "sbi_core/problem_details.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
 #include "sbi_core/store_quota.hpp"
@@ -468,9 +469,42 @@ sbi_core::http2::Response store_full(const std::string& what) {
 // proposes. Shared with the UDR since ADR-0564.
 using sbi_core::confirm_expiry_in;
 
-// TS 29.500 Table 5.2.7.2-1: an optional IE (the expiry) with an incorrect value.
-sbi_core::http2::Response expiry_problem(const std::invalid_argument& e) {
-    return sbi_core::http2::problem_response(400, "Bad Request", e.what(), "OPTIONAL_IE_INCORRECT");
+// The expiry member each subscribe and modify below hands to confirm_expiry_in: `expires` of
+// SdmSubscription and SharedDataSubscription (TS29503_Nudm_SDM.yaml), `reportingOptions/expiry` of
+// EeSubscription (TS29503_Nudm_EE.yaml).
+const json::json_pointer& sdm_expires_at() {
+    static const json::json_pointer at("/expires");
+    return at;
+}
+const json::json_pointer& ee_expiry_at() {
+    static const json::json_pointer at("/reportingOptions/expiry");
+    return at;
+}
+
+// TS 29.500 Table 5.2.7.2-1: an optional IE (the expiry) with an incorrect value. NOTE 1
+// (ADR-0614): invalidParams names the member `at` that confirm_expiry_in refused, as a JSON
+// Pointer. On a modify that is the member of the patched resource; the patch operation that wrote
+// it is not known here (the whole patch is applied before the expiry is confirmed), so the reason
+// does not name one.
+sbi_core::http2::Response expiry_problem(const std::invalid_argument& e,
+                                         const json::json_pointer& at) {
+    return sbi_core::http2::problem_response(400,
+                                             "Bad Request",
+                                             e.what(),
+                                             "OPTIONAL_IE_INCORRECT",
+                                             {sbi_core::invalid_body_ie(at, e.what())});
+}
+
+// TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0614): the {supiOrSuci} path variable could not be
+// de-concealed. The cause stays MANDATORY_IE_INCORRECT, as before this ADR.
+sbi_core::http2::Response suci_not_deconcealed(const std::string& raw_supi_or_suci) {
+    return sbi_core::http2::problem_response(
+        400,
+        "Bad Request",
+        "Could not de-conceal SUCI " + raw_supi_or_suci +
+            " (malformed, unsupported protection scheme, or MAC verification failed)",
+        "MANDATORY_IE_INCORRECT",
+        {sbi_core::invalid_path_variable("supiOrSuci", "could not be de-concealed")});
 }
 
 } // namespace
@@ -2552,10 +2586,9 @@ int main() {
             json data = *body;
             udm::Clock::time_point expires_at;
             try {
-                expires_at = confirm_expiry_in(
-                    data, json::json_pointer("/expires"), subscription_max_lifetime);
+                expires_at = confirm_expiry_in(data, sdm_expires_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, sdm_expires_at());
             }
             const auto id = sdm_subscriptions.create(
                 udm::SdmSubscriptionEntry{.ue_id = ue_id, .data = data, .expires_at = expires_at},
@@ -2610,11 +2643,10 @@ int main() {
             try {
                 patched = sdm_subscriptions.merge_patch(
                     subscription_id, ue_id, json::parse(req.body), [&](json& doc) {
-                        return confirm_expiry_in(
-                            doc, json::json_pointer("/expires"), subscription_max_lifetime);
+                        return confirm_expiry_in(doc, sdm_expires_at(), subscription_max_lifetime);
                     });
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, sdm_expires_at());
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
@@ -2691,44 +2723,48 @@ int main() {
     // whole request -- the real response schema (`array of SharedData`) has no `minItems`/
     // completeness constraint, so a partial result for a partially-known id set is a real, valid
     // response, not an invented one.
-    server.add_route(
-        "GET",
-        std::string(kSdmApiRoot) + "/shared-data",
-        [&udr_client, &udr_oauth, &udr_base_url, &shared_data_get_counter](
-            const sbi_core::http2::Request& req) {
-            const auto ids_it = req.query_params.find("shared-data-ids");
-            if (ids_it == req.query_params.end()) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "shared-data-ids is required", "MANDATORY_IE_MISSING");
-            }
-            auto token = udr_oauth.get_bearer_token();
-            if (!token.has_value()) {
-                return sbi_core::http2::problem_response(500,
-                                                         "Internal Server Error",
-                                                         "UDM could not obtain a token for UDR: " +
-                                                             token.error(),
-                                                         "SYSTEM_FAILURE");
-            }
-            json result = json::array();
-            for (const auto& shared_data_id : sbi_core::http2::split_form_array(ids_it->second)) {
-                sbi_core::http2::ClientRequest udr_req;
-                udr_req.method = "GET";
-                udr_req.url = udr_base_url + kUdrApiRoot + "/subscription-data/shared-data/" +
-                              seg(shared_data_id);
-                udr_req.headers.emplace("authorization", "Bearer " + *token);
-                auto udr_resp = udr_client.send(udr_req);
-                if (!udr_resp.has_value() || udr_resp->status != 200) {
-                    continue;
-                }
-                try {
-                    result.push_back(json::parse(udr_resp->body));
-                } catch (const json::exception&) {
-                    continue;
-                }
-            }
-            shared_data_get_counter->Add(1);
-            return sbi_core::http2::Response::json(200, result.dump());
-        });
+    server.add_route("GET",
+                     std::string(kSdmApiRoot) + "/shared-data",
+                     [&udr_client, &udr_oauth, &udr_base_url, &shared_data_get_counter](
+                         const sbi_core::http2::Request& req) {
+                         const auto ids_it = req.query_params.find("shared-data-ids");
+                         if (ids_it == req.query_params.end()) {
+                             return sbi_core::http2::problem_response(
+                                 400,
+                                 "Bad Request",
+                                 "shared-data-ids is required",
+                                 "MANDATORY_IE_MISSING",
+                                 {sbi_core::invalid_query_param("shared-data-ids")});
+                         }
+                         auto token = udr_oauth.get_bearer_token();
+                         if (!token.has_value()) {
+                             return sbi_core::http2::problem_response(
+                                 500,
+                                 "Internal Server Error",
+                                 "UDM could not obtain a token for UDR: " + token.error(),
+                                 "SYSTEM_FAILURE");
+                         }
+                         json result = json::array();
+                         for (const auto& shared_data_id :
+                              sbi_core::http2::split_form_array(ids_it->second)) {
+                             sbi_core::http2::ClientRequest udr_req;
+                             udr_req.method = "GET";
+                             udr_req.url = udr_base_url + kUdrApiRoot +
+                                           "/subscription-data/shared-data/" + seg(shared_data_id);
+                             udr_req.headers.emplace("authorization", "Bearer " + *token);
+                             auto udr_resp = udr_client.send(udr_req);
+                             if (!udr_resp.has_value() || udr_resp->status != 200) {
+                                 continue;
+                             }
+                             try {
+                                 result.push_back(json::parse(udr_resp->body));
+                             } catch (const json::exception&) {
+                                 continue;
+                             }
+                         }
+                         shared_data_get_counter->Add(1);
+                         return sbi_core::http2::Response::json(200, result.dump());
+                     });
 
     server.add_route(
         "GET",
@@ -2742,7 +2778,11 @@ int main() {
                     400,
                     "Bad Request",
                     "At least one of ext-group-id or int-group-id is required",
-                    "MANDATORY_IE_MISSING");
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_query_param(
+                         "ext-group-id", "one of ext-group-id or int-group-id is required"),
+                     sbi_core::invalid_query_param(
+                         "int-group-id", "one of ext-group-id or int-group-id is required")});
             }
             auto token = udr_oauth.get_bearer_token();
             if (!token.has_value()) {
@@ -2801,10 +2841,9 @@ int main() {
             json j = *body;
             udm::Clock::time_point expires_at;
             try {
-                expires_at =
-                    confirm_expiry_in(j, json::json_pointer("/expires"), subscription_max_lifetime);
+                expires_at = confirm_expiry_in(j, sdm_expires_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, sdm_expires_at());
             }
             const auto id = shared_data_subscriptions.create(j, expires_at, req.token_sub);
             if (!id) {
@@ -2847,11 +2886,10 @@ int main() {
             try {
                 patched = shared_data_subscriptions.merge_patch(
                     subscription_id, json::parse(req.body), [&](json& doc) {
-                        return confirm_expiry_in(
-                            doc, json::json_pointer("/expires"), subscription_max_lifetime);
+                        return confirm_expiry_in(doc, sdm_expires_at(), subscription_max_lifetime);
                     });
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, sdm_expires_at());
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
@@ -2971,12 +3009,7 @@ int main() {
             const auto raw_supi_or_suci = req.path_params.at("supiOrSuci");
             const auto deconcealed = deconceal_suci_if_needed(raw_supi_or_suci);
             if (!deconcealed.has_value()) {
-                return sbi_core::http2::problem_response(
-                    400,
-                    "Bad Request",
-                    "Could not de-conceal SUCI " + raw_supi_or_suci +
-                        " (malformed, unsupported protection scheme, or MAC verification failed)",
-                    "MANDATORY_IE_INCORRECT");
+                return suci_not_deconcealed(raw_supi_or_suci);
             }
             const auto supi_or_suci = *deconcealed;
 
@@ -3101,12 +3134,7 @@ int main() {
             const auto raw_supi_or_suci = req.path_params.at("supiOrSuci");
             const auto deconcealed = deconceal_suci_if_needed(raw_supi_or_suci);
             if (!deconcealed.has_value()) {
-                return sbi_core::http2::problem_response(
-                    400,
-                    "Bad Request",
-                    "Could not de-conceal SUCI " + raw_supi_or_suci +
-                        " (malformed, unsupported protection scheme, or MAC verification failed)",
-                    "MANDATORY_IE_INCORRECT");
+                return suci_not_deconcealed(raw_supi_or_suci);
             }
             const auto supi_or_suci = *deconcealed;
 
@@ -3162,17 +3190,13 @@ int main() {
                     400,
                     "Bad Request",
                     "Required query parameter authenticated-ind is missing",
-                    "MANDATORY_QUERY_PARAM_MISSING");
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    {sbi_core::invalid_query_param("authenticated-ind")});
             }
             const auto raw_supi_or_suci = req.path_params.at("supiOrSuci");
             const auto deconcealed = deconceal_suci_if_needed(raw_supi_or_suci);
             if (!deconcealed.has_value()) {
-                return sbi_core::http2::problem_response(
-                    400,
-                    "Bad Request",
-                    "Could not de-conceal SUCI " + raw_supi_or_suci +
-                        " (malformed, unsupported protection scheme, or MAC verification failed)",
-                    "MANDATORY_IE_INCORRECT");
+                return suci_not_deconcealed(raw_supi_or_suci);
             }
             const auto supi_or_suci = *deconcealed;
 
@@ -3221,7 +3245,9 @@ int main() {
                         400,
                         "Bad Request",
                         "servingNetworkId is required to derive CK'/IK' for eap-aka-prime",
-                        "MANDATORY_IE_MISSING");
+                        "MANDATORY_IE_MISSING",
+                        {sbi_core::invalid_body_ie(json::json_pointer("/servingNetworkId"),
+                                                   "required for hssAuthType eap-aka-prime")});
                 }
                 const auto& mnc = body->servingNetworkId->mnc;
                 const std::string padded_mnc =
@@ -3440,10 +3466,9 @@ int main() {
             }
             udm::Clock::time_point expires_at;
             try {
-                expires_at = confirm_expiry_in(
-                    j, json::json_pointer("/reportingOptions/expiry"), subscription_max_lifetime);
+                expires_at = confirm_expiry_in(j, ee_expiry_at(), subscription_max_lifetime);
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, ee_expiry_at());
             }
             // ADR-0535: TS 29.503 6.4.6.2.6 -- maxNumOfReports 1 and the event report in this
             // response: "the value of the expiry included in the response shall be an immediate
@@ -3521,15 +3546,13 @@ int main() {
             std::optional<json> patched;
             try {
                 patched = ee_subscriptions.apply_patch(subscription_id, patch_ops, [&](json& doc) {
-                    return confirm_expiry_in(doc,
-                                             json::json_pointer("/reportingOptions/expiry"),
-                                             subscription_max_lifetime);
+                    return confirm_expiry_in(doc, ee_expiry_at(), subscription_max_lifetime);
                 });
             } catch (const json::exception& e) {
                 return sbi_core::http2::problem_response(
                     400, "Invalid JSON Patch", e.what(), "INVALID_MSG_FORMAT");
             } catch (const std::invalid_argument& e) {
-                return expiry_problem(e);
+                return expiry_problem(e, ee_expiry_at());
             }
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
@@ -3937,7 +3960,9 @@ int main() {
                     "Bad Request",
                     "Could not de-conceal SUCI " + body->suci +
                         " (malformed, unsupported protection scheme, or MAC verification failed)",
-                    "MANDATORY_IE_INCORRECT");
+                    "MANDATORY_IE_INCORRECT",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/suci"),
+                                               "could not be de-concealed")});
             }
             ueid_deconceal_counter->Add(1);
             sbi_gen::DeconcealRspData resp_data;
