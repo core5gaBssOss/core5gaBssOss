@@ -578,6 +578,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0610](decisions/ADR-0610-sepp-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md) SEPP ProblemDetails carry invalidParams (SBI-03 step 2, TS 29.500 Table 5.2.7.2-1 NOTE 1)
 - [0611](decisions/ADR-0611-vendor-the-tmf620-tmf632-tmf651-and-tmf654-swaggers-the-bss.md) Vendor the TMF620, TMF632, TMF651 and TMF654 swaggers the BSS services cite (BSS SBI-03 PR 0)
 - [0612](decisions/ADR-0612-shared-tm-forum-error-helper-in-libs-tmf-core-bss-sbi-03-pr.md) Shared TM Forum Error helper in libs/tmf-core (BSS SBI-03 PR 1)
+- [0613](decisions/ADR-0613-nrf-problemdetails-carry-invalidparams-sbi-03-step-2-nrf.md) NRF ProblemDetails carry invalidParams (SBI-03 step 2, NRF)
 - [0617](decisions/ADR-0617-integration-tests-wait-for-spawned-nfs-against-a-deadline.md) Integration tests wait for spawned NFs against a deadline that scales under sanitizers
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):

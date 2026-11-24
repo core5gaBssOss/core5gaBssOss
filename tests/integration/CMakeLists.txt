@@ -61,6 +61,7 @@ add_executable(integration_tests
     test_smf_amf_authorization.cpp
     test_nef_authorization.cpp
     test_nrf_authorization.cpp
+    test_nrf_invalid_params.cpp
     test_chf_nwdaf_adrf_authorization.cpp
     test_scp_authorization.cpp
     test_patch_conformance.cpp
