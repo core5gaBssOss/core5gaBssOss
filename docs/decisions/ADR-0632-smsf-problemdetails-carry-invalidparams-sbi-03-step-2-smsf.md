@@ -79,3 +79,5 @@ send invalidParams:
 **Verified.** See the PR for what was checked on this machine: clang-format-18 and a syntax-only
 compile of `nfs/smsf/src/main.cpp` and the new test. No build, and the integration tests were not
 run (they need the lab certificates, which this worktree does not read).
+
+**Verified by the lead, 2026-11-24, main checkout.** Tree: origin/main 4cb7a62e plus #82 (EIR) and #83 (SMSF) applied together; the only conflict was the two test files appended to the integration_tests list, resolved by keeping both. Full build. `EirInvalidParams.*` 3/3 and `SmsfInvalidParams.*` 2/2 pass. With nfs/eir/src/main.cpp and nfs/smsf/src/main.cpp restored to main and rebuilt, the 4 error-case tests fail; `EirInvalidParams.PeiPresentReachesTheStatusLookup` is a positive control and passes either way. Regression: `--gtest_filter='Eir*:Smsf*'` 8/8 pass. The master runner had no Runner.Worker process during the runs (GitHub's runner API was returning HTTP 500). Only these filters were run, not a full ctest.
