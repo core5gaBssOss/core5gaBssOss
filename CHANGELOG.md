@@ -362,6 +362,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   naming the absent required query parameter, `query pei`; status and cause are unchanged. An
   empty `pei` still falls through to the 404 `ERROR_EQUIPMENT_UNKNOWN` without one
   ([ADR-0633](docs/decisions/ADR-0633-5g-eir-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
+- SMSF: the SendSMS and SendMtSMS 400 `MANDATORY_IE_MISSING` answers for a request without a
+  Content-Type now carry `invalidParams` `header Content-Type` (TS 29.500 Table 5.2.7.2-1 NOTE 1);
+  status codes and causes are unchanged. The malformed-multipart answers and the generated-DTO
+  parse failures still carry none
+  ([ADR-0632](docs/decisions/ADR-0632-smsf-problemdetails-carry-invalidparams-sbi-03-step-2-smsf.md)).
 
 ### Security
 
