@@ -66,6 +66,8 @@ with no warning on a changed line. **Not done:** no build, no run of `NssfInvali
 fixture needs the lab certificates in `certs/`, which this session does not use). To be run by the
 reviewer; CI result to be added.
 
+**Verified by the lead, 2026-11-24, main checkout (runner 23 idle).** Tree: origin/main 4cb7a62e plus #79 (NSSF), #80 (BSF) and #81 (CHF) applied together; the only conflicts were the test files appended to the integration_tests list, resolved by keeping all three. Full build. `NssfInvalidParams.*` 4/4, `BsfInvalidParams.*` 3/3 and `ChfInvalidParams.*` 4/4 pass. With nfs/nssf, nfs/bsf and nfs/chf main.cpp restored to main and rebuilt, the 10 error-case tests fail; `NssfInvalidParams.BothPresentReachesTheSelection` is a positive control and passes either way. Regression: `--gtest_filter='Nssf*:Bsf*:Chf*'` 22/22 pass. Local Doris had chf_cdr applied. Only these filters were run, not a full ctest.
+
 **Rejected alternatives.**
 
 - *Always list both `query nf-type` and `query nf-id` when either is missing.* The handler knows
