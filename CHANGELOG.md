@@ -280,6 +280,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `MANDATORY_IE_MISSING` for an `UpConfig` with neither `supi` nor `gpsi` names both; statuses and
   causes are unchanged
   ([ADR-0636](docs/decisions/ADR-0636-lmf-problemdetails-carry-invalidparams-sbi-03-step-2-lmf.md)).
+- MFAF: the four 400 `MANDATORY_IE_MISSING` answers now carry `invalidParams`: both members of
+  `MfafConfiguration`'s oneOf when neither is given, each empty required `MessageConfiguration`
+  member, `/refIds` on an empty Transfer, and `""` for an empty fetch body; statuses and causes are
+  unchanged
+  ([ADR-0637](docs/decisions/ADR-0637-mfaf-problemdetails-carry-invalidparams-sbi-03-step-2-mfaf.md)).
 
 ### Security
 
