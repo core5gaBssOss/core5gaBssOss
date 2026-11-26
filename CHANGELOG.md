@@ -275,6 +275,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - AMF: the N1N2MessageTransfer 400 `MANDATORY_IE_MISSING` for a non-SMS N1 message without
   `pduSessionId` now carries `invalidParams` naming `/pduSessionId`; status and cause are unchanged
   ([ADR-0635](docs/decisions/ADR-0635-amf-problemdetails-carry-invalidparams-sbi-03-step-2-amf.md)).
+- LMF: the DetermineLocation 400 `MANDATORY_IE_INCORRECT` for a malformed multipart/related body
+  now carries `invalidParams` naming the whole body (`""`), and the ConfigureUp 400
+  `MANDATORY_IE_MISSING` for an `UpConfig` with neither `supi` nor `gpsi` names both; statuses and
+  causes are unchanged
+  ([ADR-0636](docs/decisions/ADR-0636-lmf-problemdetails-carry-invalidparams-sbi-03-step-2-lmf.md)).
 
 ### Security
 

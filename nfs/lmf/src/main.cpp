@@ -320,10 +320,16 @@ int main() {
                 sbi_core::multipart::is_multipart_related(content_type_it->second)) {
                 auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
                 if (!parts.has_value() || parts->empty()) {
-                    return sbi_core::http2::problem_response(400,
-                                                             "Invalid Service Request",
-                                                             "Malformed multipart/related body",
-                                                             "MANDATORY_IE_INCORRECT");
+                    // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0636): MANDATORY_IE_INCORRECT carries
+                    // invalidParams. No part, so no InputData member, could be read: the whole
+                    // body is named with the RFC 6901 pointer "", as ADR-0623 does for the NEF.
+                    return sbi_core::http2::problem_response(
+                        400,
+                        "Invalid Service Request",
+                        "Malformed multipart/related body",
+                        "MANDATORY_IE_INCORRECT",
+                        {sbi_core::invalid_body_ie(json::json_pointer(""),
+                                                   "malformed multipart/related body")});
                 }
                 json_body_str = (*parts)[0].body;
             }
@@ -469,11 +475,17 @@ int main() {
                          // required:[gpsi]]`) -- enforced here since the codegen's own structural
                          // typing leaves both optional.
                          if (!body->supi.has_value() && !body->gpsi.has_value()) {
+                             // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0636): both members of the
+                             // anyOf are absent, so both are named.
+                             constexpr const char* kReason =
+                                 "absent; one of supi and gpsi is required";
                              return sbi_core::http2::problem_response(
                                  400,
                                  "Invalid Service Request",
                                  "At least one of supi or gpsi is required",
-                                 "MANDATORY_IE_MISSING");
+                                 "MANDATORY_IE_MISSING",
+                                 {sbi_core::invalid_body_ie(json::json_pointer("/supi"), kReason),
+                                  sbi_core::invalid_body_ie(json::json_pointer("/gpsi"), kReason)});
                          }
                          up_config_counter->Add(1);
                          const std::string key = body->supi.has_value() ? *body->supi : *body->gpsi;
