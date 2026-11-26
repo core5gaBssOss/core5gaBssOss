@@ -272,6 +272,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 - GMLC: the LocationUpdate 400 `MANDATORY_IE_MISSING` for a body with neither `supi` nor `gpsi` now
   carries `invalidParams` naming both, `/supi` and `/gpsi`; status and cause are unchanged
   ([ADR-0634](docs/decisions/ADR-0634-gmlc-problemdetails-carry-invalidparams-sbi-03-step-2-gmlc.md)).
+- AMF: the N1N2MessageTransfer 400 `MANDATORY_IE_MISSING` for a non-SMS N1 message without
+  `pduSessionId` now carries `invalidParams` naming `/pduSessionId`; status and cause are unchanged
+  ([ADR-0635](docs/decisions/ADR-0635-amf-problemdetails-carry-invalidparams-sbi-03-step-2-amf.md)).
 
 ### Security
 
