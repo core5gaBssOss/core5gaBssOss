@@ -101,6 +101,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `main` 3837d995 (SBI-03 `invalidParams` step 1 and the UDR and SEPP step 2, the BSS TMF `Error`
   series PR 0 and PR 1, the NEF and SMF URL-encoding fixes, the sanitizer-scaled readiness waits,
   and the 2026-11-22/23 runner label changes). No code changes.
+- Docs: `docs/TRACEABILITY.md` rows for ADR-0605, 0608, 0613, 0614 and 0616, the REVIEW-5ae0ef1
+  SBI-03 ledger row, the ADR-0572 progress table, `docs/COMPONENT_STATUS.md`, the runner inventory
+  and README brought current with `main` 9022f3a6 (SBI-03 `invalidParams` step 2 for the UDSF, NRF
+  and UDM, BSS TMF `Error` PR 3 for roaming-interconnect, the AMF URL-encoding fix, the open step 2
+  PRs #72 and #74-#89 named as open, and mastermind-073 carrying `5gc-lab` again). No code changes.
 - Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
   and `fuzz-nightly.yml`
   ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).
