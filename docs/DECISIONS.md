@@ -583,6 +583,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0615](decisions/ADR-0615-bss-provisioning-adopts-the-shared-tm-forum-error-helper.md) bss/provisioning adopts the shared TM Forum Error helper (BSS SBI-03 PR 2)
 - [0616](decisions/ADR-0616-bss-roaming-interconnect-answers-the-tmf651-error-via-libs.md) bss/roaming-interconnect answers the TMF651 Error via libs/tmf-core (BSS SBI-03 PR 3)
 - [0617](decisions/ADR-0617-integration-tests-wait-for-spawned-nfs-against-a-deadline.md) Integration tests wait for spawned NFs against a deadline that scales under sanitizers
+- [0619](decisions/ADR-0619-bss-product-catalog-answers-the-tmf620-error-via-libs-tmf.md) bss/product-catalog answers the TMF620 Error via libs/tmf-core (BSS SBI-03 PR 5)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

@@ -12,6 +12,7 @@ target_link_libraries(product_catalog_store PUBLIC bss_sid libpqxx::pqxx nf_conf
 target_include_directories(product_catalog_store PUBLIC src)
 
 add_executable(product-catalog src/main.cpp)
-target_link_libraries(product-catalog PRIVATE sbi_core bss_sid product_catalog_store nf_config)
+# ADR-0619: the TMF620 error responses (src/tmf_errors.hpp) are libs/tmf-core's TM Forum Error.
+target_link_libraries(product-catalog PRIVATE sbi_core bss_sid product_catalog_store nf_config tmf_core)
 # See nfs/hello-nf/CMakeLists.txt for why this is a compile-time absolute path.
 target_compile_definitions(product-catalog PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs" CONFIG_DIR="${CMAKE_SOURCE_DIR}/config")
