@@ -38,10 +38,23 @@ requested in reply, and further findings join this ADR or get their own ADRs.
   candidate S-NSSAI is allowed only if the catalog has it *and* the availability store lists it as
   supported in that TA. S-NSSAIs that fail only on the TA go to `rejectedNssaiInTa`, not
   `rejectedNssaiInPlmn`. Without `tai`, today's catalog-only behaviour stays, and that is disclosed.
-- **Procedure outputs.** `nsiInformation` for the PDU-session procedure and `configuredNssai` for
-  registration get filled from the catalog. `targetAmfSet`/`candidateAmfList` and
+  The store is keyed by AMF `nfId` and holds each AMF's raw `NssaiAvailabilityInfo`
+  (`nfs/nssf/src/main.cpp` line 561), so "listed as supported in that TA" has to be defined over
+  all AMFs' entries. Proposed: an S-NSSAI is supported in a TA if any stored entry's
+  `supportedNssaiAvailabilityData` for that `tai` lists it. A TA that no AMF has reported is
+  treated as unknown and falls back to the catalog, so a lab without NSSAIAvailability traffic
+  keeps today's answers. **Open:** confirm both rules against TS 29.531 / TS 23.501 5.15 before
+  coding.
+- **Procedure outputs.** `configuredNssai` for registration gets filled from the catalog
+  (`ConfiguredSnssai` requires only `configuredSnssai`). `nsiInformation` cannot come from the
+  catalog: `NsiInformation` requires `nrfId` (the slice's NRF URI), and the catalog is two
+  hard-coded S-NSSAIs (`seed_catalog()`, line 103) with no NRF data. Filling it needs a
+  per-S-NSSAI NRF entry in the NSSF's configuration (guardrail 8: configuration over code); until
+  that config exists `nsiInformation` stays out of scope with the other outputs below. `targetAmfSet`/`candidateAmfList` and
   `mappingOfNssai` stay out of scope (no AMF-set or roaming mapping data source yet) and remain a
   disclosed simplification in the file's top comment.
+- Sequencing: open PR #79 (ADR-0629) changes the same NSSelectionGet handler (its 400 carries
+  `invalidParams`). The implementation PR goes after #79 merges.
 - Tests: one negative test per procedure for the error answer, one test where an AMF's
   NSSAIAvailabilityPut withdraws a slice in a TA and NSSelection then rejects it in that TA.
 
