@@ -7,6 +7,16 @@ void NssaiAvailabilityStore::put(const std::string& nf_id, nlohmann::json info) 
     data_[nf_id] = std::move(info);
 }
 
+std::vector<nlohmann::json> NssaiAvailabilityStore::list_all() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<nlohmann::json> out;
+    out.reserve(data_.size());
+    for (const auto& [nf_id, info] : data_) {
+        out.push_back(info);
+    }
+    return out;
+}
+
 std::optional<nlohmann::json> NssaiAvailabilityStore::get(const std::string& nf_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = data_.find(nf_id);

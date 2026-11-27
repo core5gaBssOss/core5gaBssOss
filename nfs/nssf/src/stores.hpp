@@ -32,6 +32,9 @@ public:
     // Returns the patched value, or nullopt if nf_id doesn't exist or the patch itself throws.
     std::optional<nlohmann::json> patch(const std::string& nf_id, const nlohmann::json& patch_ops);
     bool remove(const std::string& nf_id);
+    // Every stored NssaiAvailabilityInfo: NSSelectionGet checks the per-TA S-NSSAI support in
+    // them (ADR-0640).
+    std::vector<nlohmann::json> list_all();
 
 private:
     std::mutex mutex_;

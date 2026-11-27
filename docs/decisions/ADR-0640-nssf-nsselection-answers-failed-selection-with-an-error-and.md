@@ -45,6 +45,45 @@ requested in reply, and further findings join this ADR or get their own ADRs.
 - Tests: one negative test per procedure for the error answer, one test where an AMF's
   NSSAIAvailabilityPut withdraws a slice in a TA and NSSelection then rejects it in that TA.
 
+**Implementation (2026-11-27).** TS 29.531 j70 (`specs/3gpp/29531-j70.docx`) was added and read.
+Clauses 5.2.2.2.2-5.2.2.2.5 step 2b settle the open point: no slice found -> `403` with
+application error `SNSSAI_NOT_SUPPORTED` (Table 6.1.7.3-1). The decision moved out of main.cpp
+into `nfs/nssf/src/selection.cpp` (pure; conformance tests link it):
+- Each candidate is allowed, or goes to `rejectedNssaiInPlmn` (not in the catalog), or to
+  `rejectedNssaiInTa` (an NSSAIAvailability record covers the request's `tai` through `tai` or
+  `taiList`, and none of its `supportedSnssaiList` ExtSnssai entries match by sst + sd,
+  `wildcardSd` or `sdRanges`).
+- Registration: when none of the Requested NSSAI is permitted, the subscribed S-NSSAIs with
+  `defaultIndication` that pass both checks are allowed (Table 6.1.6.2.2-1 allowedNssaiList, third
+  condition). `configuredNssai` is the subscribed S-NSSAIs in the catalog (or the catalog), and it
+  is sent when there is no Requested NSSAI or one of them is not valid in the PLMN. UE
+  configuration update always sends it.
+- PDU session: the 200 carries only `nsiInformation`, with `nrfId` = `{nrf_base_url}/nnrf-disc/v1`
+  (Table 6.1.6.2.7-1: the NFDiscovery API URI). No `allowedNssaiList` is sent for it.
+- 403 when nothing is allowed and there is no `configuredNssai`. A PDU session gets 403 when its
+  S-NSSAI is not allowed.
+
+Still not modeled, and disclosed in main.cpp's top comment:
+- `targetAmfSet`/`candidateAmfList`. 5.2.2.2.2 step 2a requires one of them on a registration
+  200, so that answer stays non-conformant.
+- `taiRangeList`, `mappingOfNssai`, `nsagInfos`, `targetNssai`, NSSRG compatibility, and a
+  per-slice NRF/`nsiId`.
+- A TA no AMF has reported is decided by the catalog alone.
+
+The repo's `TS29531_*.yaml` differ from the copies in the j70 zip. The checked-in REL-19 YAML stays
+the codegen source. Every field used here is in both.
+
+**Verified (2026-11-27).**
+- `tests/conformance/test_nssf_selection.cpp`: 12 `NssfSelection.*` tests, all passing. They were
+  linked against the CI build's `libsbi_generated.a`.
+- Live: the new `nssf` binary against an `nrf` with real tokens, using the same five requests as
+  the integration test. Results: TA-withdrawn SST 2 -> 403 `SNSSAI_NOT_SUPPORTED`; SST 1 -> 200
+  `nsiInformation.nrfId`; unknown SST 3 -> 403; registration -> `rejectedNssaiInTa` [SST 2];
+  default-subscribed fallback -> `configuredNssai`.
+- `NssfAuthorization.NsSelectionConsultsNssaiAvailabilityAndAnswers403WhenNoSlice`
+  (tests/integration) compiles but was not run locally. CI runs it, and it fails on the old code,
+  which answered 200.
+
 **Rejected alternatives.**
 - *Keep 200 and rely on `rejectedNssaiInPlmn` alone.* That is what the code does now, and the
   reviewer flags it as non-conformant. A consumer AMF/SMF cannot tell "nothing selected" from a
