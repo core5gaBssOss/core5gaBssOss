@@ -96,6 +96,21 @@ http2::Response problem(int status,
     return r;
 }
 
+// Same, with invalidParams: TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0638).
+http2::Response problem(int status,
+                        const std::string& title,
+                        const std::string& detail,
+                        const std::string& cause,
+                        std::vector<sbi_core::InvalidParam> invalid_params) {
+    http2::Response r;
+    r.status = status;
+    r.headers.emplace("content-type", "application/problem+json");
+    r.body = json(sbi_core::make_problem_details(
+                      status, title, detail, cause, std::move(invalid_params)))
+                 .dump();
+    return r;
+}
+
 bool has_feature(const std::optional<std::string>& supp_feat, unsigned bit) {
     if (!supp_feat || supp_feat->empty()) {
         return false;
@@ -306,16 +321,42 @@ int main() {
             // TS29565 TscAppSessionContextData: required [notifUri, afId, qosReference] -- an empty
             // reference would install an AF session with no QoS at the PCF.
             if (body.qosReference.empty() && !body.tscQosReq) {
+                // NOTE 1 (ADR-0638): an absent qosReference fails the DTO read above, so here it
+                // is present and empty.
                 return problem(
-                    400, "Bad Request", "qosReference is required", "MANDATORY_IE_MISSING");
+                    400,
+                    "Bad Request",
+                    "qosReference is required",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/qosReference"), "empty")});
             }
             if (body.externalGroupId || body.ueMac || body.ethFlowInfo || body.enEthFlowInfo) {
+                // NOTE 1 (ADR-0638): names each unsupported IE the request carries.
+                constexpr const char* kReason = "not supported by this TSCTSF";
+                std::vector<sbi_core::InvalidParam> unsupported;
+                if (body.externalGroupId) {
+                    unsupported.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/externalGroupId"), kReason));
+                }
+                if (body.ueMac) {
+                    unsupported.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/ueMac"), kReason));
+                }
+                if (body.ethFlowInfo) {
+                    unsupported.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/ethFlowInfo"), kReason));
+                }
+                if (body.enEthFlowInfo) {
+                    unsupported.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/enEthFlowInfo"), kReason));
+                }
                 return problem(
                     400,
                     "Bad Request",
                     "external groups and Ethernet PDU sessions are not supported by this "
                     "TSCTSF",
-                    "OPTIONAL_IE_INCORRECT");
+                    "OPTIONAL_IE_INCORRECT",
+                    std::move(unsupported));
             }
             // The PDU session binding(s) this request targets.
             std::vector<json> bindings;
@@ -326,10 +367,13 @@ int main() {
                 }
             } else if (body.ueId) {
                 if (!has_feature(body.suppFeat, kGmecBit)) {
+                    // NOTE 1 (ADR-0638): ueId is the IE that cannot be used here.
                     return problem(400,
                                    "Bad Request",
                                    "ueId requires the GMEC feature (TS 29.565 5.3.2.2.8)",
-                                   "MANDATORY_IE_INCORRECT");
+                                   "MANDATORY_IE_INCORRECT",
+                                   {sbi_core::invalid_body_ie(json::json_pointer("/ueId"),
+                                                              "requires the GMEC feature")});
                 }
                 // 5.3.2.2.8: the SUPI for the GPSI from the UDM (Nudm_SDM).
                 http2::ClientRequest t;
@@ -356,10 +400,25 @@ int main() {
                     bindings.push_back(*b);
                 }
             } else {
+                // NOTE 1 (ADR-0638): with a ueIpAddr that has no ipv4Addr, that member is named;
+                // otherwise neither target UE IE is present and both are named.
+                std::vector<sbi_core::InvalidParam> missing;
+                if (body.ueIpAddr) {
+                    missing.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/ueIpAddr/ipv4Addr"),
+                                                  "absent; required by this TSCTSF"));
+                } else {
+                    constexpr const char* kReason = "absent; one of ueIpAddr and ueId is required";
+                    missing.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/ueIpAddr"), kReason));
+                    missing.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/ueId"), kReason));
+                }
                 return problem(400,
                                "Bad Request",
                                "the target UE is required (ueIpAddr, or ueId with GMEC)",
-                               "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               std::move(missing));
             }
             if (bindings.empty()) {
                 return problem(500,

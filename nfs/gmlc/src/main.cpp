@@ -304,11 +304,17 @@ int main() {
             } else if (body->gpsi.has_value()) {
                 key = *body->gpsi;
             } else {
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0634): MANDATORY_IE_MISSING carries
+                // invalidParams. Both LocUpdateData IEs this store can key on, /supi and /gpsi
+                // (TS29515_Ngmlc_Location.yaml), are absent, so both are named.
+                constexpr const char* kReason = "absent; one of supi and gpsi is required";
                 return sbi_core::http2::problem_response(
                     400,
                     "Invalid Service Request",
                     "At least one of supi or gpsi is required to identify the UE",
-                    "MANDATORY_IE_MISSING");
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/supi"), kReason),
+                     sbi_core::invalid_body_ie(json::json_pointer("/gpsi"), kReason)});
             }
             update_location_counter->Add(1);
             location_contexts.put(key, json(*body));

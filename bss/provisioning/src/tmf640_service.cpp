@@ -11,10 +11,15 @@
 #include <set>
 
 #include "TMF640_ServiceActivation_v4_0_0.hpp"
+#include "tmf_core/error.hpp"
 
 namespace provisioning::tmf640 {
 
 using nlohmann::json;
+
+sbi_core::http2::Response error_response(const ServiceError& e) {
+    return tmf_core::error_response(e.status, e.detail);
+}
 
 namespace {
 

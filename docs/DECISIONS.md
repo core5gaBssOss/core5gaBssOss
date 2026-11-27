@@ -580,8 +580,17 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0612](decisions/ADR-0612-shared-tm-forum-error-helper-in-libs-tmf-core-bss-sbi-03-pr.md) Shared TM Forum Error helper in libs/tmf-core (BSS SBI-03 PR 1)
 - [0613](decisions/ADR-0613-nrf-problemdetails-carry-invalidparams-sbi-03-step-2-nrf.md) NRF ProblemDetails carry invalidParams (SBI-03 step 2, NRF)
 - [0614](decisions/ADR-0614-udm-problemdetails-carry-invalidparams-sbi-03-step-2-udm.md) UDM ProblemDetails carry invalidParams (SBI-03 step 2, UDM)
+- [0615](decisions/ADR-0615-bss-provisioning-adopts-the-shared-tm-forum-error-helper.md) bss/provisioning adopts the shared TM Forum Error helper (BSS SBI-03 PR 2)
 - [0616](decisions/ADR-0616-bss-roaming-interconnect-answers-the-tmf651-error-via-libs.md) bss/roaming-interconnect answers the TMF651 Error via libs/tmf-core (BSS SBI-03 PR 3)
 - [0617](decisions/ADR-0617-integration-tests-wait-for-spawned-nfs-against-a-deadline.md) Integration tests wait for spawned NFs against a deadline that scales under sanitizers
+- [0619](decisions/ADR-0619-bss-product-catalog-answers-the-tmf620-error-via-libs-tmf.md) bss/product-catalog answers the TMF620 Error via libs/tmf-core (BSS SBI-03 PR 5)
+- [0623](decisions/ADR-0623-nef-problemdetails-carry-invalidparams-sbi-03-step-2-nef.md) NEF ProblemDetails carry invalidParams (SBI-03 step 2, NEF)
+- [0634](decisions/ADR-0634-gmlc-problemdetails-carry-invalidparams-sbi-03-step-2-gmlc.md) GMLC ProblemDetails carry invalidParams (SBI-03 step 2, GMLC)
+- [0635](decisions/ADR-0635-amf-problemdetails-carry-invalidparams-sbi-03-step-2-amf.md) AMF ProblemDetails carry invalidParams (SBI-03 step 2, AMF)
+- [0636](decisions/ADR-0636-lmf-problemdetails-carry-invalidparams-sbi-03-step-2-lmf.md) LMF ProblemDetails carry invalidParams (SBI-03 step 2, LMF)
+- [0637](decisions/ADR-0637-mfaf-problemdetails-carry-invalidparams-sbi-03-step-2-mfaf.md) MFAF ProblemDetails carry invalidParams (SBI-03 step 2, MFAF)
+- [0638](decisions/ADR-0638-tsctsf-problemdetails-carry-invalidparams-sbi-03-step-2.md) TSCTSF ProblemDetails carry invalidParams (SBI-03 step 2, TSCTSF)
+- [0639](decisions/ADR-0639-aanf-problemdetails-carry-invalidparams-sbi-03-step-2-aanf.md) AAnF ProblemDetails carry invalidParams (SBI-03 step 2, AAnF)
 - [0640](decisions/ADR-0640-nssf-nsselection-answers-failed-selection-with-an-error-and.md) NSSF NSSelection answers failed selection with an error and consults the NSSAI availability store
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):

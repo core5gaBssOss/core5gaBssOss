@@ -112,6 +112,21 @@ http2::Response problem(int status,
     return r;
 }
 
+// Same, with invalidParams: TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0639).
+http2::Response problem(int status,
+                        const std::string& title,
+                        const std::string& detail,
+                        const std::string& cause,
+                        std::vector<sbi_core::InvalidParam> invalid_params) {
+    http2::Response r;
+    r.status = status;
+    r.headers.emplace("content-type", "application/problem+json");
+    r.body = json(sbi_core::make_problem_details(
+                      status, title, detail, cause, std::move(invalid_params)))
+                 .dump();
+    return r;
+}
+
 // The verified mTLS peer's certificate names `name` (CN or a dNSName SAN, case-insensitive). The
 // lab PKI names each NF by its type (scripts/gen-lab-pki.sh) and each AF by its FQDN; the NRF
 // issues tokens only against such a binding (ADR-0499 phase 2).
@@ -307,25 +322,49 @@ int main() {
                 return problem(400, "Bad Request", e.what(), "INVALID_MSG_FORMAT");
             }
             const auto kakma = aka_crypto::from_hex<32>(body.kAkma);
-            if (!kakma || body.aKId.empty() || body.aKId.find('@') == std::string::npos) {
+            const bool akid_bad = body.aKId.empty() || body.aKId.find('@') == std::string::npos;
+            if (!kakma || akid_bad) {
+                // NOTE 1 (ADR-0639): names each of the two that is incorrect.
+                std::vector<sbi_core::InvalidParam> incorrect;
+                if (!kakma) {
+                    incorrect.push_back(sbi_core::invalid_body_ie(json::json_pointer("/kAkma"),
+                                                                  "not 64 hexadecimal digits"));
+                }
+                if (akid_bad) {
+                    incorrect.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/aKId"), "not an NAI"));
+                }
                 return problem(400,
                                "Bad Request",
                                "kAkma must be 64 hexadecimal digits and aKId an NAI",
-                               "MANDATORY_IE_INCORRECT");
+                               "MANDATORY_IE_INCORRECT",
+                               std::move(incorrect));
             }
             if (!body.supi || body.gpsi) {
                 // The YAML's oneOf allows GPSI; the AAnF keys contexts by SUPI (6.6), which the
-                // AUSF always has.
+                // AUSF always has. NOTE 1 (ADR-0639): an absent supi and a given gpsi are named.
+                std::vector<sbi_core::InvalidParam> params;
+                if (!body.supi) {
+                    params.push_back(sbi_core::invalid_body_ie(
+                        json::json_pointer("/supi"), "absent; this AAnF registers by SUPI"));
+                }
+                if (body.gpsi) {
+                    params.push_back(sbi_core::invalid_body_ie(
+                        json::json_pointer("/gpsi"), "not supported; this AAnF registers by SUPI"));
+                }
                 return problem(400,
                                "Bad Request",
                                "the AKMA context is registered by SUPI",
-                               "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               std::move(params));
             }
             if (!supi_conforms(*body.supi)) {
                 return problem(400,
                                "Bad Request",
                                "supi does not match the TS 29.571 Supi pattern",
-                               "MANDATORY_IE_INCORRECT");
+                               "MANDATORY_IE_INCORRECT",
+                               {sbi_core::invalid_body_ie(json::json_pointer("/supi"),
+                                                          "does not match the Supi pattern")});
             }
             if (!store.put(aanf::AkmaContext{*body.supi, body.aKId, *kakma})) {
                 return problem(500,
@@ -353,10 +392,12 @@ int main() {
             }
             const auto af_id = aka_crypto::af_id_octets(body.afId);
             if (!af_id) {
+                // NOTE 1 (ADR-0639).
                 return problem(400,
                                "Bad Request",
                                "afId must be \"<FQDN>.<Ua* security protocol id: 10 hex digits>\"",
-                               "MANDATORY_IE_INCORRECT");
+                               "MANDATORY_IE_INCORRECT",
+                               {sbi_core::invalid_body_ie(json::json_pointer("/afId"))});
             }
             // SEC-03: the afId is the caller's own -- an AF's certificate names its FQDN -- unless
             // the caller is the NEF, which verified the AF_ID of the external AF it relays for
@@ -507,7 +548,13 @@ int main() {
                 return problem(400, "Bad Request", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!body.supi) {
-                return problem(400, "Bad Request", "supi is required", "MANDATORY_IE_MISSING");
+                // NOTE 1 (ADR-0639); CtxRemove's description: "the supi attribute shall be
+                // included".
+                return problem(400,
+                               "Bad Request",
+                               "supi is required",
+                               "MANDATORY_IE_MISSING",
+                               {sbi_core::invalid_body_ie(json::json_pointer("/supi"))});
             }
             if (!store.remove_supi(*body.supi)) {
                 return problem(404,

@@ -45,9 +45,12 @@
 // - PATCH (real TMF620 update semantics, JSON Merge Patch per the real spec) is not implemented
 //   this turn -- Create/Get/List/Delete is enough to prove product/tariff definitions are
 //   configurable data, not code; Update is a real but separate future addition.
+// - Errors (ADR-0619): the handlers' 400s, 404s and 409s are the TMF620 `Error` body via
+//   libs/tmf-core (tmf_errors.hpp). The sbi-core framework's own errors (404 no route, 405, 501,
+//   413, the duplicate-member 400, the TPS ceiling's and pool-exhaustion 503s, an uncaught
+//   exception's 500) are still ProblemDetails -- BSS SBI-03 PR 7.
 
 #include "sbi_core/http2_server.hpp"
-#include "sbi_core/json_body.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
 #include "sbi_core/otel.hpp"
@@ -62,6 +65,8 @@
 
 #include "bss_sid/product.hpp"
 #include "store.hpp"
+#include "tmf_core/error.hpp"
+#include "tmf_errors.hpp"
 
 #ifndef CERTS_DIR
 #error "CERTS_DIR must be defined by CMake (see bss/product-catalog/CMakeLists.txt)"
@@ -70,6 +75,7 @@
 namespace {
 
 using nlohmann::json;
+using product_catalog::guarded;
 
 // The TMF620-defined API root. Stays in source: it is the spec's own path, not deployment
 // configuration -- the same line ADR-0273/ADR-0274 drew for the 3GPP service paths.
@@ -85,21 +91,6 @@ constexpr const char* kApiRoot = "/tmf-api/productCatalogManagement/v4";
 // never allowed to be a literal, and it stays overridable.
 
 } // namespace
-
-// ADR-0384: the normalized store rejects what the relational model cannot accept; surface that as
-// the client error it is (TMF630 error codes map onto these HTTP statuses) instead of a 500.
-template <typename Handler> auto guarded(Handler handler) {
-    return [handler = std::move(handler)](
-               const sbi_core::http2::Request& req) -> sbi_core::http2::Response {
-        try {
-            return handler(req);
-        } catch (const product_catalog::InvalidRequest& e) {
-            return sbi_core::http2::problem_response(400, "Bad Request", e.what(), std::nullopt);
-        } catch (const product_catalog::Conflict& e) {
-            return sbi_core::http2::problem_response(409, "Conflict", e.what(), std::nullopt);
-        }
-    };
-}
 
 int main() {
     sbi_core::init_logging("product-catalog");
@@ -208,7 +199,7 @@ int main() {
         std::string(kApiRoot) + "/productOffering",
         guarded([&offering_store, &offering_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<bss_sid::ProductOffering>(req, err);
+            auto body = tmf_core::parse_json_body<bss_sid::ProductOffering>(req, err);
             if (!body.has_value()) {
                 return err;
             }
@@ -237,8 +228,7 @@ int main() {
                          const auto id = req.path_params.at("id");
                          const auto offering = offering_store.get(id);
                          if (!offering.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductOffering " + id, std::nullopt);
+                             return product_catalog::not_found("ProductOffering", id);
                          }
                          return sbi_core::http2::Response::json(200, json(*offering).dump());
                      }));
@@ -248,8 +238,7 @@ int main() {
                      guarded([&offering_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          if (!offering_store.remove(id)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductOffering " + id, std::nullopt);
+                             return product_catalog::not_found("ProductOffering", id);
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -263,7 +252,7 @@ int main() {
         std::string(kApiRoot) + "/productOfferingPrice",
         guarded([&price_store, &price_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<bss_sid::ProductOfferingPrice>(req, err);
+            auto body = tmf_core::parse_json_body<bss_sid::ProductOfferingPrice>(req, err);
             if (!body.has_value()) {
                 return err;
             }
@@ -292,8 +281,7 @@ int main() {
                          const auto id = req.path_params.at("id");
                          const auto price = price_store.get(id);
                          if (!price.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductOfferingPrice " + id, std::nullopt);
+                             return product_catalog::not_found("ProductOfferingPrice", id);
                          }
                          return sbi_core::http2::Response::json(200, json(*price).dump());
                      }));
@@ -303,8 +291,7 @@ int main() {
                      guarded([&price_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          if (!price_store.remove(id)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductOfferingPrice " + id, std::nullopt);
+                             return product_catalog::not_found("ProductOfferingPrice", id);
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;
@@ -318,7 +305,7 @@ int main() {
         std::string(kApiRoot) + "/productSpecification",
         guarded([&spec_store, &spec_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<bss_sid::ProductSpecification>(req, err);
+            auto body = tmf_core::parse_json_body<bss_sid::ProductSpecification>(req, err);
             if (!body.has_value()) {
                 return err;
             }
@@ -347,8 +334,7 @@ int main() {
                          const auto id = req.path_params.at("id");
                          const auto spec = spec_store.get(id);
                          if (!spec.has_value()) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductSpecification " + id, std::nullopt);
+                             return product_catalog::not_found("ProductSpecification", id);
                          }
                          return sbi_core::http2::Response::json(200, json(*spec).dump());
                      }));
@@ -358,8 +344,7 @@ int main() {
                      guarded([&spec_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          if (!spec_store.remove(id)) {
-                             return sbi_core::http2::problem_response(
-                                 404, "Not Found", "No ProductSpecification " + id, std::nullopt);
+                             return product_catalog::not_found("ProductSpecification", id);
                          }
                          sbi_core::http2::Response resp;
                          resp.status = 204;

@@ -84,6 +84,17 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   Forum `Error` via `libs/tmf-core` instead of 3GPP ProblemDetails. Statuses are unchanged; the
   sbi-core framework's own errors are not covered yet
   ([ADR-0616](docs/decisions/ADR-0616-bss-roaming-interconnect-answers-the-tmf651-error-via-libs.md)).
+- `bss/provisioning` builds its TMF640 errors with `tmf_core::error_response`. The local
+  `tmf_error` lambda no longer builds the body, `reason` is the status's reason phrase, and the
+  content type is now `application/json;charset=utf-8`. The internal
+  `GET /provisioning/v1/customerOrder/{id}` 404 is now ProblemDetails without a cause, replacing
+  the ad-hoc `{"error": "order not found"}` body. No status changes
+  ([ADR-0615](docs/decisions/ADR-0615-bss-provisioning-adopts-the-shared-tm-forum-error-helper.md)).
+- `bss/product-catalog` (TMF620 Product Catalog Management) answers its handler errors, a store
+  rejection (400), a store conflict (409), a bad `POST` body (400) and an unknown id on `GET` or
+  `DELETE` (404), as the TM Forum `Error` via `libs/tmf-core` instead of 3GPP ProblemDetails.
+  Statuses are unchanged; the sbi-core framework's own errors are not covered yet
+  ([ADR-0619](docs/decisions/ADR-0619-bss-product-catalog-answers-the-tmf620-error-via-libs-tmf.md)).
 - Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
   and `fuzz-nightly.yml`
   ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).
@@ -252,6 +263,36 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `/reportingOptions/expiry` for a subscription expiry that is not a date-time; statuses and causes
   are unchanged
   ([ADR-0614](docs/decisions/ADR-0614-udm-problemdetails-carry-invalidparams-sbi-03-step-2-udm.md)).
+- NEF: the 400s whose cause TS 29.500 Table 5.2.7.2-1 NOTE 1 covers now carry `invalidParams`
+  naming the query parameter (`application-ids`), the header (`Content-Type`) or the body IE
+  (`/dnns` and `/snssais`, `/qosReference`, or `""` for a JSON Patch body that is not an array);
+  status codes and causes are unchanged. The two malformed-multipart answers and the
+  generated-DTO parse failures still carry none
+  ([ADR-0623](docs/decisions/ADR-0623-nef-problemdetails-carry-invalidparams-sbi-03-step-2-nef.md)).
+- GMLC: the LocationUpdate 400 `MANDATORY_IE_MISSING` for a body with neither `supi` nor `gpsi` now
+  carries `invalidParams` naming both, `/supi` and `/gpsi`; status and cause are unchanged
+  ([ADR-0634](docs/decisions/ADR-0634-gmlc-problemdetails-carry-invalidparams-sbi-03-step-2-gmlc.md)).
+- AMF: the N1N2MessageTransfer 400 `MANDATORY_IE_MISSING` for a non-SMS N1 message without
+  `pduSessionId` now carries `invalidParams` naming `/pduSessionId`; status and cause are unchanged
+  ([ADR-0635](docs/decisions/ADR-0635-amf-problemdetails-carry-invalidparams-sbi-03-step-2-amf.md)).
+- LMF: the DetermineLocation 400 `MANDATORY_IE_INCORRECT` for a malformed multipart/related body
+  now carries `invalidParams` naming the whole body (`""`), and the ConfigureUp 400
+  `MANDATORY_IE_MISSING` for an `UpConfig` with neither `supi` nor `gpsi` names both; statuses and
+  causes are unchanged
+  ([ADR-0636](docs/decisions/ADR-0636-lmf-problemdetails-carry-invalidparams-sbi-03-step-2-lmf.md)).
+- MFAF: the four 400 `MANDATORY_IE_MISSING` answers now carry `invalidParams`: both members of
+  `MfafConfiguration`'s oneOf when neither is given, each empty required `MessageConfiguration`
+  member, `/refIds` on an empty Transfer, and `""` for an empty fetch body; statuses and causes are
+  unchanged
+  ([ADR-0637](docs/decisions/ADR-0637-mfaf-problemdetails-carry-invalidparams-sbi-03-step-2-mfaf.md)).
+- TSCTSF: the four NOTE 1 400s on `POST /tsc-app-sessions` now carry `invalidParams`: an empty
+  `/qosReference`, each unsupported `externalGroupId` / `ueMac` / `ethFlowInfo` / `enEthFlowInfo`,
+  `/ueId` without the GMEC feature, and the missing target-UE IE(s); statuses and causes are
+  ([ADR-0638](docs/decisions/ADR-0638-tsctsf-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
+- AAnF: the five NOTE 1 400s now carry `invalidParams`: `/kAkma` and/or `/aKId`, `/supi` and/or
+  `/gpsi`, or `/supi` off its pattern on register-anchorkey, `/afId` on retrieve-applicationkey and
+  `/supi` on remove-context; statuses and causes are unchanged
+  ([ADR-0639](docs/decisions/ADR-0639-aanf-problemdetails-carry-invalidparams-sbi-03-step-2-aanf.md)).
 
 ### Security
 

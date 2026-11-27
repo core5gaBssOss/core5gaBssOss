@@ -740,11 +740,15 @@ int main() {
                 return sbi_core::http2::Response::json(200, json(sms_resp).dump());
             }
             if (!body->pduSessionId.has_value()) {
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0635): MANDATORY_IE_MISSING carries
+                // invalidParams naming the absent N1N2MessageTransferReqData IE /pduSessionId
+                // (TS29518_Namf_Communication.yaml).
                 return problem_response(
                     400,
                     "Missing mandatory IE",
                     "This build requires pduSessionId to route the N1 message to a PDU session",
-                    "MANDATORY_IE_MISSING");
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/pduSessionId"))});
             }
 
             const auto delivered = ue_ngap_registry.send_dl_nas_transport(

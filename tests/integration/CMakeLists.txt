@@ -151,6 +151,7 @@ add_executable(integration_tests
     test_chf_diameter_rar.cpp
     test_sctp_accept_timeout.cpp
     test_amf_peer_uri_encoding.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp
 )
 # ADR-0605: the AMF's own URI builders (header-only nfs/amf/src/peer_uris.hpp), for this one file
 # only, so no other test in the target can pick up an AMF-private header by accident.
@@ -530,7 +531,8 @@ gtest_discover_tests(sepp_e2e_integration_tests PROPERTIES TIMEOUT 120)
 
 # ADR-0495: AKMA end to end -- real UDR, UDM, AUSF (5G-AKA) and AAnF; the test is the UE and the
 # AF. Needs the UDR's PostgreSQL and Valkey (AUSF KAUSF store, AAnF contexts).
-add_executable(akma_e2e_integration_tests test_akma_e2e.cpp test_aanf_authorization.cpp)
+add_executable(akma_e2e_integration_tests test_akma_e2e.cpp test_aanf_authorization.cpp
+    test_aanf_invalid_params.cpp)
 target_link_libraries(akma_e2e_integration_tests PRIVATE
     redis++::redis++_static sbi_core sbi_generated aka_crypto GTest::gtest GTest::gtest_main)
 add_dependencies(akma_e2e_integration_tests nrf udr udm ausf aanf nef)

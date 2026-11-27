@@ -149,6 +149,7 @@
 #include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
+#include "sbi_core/problem_details.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
 #include "sbi_core/uri.hpp"
@@ -675,6 +676,14 @@ void run_nrf_lifecycle(const std::string& nef_instance_id,
                                   std::chrono::seconds(kHeartbeatSeconds / 2));
 }
 
+// TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0623): TrafficInfluDataSub (TS29591_Nnef_
+// TrafficInfluenceData.yaml) needs one of dnns / snssais; both are absent, so both are named.
+std::vector<sbi_core::InvalidParam> dnns_or_snssais_missing() {
+    constexpr const char* kReason = "absent; one of dnns and snssais is required";
+    return {sbi_core::invalid_body_ie(json::json_pointer("/dnns"), kReason),
+            sbi_core::invalid_body_ie(json::json_pointer("/snssais"), kReason)};
+}
+
 // ADR-0536 (REVIEW-5ae0ef1 SUS-02): the answer to a create a store's bound refused. TS 29.122
 // Table 5.2.6-1 makes TS 29.500 5.2.7.2's causes apply to the northbound APIs, so a full store is
 // 500 INSUFFICIENT_RESOURCES ("The request is rejected due to insufficient resources") on every
@@ -1073,7 +1082,8 @@ int main() {
                                  400,
                                  "Missing mandatory query parameter",
                                  "application-ids is required",
-                                 "MANDATORY_QUERY_PARAM_MISSING");
+                                 "MANDATORY_QUERY_PARAM_MISSING",
+                                 {sbi_core::invalid_query_param("application-ids", "missing")});
                          }
                          all_fetch_counter->Add(1);
                          const auto ids = sbi_core::http2::split_form_array(ids_it->second);
@@ -1202,10 +1212,12 @@ int main() {
         [&send_sms_counter](const sbi_core::http2::Request& req) {
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
-                return sbi_core::http2::problem_response(400,
-                                                         "Invalid Service Request",
-                                                         "Content-Type header is required",
-                                                         "MANDATORY_IE_MISSING");
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Invalid Service Request",
+                    "Content-Type header is required",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_header("Content-Type", "missing")});
             }
             auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
             if (!parts.has_value() || parts->empty()) {
@@ -1516,10 +1528,12 @@ int main() {
             }
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
-                return sbi_core::http2::problem_response(400,
-                                                         "Invalid Service Request",
-                                                         "Content-Type header is required",
-                                                         "MANDATORY_IE_MISSING");
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Invalid Service Request",
+                    "Content-Type header is required",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_header("Content-Type", "missing")});
             }
             auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
             if (!parts.has_value() || parts->empty()) {
@@ -3884,7 +3898,9 @@ int main() {
                     400,
                     "Bad Request",
                     "JSON Patch body must be a non-empty array",
-                    "MANDATORY_IE_INCORRECT");
+                    "MANDATORY_IE_INCORRECT",
+                    // RFC 6901: "" is the whole body, the IE that is not a non-empty array.
+                    {sbi_core::invalid_body_ie(json::json_pointer(""), "not a non-empty array")});
             }
             std::optional<json> patched;
             try {
@@ -4977,7 +4993,9 @@ int main() {
                     400,
                     "Bad Request",
                     "JSON Patch body must be a non-empty array",
-                    "MANDATORY_IE_INCORRECT");
+                    "MANDATORY_IE_INCORRECT",
+                    // RFC 6901: "" is the whole body, the IE that is not a non-empty array.
+                    {sbi_core::invalid_body_ie(json::json_pointer(""), "not a non-empty array")});
             }
             for (const auto& entry : patch_doc) {
                 try {
@@ -5104,7 +5122,9 @@ int main() {
                     400,
                     "Bad Request",
                     "JSON Patch body must be a non-empty array",
-                    "MANDATORY_IE_INCORRECT");
+                    "MANDATORY_IE_INCORRECT",
+                    // RFC 6901: "" is the whole body, the IE that is not a non-empty array.
+                    {sbi_core::invalid_body_ie(json::json_pointer(""), "not a non-empty array")});
             }
             for (const auto& entry : patch_doc) {
                 try {
@@ -7703,7 +7723,9 @@ int main() {
                         "Bad Request",
                         "qosReference is required for a UE identified by GPSI only (the TSCTSF "
                         "request needs it, TS 29.565 TscAppSessionContextData)",
-                        "MANDATORY_IE_MISSING");
+                        "MANDATORY_IE_MISSING",
+                        {sbi_core::invalid_body_ie(json::json_pointer("/qosReference"),
+                                                   "required for a UE identified by GPSI only")});
                 }
                 json tsc{{"afId", af_id},
                          {"ueId", *body->gpsi},
@@ -8149,7 +8171,8 @@ int main() {
                 return sbi_core::http2::problem_response(400,
                                                          "Missing mandatory IE",
                                                          "At least one of dnns/snssais is required",
-                                                         "MANDATORY_IE_MISSING");
+                                                         "MANDATORY_IE_MISSING",
+                                                         dnns_or_snssais_missing());
             }
             json j = *body;
             const auto id_created = traffic_influence_subs.create(j, req.token_sub);
@@ -8198,7 +8221,8 @@ int main() {
                 return sbi_core::http2::problem_response(400,
                                                          "Missing mandatory IE",
                                                          "At least one of dnns/snssais is required",
-                                                         "MANDATORY_IE_MISSING");
+                                                         "MANDATORY_IE_MISSING",
+                                                         dnns_or_snssais_missing());
             }
             json j = *body;
             if (!traffic_influence_subs.put(id, j)) {

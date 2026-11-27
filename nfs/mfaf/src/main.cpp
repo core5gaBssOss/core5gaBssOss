@@ -136,6 +136,21 @@ problem(int status, const std::string& title, const std::string& detail, const c
     return r;
 }
 
+// Same, with invalidParams: TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0637).
+sbi_core::http2::Response problem(int status,
+                                  const std::string& title,
+                                  const std::string& detail,
+                                  const char* cause,
+                                  std::vector<sbi_core::InvalidParam> invalid_params) {
+    auto pd =
+        sbi_core::make_problem_details(status, title, detail, cause, std::move(invalid_params));
+    sbi_core::http2::Response r;
+    r.status = status;
+    r.headers.emplace("content-type", "application/problem+json");
+    r.body = json(pd).dump();
+    return r;
+}
+
 std::optional<std::string> header(const sbi_core::http2::Request& req, const char* name) {
     // Header names arrive lowercased from the HTTP/2 layer.
     std::string key(name);
@@ -157,11 +172,23 @@ validate_configuration(const sbi_gen::MfafConfiguration& cfg, bool is_update) {
     const bool has_msgs = cfg.messageConfigurations && !cfg.messageConfigurations->empty();
     const bool has_transfer = cfg.mfafTransferInfo.has_value();
     if (has_msgs == has_transfer) {
-        return problem(400,
-                       "Bad Request",
-                       "MfafConfiguration shall contain exactly one of messageConfigurations "
-                       "and mfafTransferInfo (TS 29.576 5.1.6.2.2)",
-                       has_msgs ? "INVALID_MSG_FORMAT" : "MANDATORY_IE_MISSING");
+        constexpr const char* kDetail =
+            "MfafConfiguration shall contain exactly one of messageConfigurations "
+            "and mfafTransferInfo (TS 29.576 5.1.6.2.2)";
+        if (has_msgs) {
+            return problem(400, "Bad Request", kDetail, "INVALID_MSG_FORMAT");
+        }
+        // NOTE 1 (ADR-0637): neither member of the oneOf is present (an empty
+        // messageConfigurations counts as absent, minItems 1), so both are named.
+        constexpr const char* kReason =
+            "absent; one of messageConfigurations and mfafTransferInfo is required";
+        return problem(
+            400,
+            "Bad Request",
+            kDetail,
+            "MANDATORY_IE_MISSING",
+            {sbi_core::invalid_body_ie(json::json_pointer("/messageConfigurations"), kReason),
+             sbi_core::invalid_body_ie(json::json_pointer("/mfafTransferInfo"), kReason)});
     }
     if (has_transfer) {
         // The MfafTransfer feature (table 5.1.8-1, number 3) is not supported; 4.2.2.2.3 also
@@ -174,13 +201,24 @@ validate_configuration(const sbi_gen::MfafConfiguration& cfg, bool is_update) {
                              "does not support",
                        "INVALID_MSG_FORMAT");
     }
-    for (const auto& mc : *cfg.messageConfigurations) {
+    for (std::size_t i = 0; i < cfg.messageConfigurations->size(); ++i) {
+        const auto& mc = (*cfg.messageConfigurations)[i];
         if (mc.notificationURI.empty() || mc.correId.empty()) {
+            // NOTE 1 (ADR-0637): names each empty required member of this MessageConfiguration.
+            const auto base = json::json_pointer("/messageConfigurations") / i;
+            std::vector<sbi_core::InvalidParam> invalid;
+            if (mc.notificationURI.empty()) {
+                invalid.push_back(sbi_core::invalid_body_ie(base / "notificationURI", "empty"));
+            }
+            if (mc.correId.empty()) {
+                invalid.push_back(sbi_core::invalid_body_ie(base / "correId", "empty"));
+            }
             return problem(
                 400,
                 "Bad Request",
                 "MessageConfiguration requires notificationURI and correId (TS 29.576 5.1.6.2.3)",
-                "MANDATORY_IE_MISSING");
+                "MANDATORY_IE_MISSING",
+                std::move(invalid));
         }
     }
     return std::nullopt;
@@ -516,10 +554,12 @@ int main() {
                 return err;
             }
             if (treq->refIds.empty()) {
+                // NOTE 1 (ADR-0637): refIds is present but empty (minItems 1).
                 return problem(400,
                                "Bad Request",
                                "refIds shall not be empty (TS 29.576 5.3.6.2.2)",
-                               "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               {sbi_core::invalid_body_ie(json::json_pointer("/refIds"), "empty")});
             }
             sbi_gen::ContextTransferResp tresp;
             tresp.configs = json::object();
@@ -613,10 +653,13 @@ int main() {
                 return err;
             }
             if (ids->empty()) {
+                // NOTE 1 (ADR-0637): the body itself is the empty array (minItems 1), so it is
+                // named with the RFC 6901 pointer "".
                 return problem(400,
                                "Bad Request",
                                "fetch correlation identifiers shall not be empty",
-                               "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               {sbi_core::invalid_body_ie(json::json_pointer(""), "empty")});
             }
             fetch_counter->Add(1);
             // Merge every buffered notification the ids name into one

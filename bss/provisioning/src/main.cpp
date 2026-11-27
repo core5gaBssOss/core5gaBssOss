@@ -18,10 +18,11 @@
 #include <algorithm>
 #include <nf_config/nf_config.hpp>
 
-#include "TMF640_ServiceActivation_v4_0_0.hpp"
+#include "order_api_errors.hpp"
 #include "provisioning_store.hpp"
 #include "tmf640_events.hpp"
 #include "tmf640_service.hpp"
+#include "tmf_core/error.hpp"
 
 using nlohmann::json;
 
@@ -142,14 +143,12 @@ int main() {
             } catch (const std::exception&) {
                 // parse_error's text can quote the input, and the body carries SIM
                 // keys.
-                return sbi_core::http2::problem_response(
-                    400, "Malformed JSON", "request body is not valid JSON", std::nullopt);
+                return provisioning::order_api::malformed_body();
             }
             const auto result = store.create_customer_order(body);
             order_counter->Add(1);
             if (result.status == "rejected") {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", result.error.value_or(""), std::nullopt);
+                return provisioning::order_api::order_rejected(result.error.value_or(""));
             }
             json out{{"orderId", result.order_id},
                      {"accountId", result.customer_account_id},
@@ -172,21 +171,18 @@ int main() {
                          const auto id = req.path_params.at("id");
                          const auto order = store.get_order(id);
                          if (!order) {
-                             return sbi_core::http2::Response::json(
-                                 404, json{{"error", "order not found"}}.dump());
+                             // ADR-0615: ProblemDetails like the rest of this API, was
+                             // {"error": "order not found"}.
+                             return provisioning::order_api::order_not_found();
                          }
                          return sbi_core::http2::Response::json(200, order->dump());
                      });
 
     // --- TMF640 Service Activation and Configuration v4 (ADR-0558 increment 1, ADR-0569) ---
-    // Errors use the TMF640 Error schema {code, reason, message, status}, not ProblemDetails.
-    const auto tmf_error = [](int status, const std::string& reason, const std::string& message) {
-        tmf_gen::Error e;
-        e.code = std::to_string(status);
-        e.reason = reason;
-        e.message = message;
-        e.status = std::to_string(status);
-        return sbi_core::http2::Response::json(status, json(e).dump());
+    // Errors are the TMF640 Error {code, reason, message, status} built by tmf_core (ADR-0612,
+    // ADR-0615), not ProblemDetails.
+    const auto tmf_error = [](int status, std::string message) {
+        return tmf_core::error_response(status, std::move(message));
     };
     const std::string service_root = std::string(provisioning::tmf640::kApiRoot) + "/service";
 
@@ -206,7 +202,7 @@ int main() {
         "POST", hub_root, [&event_hub, hub_root, tmf_error](const sbi_core::http2::Request& req) {
             auto sub = event_hub.register_listener(req.body);
             if (!sub.has_value()) {
-                return tmf_error(sub.error().status, sub.error().title, sub.error().detail);
+                return t640::error_response(sub.error());
             }
             auto resp = sbi_core::http2::Response::json(201, sub->dump());
             resp.headers.emplace("location", hub_root + "/" + sub->at("id").get<std::string>());
@@ -216,42 +212,39 @@ int main() {
     server.add_route(
         "DELETE", hub_root + "/{id}", [&event_hub, tmf_error](const sbi_core::http2::Request& req) {
             if (!event_hub.unregister_listener(req.path_params.at("id"))) {
-                return tmf_error(404, "Not Found", "no listener with this id");
+                return tmf_error(404, "no listener with this id");
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
         });
 
-    server.add_route(
-        "POST",
-        service_root,
-        [&service_store, &udr, &service_create_counter, &event_hub, tmf_error](
-            const sbi_core::http2::Request& req) {
-            auto valid = provisioning::tmf640::validate_create(
-                req.body, [&udr](const std::string& id) { return udr.has_profile(id); });
-            if (!valid.has_value()) {
-                return tmf_error(valid.error().status, valid.error().title, valid.error().detail);
-            }
-            const auto& v = *valid;
-            auto created = provisioning::tmf640::create_service(service_store, udr, v);
-            if (!created.has_value()) {
-                return tmf_error(
-                    created.error().status, created.error().title, created.error().detail);
-            }
-            service_create_counter->Add(1);
-            event_hub.publish(t640::make_event(t640::kServiceCreateEvent, *created));
-            auto resp = sbi_core::http2::Response::json(201, created->dump());
-            resp.headers.emplace("location", created->at("href").get<std::string>());
-            return resp;
-        });
+    server.add_route("POST",
+                     service_root,
+                     [&service_store, &udr, &service_create_counter, &event_hub, tmf_error](
+                         const sbi_core::http2::Request& req) {
+                         auto valid = provisioning::tmf640::validate_create(
+                             req.body,
+                             [&udr](const std::string& id) { return udr.has_profile(id); });
+                         if (!valid.has_value()) {
+                             return t640::error_response(valid.error());
+                         }
+                         const auto& v = *valid;
+                         auto created = provisioning::tmf640::create_service(service_store, udr, v);
+                         if (!created.has_value()) {
+                             return t640::error_response(created.error());
+                         }
+                         service_create_counter->Add(1);
+                         event_hub.publish(t640::make_event(t640::kServiceCreateEvent, *created));
+                         auto resp = sbi_core::http2::Response::json(201, created->dump());
+                         resp.headers.emplace("location", created->at("href").get<std::string>());
+                         return resp;
+                     });
 
     server.add_route(
         "GET", service_root, [&service_store, tmf_error](const sbi_core::http2::Request& req) {
             if (req.query_params.contains("fields")) {
-                return tmf_error(400,
-                                 "Bad Request",
-                                 "the fields parameter is deferred for future implementation");
+                return tmf_error(400, "the fields parameter is deferred for future implementation");
             }
             const auto number = [&req](const char* name,
                                        std::size_t dflt) -> std::optional<std::size_t> {
@@ -269,9 +262,7 @@ int main() {
             const auto offset = number("offset", 0);
             const auto limit = number("limit", 100);
             if (!offset || !limit || *limit == 0 || *limit > 1000) {
-                return tmf_error(400,
-                                 "Bad Request",
-                                 "offset must be a non-negative integer and limit 1 to 1000");
+                return tmf_error(400, "offset must be a non-negative integer and limit 1 to 1000");
             }
             const auto page = service_store.list(*offset, *limit);
             auto resp = sbi_core::http2::Response::json(200, json(page.items).dump());
@@ -285,13 +276,11 @@ int main() {
                      [&service_store, tmf_error](const sbi_core::http2::Request& req) {
                          if (req.query_params.contains("fields")) {
                              return tmf_error(
-                                 400,
-                                 "Bad Request",
-                                 "the fields parameter is deferred for future implementation");
+                                 400, "the fields parameter is deferred for future implementation");
                          }
                          const auto service = service_store.get(req.path_params.at("id"));
                          if (!service) {
-                             return tmf_error(404, "Not Found", "no Service with this id");
+                             return tmf_error(404, "no Service with this id");
                          }
                          return sbi_core::http2::Response::json(200, service->dump());
                      });
@@ -306,7 +295,6 @@ int main() {
             if (ct != req.headers.end() && ct->second.rfind("application/json", 0) != 0 &&
                 ct->second.rfind("application/merge-patch+json", 0) != 0) {
                 return tmf_error(400,
-                                 "Bad Request",
                                  "content-type must be application/merge-patch+json or "
                                  "application/json");
             }
@@ -314,8 +302,7 @@ int main() {
             auto patched = provisioning::tmf640::patch_service(
                 service_store, udr, req.path_params.at("id"), req.body, &previous_state);
             if (!patched.has_value()) {
-                return tmf_error(
-                    patched.error().status, patched.error().title, patched.error().detail);
+                return t640::error_response(patched.error());
             }
             service_patch_counter->Add(1);
             event_hub.publish(t640::make_event(t640::kServiceAttributeValueChangeEvent, *patched));
@@ -334,9 +321,7 @@ int main() {
                          auto deleted = provisioning::tmf640::delete_service(
                              service_store, udr, req.path_params.at("id"));
                          if (!deleted.has_value()) {
-                             return tmf_error(deleted.error().status,
-                                              deleted.error().title,
-                                              deleted.error().detail);
+                             return t640::error_response(deleted.error());
                          }
                          service_delete_counter->Add(1);
                          event_hub.publish(t640::make_event(t640::kServiceDeleteEvent, *deleted));
