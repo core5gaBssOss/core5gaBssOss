@@ -260,6 +260,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   telescopic-mapping query parameter; one site, the reconstructed request's authority inside a
   JOSE-protected response, still has none
   ([ADR-0610](docs/decisions/ADR-0610-sepp-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md)).
+- NSSF: NSSelectionGet's 400 `MANDATORY_QUERY_PARAM_MISSING` carries `invalidParams` naming the
+  absent required query parameter(s), `query nf-type` and/or `query nf-id`; status and cause are
+  unchanged. The `parse_json_body` and post-PATCH DTO sites still have none
+  ([ADR-0629](docs/decisions/ADR-0629-nssf-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
 - AMF: the SUPI is encoded as one path segment in the Nsmsf_SMService Activate and UplinkSMS URIs
   and in the `smContextStatusUri` it gives the SMF, so a SUPI with `?` or `/` (the AMF's NAS
   decoder writes `?` for an invalid BCD digit) can no longer reach another subscriber's resource
