@@ -606,7 +606,8 @@
   "ADR-0635-amf-problemdetails-carry-invalidparams-sbi-03-step-2-amf.md",
   "ADR-0636-lmf-problemdetails-carry-invalidparams-sbi-03-step-2-lmf.md",
   "ADR-0637-mfaf-problemdetails-carry-invalidparams-sbi-03-step-2-mfaf.md",
-  "ADR-0638-tsctsf-problemdetails-carry-invalidparams-sbi-03-step-2.md"
+  "ADR-0638-tsctsf-problemdetails-carry-invalidparams-sbi-03-step-2.md",
+  "ADR-0639-aanf-problemdetails-carry-invalidparams-sbi-03-step-2-aanf.md"
  ],
  "split_commit": "0530e4f"
 }

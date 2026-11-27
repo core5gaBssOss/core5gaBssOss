@@ -289,6 +289,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `/qosReference`, each unsupported `externalGroupId` / `ueMac` / `ethFlowInfo` / `enEthFlowInfo`,
   `/ueId` without the GMEC feature, and the missing target-UE IE(s); statuses and causes are
   ([ADR-0638](docs/decisions/ADR-0638-tsctsf-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
+- AAnF: the five NOTE 1 400s now carry `invalidParams`: `/kAkma` and/or `/aKId`, `/supi` and/or
+  `/gpsi`, or `/supi` off its pattern on register-anchorkey, `/afId` on retrieve-applicationkey and
+  `/supi` on remove-context; statuses and causes are unchanged
+  ([ADR-0639](docs/decisions/ADR-0639-aanf-problemdetails-carry-invalidparams-sbi-03-step-2-aanf.md)).
 
 ### Security
 
