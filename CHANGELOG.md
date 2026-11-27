@@ -246,6 +246,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   required), `/expiry` for a subscription expiry that is not a date-time, or `""` for a JSON Patch
   body that is not an array; statuses and causes are unchanged
   ([ADR-0609](docs/decisions/ADR-0609-udr-problemdetails-carry-invalidparams-sbi-03-step-2-udr.md)).
+- AUSF: Nausf_SoRProtection's 400 `MANDATORY_IE_MISSING` for a request without `sorHeader` (the
+  AUSF's one TS 29.500 Table 5.2.7.2-1 NOTE 1 site) now carries `invalidParams` `/sorHeader`; status
+  and cause are unchanged
+  ([ADR-0627](docs/decisions/ADR-0627-ausf-problemdetails-carry-invalidparams-sbi-03-step-2-ausf.md)).
 - SEPP: 400 answers with a TS 29.500 Table 5.2.7.2-1 / 5.2.7.4-1 NOTE 1 cause carry
   `invalidParams` naming the N32-c / N32-f IE (JSON Pointer), `3gpp-Sbi-Target-apiRoot` header or
   telescopic-mapping query parameter; one site, the reconstructed request's authority inside a
