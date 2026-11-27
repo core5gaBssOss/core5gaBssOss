@@ -27,6 +27,8 @@
 // Not built (deferred for future implementation): the `fields` query parameter, event
 // notifications (P5), /monitor, full deprovisioning at the UDR.
 
+#include "sbi_core/http2_server.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <functional>
@@ -48,6 +50,11 @@ struct ServiceError {
     std::string title;
     std::string detail; // never echoes a characteristic value
 };
+
+// The TMF640 Error response for `e` (ADR-0615): tmf_core::error_response(e.status, e.detail), so
+// code/status are the HTTP status, reason its RFC 9110 phrase and message the detail (ADR-0612).
+// `title` is not sent: the reason comes from the status, never from free text.
+sbi_core::http2::Response error_response(const ServiceError& e);
 
 // A POST /service body that passed every A-row check.
 struct ValidatedService {

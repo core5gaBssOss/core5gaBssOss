@@ -89,7 +89,9 @@ gtest_discover_tests(test_tmf640_dtos)
 
 # ADR-0569: TMF640 POST /service validation against the approved ADR-0558 A-rows. Pure checks:
 # no database, no network.
-add_executable(test_tmf640_service test_tmf640_service.cpp)
+add_executable(test_tmf640_service test_tmf640_service.cpp test_provisioning_errors.cpp)
 target_link_libraries(test_tmf640_service PRIVATE provisioning_store GTest::gtest GTest::gtest_main)
+# ADR-0615: test_provisioning_errors.cpp reads the TMF640 Error definition from the vendored swagger.
+target_compile_definitions(test_tmf640_service PRIVATE TMF640_SWAGGER_PATH="${CMAKE_SOURCE_DIR}/specs/tmforum/TMF640-ServiceActivation-v4.0.0.swagger.json")
 target_compile_features(test_tmf640_service PRIVATE cxx_std_23)
 gtest_discover_tests(test_tmf640_service)

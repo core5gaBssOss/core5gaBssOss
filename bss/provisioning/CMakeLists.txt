@@ -1,6 +1,6 @@
 find_package(libpqxx CONFIG REQUIRED)
-add_library(provisioning_store STATIC src/provisioning_store.cpp src/udr_adapter.cpp src/tmf640_service.cpp src/tmf640_events.cpp)
-target_link_libraries(provisioning_store PUBLIC libpqxx::pqxx nf_config sbi_core tmf_generated)
+add_library(provisioning_store STATIC src/provisioning_store.cpp src/udr_adapter.cpp src/tmf640_service.cpp src/tmf640_events.cpp src/order_api_errors.cpp)
+target_link_libraries(provisioning_store PUBLIC libpqxx::pqxx nf_config sbi_core tmf_core tmf_generated)
 target_include_directories(provisioning_store PUBLIC src)
 add_executable(provisioning src/main.cpp)
 target_link_libraries(provisioning PRIVATE sbi_core provisioning_store nf_config)
