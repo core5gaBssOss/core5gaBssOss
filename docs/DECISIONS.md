@@ -582,6 +582,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0614](decisions/ADR-0614-udm-problemdetails-carry-invalidparams-sbi-03-step-2-udm.md) UDM ProblemDetails carry invalidParams (SBI-03 step 2, UDM)
 - [0616](decisions/ADR-0616-bss-roaming-interconnect-answers-the-tmf651-error-via-libs.md) bss/roaming-interconnect answers the TMF651 Error via libs/tmf-core (BSS SBI-03 PR 3)
 - [0617](decisions/ADR-0617-integration-tests-wait-for-spawned-nfs-against-a-deadline.md) Integration tests wait for spawned NFs against a deadline that scales under sanitizers
+- [0640](decisions/ADR-0640-nssf-nsselection-answers-failed-selection-with-an-error-and.md) NSSF NSSelection answers failed selection with an error and consults the NSSAI availability store
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
