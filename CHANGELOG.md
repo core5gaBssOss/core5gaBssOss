@@ -106,6 +106,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   and README brought current with `main` 9022f3a6 (SBI-03 `invalidParams` step 2 for the UDSF, NRF
   and UDM, BSS TMF `Error` PR 3 for roaming-interconnect, the AMF URL-encoding fix, the open step 2
   PRs #72 and #74-#89 named as open, and mastermind-073 carrying `5gc-lab` again). No code changes.
+- Docs: the same files brought current with `main` 4182d213: `docs/TRACEABILITY.md` rows for ADR-0615,
+  0619, 0623 and 0634-0639 (BSS TMF `Error` PRs 2 and 5; SBI-03 step 2 for the NEF, GMLC, AMF, LMF,
+  MFAF, TSCTSF and AAnF). `docs/decisions/_order.json` lists nine ADRs once instead of twice (the
+  duplicates came in with #65). No code changes.
 - Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
   and `fuzz-nightly.yml`
   ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).
