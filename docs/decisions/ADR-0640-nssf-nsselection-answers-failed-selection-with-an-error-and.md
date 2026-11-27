@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-27. **Status:** Proposed.
 
-**Context.** An external reviewer (Pinaki Mukherjee, who works on NSSF/NRF slicing products) read
+**Context.** An external reviewer with NSSF/NRF slicing experience read
 `nfs/nssf/src/main.cpp` on main and reported two gaps in Nnssf_NSSelection (ADR-0183). Both were
 checked against the code at `origin/main` 9022f3a6 and hold:
 
