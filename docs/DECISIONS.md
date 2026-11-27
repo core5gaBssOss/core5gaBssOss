@@ -588,6 +588,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0634](decisions/ADR-0634-gmlc-problemdetails-carry-invalidparams-sbi-03-step-2-gmlc.md) GMLC ProblemDetails carry invalidParams (SBI-03 step 2, GMLC)
 - [0635](decisions/ADR-0635-amf-problemdetails-carry-invalidparams-sbi-03-step-2-amf.md) AMF ProblemDetails carry invalidParams (SBI-03 step 2, AMF)
 - [0636](decisions/ADR-0636-lmf-problemdetails-carry-invalidparams-sbi-03-step-2-lmf.md) LMF ProblemDetails carry invalidParams (SBI-03 step 2, LMF)
+- [0637](decisions/ADR-0637-mfaf-problemdetails-carry-invalidparams-sbi-03-step-2-mfaf.md) MFAF ProblemDetails carry invalidParams (SBI-03 step 2, MFAF)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
