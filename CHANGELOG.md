@@ -263,6 +263,12 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `/reportingOptions/expiry` for a subscription expiry that is not a date-time; statuses and causes
   are unchanged
   ([ADR-0614](docs/decisions/ADR-0614-udm-problemdetails-carry-invalidparams-sbi-03-step-2-udm.md)).
+- NEF: the 400s whose cause TS 29.500 Table 5.2.7.2-1 NOTE 1 covers now carry `invalidParams`
+  naming the query parameter (`application-ids`), the header (`Content-Type`) or the body IE
+  (`/dnns` and `/snssais`, `/qosReference`, or `""` for a JSON Patch body that is not an array);
+  status codes and causes are unchanged. The two malformed-multipart answers and the
+  generated-DTO parse failures still carry none
+  ([ADR-0623](docs/decisions/ADR-0623-nef-problemdetails-carry-invalidparams-sbi-03-step-2-nef.md)).
 
 ### Security
 
