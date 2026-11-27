@@ -121,6 +121,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   parameter (`query filter`, `query limit-range`, ...) or, for a MetaSchema tag without `sort`, the
   JSON Pointer `/metaTags/<i>/sort`. The multipart Content-Id 400 still has none
   ([ADR-0608](docs/decisions/ADR-0608-udsf-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
+- NWDAF: 400s with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carry `invalidParams` naming the
+  query parameter (`query event-id`) or the body member as a JSON Pointer (`/modelIds`,
+  `/mLEventSubscs/<i>/mLEvent`, both members of an unmet oneOf/anyOf, `""` for an empty Fetch
+  body), in the AnLF and the MTLF. Causes and status codes are unchanged
+  ([ADR-0625](docs/decisions/ADR-0625-nwdaf-problemdetails-carry-invalidparams-sbi-03-step-2-nwdaf.md)).
 
 ### Fixed
 
