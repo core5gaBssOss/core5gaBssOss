@@ -586,6 +586,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0619](decisions/ADR-0619-bss-product-catalog-answers-the-tmf620-error-via-libs-tmf.md) bss/product-catalog answers the TMF620 Error via libs/tmf-core (BSS SBI-03 PR 5)
 - [0623](decisions/ADR-0623-nef-problemdetails-carry-invalidparams-sbi-03-step-2-nef.md) NEF ProblemDetails carry invalidParams (SBI-03 step 2, NEF)
 - [0634](decisions/ADR-0634-gmlc-problemdetails-carry-invalidparams-sbi-03-step-2-gmlc.md) GMLC ProblemDetails carry invalidParams (SBI-03 step 2, GMLC)
+- [0635](decisions/ADR-0635-amf-problemdetails-carry-invalidparams-sbi-03-step-2-amf.md) AMF ProblemDetails carry invalidParams (SBI-03 step 2, AMF)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
