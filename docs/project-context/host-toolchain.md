@@ -178,3 +178,9 @@ Three machines are registered (ADR-0580, ADR-0581, ADR-0582, ADR-0596):
   build and sanitizer jobs at the same time. The ADR-0617 readiness waits stay in place for its
   slower ASan runs.
 - `5gc-lab-host` and `5gc-lab-mastermindAI` are unchanged.
+- Later on 2026-11-27 (user: "make use of" all laptops): `5gc-lab-mastermindAI` (runner 23) got
+  `5gc-lab` + `5gc-lab-small` again beside `5gc-master`, so all three machines take build, sanitize
+  and lint jobs. It is the largest of the three (24 cores, 30 GiB RAM). CI's service containers
+  use offset host ports (15434-15439, 16379, 19092, 18030/19030/18040), so they do not collide
+  with the machine's own containers. Spawned NFs use fixed ports, though, so local integration
+  tests on this machine run only while runner 23 is idle (the 2026-11-21/22 port contention).
