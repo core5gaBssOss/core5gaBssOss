@@ -269,6 +269,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   status codes and causes are unchanged. The two malformed-multipart answers and the
   generated-DTO parse failures still carry none
   ([ADR-0623](docs/decisions/ADR-0623-nef-problemdetails-carry-invalidparams-sbi-03-step-2-nef.md)).
+- GMLC: the LocationUpdate 400 `MANDATORY_IE_MISSING` for a body with neither `supi` nor `gpsi` now
+  carries `invalidParams` naming both, `/supi` and `/gpsi`; status and cause are unchanged
+  ([ADR-0634](docs/decisions/ADR-0634-gmlc-problemdetails-carry-invalidparams-sbi-03-step-2-gmlc.md)).
 
 ### Security
 
