@@ -10,6 +10,12 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ### Added
 
+- SMF: PDU Session Establishment's N1N2MessageTransfer now carries the N2 SM information (PDU
+  Session Resource Setup Request Transfer, TS 38.413 9.3.4.1) next to the NAS Accept (TS 23.502
+  4.3.2.2.1 step 11). The downlink PDR matches the UE's IPv4 address as destination and references
+  the session QER, which now carries the QoS flow's QFI. The AMF does not send NGAP PDU Session
+  Resource Setup Request yet, and the UPF has no downlink datapath yet; both are the next PRs
+  ([ADR-0642](docs/decisions/ADR-0642-smf-sends-n2-sm-information-at-pdu-session-establishment.md)).
 - `pfcp_core::encode_qfi`/`decode_qfi` and `IeType::Qfi` (124): the PFCP QFI IE, TS 29.244 V19.6.0
   8.2.89. Prerequisite of the SMF downlink QER (ADR-0642, next PR); split out because a PR may
   touch one area only.

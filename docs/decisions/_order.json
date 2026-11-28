@@ -600,7 +600,8 @@
   "ADR-0624-adrf-problemdetails-carry-invalidparams-sbi-03-step-2-adrf.md",
   "ADR-0628-bsf-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md",
   "ADR-0633-5g-eir-problemdetails-carry-invalidparams-sbi-03-step-2.md",
-  "ADR-0632-smsf-problemdetails-carry-invalidparams-sbi-03-step-2-smsf.md"
+  "ADR-0632-smsf-problemdetails-carry-invalidparams-sbi-03-step-2-smsf.md",
+  "ADR-0642-smf-sends-n2-sm-information-at-pdu-session-establishment.md"
  ],
  "split_commit": "0530e4f"
 }

@@ -140,3 +140,10 @@ B10 has changed. There are now two self-hosted runners, the lab host and the lap
 Update 2026-11-23 (user decisions 2026-11-22/23): `5gc-lab-host` (007, labels `5gc-lab` + `5gc-lab-small`) runs build, sanitize and lint; `mastermind-073-small` (073) carries only `5gc-lab-small` since 2026-11-23 and runs lint only, because ASan jobs there (6.9 GB RAM, Doris beside the tests) kept failing while spawned NFs took ~30 s to start (PRs #56, #58, #61, #60); the master's runner `5gc-lab-mastermindAI` carries only `5gc-master` and is fallback only (CI labels added 2026-11-21, removed 2026-11-22 after port contention with local tests). ADR-0617 (#68, db66244e) made the integration tests' readiness waits deadline-based, 3x under ASan and 5x under TSan. Build and sanitize jobs are therefore serial on one machine again; B10 stays open.
 Update 2026-11-27: `mastermind-073-small` carries `5gc-lab` + `5gc-lab-small` again (`5gc-lab` re-added at the user's request; seen on the runner list 2026-11-27), so build and sanitize jobs run on 007 and 073 side by side again; the master is unchanged (`5gc-master` only, fallback). B10 stays open: both runners are still the developer's own machines.
 B9 has changed in part: the libFuzzer targets now have a nightly workflow, but coverage is still not measured.
+
+Update 2026-11-27, v0.3.0 item 1 (UPF downlink): started after the v0.2.0 batch. Tracing it found the
+gap is upstream of the UPF: at PDU Session Establishment the SMF sent no N2 SM information and the
+AMF sent no NGAP PDU Session Resource Setup Request (TS 23.502 4.3.2.2.1 steps 11-15), so the gNB
+never received the N3 tunnel. The user approved three PRs in this order: SMF (ADR-0642, open: N2 SM
+information, downlink PDR with UE IP and QFI), AMF (steps 12-15), UPF (userspace downlink
+datapath first, user decision 2026-11-27). Item 1 is therefore larger than "kernel-side work" alone.
