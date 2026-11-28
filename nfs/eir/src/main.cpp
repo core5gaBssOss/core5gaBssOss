@@ -55,6 +55,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "TS29511_N5g-eir_EquipmentIdentityCheck.hpp"
 #include "nf_config/nf_config.hpp"
@@ -232,10 +233,14 @@ int main() {
         [&statuses, &get_status_counter](const sbi_core::http2::Request& req) {
             auto pei_it = req.query_params.find("pei");
             if (pei_it == req.query_params.end()) {
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0633): invalidParams names the absent
+                // required query parameter pei (TS29511_N5g-eir_EquipmentIdentityCheck.yaml), in
+                // TS29571_CommonData.yaml's "query <name>" encoding.
                 return sbi_core::http2::problem_response(400,
                                                          "Missing mandatory query parameter",
                                                          "pei is required",
-                                                         "MANDATORY_QUERY_PARAM_MISSING");
+                                                         "MANDATORY_QUERY_PARAM_MISSING",
+                                                         {sbi_core::invalid_query_param("pei")});
             }
             get_status_counter->Add(1);
 
