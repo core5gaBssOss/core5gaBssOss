@@ -83,6 +83,7 @@ add_executable(integration_tests
     ${CMAKE_SOURCE_DIR}/nfs/udr/src/stores.cpp
     test_smf_handover_n2sminfo.cpp
     test_smf_n2sminfo_dispatch.cpp
+    test_smf_n2_setup_transfer.cpp ${CMAKE_SOURCE_DIR}/nfs/smf/src/n2_sm_info.cpp
     test_amf_ngap_handover.cpp
     test_amf_deregistration.cpp
     test_ngap_codec_presence.cpp
@@ -167,6 +168,10 @@ add_executable(integration_tests
 # only, so no other test in the target can pick up an AMF-private header by accident.
 set_source_files_properties(test_amf_peer_uri_encoding.cpp PROPERTIES
     INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/nfs/amf/src)
+# ADR-0642: the SMF's N2 transfer builder (nfs/smf/src/n2_sm_info.{hpp,cpp}), for this one test
+# file only, so no other test in the target can pick up an SMF-private header by accident.
+set_source_files_properties(test_smf_n2_setup_transfer.cpp PROPERTIES
+    INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/nfs/smf/src)
 # ngap_core/ngap_generated (ADR-0260): test_smf_n2sminfo_dispatch.cpp builds REAL PER-encoded
 # NGAP transfers to drive SMF's N2SmInfoType branches. Asserting on bytes SMF returns is not
 # enough for those -- the branches only run on a transfer that actually decodes, so the test

@@ -141,8 +141,10 @@
 #include "TS26510_CommonData_grp.hpp"
 #include "TS29542_Nsmf_NIDD.hpp"
 #include "ambr.hpp"
+#include "downlink_rule.hpp"
 #include "event_subscription_store.hpp"
 #include "li_poi.hpp"
+#include "n2_sm_info.hpp"
 #include "nas_5gsm_codec.hpp"
 #include "ngap_core/ngap_codec.hpp"
 #include "pfcp_core/common_ies.hpp"
@@ -704,57 +706,49 @@ std::optional<GtpTunnelEndpoint> read_gtp_tunnel(const UPTransportLayerInformati
 // built that inline for PATH_SWITCH_REQ; four more values need it verbatim, so it lives here once
 // rather than five times. Returns an error string on refusal, std::nullopt on success.
 //
-// Unchanged from ADR-0092 and still disclosed: the downlink PDR's match criteria is
-// SourceInterface=Core only, with no UE IP Address IE, because this project has never allocated
-// or tracked a real UE IP address anywhere.
+// ADR-0642: the PFCP IEs (downlink PDR, FAR and, when the session has none yet, the session QER)
+// are built by downlink_rule.cpp.
+
+// ADR-0642: what install_downlink_far needs from the SM context: the UE's IPv4 address
+// ("ueIpv4", ADR-0525), the default QoS flow's QFI ("qosFlow.qfi", stored at establishment) and
+// whether the session QER exists yet ("qerInstalled", ADR-0328).
+// A context from before ADR-0642 has no "qosFlow" and gets QFI 1, the value the handover path
+// used to hard-code.
+struct DownlinkMatch {
+    std::optional<std::array<std::uint8_t, 4>> ue_ipv4;
+    std::uint8_t qfi = 1;
+    bool session_qer_installed = false; // "qerInstalled", ADR-0328
+};
+DownlinkMatch downlink_match_from(const json& ctx) {
+    DownlinkMatch m;
+    m.ue_ipv4 = smf::UeIpPool::parse(ctx.value("ueIpv4", std::string{}));
+    m.session_qer_installed = ctx.value("qerInstalled", false);
+    if (const auto it = ctx.find("qosFlow"); it != ctx.end() && it->is_object()) {
+        m.qfi = it->value("qfi", std::uint8_t{1});
+    }
+    return m;
+}
+
+// ADR-0642: install_downlink_far created the session QER (with the QFI) because establishment had
+// not; later re-authorisations must then send Update QER, not Create QER (ADR-0328).
+void record_session_qer_installed(smf::SmContextStore& store, const std::string& sm_context_ref) {
+    if (auto ctx = store.get(sm_context_ref); ctx.has_value()) {
+        (*ctx)["qerInstalled"] = true;
+        store.update(sm_context_ref, *ctx);
+    }
+}
+
 std::optional<std::string> install_downlink_far(smf::PfcpPeer& pfcp_peer,
                                                 std::uint64_t up_seid,
                                                 const std::string& upf_ip,
                                                 std::uint32_t gnb_teid,
                                                 const std::array<std::uint8_t, 4>& gnb_ipv4,
-                                                const char* label) {
-    std::vector<std::uint8_t> dl_pdi;
-    pfcp_core::encode_ie(dl_pdi,
-                         static_cast<std::uint16_t>(pfcp_core::IeType::SourceInterface),
-                         pfcp_core::encode_source_interface(pfcp_core::InterfaceValue::Core));
-
-    std::vector<std::uint8_t> dl_create_pdr;
-    pfcp_core::encode_ie(dl_create_pdr,
-                         static_cast<std::uint16_t>(pfcp_core::IeType::PdrId),
-                         pfcp_core::encode_pdr_id(2));
-    pfcp_core::encode_ie(dl_create_pdr,
-                         static_cast<std::uint16_t>(pfcp_core::IeType::Precedence),
-                         pfcp_core::encode_precedence(100));
-    pfcp_core::encode_ie(dl_create_pdr, static_cast<std::uint16_t>(pfcp_core::IeType::Pdi), dl_pdi);
-    pfcp_core::encode_ie(dl_create_pdr,
-                         static_cast<std::uint16_t>(pfcp_core::IeType::FarId),
-                         pfcp_core::encode_far_id(2));
-
-    std::vector<std::uint8_t> dl_forwarding_parameters;
-    pfcp_core::encode_ie(
-        dl_forwarding_parameters,
-        static_cast<std::uint16_t>(pfcp_core::IeType::DestinationInterface),
-        pfcp_core::encode_destination_interface(pfcp_core::InterfaceValue::Access));
-    pfcp_core::encode_ie(dl_forwarding_parameters,
-                         static_cast<std::uint16_t>(pfcp_core::IeType::OuterHeaderCreation),
-                         pfcp_core::encode_outer_header_creation_gtpu_ipv4(gnb_teid, gnb_ipv4));
-
-    std::vector<std::uint8_t> dl_create_far;
-    pfcp_core::encode_ie(dl_create_far,
-                         static_cast<std::uint16_t>(pfcp_core::IeType::FarId),
-                         pfcp_core::encode_far_id(2));
-    pfcp_core::encode_ie(dl_create_far,
-                         static_cast<std::uint16_t>(pfcp_core::IeType::ApplyAction),
-                         pfcp_core::encode_apply_action_forward());
-    pfcp_core::encode_ie(dl_create_far,
-                         static_cast<std::uint16_t>(pfcp_core::IeType::ForwardingParameters),
-                         dl_forwarding_parameters);
-
-    std::vector<std::uint8_t> mod_ies;
-    pfcp_core::encode_ie(
-        mod_ies, static_cast<std::uint16_t>(pfcp_core::IeType::CreatePdr), dl_create_pdr);
-    pfcp_core::encode_ie(
-        mod_ies, static_cast<std::uint16_t>(pfcp_core::IeType::CreateFar), dl_create_far);
+                                                const char* label,
+                                                std::optional<std::array<std::uint8_t, 4>> ue_ipv4,
+                                                std::uint8_t qfi,
+                                                bool session_qer_installed) {
+    const auto mod_ies = smf::build_downlink_rule_ies(
+        gnb_teid, gnb_ipv4, ue_ipv4, qfi, kQerId, /*create_qer=*/!session_qer_installed);
 
     pfcp_core::Header mod_header;
     mod_header.has_seid = true;
@@ -861,7 +855,10 @@ std::optional<N4EstablishmentResult> perform_n4_session_establishment(
     const std::function<void(std::uint64_t)>& before_send = nullptr,
     // ADR-0525: the UE's IPv4 address, matched as the source of
     // uplink packets (UE IP Address IE in the PDI, TS 29.244 8.2.62).
-    std::optional<std::array<std::uint8_t, 4>> ue_ipv4 = std::nullopt) {
+    std::optional<std::array<std::uint8_t, 4>> ue_ipv4 = std::nullopt,
+    // ADR-0642: the default QoS flow's QFI, put on the session QER (TS 29.244 8.2.89) so the
+    // downlink PDR that references it marks downlink packets with this QFI.
+    std::uint8_t qfi = 1) {
     const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
                                                       g_upf_pfcp_port);
 
@@ -997,6 +994,9 @@ std::optional<N4EstablishmentResult> perform_n4_session_establishment(
             pfcp_core::encode_ie(create_qer,
                                  static_cast<std::uint16_t>(pfcp_core::IeType::Mbr),
                                  pfcp_core::encode_mbr(mbr));
+            pfcp_core::encode_ie(create_qer,
+                                 static_cast<std::uint16_t>(pfcp_core::IeType::Qfi),
+                                 pfcp_core::encode_qfi(qfi));
             pfcp_core::encode_ie(
                 ies, static_cast<std::uint16_t>(pfcp_core::IeType::CreateQer), create_qer);
             spdlog::info("smf: provisioning QER {} for pduSessionId {}: MBR ul={} kbps dl={} kbps "
@@ -1461,6 +1461,34 @@ AuthSessAmbr auth_sess_ambr_from(const sbi_gen::SmPolicyDecision& decision) {
         // rate it had to guess at.
     }
     return out;
+}
+
+// ADR-0642: the default QoS flow from PCF's first session rule (authDefQos 5QI and ARP), or the
+// defaults of smf::n2::QosFlowSetup (5QI 9, ARP 8) if there is none. Disclosed, unchanged from
+// before: the QFI is derived as 5QI & 0x3F; TS 23.501 lets the SMF assign any QFI.
+smf::n2::QosFlowSetup default_qos_flow_from(const sbi_gen::SmPolicyDecision& decision) {
+    smf::n2::QosFlowSetup flow;
+    if (decision.sessRules.has_value() && decision.sessRules->is_object() &&
+        !decision.sessRules->empty()) {
+        try {
+            const auto rule = decision.sessRules->begin().value().get<sbi_gen::SessionRule>();
+            if (rule.authDefQos.has_value() && rule.authDefQos->n5qi.has_value()) {
+                flow.five_qi = static_cast<long>(*rule.authDefQos->n5qi);
+                flow.qfi = static_cast<std::uint8_t>(*rule.authDefQos->n5qi & 0x3F);
+            }
+            if (rule.authDefQos.has_value() && rule.authDefQos->arp.has_value()) {
+                const auto& arp = *rule.authDefQos->arp;
+                flow.arp_priority_level = static_cast<long>(arp.priorityLevel);
+                flow.arp_may_trigger_pre_emption =
+                    arp.preemptCap.value == sbi_gen::PreemptionCapability::MAY_PREEMPT;
+                flow.arp_pre_emptable =
+                    arp.preemptVuln.value == sbi_gen::PreemptionVulnerability::PREEMPTABLE;
+            }
+        } catch (const json::exception&) {
+            // Malformed sessRules entry: the defaults stand.
+        }
+    }
+    return flow;
 }
 
 // ADR-0522: TS 23.502 4.3.4.2 steps 2a-2b, N4 Session Release = PFCP Session Deletion (TS 29.244
@@ -3021,6 +3049,9 @@ int main() {
             const auto establishment_ambr = auth_sess_ambr_from(decision);
             std::optional<std::string> policy_ambr_ul = establishment_ambr.uplink;
             std::optional<std::string> policy_ambr_dl = establishment_ambr.downlink;
+            // ADR-0642: decided once; read by the N4 session QER (QFI), the N2 transfer and the
+            // NAS Accept below.
+            const auto flow = default_qos_flow_from(decision);
 
             if (const auto upf_ip = upf_endpoint_store.get(); upf_ip.has_value()) {
                 std::optional<std::uint64_t> cc_triggered_seid; // ADR-0464
@@ -3042,7 +3073,8 @@ int main() {
                             li_poi->cc_begin(li);
                         }
                     },
-                    *ue_ipv4);
+                    *ue_ipv4,
+                    flow.qfi);
                 if (!n4_result.has_value() && cc_triggered_seid.has_value()) {
                     // The establishment failed after the trigger went out; withdraw it.
                     li_poi->cc_end(*cc_triggered_seid);
@@ -3139,20 +3171,9 @@ int main() {
                     // could diverge.
                     std::string ambr_ul = policy_ambr_ul.value_or("1 Mbps");
                     std::string ambr_dl = policy_ambr_dl.value_or("1 Mbps");
-                    std::uint8_t qfi = 1;
-                    if (decision.sessRules.has_value() && decision.sessRules->is_object() &&
-                        !decision.sessRules->empty()) {
-                        try {
-                            const auto rule =
-                                decision.sessRules->begin().value().get<sbi_gen::SessionRule>();
-                            if (rule.authDefQos.has_value() && rule.authDefQos->n5qi.has_value()) {
-                                qfi = static_cast<std::uint8_t>(*rule.authDefQos->n5qi & 0x3F);
-                            }
-                        } catch (const json::exception&) {
-                            // Malformed sessRules entry -- fall back to the defaults above,
-                            // disclosed via the log line below rather than silently swallowed.
-                        }
-                    }
+                    // ADR-0642: `flow` (default_qos_flow_from, above the N4 establishment) is
+                    // the one QoS flow the NAS Accept, the N2 transfer and the session QER carry.
+                    const std::uint8_t qfi = flow.qfi;
 
                     const auto accept_bytes = smf::nas5gsm::encode_establishment_accept(
                         req_info->pdu_session_id, req_info->pti, ambr_ul, ambr_dl, qfi, *ue_ipv4);
@@ -3173,6 +3194,66 @@ int main() {
                         n1n2_req.n1MessageContainer = n1_container;
                         n1n2_req.pduSessionId = body->pduSessionId;
 
+                        // ADR-0642, TS 23.502 4.3.2.2.1 step 11: the N2 SM information (PDU
+                        // Session Resource Setup Request Transfer, TS 38.413 9.3.4.1) goes with
+                        // the N1 SM container, so the AMF can send the gNB PDU Session Resource
+                        // Setup Request. Its UL NG-U UP TNL Information is mandatory, so it is
+                        // sent only when N4 Session Establishment returned the UPF's F-TEID.
+                        std::vector<std::uint8_t> n2_bytes;
+                        std::optional<std::uint64_t> n2_in_ambr_ul_bps;
+                        std::optional<std::uint64_t> n2_in_ambr_dl_bps;
+                        if (const auto ul_kbps = smf::ambr_to_kbps(ambr_ul),
+                            dl_kbps = smf::ambr_to_kbps(ambr_dl);
+                            ul_kbps.has_value() && dl_kbps.has_value()) {
+                            n2_in_ambr_ul_bps = *ul_kbps * 1000;
+                            n2_in_ambr_dl_bps = *dl_kbps * 1000;
+                        }
+                        if (auto stored = sm_contexts.get(sm_context_ref); stored.has_value()) {
+                            const auto ul_ipv4 =
+                                stored->value("ulIpv4", std::vector<std::uint8_t>{});
+                            if (stored->contains("ulTeid") && ul_ipv4.size() == 4) {
+                                smf::n2::SetupRequestTransferInput n2_in;
+                                n2_in.ul_teid = stored->at("ulTeid").get<std::uint32_t>();
+                                std::copy(ul_ipv4.begin(), ul_ipv4.end(), n2_in.ul_ipv4.begin());
+                                n2_in.flow = flow;
+                                n2_in.ambr_ul_bps = n2_in_ambr_ul_bps;
+                                n2_in.ambr_dl_bps = n2_in_ambr_dl_bps;
+                                n2_bytes = smf::n2::encode_setup_request_transfer(n2_in);
+                            }
+                            (*stored)["qosFlow"] =
+                                json{{"qfi", flow.qfi},
+                                     {"fiveQi", flow.five_qi},
+                                     {"arpPriorityLevel", flow.arp_priority_level},
+                                     {"arpMayPreempt", flow.arp_may_trigger_pre_emption},
+                                     {"arpPreemptable", flow.arp_pre_emptable}};
+                            if (n2_in_ambr_ul_bps.has_value() && n2_in_ambr_dl_bps.has_value()) {
+                                (*stored)["qosFlow"]["ambrUlBps"] = *n2_in_ambr_ul_bps;
+                                (*stored)["qosFlow"]["ambrDlBps"] = *n2_in_ambr_dl_bps;
+                            }
+                            sm_contexts.update(sm_context_ref, *stored);
+                        }
+                        if (!n2_bytes.empty()) {
+                            sbi_gen::N2InfoContainer n2_container{};
+                            n2_container.n2InformationClass.value = sbi_gen::N2InformationClass::SM;
+                            sbi_gen::N2SmInformation sm_info{};
+                            sm_info.pduSessionId = *body->pduSessionId;
+                            sm_info.sNssai = *body->sNssai;
+                            sbi_gen::N2InfoContent n2_content{};
+                            n2_content.ngapIeType = sbi_gen::NgapIeType_Namf_Communication{};
+                            n2_content.ngapIeType->value =
+                                sbi_gen::NgapIeType_Namf_Communication::PDU_RES_SETUP_REQ;
+                            n2_content.ngapData.contentId = "n2SmInfo";
+                            sm_info.n2InfoContent = n2_content;
+                            n2_container.smInfo = sm_info;
+                            n1n2_req.n2InfoContainer = n2_container;
+                        } else {
+                            spdlog::warn("smf: SUPI {} pduSessionId {} -- no UPF N3 F-TEID on "
+                                         "record, N1N2MessageTransfer carries the N1 SM "
+                                         "container only (no N2 SM information)",
+                                         *body->supi,
+                                         *body->pduSessionId);
+                        }
+
                         sbi_core::multipart::Part n1n2_json_part;
                         n1n2_json_part.content_type = "application/json";
                         n1n2_json_part.body = json(n1n2_req).dump();
@@ -3180,8 +3261,16 @@ int main() {
                         n1n2_bin_part.content_type = "application/vnd.3gpp.5gnas";
                         n1n2_bin_part.content_id = "n1Message";
                         n1n2_bin_part.body.assign(accept_bytes.begin(), accept_bytes.end());
-                        const auto n1n2_encoded =
-                            sbi_core::multipart::encode({n1n2_json_part, n1n2_bin_part});
+                        std::vector<sbi_core::multipart::Part> n1n2_parts{n1n2_json_part,
+                                                                          n1n2_bin_part};
+                        if (!n2_bytes.empty()) {
+                            sbi_core::multipart::Part n2_part;
+                            n2_part.content_type = "application/vnd.3gpp.ngap";
+                            n2_part.content_id = "n2SmInfo";
+                            n2_part.body.assign(n2_bytes.begin(), n2_bytes.end());
+                            n1n2_parts.push_back(std::move(n2_part));
+                        }
+                        const auto n1n2_encoded = sbi_core::multipart::encode(n1n2_parts);
 
                         sbi_core::http2::ClientRequest amf_http_req;
                         amf_http_req.method = "POST";
@@ -3797,72 +3886,27 @@ int main() {
                         "SYSTEM_FAILURE");
                 }
 
-                PDUSessionResourceSetupRequestTransfer_t transfer{};
-
-                UPTransportLayerInformation_t ul_info{};
-                ul_info.present = UPTransportLayerInformation_PR_gTPTunnel;
-                auto* gtp_tunnel = static_cast<GTPTunnel_t*>(std::calloc(1, sizeof(GTPTunnel_t)));
-                const std::uint8_t teid_bytes[4] = {
-                    static_cast<std::uint8_t>((ul_teid >> 24) & 0xFF),
-                    static_cast<std::uint8_t>((ul_teid >> 16) & 0xFF),
-                    static_cast<std::uint8_t>((ul_teid >> 8) & 0xFF),
-                    static_cast<std::uint8_t>(ul_teid & 0xFF)};
-                gtp_tunnel->gTP_TEID.buf = static_cast<std::uint8_t*>(std::malloc(4));
-                std::memcpy(gtp_tunnel->gTP_TEID.buf, teid_bytes, 4);
-                gtp_tunnel->gTP_TEID.size = 4;
-                gtp_tunnel->transportLayerAddress.buf = static_cast<std::uint8_t*>(std::malloc(4));
-                std::memcpy(gtp_tunnel->transportLayerAddress.buf, ul_ipv4.data(), 4);
-                gtp_tunnel->transportLayerAddress.size = 4;
-                gtp_tunnel->transportLayerAddress.bits_unused = 0;
-                ul_info.choice.gTPTunnel = gtp_tunnel;
-                ::ngap::add_ie(transfer.protocolIEs,
-                               ::ngap::make_ie(139 /* id-UL-NGU-UP-TNLInformation */,
-                                               Criticality_reject,
-                                               &asn_DEF_UPTransportLayerInformation,
-                                               &ul_info));
-                ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_UPTransportLayerInformation, &ul_info);
-
-                PDUSessionType_t pdu_type = PDUSessionType_ipv4;
-                ::ngap::add_ie(transfer.protocolIEs,
-                               ::ngap::make_ie(134 /* id-PDUSessionType */,
-                                               Criticality_reject,
-                                               &asn_DEF_PDUSessionType,
-                                               &pdu_type));
-
-                // Same real QoS flow this project already uses on its establishment path: QFI=1,
-                // non-dynamic 5QI=9 (the real 3GPP non-GBR default, TS 23.501 Table 5.7.4-1),
-                // ARP 8 / shall-not-trigger-pre-emption / not-pre-emptable. Real, disclosed
-                // simplification carried over unchanged, not new scope: this project has no real
-                // per-subscriber QoS profile source to derive a different flow from.
-                QosFlowSetupRequestList_t qos_list{};
-                auto* qos_item = static_cast<QosFlowSetupRequestItem_t*>(
-                    std::calloc(1, sizeof(QosFlowSetupRequestItem_t)));
-                qos_item->qosFlowIdentifier = 1;
-                qos_item->qosFlowLevelQosParameters.qosCharacteristics.present =
-                    QosCharacteristics_PR_nonDynamic5QI;
-                auto* non_dynamic = static_cast<NonDynamic5QIDescriptor_t*>(
-                    std::calloc(1, sizeof(NonDynamic5QIDescriptor_t)));
-                non_dynamic->fiveQI = 9;
-                qos_item->qosFlowLevelQosParameters.qosCharacteristics.choice.nonDynamic5QI =
-                    non_dynamic;
-                qos_item->qosFlowLevelQosParameters.allocationAndRetentionPriority
-                    .priorityLevelARP = 8;
-                qos_item->qosFlowLevelQosParameters.allocationAndRetentionPriority
-                    .pre_emptionCapability = Pre_emptionCapability_shall_not_trigger_pre_emption;
-                qos_item->qosFlowLevelQosParameters.allocationAndRetentionPriority
-                    .pre_emptionVulnerability = Pre_emptionVulnerability_not_pre_emptable;
-                ASN_SEQUENCE_ADD(&qos_list.list, qos_item);
-                ::ngap::add_ie(transfer.protocolIEs,
-                               ::ngap::make_ie(136 /* id-QosFlowSetupRequestList */,
-                                               Criticality_reject,
-                                               &asn_DEF_QosFlowSetupRequestList,
-                                               &qos_list));
-                ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_QosFlowSetupRequestList, &qos_list);
-
-                const auto setup_bytes = ::ngap::encode_value(
-                    &asn_DEF_PDUSessionResourceSetupRequestTransfer, &transfer);
-                ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_PDUSessionResourceSetupRequestTransfer,
-                                              &transfer);
+                // ADR-0642: the shared TS 38.413 9.3.4.1 builder, with the QoS flow stored at
+                // establishment (before this ADR this branch hard-coded QFI 1 / 5QI 9, which did
+                // not match the NAS Accept whenever the 5QI was not 1) and the Session-AMBR the
+                // UE was given. A context from before ADR-0642 has no "qosFlow"; it keeps the
+                // old QFI 1 / 5QI 9 defaults.
+                smf::n2::SetupRequestTransferInput n2_in;
+                n2_in.ul_teid = ul_teid;
+                std::copy(ul_ipv4.begin(), ul_ipv4.end(), n2_in.ul_ipv4.begin());
+                if (const auto it = stored_ctx->find("qosFlow");
+                    it != stored_ctx->end() && it->is_object()) {
+                    n2_in.flow.qfi = it->value("qfi", std::uint8_t{1});
+                    n2_in.flow.five_qi = it->value("fiveQi", 9L);
+                    n2_in.flow.arp_priority_level = it->value("arpPriorityLevel", 8L);
+                    n2_in.flow.arp_may_trigger_pre_emption = it->value("arpMayPreempt", false);
+                    n2_in.flow.arp_pre_emptable = it->value("arpPreemptable", false);
+                    if (it->contains("ambrUlBps") && it->contains("ambrDlBps")) {
+                        n2_in.ambr_ul_bps = it->at("ambrUlBps").get<std::uint64_t>();
+                        n2_in.ambr_dl_bps = it->at("ambrDlBps").get<std::uint64_t>();
+                    }
+                }
+                const auto setup_bytes = smf::n2::encode_setup_request_transfer(n2_in);
                 if (setup_bytes.empty()) {
                     return sbi_core::http2::problem_response(
                         500,
@@ -3982,16 +4026,23 @@ int main() {
                 // ADR-0259: the real PFCP Session Modification that repoints the downlink FAR
                 // now lives in install_downlink_far -- identical behaviour, one implementation
                 // shared with the N2SmInfoType values added below, rather than five copies.
+                const auto dl_match = downlink_match_from(*stored_ctx);
                 const auto dl_far_error =
                     install_downlink_far(pfcp_peer,
                                          up_seid,
                                          upf_ip,
                                          gnb_teid,
                                          gnb_ipv4,
-                                         is_path_switch ? "PATH_SWITCH_REQ" : "HANDOVER_REQ_ACK");
+                                         is_path_switch ? "PATH_SWITCH_REQ" : "HANDOVER_REQ_ACK",
+                                         dl_match.ue_ipv4,
+                                         dl_match.qfi,
+                                         dl_match.session_qer_installed);
                 if (dl_far_error.has_value()) {
                     return sbi_core::http2::problem_response(
                         500, "Internal Server Error", *dl_far_error, "SYSTEM_FAILURE");
+                }
+                if (!dl_match.session_qer_installed) {
+                    record_session_qer_installed(sm_contexts, sm_context_ref);
                 }
 
                 // Real PathSwitchRequestAcknowledgeTransfer (§9.3.4.9): uL-NGU-UP-TNLInformation
@@ -4232,10 +4283,16 @@ int main() {
                         dl_endpoint->teid,
                         dl_endpoint->ipv4,
                         is_setup_rsp ? "PDU_RES_SETUP_RSP"
-                                     : (is_mod_rsp ? "PDU_RES_MOD_RSP" : "PDU_RES_MOD_IND"));
+                                     : (is_mod_rsp ? "PDU_RES_MOD_RSP" : "PDU_RES_MOD_IND"),
+                        downlink_match_from(*stored_ctx).ue_ipv4,
+                        downlink_match_from(*stored_ctx).qfi,
+                        downlink_match_from(*stored_ctx).session_qer_installed);
                     if (error.has_value()) {
                         return sbi_core::http2::problem_response(
                             500, "Internal Server Error", *error, "SYSTEM_FAILURE");
+                    }
+                    if (!downlink_match_from(*stored_ctx).session_qer_installed) {
+                        record_session_qer_installed(sm_contexts, sm_context_ref);
                     }
                 } else {
                     spdlog::info("smf: {} carried no downlink endpoint -- acknowledged with no "
