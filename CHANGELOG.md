@@ -10,6 +10,9 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ### Added
 
+- `pfcp_core::encode_qfi`/`decode_qfi` and `IeType::Qfi` (124): the PFCP QFI IE, TS 29.244 V19.6.0
+  8.2.89. Prerequisite of the SMF downlink QER (ADR-0642, next PR); split out because a PR may
+  touch one area only.
 - The TMF620 v4.1.0, TMF632 v4.0.0, TMF651 v4.0.0 and TMF654 v4.0.0 swaggers the BSS services
   cite are vendored in `specs/tmforum/`, byte for byte and pinned to a commit and SHA-256 in
   `specs/tmforum/SOURCES.md`; no code changes

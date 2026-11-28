@@ -81,6 +81,7 @@ enum class IeType : std::uint16_t {
                     // QerId share; see encode_bar_id/decode_bar_id's own comment.
     QerId = 109,    // §8.2.75 -- same real "bit 8 of octet 5 = 0 for CP-allocated" convention as
                     // FarId/UrrId (confirmed identical spec text, not assumed).
+    Qfi = 124,      // §8.2.89 (V19.6.0 Table 8.1.2-1); first user: SMF downlink QER (ADR-0642)
     // Real, confirmed asymmetry (same class as UpdateBar's own 86-vs-12 split above, re-verified
     // directly against TS 29.244 V14.3.0 p.95 before writing this rather than trusted from a
     // secondary source): the "Usage Report" grouped IE has TWO distinct real type numbers
