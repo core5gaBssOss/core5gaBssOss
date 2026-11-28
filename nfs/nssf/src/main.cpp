@@ -29,6 +29,16 @@
 //    deployment's NSSF gets this from local configuration, which this project models as a
 //    startup seed, same precedent as nfs/udr's seed()-only stores) and splits whatever S-NSSAI
 //    list the caller asks about into allowed/rejected by catalog membership.
+//    ADR-0640 (selection.cpp): when the request carries `tai` and an AMF's NSSAIAvailability
+//    record covers that TA (`tai` or `taiList`), an S-NSSAI must also be in that TA's
+//    `supportedSnssaiList` or it goes to `rejectedNssaiInTa`. With no record for the TA, the
+//    catalog decides alone. `taiRangeList` is not evaluated. No slice found -> 403
+//    SNSSAI_NOT_SUPPORTED (TS 29.531 5.2.2.2.x step 2b), not 200. PDU session answers
+//    `nsiInformation` (nrfId = this deployment's single NRF; no per-slice NRF or nsiId).
+//    Registration/UE configuration update answer `configuredNssai`. Not modeled: `targetAmfSet`/
+//    `candidateAmfList` (no AMF-set data source; TS 29.531 5.2.2.2.2 step 2a requires one of them
+//    on a registration 200, so that answer stays non-conformant), `mappingOfNssai` (RSIPCE/
+//    roaming), `nsagInfos`, `targetNssai`, NSSRG compatibility, and `nsiId` for other-purpose.
 // 2. `AllowedNssai.accessType` is a REQUIRED field in the response schema, but NSSelectionGet's
 //    own real query parameters (confirmed by direct read of TS29531_Nnssf_NSSelection.yaml) never
 //    actually convey which access type the caller is asking about. This project always fills it
@@ -79,6 +89,7 @@
 
 #include "TS26510_CommonData_grp.hpp"
 #include "nf_config/nf_config.hpp"
+#include "selection.hpp"
 #include "stores.hpp"
 
 namespace {
@@ -128,46 +139,8 @@ std::optional<T> get_json_query_param(const sbi_core::http2::Request& req,
     }
 }
 
-bool snssai_equal(const sbi_gen::Snssai& a, const sbi_gen::Snssai& b) {
-    return a.sst == b.sst && a.sd.value_or("") == b.sd.value_or("");
-}
-
 bool tai_equal(const sbi_gen::Tai_CommonData& a, const sbi_gen::Tai_CommonData& b) {
     return a.plmnId.mcc == b.plmnId.mcc && a.plmnId.mnc == b.plmnId.mnc && a.tac == b.tac;
-}
-
-// See this file's own top comment, simplification 1-2.
-sbi_gen::AuthorizedNetworkSliceInfo
-decide_slice_selection(const std::vector<sbi_gen::Snssai>& catalog,
-                       const std::optional<std::vector<sbi_gen::Snssai>>& requested) {
-    sbi_gen::AuthorizedNetworkSliceInfo result;
-    const std::vector<sbi_gen::Snssai>& candidates = requested.has_value() ? *requested : catalog;
-
-    std::vector<sbi_gen::AllowedSnssai> allowed;
-    std::vector<sbi_gen::Snssai> rejected;
-    for (const auto& candidate : candidates) {
-        const bool in_catalog = std::any_of(catalog.begin(), catalog.end(), [&](const auto& c) {
-            return snssai_equal(c, candidate);
-        });
-        if (in_catalog) {
-            sbi_gen::AllowedSnssai a;
-            a.allowedSnssai = candidate;
-            allowed.push_back(std::move(a));
-        } else {
-            rejected.push_back(candidate);
-        }
-    }
-
-    if (!allowed.empty()) {
-        sbi_gen::AllowedNssai an;
-        an.allowedSnssaiList = std::move(allowed);
-        an.accessType.value = sbi_gen::AccessType::V3GPP_ACCESS;
-        result.allowedNssaiList = std::vector<sbi_gen::AllowedNssai>{std::move(an)};
-    }
-    if (!rejected.empty()) {
-        result.rejectedNssaiInPlmn = std::move(rejected);
-    }
-    return result;
 }
 
 // See this file's own top comment, simplification 3.
@@ -362,6 +335,9 @@ int main() {
     nssf::NssaiAvailabilityStore availability_store;
     nssf::NssaiAvailabilitySubscriptionStore subscription_store;
     const std::vector<sbi_gen::Snssai> nssai_catalog = seed_catalog();
+    // NsiInformation.nrfId: the API URI of the NRF NFDiscovery service (TS 29.531 Table
+    // 6.1.6.2.7-1; TS29510_Nnrf_NFDiscovery.yaml server '{apiRoot}/nnrf-disc/v1'). ADR-0640.
+    const std::string nrf_disc_api_uri = nrf_base + "/nnrf-disc/v1";
 
     auto meter = sbi_core::get_meter("nssf");
     auto ns_selection_counter =
@@ -410,7 +386,8 @@ int main() {
     server.add_route(
         "GET",
         std::string(kNsSelectionApiRoot) + "/network-slice-information",
-        [&nssai_catalog, &ns_selection_counter](const sbi_core::http2::Request& req) {
+        [&nssai_catalog, &ns_selection_counter, &availability_store, &nrf_disc_api_uri](
+            const sbi_core::http2::Request& req) {
             // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0629): invalidParams names each absent one of
             // the two required query parameters (TS29531_Nnssf_NSSelection.yaml), "query <name>".
             std::vector<sbi_core::InvalidParam> missing;
@@ -428,49 +405,49 @@ int main() {
             }
             ns_selection_counter->Add(1);
 
-            std::optional<std::vector<sbi_gen::Snssai>> requested;
+            nssf::SelectionRequest sel;
             if (auto reg = get_json_query_param<sbi_gen::SliceInfoForRegistration>(
                     req, "slice-info-request-for-registration");
                 reg.has_value()) {
-                if (reg->requestedNssai.has_value()) {
-                    requested = *reg->requestedNssai;
-                } else if (reg->subscribedNssai.has_value()) {
-                    std::vector<sbi_gen::Snssai> v;
-                    v.reserve(reg->subscribedNssai->size());
-                    for (const auto& s : *reg->subscribedNssai) {
-                        v.push_back(s.subscribedSnssai);
-                    }
-                    requested = std::move(v);
-                }
+                sel.procedure = nssf::SelectionProcedure::Registration;
+                sel.requested = reg->requestedNssai;
+                sel.subscribed = reg->subscribedNssai;
             } else if (auto pdu = get_json_query_param<sbi_gen::SliceInfoForPDUSession>(
                            req, "slice-info-request-for-pdu-session");
                        pdu.has_value()) {
-                requested = std::vector<sbi_gen::Snssai>{pdu->sNssai};
+                sel.procedure = nssf::SelectionProcedure::PduSession;
+                sel.requested = std::vector<sbi_gen::Snssai>{pdu->sNssai};
             } else if (auto cu = get_json_query_param<sbi_gen::SliceInfoForUEConfigurationUpdate>(
                            req, "slice-info-request-for-ue-cu");
                        cu.has_value()) {
-                if (cu->requestedNssai.has_value()) {
-                    requested = *cu->requestedNssai;
-                } else if (cu->subscribedNssai.has_value()) {
-                    std::vector<sbi_gen::Snssai> v;
-                    v.reserve(cu->subscribedNssai->size());
-                    for (const auto& s : *cu->subscribedNssai) {
-                        v.push_back(s.subscribedSnssai);
-                    }
-                    requested = std::move(v);
-                }
+                sel.procedure = nssf::SelectionProcedure::UeConfigurationUpdate;
+                sel.requested = cu->requestedNssai;
+                sel.subscribed = cu->subscribedNssai;
             } else if (auto pdn = get_json_query_param<std::vector<sbi_gen::Snssai>>(
                            req, "slice-info-request-for-pdn-connection");
                        pdn.has_value()) {
-                requested = *pdn;
+                sel.procedure = nssf::SelectionProcedure::PdnConnection;
+                sel.requested = *pdn;
             } else if (auto other = get_json_query_param<std::vector<sbi_gen::Snssai>>(
                            req, "slice-info-request-for-other-purpose");
                        other.has_value()) {
-                requested = *other;
+                sel.procedure = nssf::SelectionProcedure::OtherPurpose;
+                sel.requested = *other;
             }
+            sel.tai = get_json_query_param<sbi_gen::Tai_CommonData>(req, "tai");
 
-            auto result = decide_slice_selection(nssai_catalog, requested);
-            return sbi_core::http2::Response::json(200, json(result).dump());
+            // ADR-0640: the per-TA S-NSSAI support AMFs report through Nnssf_NSSAIAvailability.
+            auto result = nssf::decide_slice_selection(
+                nssai_catalog, sel, availability_store.list_all(), nrf_disc_api_uri);
+            if (!result.has_value()) {
+                // TS 29.531 5.2.2.2.2-5.2.2.2.5 step 2b, Table 6.1.7.3-1.
+                return sbi_core::http2::problem_response(
+                    403,
+                    "S-NSSAI not supported",
+                    "no network slice can be found for the requested slice selection information",
+                    "SNSSAI_NOT_SUPPORTED");
+            }
+            return sbi_core::http2::Response::json(200, json(*result).dump());
         });
 
     // --- Nnssf_NSSAIAvailability: nssai-availability/subscriptions (registered before the
