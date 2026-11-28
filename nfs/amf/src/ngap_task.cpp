@@ -30,6 +30,7 @@
 #include "ngap_core/ngap_codec.hpp"
 #include "ngap_core/sctp_socket.hpp"
 #include "ngap_handover.hpp"
+#include "pdu_session_resource_setup.hpp"
 #include "peer_uris.hpp"
 
 extern "C" {
@@ -2618,6 +2619,114 @@ void handle_uplink_nas_transport_deregistration(const PeerEndpoints& peers,
     spdlog::info("amf-ngap: Deregistration procedure complete for SUPI {}", auth_state.supi);
 }
 
+// ADR-0643, TS 23.502 4.3.2.2.1 steps 14-15: the gNB's N2 PDU Session Response, answered by
+// Nsmf_PDUSession_UpdateSMContext. TS 38.413 8.2.1.2: "Upon reception of the PDU SESSION RESOURCE
+// SETUP RESPONSE message the AMF shall, for each PDU session indicated in the PDU Session ID IE,
+// transfer transparently the PDU Session Resource Setup Response Transfer IE or PDU Session
+// Resource Setup Unsuccessful Transfer IE to the SMF associated with the concerned PDU session."
+// Each goes as the binary part of a multipart/related SmContextUpdateData with n2SmInfoType
+// PDU_RES_SETUP_RSP or PDU_RES_SETUP_FAIL (TS 29.502); the SMF then installs the downlink rule
+// (ADR-0259/ADR-0642). Disclosed: User Location Information is not forwarded, and the SMF's own
+// answer to PDU_RES_SETUP_FAIL (step 15: a PDU Session Establishment Reject) is not built by this
+// SMF yet (ADR-0260 decodes and acknowledges only), so nothing is relayed back to the UE.
+void handle_pdu_session_resource_setup_response(const PeerEndpoints& peers,
+                                                sbi_core::http2::Client& smf_client,
+                                                sbi_core::OAuth2Client& smf_oauth,
+                                                UeContextStore& ue_contexts,
+                                                const UeAuthState& auth_state,
+                                                const std::vector<std::uint8_t>& bytes) {
+    const auto rsp = decode_setup_response(bytes);
+    if (!rsp.has_value()) {
+        spdlog::warn("amf-ngap: PDUSessionResourceSetupResponse did not decode or lacks the UE "
+                     "NGAP IDs, ignoring");
+        return;
+    }
+    if (auth_state.supi.empty() ||
+        static_cast<unsigned long>(rsp->amf_ue_id) != auth_state.amf_ue_id) {
+        spdlog::warn("amf-ngap: PDUSessionResourceSetupResponse for AMF-UE-NGAP-ID={} does not "
+                     "match this association's UE, ignoring",
+                     rsp->amf_ue_id);
+        return;
+    }
+    const auto ctx = ue_contexts.get(auth_state.supi);
+
+    auto forward = [&](const SetupResponseItem& item, const std::string& n2_sm_info_type) {
+        const auto psi = std::to_string(item.pdu_session_id);
+        if (!ctx.has_value() || !ctx->contains("smContextRefs") ||
+            !ctx->at("smContextRefs").contains(psi)) {
+            spdlog::warn("amf-ngap: no SM context ref for SUPI {} pduSessionId={}, {} not "
+                         "forwarded to SMF",
+                         auth_state.supi,
+                         psi,
+                         n2_sm_info_type);
+            return;
+        }
+        const auto sm_context_ref = ctx->at("smContextRefs").at(psi).get<std::string>();
+        const auto token = smf_oauth.get_bearer_token();
+        if (!token.has_value()) {
+            spdlog::error(
+                "amf-ngap: no SMF token, {} for SUPI {} pduSessionId={} not forwarded: {}",
+                n2_sm_info_type,
+                auth_state.supi,
+                psi,
+                token.error());
+            return;
+        }
+        sbi_gen::SmContextUpdateData_Nsmf_PDUSession update{};
+        sbi_gen::RefToBinaryData n2_ref{};
+        n2_ref.contentId = "n2SmInfo";
+        update.n2SmInfo = n2_ref;
+        update.n2SmInfoType = sbi_gen::N2SmInfoType{};
+        update.n2SmInfoType->value = n2_sm_info_type;
+        sbi_core::multipart::Part json_part;
+        json_part.content_type = "application/json";
+        json_part.body = nlohmann::json(update).dump();
+        sbi_core::multipart::Part bin_part;
+        bin_part.content_type = "application/vnd.3gpp.ngap";
+        bin_part.content_id = "n2SmInfo";
+        bin_part.body.assign(item.transfer.begin(), item.transfer.end());
+        const auto encoded = sbi_core::multipart::encode({json_part, bin_part});
+
+        sbi_core::http2::ClientRequest http_req;
+        http_req.method = "POST";
+        http_req.url =
+            peers.smf_base + "/nsmf-pdusession/v1/sm-contexts/" + sm_context_ref + "/modify";
+        http_req.headers.emplace("content-type", encoded.content_type_header);
+        http_req.headers.emplace("authorization", "Bearer " + *token);
+        http_req.body = encoded.body;
+        const auto resp = smf_client.send(http_req);
+        if (!resp.has_value()) {
+            spdlog::error("amf-ngap: UpdateSMContext({}) for SUPI {} pduSessionId={} failed: {}",
+                          n2_sm_info_type,
+                          auth_state.supi,
+                          psi,
+                          resp.error());
+            return;
+        }
+        if (resp->status != 200 && resp->status != 204) {
+            spdlog::error("amf-ngap: UpdateSMContext({}) for SUPI {} pduSessionId={} returned {}",
+                          n2_sm_info_type,
+                          auth_state.supi,
+                          psi,
+                          resp->status);
+            return;
+        }
+        spdlog::info("amf-ngap: forwarded {} for SUPI {} pduSessionId={} to SMF ({}), TS 23.502 "
+                     "4.3.2.2.1 step 15",
+                     n2_sm_info_type,
+                     auth_state.supi,
+                     psi,
+                     resp->status);
+    };
+
+    for (const auto& item : rsp->setup) {
+        forward(item, sbi_gen::N2SmInfoType::PDU_RES_SETUP_RSP);
+    }
+    for (const auto& item : rsp->failed) {
+        forward(item, sbi_gen::N2SmInfoType::PDU_RES_SETUP_FAIL);
+    }
+}
+
 void handle_association(const PeerEndpoints& peers,
                         ngap_core::SctpSocket assoc,
                         sbi_core::http2::Client& nsacf_client,
@@ -2863,6 +2972,11 @@ void handle_association(const PeerEndpoints& peers,
                        42 /* id-UEContextReleaseRequest */) {
             handle_ue_context_release_request(assoc, auth_state, *pdu->choice.initiatingMessage);
         } else if (pdu->present == NGAP_PDU_PR_successfulOutcome &&
+                   pdu->choice.successfulOutcome->procedureCode ==
+                       29 /* id-PDUSessionResourceSetup */) {
+            handle_pdu_session_resource_setup_response(
+                peers, smf_client, smf_oauth, ue_contexts, auth_state, bytes);
+        } else if (pdu->present == NGAP_PDU_PR_successfulOutcome &&
                    pdu->choice.successfulOutcome->procedureCode == 41 /* id-UEContextRelease */) {
             handle_ue_context_release_complete(ue_ngap_registry,
                                                ue_security_contexts,
@@ -2917,6 +3031,46 @@ bool NgapUeRegistry::send_dl_nas_transport(const std::string& supi,
         entry.knas_int, entry.knas_enc, entry.next_downlink_count, pdu_session_id, n1_sm_container);
     send_downlink_nas_transport(*entry.socket, entry.amf_ue_id, entry.ran_ue_id, nas_bytes);
     entry.next_downlink_count += 1;
+    return true;
+}
+
+bool NgapUeRegistry::send_pdu_session_resource_setup_request(
+    const std::string& supi,
+    std::uint8_t pdu_session_id,
+    std::uint8_t sst,
+    const std::optional<std::array<std::uint8_t, 3>>& sd,
+    const std::vector<std::uint8_t>& n1_sm_container,
+    const std::vector<std::uint8_t>& n2_sm_transfer) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = entries_.find(supi);
+    if (it == entries_.end() || it->second.socket == nullptr) {
+        return false;
+    }
+    Entry& entry = it->second;
+    SetupRequestInput in;
+    in.amf_ue_id = entry.amf_ue_id;
+    in.ran_ue_id = entry.ran_ue_id;
+    in.pdu_session_id = pdu_session_id;
+    in.s_nssai.sst = sst;
+    in.s_nssai.sd = sd;
+    in.pdu_session_nas_pdu = amf::nas::encode_dl_nas_transport(
+        entry.knas_int, entry.knas_enc, entry.next_downlink_count, pdu_session_id, n1_sm_container);
+    in.setup_request_transfer = n2_sm_transfer;
+    const auto bytes = encode_setup_request(in);
+    if (bytes.empty()) {
+        spdlog::error("amf-ngap: failed to PER-encode PDUSessionResourceSetupRequest for SUPI {} "
+                      "pduSessionId={}",
+                      supi,
+                      pdu_session_id);
+        return false;
+    }
+    entry.socket->send(bytes);
+    entry.next_downlink_count += 1;
+    spdlog::info("amf-ngap: sent PDUSessionResourceSetupRequest ({} bytes) for SUPI {} "
+                 "pduSessionId={} (TS 23.502 4.3.2.2.1 step 12)",
+                 bytes.size(),
+                 supi,
+                 pdu_session_id);
     return true;
 }
 

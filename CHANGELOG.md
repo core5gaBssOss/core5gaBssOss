@@ -10,6 +10,11 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
 
 ### Added
 
+- AMF: at PDU Session Establishment, when the SMF's N1N2MessageTransfer carries N2 SM information,
+  the AMF sends NGAP PDU Session Resource Setup Request (TS 38.413 9.2.1.1) instead of a Downlink
+  NAS Transport and forwards the gNB's Response to the SMF in UpdateSMContext (TS 23.502 4.3.2.2.1
+  steps 12-15), so the gNB's downlink tunnel reaches the UPF. No UE-AMBR is sent yet
+  ([ADR-0643](docs/decisions/ADR-0643-amf-sends-ngap-pdu-session-resource-setup-request-and.md)).
 - SMF: PDU Session Establishment's N1N2MessageTransfer now carries the N2 SM information (PDU
   Session Resource Setup Request Transfer, TS 38.413 9.3.4.1) next to the NAS Accept (TS 23.502
   4.3.2.2.1 step 11). The downlink PDR matches the UE's IPv4 address as destination and references

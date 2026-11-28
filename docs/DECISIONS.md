@@ -604,6 +604,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0633](decisions/ADR-0633-5g-eir-problemdetails-carry-invalidparams-sbi-03-step-2.md) 5G-EIR ProblemDetails carry invalidParams (SBI-03 step 2)
 - [0632](decisions/ADR-0632-smsf-problemdetails-carry-invalidparams-sbi-03-step-2-smsf.md) SMSF ProblemDetails carry invalidParams (SBI-03 step 2, SMSF)
 - [0642](decisions/ADR-0642-smf-sends-n2-sm-information-at-pdu-session-establishment.md) SMF sends N2 SM information at PDU session establishment, and the downlink PDR matches the UE IP and carries the QFI
+- [0643](decisions/ADR-0643-amf-sends-ngap-pdu-session-resource-setup-request-and.md) AMF sends NGAP PDU Session Resource Setup Request and forwards the Response to the SMF
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

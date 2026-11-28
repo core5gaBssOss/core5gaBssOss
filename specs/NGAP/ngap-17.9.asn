@@ -1404,7 +1404,7 @@ FROM NGAP-Constants;
 -- **************************************************************
 
 PDUSessionResourceSetupRequest ::= SEQUENCE {
-	protocolIEs		ProtocolIE-Container		{ {PDUSessionResourceSetupRequestIEs} },
+	protocolIEs		ConcreteProtocolIE-Container,	-- see ConcreteProtocolIE-Container's own comment; real IEs per PDUSessionResourceSetupRequestIEs below, ADR-0031/ADR-0643
 	...
 }
 
@@ -1426,7 +1426,7 @@ PDUSessionResourceSetupRequestIEs NGAP-PROTOCOL-IES ::= {
 -- **************************************************************
 
 PDUSessionResourceSetupResponse ::= SEQUENCE {
-	protocolIEs		ProtocolIE-Container		{ {PDUSessionResourceSetupResponseIEs} },
+	protocolIEs		ConcreteProtocolIE-Container,	-- see ConcreteProtocolIE-Container's own comment; real IEs per PDUSessionResourceSetupResponseIEs below, ADR-0031/ADR-0643
 	...
 }
 

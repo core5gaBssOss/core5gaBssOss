@@ -147,3 +147,10 @@ AMF sent no NGAP PDU Session Resource Setup Request (TS 23.502 4.3.2.2.1 steps 1
 never received the N3 tunnel. The user approved three PRs in this order: SMF (ADR-0642, open: N2 SM
 information, downlink PDR with UE IP and QFI), AMF (steps 12-15), UPF (userspace downlink
 datapath first, user decision 2026-11-27). Item 1 is therefore larger than "kernel-side work" alone.
+
+Update 2026-11-28, v0.3.0 item 1, AMF part: ADR-0643 (open PR, stacked on ADR-0642's). The AMF sends
+NGAP PDU Session Resource Setup Request when the SMF supplies N2 SM information and forwards each
+Response item to the SMF (TS 23.502 4.3.2.2.1 steps 12-15). An end-to-end test now shows the gNB's
+downlink tunnel reaching the UPF's PFCP Session Modification. Remaining for item 1: the UPF
+userspace downlink datapath (the third PR). The pfcp-core QFI IE was split out of ADR-0642's PR
+into its own PR (#94) on the user's decision, because a PR may touch one area only.

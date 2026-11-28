@@ -22,8 +22,10 @@
 #include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -222,7 +224,8 @@ void establish_pdu_session(NgapTestGnb& gnb,
                            const RegisteredUe& ue,
                            std::uint32_t ran_ue_id,
                            std::uint8_t pdu_session_id,
-                           std::uint8_t pti) {
+                           std::uint8_t pti,
+                           std::vector<std::uint8_t>* accept_pdu_out = nullptr) {
     gnb.send_raw(
         gnb.build_uplink_nas_transport(ue.amf_ue_id,
                                        ran_ue_id,
@@ -246,9 +249,15 @@ void establish_pdu_session(NgapTestGnb& gnb,
     ASSERT_FALSE(accept_pdu.empty())
         << "nothing came back after the PDU Session Establishment Request -- AMF rejected the MAC "
            "or NAS COUNT, SMF never created the SM context, or the N1N2MessageTransfer failed";
+    if (accept_pdu_out != nullptr) {
+        *accept_pdu_out = accept_pdu;
+    }
+    // With a UPF associated, the SMF supplies N2 SM information and AMF sends a
+    // PDUSessionResourceSetupRequest instead (ADR-0643); extract_downlink_nas reads either.
     NgapTestGnb::DownlinkNas dl;
     ASSERT_TRUE(NgapTestGnb::extract_downlink_nas(accept_pdu, dl))
-        << "expected a DownlinkNASTransport carrying the DlNasTransport with the Accept";
+        << "expected a DownlinkNASTransport or PDUSessionResourceSetupRequest carrying the "
+           "DlNasTransport with the Accept";
 
     // downlink_count=2: SecurityModeCommand was 0 and RegistrationAccept 1, which is exactly what
     // AMF registers for this UE (next_downlink_count=2). A desync here fails the MAC check.
@@ -1122,4 +1131,112 @@ TEST(AmfNgapTestGnb, PduSessionIsRejectedWhenNsacfRefusesTheSlice) {
         << "expected a PDU Session Establishment Reject; 0xC2 would mean the session was "
            "established on a slice NSACF had refused";
     EXPECT_EQ((*n1_sm)[4], 0x45) << "expected 5GSM cause 0x45, insufficient resources for slice";
+}
+
+namespace {
+
+std::string read_log(const std::string& path) {
+    std::ifstream in(path);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+}
+
+// Polls `path` until it contains `needle` or ~10 s pass.
+bool log_shows(const std::string& path, const std::string& needle) {
+    for (int i = 0; i < 100; ++i) {
+        if (read_log(path).find(needle) != std::string::npos) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
+
+} // namespace
+
+// ADR-0643: TS 23.502 4.3.2.2.1 steps 11-16 through every real NF on the path. With UPF
+// associated, SMF's N1N2MessageTransfer carries N2 SM information (ADR-0642), so AMF must send a
+// PDU SESSION RESOURCE SETUP REQUEST (step 12) rather than a DownlinkNASTransport, carrying SMF's
+// transfer unchanged and the Accept as the item's PDU Session NAS-PDU. The gNB answers with its
+// own downlink F-TEID (step 14); AMF forwards it in UpdateSMContext (step 15) and SMF installs it
+// at the UPF (step 16a). The last step is asserted on the UPF's own log of the Session
+// Modification it received -- the gNB's TEID and address arriving there is the end-to-end proof,
+// and neither AMF nor SMF writes that line.
+TEST(AmfNgapTestGnb, PduSessionResourceSetupCarriesTheSmfTransferAndTheGnbTunnelReachesTheUpf) {
+    const std::string upf_log = ::testing::TempDir() + "adr0643_upf.log";
+    const std::string amf_log = ::testing::TempDir() + "adr0643_amf.log";
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    ASSERT_GT(nrf.pid(), 0);
+    nf_test::SpawnedProcess udr(UDR_PATH);
+    ASSERT_GT(udr.pid(), 0);
+    nf_test::SpawnedProcess udm(UDM_PATH);
+    ASSERT_GT(udm.pid(), 0);
+    nf_test::SpawnedProcess ausf(AUSF_PATH);
+    ASSERT_GT(ausf.pid(), 0);
+    nf_test::SpawnedProcess pcf(PCF_PATH);
+    ASSERT_GT(pcf.pid(), 0);
+    nf_test::SpawnedProcess upf(UPF_PATH, upf_log.c_str());
+    ASSERT_GT(upf.pid(), 0);
+    nf_test::SpawnedProcess smf(SMF_PATH);
+    ASSERT_GT(smf.pid(), 0);
+    nf_test::SpawnedProcess amf(AMF_PATH, amf_log.c_str());
+    ASSERT_GT(amf.pid(), 0);
+
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+    ASSERT_NO_FATAL_FAILURE(wait_for_upf_sx_association());
+
+    NgapTestGnb gnb;
+    ASSERT_TRUE(gnb.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(gnb.ng_setup(kSourceGnbId));
+
+    constexpr std::uint32_t kUeRanId = 1;
+    constexpr std::uint8_t kPduSessionId = 5;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(gnb, kUeRanId, ue));
+    std::vector<std::uint8_t> request_pdu;
+    ASSERT_NO_FATAL_FAILURE(
+        establish_pdu_session(gnb, ue, kUeRanId, kPduSessionId, /*pti=*/1, &request_pdu));
+
+    // Step 12.
+    NgapTestGnb::PduSessionResourceSetupRequestInfo request;
+    ASSERT_TRUE(NgapTestGnb::parse_pdu_session_resource_setup_request(request_pdu, request))
+        << "with UPF associated AMF must send PDUSessionResourceSetupRequest, not "
+           "DownlinkNASTransport";
+    EXPECT_EQ(request.amf_ue_id, ue.amf_ue_id);
+    EXPECT_EQ(request.ran_ue_id, kUeRanId);
+    EXPECT_EQ(request.pdu_session_id, kPduSessionId);
+    // The S-NSSAI the UE asked for, as SMF put it in smInfo.sNssai.
+    EXPECT_EQ(request.sst, kSst);
+    ASSERT_TRUE(request.sd.has_value());
+    EXPECT_EQ(*request.sd,
+              (std::array<std::uint8_t, 3>{static_cast<std::uint8_t>((kSd >> 16) & 0xFF),
+                                           static_cast<std::uint8_t>((kSd >> 8) & 0xFF),
+                                           static_cast<std::uint8_t>(kSd & 0xFF)}));
+    NgapTestGnb::SetupRequestTransferInfo transfer;
+    ASSERT_TRUE(NgapTestGnb::parse_setup_request_transfer(request.setup_request_transfer, transfer))
+        << "the item's transfer is not SMF's PDU Session Resource Setup Request Transfer";
+    EXPECT_NE(transfer.ul_teid, 0u) << "UL NG-U UP TNL Information carries no UPF F-TEID";
+    EXPECT_GE(transfer.qfi, 0);
+
+    // Step 14: this gNB's downlink tunnel. Distinctive values, so the UPF log line below cannot
+    // be some other session's.
+    constexpr std::uint32_t kGnbDlTeid = 0x0A0B0C0D;
+    constexpr std::array<std::uint8_t, 4> kGnbN3{127, 0, 0, 9};
+    const auto rsp_transfer =
+        NgapTestGnb::encode_setup_response_transfer(kGnbDlTeid, kGnbN3, transfer.qfi);
+    ASSERT_FALSE(rsp_transfer.empty());
+    const auto rsp = gnb.build_pdu_session_resource_setup_response(
+        request.amf_ue_id, request.ran_ue_id, request.pdu_session_id, rsp_transfer);
+    ASSERT_FALSE(rsp.empty());
+    gnb.send_raw(rsp);
+
+    // Step 15 (AMF's account, which includes SMF's status code) and step 16a (the UPF's).
+    EXPECT_TRUE(log_shows(amf_log,
+                          "forwarded PDU_RES_SETUP_RSP for SUPI " +
+                              std::string(nf_test::kTestSupi) + " pduSessionId=5 to SMF"))
+        << "AMF did not forward the Response, or SMF did not answer 2xx:\n"
+        << read_log(amf_log);
+    EXPECT_TRUE(log_shows(upf_log, "peer TEID=0xa0b0c0d, peer IPv4=127.0.0.9"))
+        << "the gNB's downlink tunnel never reached the UPF:\n"
+        << read_log(upf_log);
 }

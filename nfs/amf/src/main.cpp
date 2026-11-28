@@ -115,6 +115,7 @@
 #include "nf_config/redis.hpp"
 #include "nf_config/redis_router.hpp"
 #include "ngap_task.hpp"
+#include "pdu_session_resource_setup.hpp"
 #include "subscriptions.hpp"
 #include "ue_context_store.hpp"
 #include "ue_security_context_store.hpp"
@@ -751,8 +752,80 @@ int main() {
                     {sbi_core::invalid_body_ie(json::json_pointer("/pduSessionId"))});
             }
 
-            const auto delivered = ue_ngap_registry.send_dl_nas_transport(
-                ue_context_id, static_cast<std::uint8_t>(*body->pduSessionId), *n1_bytes);
+            // ADR-0643, TS 23.502 4.3.2.2.1 step 12: "If the N2 SM information is not included in
+            // the step 11, an N2 Downlink NAS Transport message is used instead." With it, the
+            // NAS message and the SMF's transfer go together in an NGAP PDU SESSION RESOURCE
+            // SETUP REQUEST. Only the PDU_RES_SETUP_REQ transfer is relayed this way; any other
+            // N2 SM information keeps the earlier behaviour (N1 only), a disclosed gap.
+            std::optional<std::vector<std::uint8_t>> n2_bytes;
+            std::optional<sbi_gen::Snssai> n2_snssai;
+            if (body->n2InfoContainer.has_value() &&
+                body->n2InfoContainer->n2InformationClass.value ==
+                    sbi_gen::N2InformationClass::SM &&
+                body->n2InfoContainer->smInfo.has_value() &&
+                body->n2InfoContainer->smInfo->n2InfoContent.has_value()) {
+                const auto& sm_info = *body->n2InfoContainer->smInfo;
+                const auto& content = *sm_info.n2InfoContent;
+                const bool is_setup_req =
+                    !content.ngapIeType.has_value() ||
+                    content.ngapIeType->value ==
+                        sbi_gen::NgapIeType_Namf_Communication::PDU_RES_SETUP_REQ;
+                if (is_setup_req) {
+                    const auto content_type_it = req.headers.find("content-type");
+                    if (content_type_it != req.headers.end()) {
+                        if (auto parts =
+                                sbi_core::multipart::parse(content_type_it->second, req.body);
+                            parts.has_value()) {
+                            for (const auto& part : *parts) {
+                                if (part.content_id.has_value() &&
+                                    *part.content_id == content.ngapData.contentId) {
+                                    n2_bytes.emplace(part.body.begin(), part.body.end());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!n2_bytes.has_value()) {
+                        return problem_response(400,
+                                                "Missing binary part",
+                                                "n2InfoContainer referenced but its binary part "
+                                                "was not found in the multipart body",
+                                                "INVALID_MSG_FORMAT");
+                    }
+                    n2_snssai = sm_info.sNssai;
+                }
+            }
+
+            bool delivered = false;
+            if (n2_bytes.has_value()) {
+                // TS 38.413 9.2.1.1: S-NSSAI is mandatory in the list item. TS29518 N2SmInformation
+                // makes sNssai optional; without it (or with an unparsable sd) the request is
+                // refused rather than sent with a slice this AMF made up.
+                std::optional<std::array<std::uint8_t, 3>> sd;
+                if (n2_snssai.has_value() && n2_snssai->sd.has_value()) {
+                    sd = amf::ngap::parse_sd(*n2_snssai->sd);
+                }
+                if (!n2_snssai.has_value() || n2_snssai->sst < 0 || n2_snssai->sst > 255 ||
+                    (n2_snssai->sd.has_value() && !sd.has_value())) {
+                    return problem_response(
+                        400,
+                        "Missing mandatory IE",
+                        "PDU_RES_SETUP_REQ needs a valid smInfo.sNssai for the NGAP list item",
+                        "MANDATORY_IE_MISSING",
+                        {sbi_core::invalid_body_ie(
+                            json::json_pointer("/n2InfoContainer/smInfo/sNssai"))});
+                }
+                delivered = ue_ngap_registry.send_pdu_session_resource_setup_request(
+                    ue_context_id,
+                    static_cast<std::uint8_t>(*body->pduSessionId),
+                    static_cast<std::uint8_t>(n2_snssai->sst),
+                    sd,
+                    *n1_bytes,
+                    *n2_bytes);
+            } else {
+                delivered = ue_ngap_registry.send_dl_nas_transport(
+                    ue_context_id, static_cast<std::uint8_t>(*body->pduSessionId), *n1_bytes);
+            }
             // ADR-0523, TS 29.518 5.2.2.3.1.2 Case A a): a UE with no NGAP association is the
             // CM-IDLE case; with skipInd the AMF answers 200 N1_MSG_NOT_TRANSFERRED. (No paging:
             // without skipInd the 404 below stands, a disclosed gap.)
