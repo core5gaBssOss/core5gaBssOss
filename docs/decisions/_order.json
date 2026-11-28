@@ -596,7 +596,8 @@
   "ADR-0629-nssf-problemdetails-carry-invalidparams-sbi-03-step-2.md",
   "ADR-0630-chf-problemdetails-carry-invalidparams-sbi-03-step-2-chf.md",
   "ADR-0620-bss-subscriber-management-answers-the-tmf632-error-via-libs.md",
-  "ADR-0618-bss-balance-management-answers-the-tmf654-error-via-libs.md"
+  "ADR-0618-bss-balance-management-answers-the-tmf654-error-via-libs.md",
+  "ADR-0624-adrf-problemdetails-carry-invalidparams-sbi-03-step-2-adrf.md"
  ],
  "split_commit": "0530e4f"
 }
