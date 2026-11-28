@@ -310,6 +310,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   and in the `smContextStatusUri` it gives the SMF, so a SUPI with `?` or `/` (the AMF's NAS
   decoder writes `?` for an invalid BCD digit) can no longer reach another subscriber's resource
   ([ADR-0605](docs/decisions/ADR-0605-amf-encodes-the-supi-as-one-path-segment-in-the-uris-it.md)).
+- PCF encodes the SUPI from the SmPolicyCreate body as one path segment in the UDR
+  `policy-data/ues/{ueId}/sm-data` URI, and as a query value (not a path segment) in the UDR
+  `serviceParamData?supis=` query, so a `?` or `&` in it can no longer reach another UE's data
+  ([ADR-0641](docs/decisions/ADR-0641-pcf-encodes-the-supi-in-the-udr-sm-data-path-and-the.md)).
 - NRF: the 400s whose cause TS 29.500 Table 5.2.7.2-1 NOTE 1 covers now carry `invalidParams`:
   the absent required members of a RetrieveKeyReq, NFProfile or SubscriptionData body as JSON
   Pointers (only the absent ones), `query target-nf-type` for a discovery without it, or the

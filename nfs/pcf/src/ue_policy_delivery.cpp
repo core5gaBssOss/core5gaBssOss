@@ -366,8 +366,11 @@ fetch_service_params(DeliveryDeps& deps, const std::string& supi) {
         return tl::make_unexpected("no UDR token: " + token.error());
     sbi_core::http2::ClientRequest r;
     r.method = "GET";
+    // ADR-0641: `supis` is a query parameter, so the SUPI is encoded as a query value; the
+    // path-segment encoder leaves "&", "=" and "+" alone, which would let a SUPI add another
+    // `supis` value.
     r.url = deps.udr_base_url + "/nudr-dr/v2/application-data/serviceParamData?supis=" +
-            sbi_core::uri::encode_path_segment(supi);
+            sbi_core::uri::encode_query_value(supi);
     r.headers.emplace("authorization", "Bearer " + *token);
     const auto resp = deps.udr_client.send(r);
     if (!resp.has_value())

@@ -133,6 +133,7 @@
 #include "sbi_core/otel.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
+#include "sbi_core/uri.hpp"
 #include "sbi_core/uuid.hpp"
 
 #include <boost/asio/io_context.hpp>
@@ -279,7 +280,11 @@ std::optional<json> fetch_sm_policy_dnn_data(sbi_core::http2::Client& udr_client
     }
     sbi_core::http2::ClientRequest req;
     req.method = "GET";
-    req.url = udr_base + kUdrApiRoot + "/policy-data/ues/" + supi + "/sm-data";
+    // ADR-0641 (ADR-0570 class, PCF part): the SUPI comes from the SmPolicyContextData body, so it
+    // is encoded as one path segment; a "/", "?", "#" or "%" in it must not reach another UE's
+    // resource.
+    req.url = udr_base + kUdrApiRoot + "/policy-data/ues/" +
+              sbi_core::uri::encode_path_segment(supi) + "/sm-data";
     req.headers.emplace("authorization", "Bearer " + *token);
     auto resp = udr_client.send(req);
     if (!resp.has_value() || resp->status != 200) {
