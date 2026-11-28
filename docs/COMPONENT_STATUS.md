@@ -18,7 +18,7 @@ Last updated: 2026-11-27 (rows re-checked against `main` 4182d213; no status cha
 | # | Component | Status |
 |---|---|---|
 | 1 | NRF | ✅ Built (2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0613) |
-| 2 | AMF | ✅ Built (2026-11-27: SUPI encoded as one path segment in the SMSF and smContextStatus URIs, ADR-0605; N1N2MessageTransfer's NOTE 1 answer carries `invalidParams`, ADR-0635) |
+| 2 | AMF | ✅ Built (2026-11-27: SUPI encoded as one path segment in the SMSF and smContextStatus URIs, ADR-0605; N1N2MessageTransfer's NOTE 1 answer carries `invalidParams`, ADR-0635; 2026-11-28: NGAP PDU Session Resource Setup Request/Response at PDU session establishment, TS 23.502 4.3.2.2.1 steps 12-15, ADR-0643, open PR) |
 | 3 | SMF | ✅ Built (2026-11-23: SUPI encoded as one path segment in the AMF N1N2MessageTransfer URI, ADR-0604; 2026-11-27: N2 SM information at PDU session establishment, downlink PDR with UE IP and QFI, ADR-0642, open PR) |
 | 4 | UPF | ✅ Built |
 | 5 | PCF | ✅ Built |

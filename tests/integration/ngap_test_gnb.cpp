@@ -10,6 +10,8 @@
 
 extern "C" {
 #include <AMF-UE-NGAP-ID.h>
+#include <AssociatedQosFlowItem.h>
+#include <AssociatedQosFlowList.h>
 #include <Cause.h>
 #include <DownlinkNASTransport.h>
 #include <GTPTunnel.h>
@@ -38,12 +40,24 @@ extern "C" {
 #include <PDUSessionResourceItemHORqd.h>
 #include <PDUSessionResourceListHORqd.h>
 #include <PDUSessionResourceSetupItemHOReq.h>
+#include <PDUSessionResourceSetupItemSUReq.h>
+#include <PDUSessionResourceSetupItemSURes.h>
 #include <PDUSessionResourceSetupListHOReq.h>
+#include <PDUSessionResourceSetupListSUReq.h>
+#include <PDUSessionResourceSetupListSURes.h>
+#include <PDUSessionResourceSetupRequest.h>
+#include <PDUSessionResourceSetupRequestTransfer.h>
+#include <PDUSessionResourceSetupResponse.h>
+#include <PDUSessionResourceSetupResponseTransfer.h>
 #include <PLMNIdentity.h>
 #include <QosFlowItemWithDataForwarding.h>
 #include <QosFlowListWithDataForwarding.h>
+#include <QosFlowPerTNLInformation.h>
+#include <QosFlowSetupRequestItem.h>
+#include <QosFlowSetupRequestList.h>
 #include <RAN-UE-NGAP-ID.h>
 #include <RRCEstablishmentCause.h>
+#include <S-NSSAI.h>
 #include <SourceToTarget-TransparentContainer.h>
 #include <SuccessfulOutcome.h>
 #include <TargetID.h>
@@ -807,6 +821,19 @@ bool NgapTestGnb::extract_downlink_nas(const std::vector<std::uint8_t>& pdu_byte
     }
     bool ok = false;
     if (pdu->present == NGAP_PDU_PR_initiatingMessage &&
+        pdu->choice.initiatingMessage->procedureCode == kProcPduSessionResourceSetup) {
+        ASN_STRUCT_FREE(asn_DEF_NGAP_PDU, pdu);
+        PduSessionResourceSetupRequestInfo info;
+        if (!parse_pdu_session_resource_setup_request(pdu_bytes, info) ||
+            info.pdu_session_nas_pdu.empty()) {
+            return false;
+        }
+        out.amf_ue_id = info.amf_ue_id;
+        out.nas_pdu = info.pdu_session_nas_pdu;
+        out.from_pdu_session_resource_setup = true;
+        return true;
+    }
+    if (pdu->present == NGAP_PDU_PR_initiatingMessage &&
         pdu->choice.initiatingMessage->procedureCode == kProcDownlinkNasTransport) {
         const auto& container =
             pdu->choice.initiatingMessage->value.choice.DownlinkNASTransport.protocolIEs;
@@ -833,6 +860,195 @@ bool NgapTestGnb::extract_downlink_nas(const std::vector<std::uint8_t>& pdu_byte
     }
     ASN_STRUCT_FREE(asn_DEF_NGAP_PDU, pdu);
     return ok;
+}
+
+bool NgapTestGnb::parse_pdu_session_resource_setup_request(
+    const std::vector<std::uint8_t>& pdu_bytes, PduSessionResourceSetupRequestInfo& out) {
+    NGAP_PDU_t* pdu = ::ngap::decode_pdu(pdu_bytes);
+    if (pdu == nullptr) {
+        return false;
+    }
+    if (pdu->present != NGAP_PDU_PR_initiatingMessage ||
+        pdu->choice.initiatingMessage->procedureCode != kProcPduSessionResourceSetup ||
+        pdu->choice.initiatingMessage->value.present !=
+            InitiatingMessage__value_PR_PDUSessionResourceSetupRequest) {
+        ASN_STRUCT_FREE(asn_DEF_NGAP_PDU, pdu);
+        return false;
+    }
+    const auto& container =
+        pdu->choice.initiatingMessage->value.choice.PDUSessionResourceSetupRequest.protocolIEs;
+    bool have_amf = false;
+    bool have_ran = false;
+    bool have_item = false;
+    if (const auto* ie = ::ngap::find_ie(container, 10 /* id-AMF-UE-NGAP-ID */); ie != nullptr) {
+        auto* v =
+            static_cast<AMF_UE_NGAP_ID_t*>(::ngap::decode_ie_value(&asn_DEF_AMF_UE_NGAP_ID, *ie));
+        if (v != nullptr) {
+            unsigned long value = 0;
+            have_amf = asn_INTEGER2ulong(v, &value) == 0;
+            out.amf_ue_id = value;
+            ASN_STRUCT_FREE(asn_DEF_AMF_UE_NGAP_ID, v);
+        }
+    }
+    if (const auto* ie = ::ngap::find_ie(container, 85 /* id-RAN-UE-NGAP-ID */); ie != nullptr) {
+        auto* v =
+            static_cast<RAN_UE_NGAP_ID_t*>(::ngap::decode_ie_value(&asn_DEF_RAN_UE_NGAP_ID, *ie));
+        if (v != nullptr) {
+            out.ran_ue_id = static_cast<std::uint32_t>(*v);
+            have_ran = true;
+            ASN_STRUCT_FREE(asn_DEF_RAN_UE_NGAP_ID, v);
+        }
+    }
+    if (const auto* ie = ::ngap::find_ie(container, 74 /* id-PDUSessionResourceSetupListSUReq */);
+        ie != nullptr) {
+        auto* list = static_cast<PDUSessionResourceSetupListSUReq_t*>(
+            ::ngap::decode_ie_value(&asn_DEF_PDUSessionResourceSetupListSUReq, *ie));
+        if (list != nullptr) {
+            if (list->list.count >= 1 && list->list.array[0] != nullptr) {
+                const auto* item = list->list.array[0];
+                out.pdu_session_id = item->pDUSessionID;
+                if (item->s_NSSAI.sST.size == 1) {
+                    out.sst = item->s_NSSAI.sST.buf[0];
+                }
+                if (item->s_NSSAI.sD != nullptr && item->s_NSSAI.sD->size == 3) {
+                    out.sd = std::array<std::uint8_t, 3>{item->s_NSSAI.sD->buf[0],
+                                                         item->s_NSSAI.sD->buf[1],
+                                                         item->s_NSSAI.sD->buf[2]};
+                }
+                if (item->pDUSessionNAS_PDU != nullptr) {
+                    out.pdu_session_nas_pdu.assign(item->pDUSessionNAS_PDU->buf,
+                                                   item->pDUSessionNAS_PDU->buf +
+                                                       item->pDUSessionNAS_PDU->size);
+                }
+                out.setup_request_transfer.assign(
+                    item->pDUSessionResourceSetupRequestTransfer.buf,
+                    item->pDUSessionResourceSetupRequestTransfer.buf +
+                        item->pDUSessionResourceSetupRequestTransfer.size);
+                have_item = true;
+            }
+            ASN_STRUCT_FREE(asn_DEF_PDUSessionResourceSetupListSUReq, list);
+        }
+    }
+    ASN_STRUCT_FREE(asn_DEF_NGAP_PDU, pdu);
+    return have_amf && have_ran && have_item;
+}
+
+bool NgapTestGnb::parse_setup_request_transfer(const std::vector<std::uint8_t>& transfer,
+                                               SetupRequestTransferInfo& out) {
+    auto* t = static_cast<PDUSessionResourceSetupRequestTransfer_t*>(
+        ::ngap::decode_value(&asn_DEF_PDUSessionResourceSetupRequestTransfer, transfer));
+    if (t == nullptr) {
+        return false;
+    }
+    bool have_tnl = false;
+    bool have_qfi = false;
+    // specs/NGAP/ngap-17.9.asn: id-UL-NGU-UP-TNLInformation 139, id-QosFlowSetupRequestList 136.
+    if (const auto* ie = ::ngap::find_ie(t->protocolIEs, 139); ie != nullptr) {
+        auto* tnl = static_cast<UPTransportLayerInformation_t*>(
+            ::ngap::decode_ie_value(&asn_DEF_UPTransportLayerInformation, *ie));
+        if (tnl != nullptr) {
+            if (tnl->present == UPTransportLayerInformation_PR_gTPTunnel &&
+                tnl->choice.gTPTunnel != nullptr && tnl->choice.gTPTunnel->gTP_TEID.size == 4 &&
+                tnl->choice.gTPTunnel->transportLayerAddress.size == 4) {
+                const auto* b = tnl->choice.gTPTunnel->gTP_TEID.buf;
+                out.ul_teid = (static_cast<std::uint32_t>(b[0]) << 24) |
+                              (static_cast<std::uint32_t>(b[1]) << 16) |
+                              (static_cast<std::uint32_t>(b[2]) << 8) | b[3];
+                std::memcpy(
+                    out.ul_ipv4.data(), tnl->choice.gTPTunnel->transportLayerAddress.buf, 4);
+                have_tnl = true;
+            }
+            ASN_STRUCT_FREE(asn_DEF_UPTransportLayerInformation, tnl);
+        }
+    }
+    if (const auto* ie = ::ngap::find_ie(t->protocolIEs, 136); ie != nullptr) {
+        auto* list = static_cast<QosFlowSetupRequestList_t*>(
+            ::ngap::decode_ie_value(&asn_DEF_QosFlowSetupRequestList, *ie));
+        if (list != nullptr) {
+            if (list->list.count >= 1 && list->list.array[0] != nullptr) {
+                out.qfi = list->list.array[0]->qosFlowIdentifier;
+                have_qfi = true;
+            }
+            ASN_STRUCT_FREE(asn_DEF_QosFlowSetupRequestList, list);
+        }
+    }
+    ASN_STRUCT_FREE(asn_DEF_PDUSessionResourceSetupRequestTransfer, t);
+    return have_tnl && have_qfi;
+}
+
+std::vector<std::uint8_t> NgapTestGnb::encode_setup_response_transfer(
+    std::uint32_t dl_teid, const std::array<std::uint8_t, 4>& dl_ipv4, long qfi) {
+    PDUSessionResourceSetupResponseTransfer_t transfer{};
+    auto& tnl = transfer.dLQosFlowPerTNLInformation.uPTransportLayerInformation;
+    tnl.present = UPTransportLayerInformation_PR_gTPTunnel;
+    auto* tunnel = static_cast<GTPTunnel_t*>(std::calloc(1, sizeof(GTPTunnel_t)));
+    const std::uint8_t teid[4] = {static_cast<std::uint8_t>((dl_teid >> 24) & 0xFF),
+                                  static_cast<std::uint8_t>((dl_teid >> 16) & 0xFF),
+                                  static_cast<std::uint8_t>((dl_teid >> 8) & 0xFF),
+                                  static_cast<std::uint8_t>(dl_teid & 0xFF)};
+    tunnel->gTP_TEID = make_octet_string(teid, 4);
+    tunnel->transportLayerAddress.buf = static_cast<std::uint8_t*>(std::malloc(4));
+    std::memcpy(tunnel->transportLayerAddress.buf, dl_ipv4.data(), 4);
+    tunnel->transportLayerAddress.size = 4;
+    tunnel->transportLayerAddress.bits_unused = 0;
+    tnl.choice.gTPTunnel = tunnel;
+    auto* flow =
+        static_cast<AssociatedQosFlowItem_t*>(std::calloc(1, sizeof(AssociatedQosFlowItem_t)));
+    flow->qosFlowIdentifier = qfi;
+    ASN_SEQUENCE_ADD(&transfer.dLQosFlowPerTNLInformation.associatedQosFlowList.list, flow);
+    const auto bytes =
+        ::ngap::encode_value(&asn_DEF_PDUSessionResourceSetupResponseTransfer, &transfer);
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_PDUSessionResourceSetupResponseTransfer, &transfer);
+    return bytes;
+}
+
+std::vector<std::uint8_t> NgapTestGnb::build_pdu_session_resource_setup_response(
+    std::uint64_t amf_ue_id,
+    std::uint32_t ran_ue_id,
+    long pdu_session_id,
+    const std::vector<std::uint8_t>& response_transfer) {
+    PDUSessionResourceSetupResponse_t rsp{};
+
+    AMF_UE_NGAP_ID_t amf_id{};
+    asn_ulong2INTEGER(&amf_id, static_cast<unsigned long>(amf_ue_id));
+    ::ngap::add_ie(
+        rsp.protocolIEs,
+        ::ngap::make_ie(
+            10 /* id-AMF-UE-NGAP-ID */, Criticality_ignore, &asn_DEF_AMF_UE_NGAP_ID, &amf_id));
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_AMF_UE_NGAP_ID, &amf_id);
+
+    RAN_UE_NGAP_ID_t ran_id = static_cast<RAN_UE_NGAP_ID_t>(ran_ue_id);
+    ::ngap::add_ie(
+        rsp.protocolIEs,
+        ::ngap::make_ie(
+            85 /* id-RAN-UE-NGAP-ID */, Criticality_ignore, &asn_DEF_RAN_UE_NGAP_ID, &ran_id));
+
+    PDUSessionResourceSetupListSURes_t list{};
+    auto* item = static_cast<PDUSessionResourceSetupItemSURes_t*>(
+        std::calloc(1, sizeof(PDUSessionResourceSetupItemSURes_t)));
+    item->pDUSessionID = pdu_session_id;
+    item->pDUSessionResourceSetupResponseTransfer =
+        make_octet_string(response_transfer.data(), response_transfer.size());
+    ASN_SEQUENCE_ADD(&list.list, item);
+    ::ngap::add_ie(rsp.protocolIEs,
+                   ::ngap::make_ie(75 /* id-PDUSessionResourceSetupListSURes */,
+                                   Criticality_ignore,
+                                   &asn_DEF_PDUSessionResourceSetupListSURes,
+                                   &list));
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_PDUSessionResourceSetupListSURes, &list);
+
+    NGAP_PDU_t pdu{};
+    pdu.present = NGAP_PDU_PR_successfulOutcome;
+    pdu.choice.successfulOutcome =
+        static_cast<SuccessfulOutcome_t*>(std::calloc(1, sizeof(SuccessfulOutcome_t)));
+    pdu.choice.successfulOutcome->procedureCode = kProcPduSessionResourceSetup;
+    pdu.choice.successfulOutcome->criticality = Criticality_reject;
+    pdu.choice.successfulOutcome->value.present =
+        SuccessfulOutcome__value_PR_PDUSessionResourceSetupResponse;
+    pdu.choice.successfulOutcome->value.choice.PDUSessionResourceSetupResponse = rsp;
+    const auto bytes = ::ngap::encode_pdu(pdu);
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_PDU, &pdu);
+    return bytes;
 }
 
 NgapTestGnb::PduSummary NgapTestGnb::summarize(const std::vector<std::uint8_t>& pdu_bytes) {

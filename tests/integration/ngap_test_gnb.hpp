@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -143,11 +144,55 @@ public:
 
     // Pulls the NAS-PDU and the AMF-UE-NGAP-ID out of a DownlinkNASTransport. Returns false if
     // the PDU is not one, or is missing either IE.
+    //
+    // ADR-0643: also accepts a PDUSessionResourceSetupRequest (TS 23.502 4.3.2.2.1 step 12, sent
+    // instead of DownlinkNASTransport when the SMF supplied N2 SM information) and returns its
+    // first list item's PDU Session NAS-PDU, with from_pdu_session_resource_setup set.
     struct DownlinkNas {
         std::uint64_t amf_ue_id = 0;
         std::vector<std::uint8_t> nas_pdu;
+        bool from_pdu_session_resource_setup = false;
     };
     static bool extract_downlink_nas(const std::vector<std::uint8_t>& pdu_bytes, DownlinkNas& out);
+
+    // ADR-0643: PDU SESSION RESOURCE SETUP REQUEST (TS 38.413 9.2.1.1), the first item of its
+    // PDU Session Resource Setup Request List. Returns false if the PDU is not one, or misses a
+    // mandatory IE.
+    struct PduSessionResourceSetupRequestInfo {
+        std::uint64_t amf_ue_id = 0;
+        std::uint32_t ran_ue_id = 0;
+        long pdu_session_id = -1;
+        std::uint8_t sst = 0;
+        std::optional<std::array<std::uint8_t, 3>> sd;
+        std::vector<std::uint8_t> pdu_session_nas_pdu;
+        std::vector<std::uint8_t> setup_request_transfer;
+    };
+    static bool parse_pdu_session_resource_setup_request(const std::vector<std::uint8_t>& pdu_bytes,
+                                                         PduSessionResourceSetupRequestInfo& out);
+
+    // ADR-0643: the parts of the SMF's PDU Session Resource Setup Request Transfer (9.3.4.1) a
+    // gNB acts on: UL NG-U UP TNL Information (the UPF's N3 F-TEID) and the first QoS flow's QFI.
+    // Returns false if the bytes do not decode or either IE is missing.
+    struct SetupRequestTransferInfo {
+        std::uint32_t ul_teid = 0;
+        std::array<std::uint8_t, 4> ul_ipv4{};
+        long qfi = -1;
+    };
+    static bool parse_setup_request_transfer(const std::vector<std::uint8_t>& transfer,
+                                             SetupRequestTransferInfo& out);
+
+    // ADR-0643: a PDU Session Resource Setup Response Transfer (9.3.4.2) with the mandatory DL QoS
+    // Flow per TNL Information: this gNB's N3 F-TEID and one associated QoS flow.
+    static std::vector<std::uint8_t> encode_setup_response_transfer(
+        std::uint32_t dl_teid, const std::array<std::uint8_t, 4>& dl_ipv4, long qfi);
+
+    // ADR-0643: PDU SESSION RESOURCE SETUP RESPONSE (9.2.1.2, step 14) with one item in the
+    // PDU Session Resource Setup Response List.
+    std::vector<std::uint8_t>
+    build_pdu_session_resource_setup_response(std::uint64_t amf_ue_id,
+                                              std::uint32_t ran_ue_id,
+                                              long pdu_session_id,
+                                              const std::vector<std::uint8_t>& response_transfer);
 
     // ADR-0393: real UEContextReleaseComplete (TS 38.413 §9.2.1.11), the gNB's own confirmation of
     // a UEContextReleaseCommand -- needed for the Deregistration test, which drives a real
@@ -187,6 +232,7 @@ public:
     static constexpr long kProcHandoverResourceAllocation = 13;
     static constexpr long kProcInitialUeMessage = 15;
     static constexpr long kProcNgSetup = 21;
+    static constexpr long kProcPduSessionResourceSetup = 29;
     static constexpr long kProcUeContextRelease = 41;
     static constexpr long kProcUplinkNasTransport = 46;
 

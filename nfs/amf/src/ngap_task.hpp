@@ -1,8 +1,10 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <mutex>
 #include <ngap_core/sctp_socket.hpp>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -64,6 +66,19 @@ public:
     bool send_dl_nas_transport(const std::string& supi,
                                std::uint8_t pdu_session_id,
                                const std::vector<std::uint8_t>& n1_sm_container);
+
+    // ADR-0643, TS 23.502 4.3.2.2.1 step 12: the N2 PDU Session Request. The same secured
+    // DlNasTransport (and downlink_count increment) as send_dl_nas_transport, carried as the
+    // list item's PDU Session NAS-PDU of an NGAP PDU SESSION RESOURCE SETUP REQUEST together with
+    // the SMF's PDU Session Resource Setup Request Transfer, unchanged. Returns false if no live
+    // association is registered for this SUPI or the message did not encode.
+    bool
+    send_pdu_session_resource_setup_request(const std::string& supi,
+                                            std::uint8_t pdu_session_id,
+                                            std::uint8_t sst,
+                                            const std::optional<std::array<std::uint8_t, 3>>& sd,
+                                            const std::vector<std::uint8_t>& n1_sm_container,
+                                            const std::vector<std::uint8_t>& n2_sm_transfer);
 
     // ADR-0486: same, for an SMS payload (DL NAS TRANSPORT, payload container type SMS) -- the
     // SMSF's CP-ACK / CP-DATA arriving as N1N2MessageTransfer n1MessageClass SMS.

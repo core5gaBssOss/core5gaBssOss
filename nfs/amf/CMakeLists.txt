@@ -6,7 +6,7 @@ find_package(redis++ CONFIG REQUIRED)
 
 add_executable(amf src/main.cpp src/ue_context_store.cpp src/ue_security_context_store.cpp
                    src/amf_ue_id_index_store.cpp src/gnb_association_registry.cpp
-                   src/ngap_task.cpp src/ngap_handover.cpp
+                   src/ngap_task.cpp src/ngap_handover.cpp src/pdu_session_resource_setup.cpp
                    src/nas_codec.cpp src/li_poi.cpp src/li_location.cpp)
 # li_core: the AMF's IRI-POI (src/li_poi.cpp, ADR-0377). This is the first binary to host BOTH the
 # NGAP asn1c codec (ngap_generated) and li_core's TS33128Payloads codec, whose 83 shared type
