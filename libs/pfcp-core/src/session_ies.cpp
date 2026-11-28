@@ -288,6 +288,17 @@ std::optional<std::uint8_t> decode_bar_id(const std::vector<std::uint8_t>& value
     return value[0];
 }
 
+std::vector<std::uint8_t> encode_qfi(std::uint8_t qfi) {
+    return {static_cast<std::uint8_t>(qfi & 0x3F)};
+}
+
+std::optional<std::uint8_t> decode_qfi(const std::vector<std::uint8_t>& value) {
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    return static_cast<std::uint8_t>(value[0] & 0x3F);
+}
+
 namespace {
 constexpr std::uint8_t kGateStatusUlShift = 2; // bits 4-3
 constexpr std::uint8_t kGateStatusDlShift = 0; // bits 2-1

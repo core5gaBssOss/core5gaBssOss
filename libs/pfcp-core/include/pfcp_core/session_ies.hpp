@@ -165,6 +165,14 @@ std::optional<std::uint32_t> decode_qer_id(const std::vector<std::uint8_t>& valu
 std::vector<std::uint8_t> encode_bar_id(std::uint8_t id);
 std::optional<std::uint8_t> decode_bar_id(const std::vector<std::uint8_t>& value);
 
+// TS 29.244 V19.6.0 §8.2.89 QFI (first user: the SMF downlink QER, ADR-0642) -- one octet, spare
+// bits 8-7, the QFI value in bits 6-1 (encoded as in TS 38.415 5.5.3.3). In a Create QER it asks
+// the UPF to mark downlink packets of the associated PDRs with this QFI (§5.4.2, "the mapping of DL
+// traffic to QoS flows is achieved by configuring QERs with QFI(s)"). decode_qfi ignores the spare
+// bits.
+std::vector<std::uint8_t> encode_qfi(std::uint8_t qfi);
+std::optional<std::uint8_t> decode_qfi(const std::vector<std::uint8_t>& value);
+
 // TS 29.244 §8.2.7: Gate Status -- 1 octet, UL Gate in bits 4-3, DL Gate in bits 2-1 (real bit
 // positions, confirmed from the real spec figure, not assumed). OPEN=0, CLOSED=1 both real Table
 // 8.2.7-1/8.2.7-2 values; the real spec's own reserved values 2-3 are not encoded by this project

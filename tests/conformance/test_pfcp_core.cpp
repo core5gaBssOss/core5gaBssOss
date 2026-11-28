@@ -2,6 +2,8 @@
 // spec PDF (see pfcp_core/header.hpp's own comment for the version-gap disclosure and
 // docs/DECISIONS.md ADR-0039).
 
+#include <optional>
+
 #include "pfcp_core/common_ies.hpp"
 #include "pfcp_core/header.hpp"
 #include "pfcp_core/ie.hpp"
@@ -552,4 +554,14 @@ TEST(PfcpCommonIes, RemoteGtpuPeerIpv4RoundTrips) {
 TEST(PfcpCommonIes, RemoteGtpuPeerRejectsV4BitUnset) {
     const std::vector<std::uint8_t> bytes = {0x01, 10, 0, 0, 9}; // V6 bit set, not V4
     EXPECT_FALSE(pfcp_core::decode_remote_gtpu_peer_ipv4(bytes).has_value());
+}
+
+TEST(PfcpQfi, EncodesTheSixBitValueAndIgnoresSpareBitsOnDecode) {
+    // TS 29.244 V19.6.0 Figure 8.2.89-1: octet 5 = Spare (bits 8-7) | QFI value (bits 6-1).
+    EXPECT_EQ(pfcp_core::encode_qfi(9), std::vector<std::uint8_t>{0x09});
+    EXPECT_EQ(pfcp_core::encode_qfi(63), std::vector<std::uint8_t>{0x3F});
+    EXPECT_EQ(pfcp_core::encode_qfi(0xC5), std::vector<std::uint8_t>{0x05});
+    EXPECT_EQ(pfcp_core::decode_qfi({0xC5}), std::optional<std::uint8_t>{5});
+    EXPECT_FALSE(pfcp_core::decode_qfi({}).has_value());
+    EXPECT_EQ(static_cast<std::uint16_t>(pfcp_core::IeType::Qfi), 124);
 }
