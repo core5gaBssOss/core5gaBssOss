@@ -113,6 +113,7 @@
 #include "sbi_core/nrf_heartbeat.hpp"
 #include "sbi_core/oauth2_client.hpp"
 #include "sbi_core/otel.hpp"
+#include "sbi_core/problem_details.hpp"
 #include "sbi_core/rate_limit.hpp"
 #include "sbi_core/sbi_headers.hpp"
 #include "sbi_core/uri.hpp"
@@ -1899,6 +1900,21 @@ void report_pdu_session_to_nsacf(sbi_core::http2::Client& nsacf_client,
         "smf: NSACF NumOfPDUsUpdate returned unexpected status {} for SUPI {}", resp->status, supi);
 }
 
+// TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0621): the binary part that SmContextUpdateData's
+// `n2SmInfo` (RefToBinaryData, TS29502_Nsmf_PDUSession.yaml) refers to did not decode as the
+// NGAP transfer its n2SmInfoType declares. invalidParams names `/n2SmInfo`, the JSON body member
+// that refers to the part; the part itself has no JSON Pointer. Title, detail and cause are what
+// each of the six call sites sent before this ADR.
+sbi_core::http2::Response n2_sm_info_not_decodable(const std::string& transfer_name) {
+    return sbi_core::http2::problem_response(
+        400,
+        "Bad Request",
+        "n2SmInfo is not a valid " + transfer_name,
+        "MANDATORY_IE_INCORRECT",
+        {sbi_core::invalid_body_ie(json::json_pointer("/n2SmInfo"),
+                                   "the referenced binary part is not a valid " + transfer_name)});
+}
+
 } // namespace
 
 // ---- ADR-0523: PDU session release, TS 23.502 4.3.4.2 (non-roaming) ----
@@ -2689,12 +2705,33 @@ int main() {
             // be absent for edge cases (e.g. unauthenticated SUPI) this build doesn't model.
             if (!body->supi.has_value() || !body->pduSessionId.has_value() ||
                 !body->dnn.has_value() || !body->sNssai.has_value()) {
+                // NOTE 1 (ADR-0621): one entry per member that is absent, as a JSON Pointer into
+                // the multipart request's JSON part (SmContextCreateData).
+                std::vector<sbi_core::InvalidParam> missing;
+                const std::string reason = "required by this build for the SM Policy Association";
+                if (!body->supi.has_value()) {
+                    missing.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/supi"), reason));
+                }
+                if (!body->pduSessionId.has_value()) {
+                    missing.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/pduSessionId"), reason));
+                }
+                if (!body->dnn.has_value()) {
+                    missing.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/dnn"), reason));
+                }
+                if (!body->sNssai.has_value()) {
+                    missing.push_back(
+                        sbi_core::invalid_body_ie(json::json_pointer("/sNssai"), reason));
+                }
                 return sbi_core::http2::problem_response(
                     400,
                     "Missing mandatory IE",
                     "This build requires supi, pduSessionId, dnn, and sNssai to establish an SM "
                     "Policy Association with PCF",
-                    "MANDATORY_IE_MISSING");
+                    "MANDATORY_IE_MISSING",
+                    std::move(missing));
             }
 
             // ADR-0279: Network Slice Admission Control, BEFORE any state exists.
@@ -3913,11 +3950,7 @@ int main() {
                     };
                     if (dl_tnl == nullptr) {
                         free_transfer();
-                        return sbi_core::http2::problem_response(
-                            400,
-                            "Bad Request",
-                            std::string("n2SmInfo is not a valid ") + type_name,
-                            "MANDATORY_IE_INCORRECT");
+                        return n2_sm_info_not_decodable(type_name);
                     }
                     // ADR-0259: the same read_gtp_tunnel the new N2SmInfoType branches use.
                     const auto endpoint = read_gtp_tunnel(dl_tnl);
@@ -4145,11 +4178,7 @@ int main() {
                     };
                     if (decode_failed) {
                         free_transfer();
-                        return sbi_core::http2::problem_response(
-                            400,
-                            "Bad Request",
-                            std::string("n2SmInfo is not a valid ") + type_name,
-                            "MANDATORY_IE_INCORRECT");
+                        return n2_sm_info_not_decodable(type_name);
                     }
                     if (per_tnl != nullptr) {
                         dl_endpoint = read_gtp_tunnel(&per_tnl->uPTransportLayerInformation);
@@ -4405,11 +4434,7 @@ int main() {
                     if (has_n2_sm_info_bytes) {
                         void* decoded = ngap_per_decode(entry.descriptor, n2_sm_info_bytes);
                         if (decoded == nullptr) {
-                            return sbi_core::http2::problem_response(
-                                400,
-                                "Bad Request",
-                                std::string("n2SmInfo is not a valid ") + entry.transfer_name,
-                                "MANDATORY_IE_INCORRECT");
+                            return n2_sm_info_not_decodable(entry.transfer_name);
                         }
                         ASN_STRUCT_FREE(*entry.descriptor, decoded);
                     }
@@ -4460,11 +4485,7 @@ int main() {
                     auto* req_transfer = static_cast<UEContextResumeRequestTransfer_t*>(
                         ngap_per_decode(&asn_DEF_UEContextResumeRequestTransfer, n2_sm_info_bytes));
                     if (req_transfer == nullptr) {
-                        return sbi_core::http2::problem_response(
-                            400,
-                            "Bad Request",
-                            "n2SmInfo is not a valid UEContextResumeRequestTransfer",
-                            "MANDATORY_IE_INCORRECT");
+                        return n2_sm_info_not_decodable("UEContextResumeRequestTransfer");
                     }
                     const int failed_count =
                         req_transfer->qosFlowFailedToResumeList != nullptr
@@ -4494,11 +4515,7 @@ int main() {
                             static_cast<PathSwitchRequestSetupFailedTransfer_t*>(ngap_per_decode(
                                 &asn_DEF_PathSwitchRequestSetupFailedTransfer, n2_sm_info_bytes));
                         if (fail == nullptr) {
-                            return sbi_core::http2::problem_response(
-                                400,
-                                "Bad Request",
-                                "n2SmInfo is not a valid PathSwitchRequestSetupFailedTransfer",
-                                "MANDATORY_IE_INCORRECT");
+                            return n2_sm_info_not_decodable("PathSwitchRequestSetupFailedTransfer");
                         }
                         cause_read = copy_cause(fail->cause, reported_cause);
                         ASN_STRUCT_FREE(asn_DEF_PathSwitchRequestSetupFailedTransfer, fail);
@@ -4507,12 +4524,8 @@ int main() {
                             ngap_per_decode(&asn_DEF_HandoverResourceAllocationUnsuccessfulTransfer,
                                             n2_sm_info_bytes));
                         if (fail == nullptr) {
-                            return sbi_core::http2::problem_response(
-                                400,
-                                "Bad Request",
-                                "n2SmInfo is not a valid "
-                                "HandoverResourceAllocationUnsuccessfulTransfer",
-                                "MANDATORY_IE_INCORRECT");
+                            return n2_sm_info_not_decodable(
+                                "HandoverResourceAllocationUnsuccessfulTransfer");
                         }
                         cause_read = copy_cause(fail->cause, reported_cause);
                         ASN_STRUCT_FREE(asn_DEF_HandoverResourceAllocationUnsuccessfulTransfer,

@@ -95,6 +95,34 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `DELETE` (404), as the TM Forum `Error` via `libs/tmf-core` instead of 3GPP ProblemDetails.
   Statuses are unchanged; the sbi-core framework's own errors are not covered yet
   ([ADR-0619](docs/decisions/ADR-0619-bss-product-catalog-answers-the-tmf620-error-via-libs-tmf.md)).
+- Docs: `docs/TRACEABILITY.md` rows for ADR-0604, 0606, 0607, 0609, 0610, 0611, 0612 and 0617,
+  the REVIEW-5ae0ef1 SBI-03 ledger row, the ADR-0572 progress table, `docs/COMPONENT_STATUS.md`,
+  the runner inventory in `docs/project-context/host-toolchain.md` and README brought current with
+  `main` 3837d995 (SBI-03 `invalidParams` step 1 and the UDR and SEPP step 2, the BSS TMF `Error`
+  series PR 0 and PR 1, the NEF and SMF URL-encoding fixes, the sanitizer-scaled readiness waits,
+  and the 2026-11-22/23 runner label changes). No code changes.
+- Docs: `docs/TRACEABILITY.md` rows for ADR-0605, 0608, 0613, 0614 and 0616, the REVIEW-5ae0ef1
+  SBI-03 ledger row, the ADR-0572 progress table, `docs/COMPONENT_STATUS.md`, the runner inventory
+  and README brought current with `main` 9022f3a6 (SBI-03 `invalidParams` step 2 for the UDSF, NRF
+  and UDM, BSS TMF `Error` PR 3 for roaming-interconnect, the AMF URL-encoding fix, the open step 2
+  PRs #72 and #74-#89 named as open, and mastermind-073 carrying `5gc-lab` again). No code changes.
+- Docs: the same files brought current with `main` 4182d213: `docs/TRACEABILITY.md` rows for ADR-0615,
+  0619, 0623 and 0634-0639 (BSS TMF `Error` PRs 2 and 5; SBI-03 step 2 for the NEF, GMLC, AMF, LMF,
+  MFAF, TSCTSF and AAnF). `docs/decisions/_order.json` lists nine ADRs once instead of twice (the
+  duplicates came in with #65). No code changes.
+- `bss/subscriber-management` answers its TMF632 Party Management handler errors (a store
+  rejection 400, a duplicate identifier 409, a bad `POST /individual` or `/organization` body 400,
+  an unknown party 404) as the TM Forum `Error` via `libs/tmf-core` instead of 3GPP
+  ProblemDetails. The internal `/bss-api/subscriberManagement/v1` POSTs no longer send a 3GPP
+  `cause`, and their parse error no longer quotes the input. Statuses are unchanged; the sbi-core
+  framework's own errors are not covered yet
+  ([ADR-0620](docs/decisions/ADR-0620-bss-subscriber-management-answers-the-tmf632-error-via-libs.md)).
+- `bss/balance-management` (TMF654 Prepay Balance Management) answers its handler errors, a store
+  rejection (400), a bad `POST` body (400), a missing `bucket.id` (400), a missing
+  `partyAccount.id` filter (400) and an unknown resource id (404), as the TM Forum `Error` via
+  `libs/tmf-core` instead of 3GPP ProblemDetails. Statuses are unchanged; the sbi-core framework's
+  own errors are not covered yet
+  ([ADR-0618](docs/decisions/ADR-0618-bss-balance-management-answers-the-tmf654-error-via-libs.md)).
 - Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
   and `fuzz-nightly.yml`
   ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).
@@ -121,6 +149,21 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   parameter (`query filter`, `query limit-range`, ...) or, for a MetaSchema tag without `sort`, the
   JSON Pointer `/metaTags/<i>/sort`. The multipart Content-Id 400 still has none
   ([ADR-0608](docs/decisions/ADR-0608-udsf-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
+- NWDAF: 400s with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carry `invalidParams` naming the
+  query parameter (`query event-id`) or the body member as a JSON Pointer (`/modelIds`,
+  `/mLEventSubscs/<i>/mLEvent`, both members of an unmet oneOf/anyOf, `""` for an empty Fetch
+  body), in the AnLF and the MTLF. Causes and status codes are unchanged
+  ([ADR-0625](docs/decisions/ADR-0625-nwdaf-problemdetails-carry-invalidparams-sbi-03-step-2-nwdaf.md)).
+- PCF: the two 400s the PCF answers itself with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carry
+  `invalidParams` naming the body member as a JSON Pointer (`/ascReqData` on
+  Npcf_PolicyAuthorization create, `/evSubsc/eventNotifUri` on Npcf_AMPolicyAuthorization update).
+  Causes and status codes are unchanged
+  ([ADR-0626](docs/decisions/ADR-0626-pcf-problemdetails-carry-invalidparams-sbi-03-step-2-pcf.md)).
+- CHF: the two 400s the CHF answers itself with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carry
+  `invalidParams` naming the body member as a JSON Pointer (`/billNo`, ... on
+  `POST /internal-billing/v1/runs`, `/currentStatus` on the `/chf-admin/v1/policy-counters` PUT).
+  Causes and status codes are unchanged; the Nchf routes' `parse_json_body` 400s still have none
+  ([ADR-0630](docs/decisions/ADR-0630-chf-problemdetails-carry-invalidparams-sbi-03-step-2-chf.md)).
 
 ### Fixed
 
@@ -241,11 +284,28 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   required), `/expiry` for a subscription expiry that is not a date-time, or `""` for a JSON Patch
   body that is not an array; statuses and causes are unchanged
   ([ADR-0609](docs/decisions/ADR-0609-udr-problemdetails-carry-invalidparams-sbi-03-step-2-udr.md)).
+- AUSF: Nausf_SoRProtection's 400 `MANDATORY_IE_MISSING` for a request without `sorHeader` (the
+  AUSF's one TS 29.500 Table 5.2.7.2-1 NOTE 1 site) now carries `invalidParams` `/sorHeader`; status
+  and cause are unchanged
+  ([ADR-0627](docs/decisions/ADR-0627-ausf-problemdetails-carry-invalidparams-sbi-03-step-2-ausf.md)).
 - SEPP: 400 answers with a TS 29.500 Table 5.2.7.2-1 / 5.2.7.4-1 NOTE 1 cause carry
   `invalidParams` naming the N32-c / N32-f IE (JSON Pointer), `3gpp-Sbi-Target-apiRoot` header or
   telescopic-mapping query parameter; one site, the reconstructed request's authority inside a
   JOSE-protected response, still has none
   ([ADR-0610](docs/decisions/ADR-0610-sepp-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md)).
+- NSSF: NSSelectionGet's 400 `MANDATORY_QUERY_PARAM_MISSING` carries `invalidParams` naming the
+  absent required query parameter(s), `query nf-type` and/or `query nf-id`; status and cause are
+  unchanged. The `parse_json_body` and post-PATCH DTO sites still have none
+  ([ADR-0629](docs/decisions/ADR-0629-nssf-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
+- ADRF: every answer with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carries `invalidParams` naming
+  the query parameter(s) or body IE(s) (JSON Pointer; every member of a oneOf / anyOf of which none
+  is present; `/mlModels/<i>/<member>` for a missing MLModel member; `""` for an empty
+  remove-stored-mlmodel list); statuses and causes are unchanged
+  ([ADR-0624](docs/decisions/ADR-0624-adrf-problemdetails-carry-invalidparams-sbi-03-step-2-adrf.md)).
+- BSF: the two 400s with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carry `invalidParams`:
+  `/supi` for a CreatePCFBinding without supi, `query mbs-session-id` for a GetPCFMbsBinding
+  without (or with a non-JSON) mbs-session-id; statuses and causes are unchanged
+  ([ADR-0628](docs/decisions/ADR-0628-bsf-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md)).
 - AMF: the SUPI is encoded as one path segment in the Nsmsf_SMService Activate and UplinkSMS URIs
   and in the `smContextStatusUri` it gives the SMF, so a SUPI with `?` or `/` (the AMF's NAS
   decoder writes `?` for an invalid BCD digit) can no longer reach another subscriber's resource
@@ -297,6 +357,20 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   `/gpsi`, or `/supi` off its pattern on register-anchorkey, `/afId` on retrieve-applicationkey and
   `/supi` on remove-context; statuses and causes are unchanged
   ([ADR-0639](docs/decisions/ADR-0639-aanf-problemdetails-carry-invalidparams-sbi-03-step-2-aanf.md)).
+- SMF: the 400s whose cause TS 29.500 Table 5.2.7.2-1 NOTE 1 covers now carry `invalidParams`:
+  a CreateSMContext without `supi`, `pduSessionId`, `dnn` or `sNssai` names each absent member,
+  and an UpdateSMContext whose `n2SmInfo` binary part does not decode as the transfer its
+  `n2SmInfoType` declares names `/n2SmInfo`; statuses and causes are unchanged
+  ([ADR-0621](docs/decisions/ADR-0621-smf-problemdetails-carry-invalidparams-sbi-03-step-2-smf.md)).
+- 5G-EIR: GetEquipmentStatus's 400 `MANDATORY_QUERY_PARAM_MISSING` carries `invalidParams`
+  naming the absent required query parameter, `query pei`; status and cause are unchanged. An
+  empty `pei` still falls through to the 404 `ERROR_EQUIPMENT_UNKNOWN` without one
+  ([ADR-0633](docs/decisions/ADR-0633-5g-eir-problemdetails-carry-invalidparams-sbi-03-step-2.md)).
+- SMSF: the SendSMS and SendMtSMS 400 `MANDATORY_IE_MISSING` answers for a request without a
+  Content-Type now carry `invalidParams` `header Content-Type` (TS 29.500 Table 5.2.7.2-1 NOTE 1);
+  status codes and causes are unchanged. The malformed-multipart answers and the generated-DTO
+  parse failures still carry none
+  ([ADR-0632](docs/decisions/ADR-0632-smsf-problemdetails-carry-invalidparams-sbi-03-step-2-smsf.md)).
 
 ### Security
 

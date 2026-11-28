@@ -591,6 +591,18 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0637](decisions/ADR-0637-mfaf-problemdetails-carry-invalidparams-sbi-03-step-2-mfaf.md) MFAF ProblemDetails carry invalidParams (SBI-03 step 2, MFAF)
 - [0638](decisions/ADR-0638-tsctsf-problemdetails-carry-invalidparams-sbi-03-step-2.md) TSCTSF ProblemDetails carry invalidParams (SBI-03 step 2, TSCTSF)
 - [0639](decisions/ADR-0639-aanf-problemdetails-carry-invalidparams-sbi-03-step-2-aanf.md) AAnF ProblemDetails carry invalidParams (SBI-03 step 2, AAnF)
+- [0621](decisions/ADR-0621-smf-problemdetails-carry-invalidparams-sbi-03-step-2-smf.md) SMF ProblemDetails carry invalidParams (SBI-03 step 2, SMF)
+- [0625](decisions/ADR-0625-nwdaf-problemdetails-carry-invalidparams-sbi-03-step-2-nwdaf.md) NWDAF ProblemDetails carry invalidParams (SBI-03 step 2, NWDAF)
+- [0627](decisions/ADR-0627-ausf-problemdetails-carry-invalidparams-sbi-03-step-2-ausf.md) AUSF ProblemDetails carry invalidParams (SBI-03 step 2, AUSF)
+- [0626](decisions/ADR-0626-pcf-problemdetails-carry-invalidparams-sbi-03-step-2-pcf.md) PCF ProblemDetails carry invalidParams (SBI-03 step 2, PCF)
+- [0629](decisions/ADR-0629-nssf-problemdetails-carry-invalidparams-sbi-03-step-2.md) NSSF ProblemDetails carry invalidParams (SBI-03 step 2)
+- [0630](decisions/ADR-0630-chf-problemdetails-carry-invalidparams-sbi-03-step-2-chf.md) CHF ProblemDetails carry invalidParams (SBI-03 step 2, CHF)
+- [0620](decisions/ADR-0620-bss-subscriber-management-answers-the-tmf632-error-via-libs.md) bss/subscriber-management answers the TMF632 Error via libs/tmf-core (BSS SBI-03 PR 6)
+- [0618](decisions/ADR-0618-bss-balance-management-answers-the-tmf654-error-via-libs.md) bss/balance-management answers the TMF654 Error via libs/tmf-core (BSS SBI-03 PR 4)
+- [0624](decisions/ADR-0624-adrf-problemdetails-carry-invalidparams-sbi-03-step-2-adrf.md) ADRF ProblemDetails carry invalidParams (SBI-03 step 2, ADRF)
+- [0628](decisions/ADR-0628-bsf-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md) BSF ProblemDetails carry invalidParams (SBI-03 step 2, TS 29.500 Table 5.2.7.2-1 NOTE 1)
+- [0633](decisions/ADR-0633-5g-eir-problemdetails-carry-invalidparams-sbi-03-step-2.md) 5G-EIR ProblemDetails carry invalidParams (SBI-03 step 2)
+- [0632](decisions/ADR-0632-smsf-problemdetails-carry-invalidparams-sbi-03-step-2-smsf.md) SMSF ProblemDetails carry invalidParams (SBI-03 step 2, SMSF)
 - [0641](decisions/ADR-0641-pcf-encodes-the-supi-in-the-udr-sm-data-path-and-the.md) PCF encodes the SUPI in the UDR sm-data path and the serviceParamData query (ADR-0570 class, PCF part)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):

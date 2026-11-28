@@ -42,9 +42,12 @@
 // - Real, disclosed sign-convention interpretations for TopupBalance's implicit bucket-creation
 //   and ReserveBalance's reserve-vs-unreserve direction -- see the file-level comment above and
 //   bss_sid/balance.hpp's own header for the full reasoning.
+// - Errors (ADR-0618): the handlers' 400s and 404s are the TMF654 `Error` body via libs/tmf-core
+//   (balance_errors.hpp). The sbi-core framework's own errors (404 no route, 405, 501, 413, the
+//   duplicate-member 400, the TPS ceiling's and pool-exhaustion 503s, an uncaught exception's
+//   500) are still ProblemDetails -- BSS SBI-03 PR 7.
 
 #include "sbi_core/http2_server.hpp"
-#include "sbi_core/json_body.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/metrics.hpp"
 #include "sbi_core/otel.hpp"
@@ -56,8 +59,10 @@
 
 #include <cstdlib>
 
+#include "balance_errors.hpp"
 #include "bss_sid/balance.hpp"
 #include "store.hpp"
+#include "tmf_core/error.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded DB URL/deployment literal in source.
 #include "nf_config/nf_config.hpp"
@@ -71,28 +76,13 @@
 
 namespace {
 
+using balance_management::guarded;
+using balance_management::not_found;
 using nlohmann::json;
 
 constexpr const char* kApiRoot = "/tmf-api/prepayBalanceManagement/v4";
 
-sbi_core::http2::Response not_found(const std::string& resource, const std::string& id) {
-    return sbi_core::http2::problem_response(
-        404, "Not Found", "No " + resource + " " + id, std::nullopt);
-}
-
 } // namespace
-
-// ADR-0385: a malformed date-time is a client error, not a 500.
-template <typename Handler> auto guarded(Handler handler) {
-    return [handler = std::move(handler)](
-               const sbi_core::http2::Request& req) -> sbi_core::http2::Response {
-        try {
-            return handler(req);
-        } catch (const balance_management::InvalidRequest& e) {
-            return sbi_core::http2::problem_response(400, "Bad Request", e.what(), std::nullopt);
-        }
-    };
-}
 
 int main() {
     const auto config = nf_config::load("balance-management", CONFIG_DIR);
@@ -215,11 +205,7 @@ int main() {
                      guarded([&store](const sbi_core::http2::Request& req) {
                          const auto it = req.query_params.find("partyAccount.id");
                          if (it == req.query_params.end()) {
-                             return sbi_core::http2::problem_response(
-                                 400,
-                                 "Bad Request",
-                                 "partyAccount.id query parameter is required",
-                                 std::nullopt);
+                             return balance_management::party_account_id_required();
                          }
                          const auto accumulated = store.get_accumulated_balance(it->second);
                          return sbi_core::http2::Response::json(200, json(accumulated).dump());
@@ -231,14 +217,12 @@ int main() {
                      std::string(kApiRoot) + "/topupBalance",
                      guarded([&store, &topup_counter](const sbi_core::http2::Request& req) {
                          sbi_core::http2::Response err;
-                         auto body =
-                             sbi_core::http2::parse_json_body<bss_sid::TopupBalance>(req, err);
+                         auto body = tmf_core::parse_json_body<bss_sid::TopupBalance>(req, err);
                          if (!body.has_value()) {
                              return err;
                          }
                          if (!body->bucket.has_value() || body->bucket->id.empty()) {
-                             return sbi_core::http2::problem_response(
-                                 400, "Bad Request", "bucket.id is required", std::nullopt);
+                             return balance_management::bucket_id_required();
                          }
                          const auto result = store.topup(*body);
                          topup_counter->Add(1);
@@ -270,14 +254,12 @@ int main() {
                      guarded([&store, &adjust_counter, &adjust_rejected_counter](
                                  const sbi_core::http2::Request& req) {
                          sbi_core::http2::Response err;
-                         auto body =
-                             sbi_core::http2::parse_json_body<bss_sid::AdjustBalance>(req, err);
+                         auto body = tmf_core::parse_json_body<bss_sid::AdjustBalance>(req, err);
                          if (!body.has_value()) {
                              return err;
                          }
                          if (!body->bucket.has_value() || body->bucket->id.empty()) {
-                             return sbi_core::http2::problem_response(
-                                 400, "Bad Request", "bucket.id is required", std::nullopt);
+                             return balance_management::bucket_id_required();
                          }
                          const auto result = store.adjust(*body);
                          adjust_counter->Add(1);
@@ -315,14 +297,12 @@ int main() {
                      guarded([&store, &reserve_counter, &reserve_rejected_counter](
                                  const sbi_core::http2::Request& req) {
                          sbi_core::http2::Response err;
-                         auto body =
-                             sbi_core::http2::parse_json_body<bss_sid::ReserveBalance>(req, err);
+                         auto body = tmf_core::parse_json_body<bss_sid::ReserveBalance>(req, err);
                          if (!body.has_value()) {
                              return err;
                          }
                          if (!body->bucket.has_value() || body->bucket->id.empty()) {
-                             return sbi_core::http2::problem_response(
-                                 400, "Bad Request", "bucket.id is required", std::nullopt);
+                             return balance_management::bucket_id_required();
                          }
                          // ADR-0445/0446 increment 2: NOT a TMF654 field -- see
                          // BalanceStore::reserve's own header comment. Absent on any caller that

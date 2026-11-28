@@ -1033,10 +1033,15 @@ int main() {
             for (const char* required :
                  {"billingAccountId", "billNo", "periodStart", "periodEnd"}) {
                 if (!body.contains(required) || !body[required].is_string()) {
-                    return sbi_core::http2::problem_response(400,
-                                                             "Invalid request",
-                                                             std::string(required) + " is required",
-                                                             "MANDATORY_IE_MISSING");
+                    // TS 29.500 Table 5.2.7.2-1 NOTE 1: invalidParams names the member (ADR-0630).
+                    return sbi_core::http2::problem_response(
+                        400,
+                        "Invalid request",
+                        std::string(required) + " is required",
+                        "MANDATORY_IE_MISSING",
+                        {sbi_core::invalid_body_ie(json::json_pointer("/" + std::string(required)),
+                                                   body.contains(required) ? "must be a string"
+                                                                           : "missing")});
                 }
             }
 
@@ -1953,11 +1958,15 @@ int main() {
                     400, "Malformed JSON", e.what(), "INVALID_MSG_FORMAT");
             }
             if (!body.contains("currentStatus") || !body["currentStatus"].is_string()) {
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1: invalidParams names the member (ADR-0630).
                 return sbi_core::http2::problem_response(
                     400,
                     "Bad Request",
                     "body must be {\"currentStatus\": \"<string>\"}",
-                    "MANDATORY_IE_INCORRECT");
+                    "MANDATORY_IE_INCORRECT",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/currentStatus"),
+                                               body.contains("currentStatus") ? "must be a string"
+                                                                              : "missing")});
             }
             const auto policy_counter_id = req.path_params.at("policyCounterId");
             const std::string new_status = body["currentStatus"].get<std::string>();

@@ -152,6 +152,16 @@ add_executable(integration_tests
     test_sctp_accept_timeout.cpp
     test_amf_peer_uri_encoding.cpp
     test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp
+    test_smf_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_nwdaf_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_ausf_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_pcf_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_nssf_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_chf_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_adrf_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_bsf_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_eir_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_smsf_invalid_params.cpp
     test_pcf_peer_uri_encoding.cpp
 )
 # ADR-0605: the AMF's own URI builders (header-only nfs/amf/src/peer_uris.hpp), for this one file

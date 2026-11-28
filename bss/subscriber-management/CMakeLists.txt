@@ -9,7 +9,8 @@ target_link_libraries(subscriber_management_store PUBLIC bss_sid libpqxx::pqxx s
 target_include_directories(subscriber_management_store PUBLIC src)
 
 add_executable(subscriber-management src/main.cpp)
-target_link_libraries(subscriber-management PRIVATE sbi_core bss_sid subscriber_management_store nf_config)
+# ADR-0620: the TMF632 error responses (src/api_errors.hpp) are libs/tmf-core's TM Forum Error.
+target_link_libraries(subscriber-management PRIVATE sbi_core bss_sid subscriber_management_store nf_config tmf_core)
 # See nfs/hello-nf/CMakeLists.txt for why this is a compile-time absolute path.
 # CONFIG_DIR: docs/DECISIONS.md ADR-0077 -- separate checked-in config/subscriber-management.json.
 target_compile_definitions(subscriber-management PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs" CONFIG_DIR="${CMAKE_SOURCE_DIR}/config")
