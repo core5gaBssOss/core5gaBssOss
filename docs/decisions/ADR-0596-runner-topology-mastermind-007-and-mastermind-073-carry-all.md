@@ -1,6 +1,7 @@
 ## ADR-0596: Runner topology: MASTERMIND-007 and mastermind-073 carry all self-hosted CI; mastermindAI is the master machine, fallback only
 
-**Date:** 2026-11-20. **Status:** Accepted (user, 2026-11-20: "5gc-lab-mastermindAI: Is going to be main
+**Date:** 2026-11-20. **Status:** Accepted; Decision and Fallback rule superseded by ADR-0643 (2026-11-28).
+Original acceptance (user, 2026-11-20: "5gc-lab-mastermindAI: Is going to be main
 master machine. Below both needs to be runners (load them maximum), if any jobs cannot be done by them
 move to mastermindAI").
 

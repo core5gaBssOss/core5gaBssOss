@@ -184,3 +184,15 @@ Three machines are registered (ADR-0580, ADR-0581, ADR-0582, ADR-0596):
   use offset host ports (15434-15439, 16379, 19092, 18030/19030/18040), so they do not collide
   with the machine's own containers. Spawned NFs use fixed ports, though, so local integration
   tests on this machine run only while runner 23 is idle (the 2026-11-21/22 port contention).
+
+### Update 2026-11-28 (ADR-0643)
+
+- ADR-0643 records the 2026-11-27 change and supersedes ADR-0596's *Decision* and *Fallback rule*. The
+  user's reason: the queue was too long for two runners. There is no standing guard for local
+  development on the master (user's choice).
+- Fourth runner: `5gc-lab-mastermindAI-small` (runner 24, on mastermindAI beside runner 23) carries
+  `self-hosted, Linux, X64, 5gc-lab-small` only, so lint and docs jobs do not wait behind a sanitize
+  job on runner 23. It never takes `5gc-lab` jobs.
+- Labels as read from the runner list on 2026-11-28: 2 `5gc-lab-host` `5gc-lab, 5gc-lab-small`;
+  22 `mastermind-073-small` `5gc-lab, 5gc-lab-small`; 23 `5gc-lab-mastermindAI`
+  `5gc-lab, 5gc-lab-small, 5gc-master`; 24 `5gc-lab-mastermindAI-small` `5gc-lab-small`.

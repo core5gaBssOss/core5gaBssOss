@@ -464,6 +464,11 @@ under TSan (ADR-0617, #68).
 Update 2026-11-27: mastermind-073 carries `5gc-lab` again (re-added at the user's request), so
 MASTERMIND-007 and mastermind-073 share the build and sanitize jobs again; the master machine is
 unchanged (`5gc-master` only, fallback).
+Update 2026-11-28 (ADR-0643, supersedes ADR-0596's fallback rule): the master machine rejoined the CI
+pool on 2026-11-27 because two runners could not keep up with the queue. Its runner
+`5gc-lab-mastermindAI` carries `5gc-lab` + `5gc-lab-small` beside `5gc-master`. A second runner on
+the same machine, `5gc-lab-mastermindAI-small`, carries only `5gc-lab-small` (lint and docs jobs), so
+four self-hosted runners now take CI jobs.
 
 Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`. For the whole lab use `make lab-up`, which adds the generated `deploy/docker/docker-compose.lab.yml`: since ADR-0514 the Valkey NFs log in with their own ACL users, and only the overlay's configs carry them (ADR-0571).
 
