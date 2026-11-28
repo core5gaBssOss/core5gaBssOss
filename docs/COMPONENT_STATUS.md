@@ -11,22 +11,22 @@ The complete component list for this project, in scope per `CLAUDE.md` and
 **Keep this file current.** When a component is added or its status changes, update its row and the
 totals in the same commit.
 
-Last updated: 2026-11-21 (rows re-checked against `main` d55cc7b0; the SBI-03 PRs #32-#53 and the AUSF URL-encoding fix #54 change conformance, not component status, so no row moved).
+Last updated: 2026-11-27 (rows re-checked against `main` 4182d213; no status changed and no total moved. Since 9022f3a6: NEF, GMLC, AMF, LMF, MFAF, TSCTSF and AAnF send `invalidParams` for the NOTE 1 causes, #74, #84-#89 (ADR-0623, ADR-0634..0639); Provisioning and Product Catalog answer the TM Forum `Error` via `libs/tmf-core`, #66 (ADR-0615), #69 (ADR-0619). Earlier the same day: rows re-checked against `main` 9022f3a6; no status changed and no total moved. Since 2026-11-23: AMF SUPI encoding in the SMSF and callback URIs #56 (ADR-0605); UDSF, NRF and UDM send `invalidParams` for the TS 29.500 Table 5.2.7.2-1 NOTE 1 causes, #63 (ADR-0608), #64 (ADR-0613), #67 (ADR-0614); Roaming Interconnect answers the TM Forum `Error` via `libs/tmf-core`, #65 (ADR-0616). Previously: 2026-11-23, rows re-checked against `main` 3837d995; no status changed and no total moved. Since 2026-11-21: NEF and SMF URL-encoding fixes #55 (ADR-0606) and #57 (ADR-0604); sbi-core `invalidParams` support #58 (ADR-0607); UDR and SEPP send `invalidParams` for the TS 29.500 Table 5.2.7.2-1 NOTE 1 causes, #60 (ADR-0609) and #62 (ADR-0610); the TMF620/632/651/654 swaggers are vendored, #59 (ADR-0611), and the new library `libs/tmf-core` builds the TM Forum `Error`, #61 (ADR-0612), not yet used by any BSS service; the integration-test harness waits for spawned NFs against a sanitizer-scaled deadline, #68 (ADR-0617). sbi-core, tmf-core and the test harness are libraries/tooling and have no row of their own. Previously: 2026-11-21, rows re-checked against `main` d55cc7b0; the SBI-03 PRs #32-#53 and the AUSF URL-encoding fix #54 change conformance, not component status, so no row moved).
 
 ## 5G Core, Tier 1: all 13 built
 
 | # | Component | Status |
 |---|---|---|
-| 1 | NRF | ✅ Built |
-| 2 | AMF | ✅ Built |
-| 3 | SMF | ✅ Built |
+| 1 | NRF | ✅ Built (2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0613) |
+| 2 | AMF | ✅ Built (2026-11-27: SUPI encoded as one path segment in the SMSF and smContextStatus URIs, ADR-0605; N1N2MessageTransfer's NOTE 1 answer carries `invalidParams`, ADR-0635) |
+| 3 | SMF | ✅ Built (2026-11-23: SUPI encoded as one path segment in the AMF N1N2MessageTransfer URI, ADR-0604) |
 | 4 | UPF | ✅ Built |
 | 5 | PCF | ✅ Built |
-| 6 | UDM | ✅ Built |
-| 7 | UDR | ✅ Built |
+| 6 | UDM | ✅ Built (2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0614) |
+| 7 | UDR | ✅ Built (2026-11-23: NOTE 1 answers carry `invalidParams`; Subs To Notify collection GET reachable again, ADR-0609) |
 | 8 | AUSF | ✅ Built |
 | 9 | NSSF | ✅ Built |
-| 10 | NEF | ✅ Built |
+| 10 | NEF | ✅ Built (2026-11-23: traffic-influence id and UE ids encoded in UDR/UDM URIs, ADR-0606; 2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0623) |
 | 11 | SCP | ✅ Built |
 | 12 | BSF | ✅ Built |
 | 13 | CHF | ✅ Built |
@@ -38,19 +38,19 @@ Last updated: 2026-11-21 (rows re-checked against `main` d55cc7b0; the SBI-03 PR
 | 14 | NWDAF (AnLF + MTLF) | ✅ Built |
 | 15 | DCCF | ✅ Built |
 | 16 | ADRF | ✅ Built |
-| 17 | MFAF | ✅ Built |
+| 17 | MFAF | ✅ Built (2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0637) |
 | 18 | NSACF | ✅ Built |
-| 19 | TSCTSF | ⚠️ Partial: Ntsctsf_QoSandTSCAssistance (AF requested QoS by UE address or GPSI) with PCF-BSF binding registration and NEF GPSI routing (ADR-0498); TSC assistance, time synchronization, ASTI in pipeline |
+| 19 | TSCTSF | ⚠️ Partial: Ntsctsf_QoSandTSCAssistance (AF requested QoS by UE address or GPSI) with PCF-BSF binding registration and NEF GPSI routing (ADR-0498); TSC assistance, time synchronization, ASTI in pipeline (2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0638) |
 | 20 | EASDF | 🕒 Already in Pipeline |
 | 21 | UCMF | 🕒 Already in Pipeline |
 | 22 | SMSF | ✅ Built |
 | 23 | 5G-EIR | ✅ Built |
-| 24 | LMF | ✅ Built |
-| 25 | GMLC | ✅ Built |
+| 24 | LMF | ✅ Built (2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0636) |
+| 25 | GMLC | ✅ Built (2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0634) |
 | 26 | NSSAAF | 🕒 Already in Pipeline |
-| 27 | AAnF | ⚠️ Partial: AKMA anchor key, application key, context removal with the AUSF/UDM sides, GPSI, NEF path, roaming check (ADR-0495..0497); service-disable notification in pipeline |
-| 28 | UDSF | ✅ Built |
-| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492), PRINS with JOSE-protected forwarding (ADR-0493/0494), certificate-bound N32-c sender and N32-f correlation (ADR-0491), per-PLMN trust anchors (ADR-0529); not built: roaming intermediaries, N32-f keepalive PINGs, TLSCOR OPTIONS, SNDN32F, topology hiding, message filtering, URI_PARAM and multipart protection, replay detection, renegotiation, the N32-f/N32-c certificate PLMN subset check |
+| 27 | AAnF | ⚠️ Partial: AKMA anchor key, application key, context removal with the AUSF/UDM sides, GPSI, NEF path, roaming check (ADR-0495..0497); service-disable notification in pipeline (2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0639) |
+| 28 | UDSF | ✅ Built (2026-11-27: NOTE 1 answers carry `invalidParams`, ADR-0608) |
+| 29 | SEPP (vSEPP / hSEPP, N32) | ⚠️ Partial: N32-c + N32-f with TLS security (ADR-0491), telescopic FQDN (ADR-0492), PRINS with JOSE-protected forwarding (ADR-0493/0494), certificate-bound N32-c sender and N32-f correlation (ADR-0491), per-PLMN trust anchors (ADR-0529); not built: roaming intermediaries, N32-f keepalive PINGs, TLSCOR OPTIONS, SNDN32F, topology hiding, message filtering, URI_PARAM and multipart protection, replay detection, renegotiation, the N32-f/N32-c certificate PLMN subset check; 2026-11-23: NOTE 1 answers carry `invalidParams` (ADR-0610) |
 
 ## 5G Core, Tier 3: all 18 already in pipeline
 
@@ -91,11 +91,11 @@ Last updated: 2026-11-21 (rows re-checked against `main` d55cc7b0; the SBI-03 PR
 | # | Component | Status |
 |---|---|---|
 | 53 | Online Charging (Gy Diameter CCR/CCA, CAP) in the CHF | ✅ Built |
-| 54 | Product Catalog | ✅ Built |
+| 54 | Product Catalog | ✅ Built (2026-11-27: handler errors answer the TMF620 `Error`, ADR-0619) |
 | 55 | Balance Management | ✅ Built |
 | 56 | Subscriber Management | ✅ Built |
-| 57 | Provisioning | ✅ Built |
-| 58 | Roaming Interconnect | ✅ Built |
+| 57 | Provisioning | ✅ Built (2026-11-27: TMF640 errors via `libs/tmf-core`; the internal order API answers ProblemDetails without a cause, ADR-0615) |
+| 58 | Roaming Interconnect | ✅ Built (2026-11-27: handler errors answer the TMF651 `Error`, ADR-0616) |
 
 ## Platform and tooling: all 3 built
 

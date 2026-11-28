@@ -153,14 +153,37 @@ std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::R
     return verifier.verify(value.substr(kPrefix.size()));
 }
 
-sbi_core::http2::Response
-problem(int status, const std::string& title, const std::string& detail, const char* cause) {
-    auto pd = sbi_core::make_problem_details(status, title, detail, cause);
+// `invalid_params`: TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0624); empty leaves the attribute out.
+sbi_core::http2::Response problem(int status,
+                                  const std::string& title,
+                                  const std::string& detail,
+                                  const char* cause,
+                                  std::vector<sbi_core::InvalidParam> invalid_params = {}) {
+    auto pd =
+        sbi_core::make_problem_details(status, title, detail, cause, std::move(invalid_params));
     sbi_core::http2::Response r;
     r.status = status;
     r.headers.emplace("content-type", "application/problem+json");
     r.body = json(pd).dump();
     return r;
+}
+
+// TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0624) for a oneOf / anyOf of top-level body members of
+// which none is present: every member is named by its JSON Pointer, one reason for all.
+std::vector<sbi_core::InvalidParam> one_of_absent(std::initializer_list<const char*> members) {
+    std::string reason = "absent; one of ";
+    std::size_t i = 0;
+    for (const char* m : members) {
+        reason += (i == 0 ? "" : (i + 1 == members.size() ? " and " : ", ")) + std::string(m);
+        ++i;
+    }
+    reason += " is required";
+    std::vector<sbi_core::InvalidParam> invalid;
+    for (const char* m : members) {
+        invalid.push_back(
+            sbi_core::invalid_body_ie(json::json_pointer("/" + std::string(m)), reason));
+    }
+    return invalid;
 }
 
 // A data store or ML model store call that failed (adrf::StoreResult's error).
@@ -947,12 +970,28 @@ int main() {
             const auto by_id = q("store-trans-id");
             const auto by_fetch = q("fetch-correlation-ids");
             const auto by_set = q("data-set-id");
-            if ((by_id ? 1 : 0) + (by_fetch ? 1 : 0) + (by_set ? 1 : 0) != 1) {
+            if (const int given = (by_id ? 1 : 0) + (by_fetch ? 1 : 0) + (by_set ? 1 : 0);
+                given != 1) {
+                // NOTE 1 (ADR-0624): none given names all three; more than one names those given.
+                const std::string reason =
+                    given == 0 ? "absent; exactly one of store-trans-id, fetch-correlation-ids "
+                                 "and data-set-id is required"
+                               : "present with another; exactly one of store-trans-id, "
+                                 "fetch-correlation-ids and data-set-id is allowed";
+                std::vector<sbi_core::InvalidParam> invalid;
+                for (const auto& [name, value] : {std::pair{"store-trans-id", &by_id},
+                                                  std::pair{"fetch-correlation-ids", &by_fetch},
+                                                  std::pair{"data-set-id", &by_set}}) {
+                    if (given == 0 || value->has_value()) {
+                        invalid.push_back(sbi_core::invalid_query_param(name, reason));
+                    }
+                }
                 return problem(400,
                                "Bad Request",
                                "exactly one of store-trans-id, fetch-correlation-ids, data-set-id "
                                "selects the records (TS 29.575 4.2.2.5.2)",
-                               "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               std::move(invalid));
             }
             adrf::StoreResult<std::vector<adrf::StoredRecord>> read;
             if (by_id) {
@@ -1063,19 +1102,32 @@ int main() {
             }
             const json request = json::parse(req.body);
             if (request.contains("anaSub") == request.contains("dataSub")) {
+                if (request.contains("anaSub")) {
+                    return problem(400,
+                                   "Bad Request",
+                                   "exactly one of anaSub, dataSub (TS 29.575 "
+                                   "NadrfDataStoreSubscription oneOf)",
+                                   "INVALID_MSG_FORMAT");
+                }
                 return problem(400,
                                "Bad Request",
                                "exactly one of anaSub, dataSub (TS 29.575 "
                                "NadrfDataStoreSubscription oneOf)",
-                               request.contains("anaSub") ? "INVALID_MSG_FORMAT"
-                                                          : "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               one_of_absent({"anaSub", "dataSub"}));
             }
             if (request.contains("targetNfId") == request.contains("targetNfSetId")) {
+                if (request.contains("targetNfId")) {
+                    return problem(400,
+                                   "Bad Request",
+                                   "exactly one of targetNfId, targetNfSetId",
+                                   "INVALID_MSG_FORMAT");
+                }
                 return problem(400,
                                "Bad Request",
                                "exactly one of targetNfId, targetNfSetId",
-                               request.contains("targetNfId") ? "INVALID_MSG_FORMAT"
-                                                              : "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               one_of_absent({"targetNfId", "targetNfSetId"}));
             }
             const std::string kind = request.contains("anaSub") ? "analytics" : "data";
             const json& spec = request.at(kind == "analytics" ? "anaSub" : "dataSub");
@@ -1171,11 +1223,19 @@ int main() {
                 return err;
             }
             if (dto->transRefId.has_value() == dto->dataSetId.has_value()) {
+                if (dto->transRefId) {
+                    return problem(400,
+                                   "Bad Request",
+                                   "exactly one of transRefId, dataSetId (TS 29.575 "
+                                   "NadrfDataStoreSubscriptionRef oneOf)",
+                                   "INVALID_MSG_FORMAT");
+                }
                 return problem(400,
                                "Bad Request",
                                "exactly one of transRefId, dataSetId (TS 29.575 "
                                "NadrfDataStoreSubscriptionRef oneOf)",
-                               dto->transRefId ? "INVALID_MSG_FORMAT" : "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               one_of_absent({"transRefId", "dataSetId"}));
             }
             std::vector<std::string> ids;
             if (dto->transRefId) {
@@ -1307,11 +1367,19 @@ int main() {
                                      (request.contains("dataSub") ? 1 : 0) +
                                      (request.contains("dataSetId") ? 1 : 0);
             if (alternatives != 1) {
+                if (alternatives != 0) {
+                    return problem(400,
+                                   "Bad Request",
+                                   "exactly one of anaSub, dataSub, dataSetId (TS 29.575 "
+                                   "NadrfDataRetrievalSubscription oneOf)",
+                                   "INVALID_MSG_FORMAT");
+                }
                 return problem(400,
                                "Bad Request",
                                "exactly one of anaSub, dataSub, dataSetId (TS 29.575 "
                                "NadrfDataRetrievalSubscription oneOf)",
-                               alternatives == 0 ? "MANDATORY_IE_MISSING" : "INVALID_MSG_FORMAT");
+                               "MANDATORY_IE_MISSING",
+                               one_of_absent({"anaSub", "dataSub", "dataSetId"}));
             }
             const auto window = parse_window(request.at("timePeriod"));
             if (!window) {
@@ -1503,32 +1571,67 @@ int main() {
     const auto validate_ml_record =
         [&](const json& request) -> std::optional<sbi_core::http2::Response> {
         if (request.contains("nfInstanceId") == request.contains("nfSetId")) {
+            if (request.contains("nfInstanceId")) {
+                return problem(400,
+                               "Bad Request",
+                               "exactly one of nfInstanceId, nfSetId (TS 29.575 "
+                               "NadrfMLModelStoreRecord oneOf)",
+                               "INVALID_MSG_FORMAT");
+            }
             return problem(400,
                            "Bad Request",
                            "exactly one of nfInstanceId, nfSetId (TS 29.575 "
                            "NadrfMLModelStoreRecord oneOf)",
-                           request.contains("nfInstanceId") ? "INVALID_MSG_FORMAT"
-                                                            : "MANDATORY_IE_MISSING");
+                           "MANDATORY_IE_MISSING",
+                           one_of_absent({"nfInstanceId", "nfSetId"}));
         }
         if (!request.contains("mlModelInfo") && !request.contains("mlModels")) {
-            return problem(
-                400, "Bad Request", "mlModelInfo or mlModels is required", "MANDATORY_IE_MISSING");
+            // NadrfMLModelStoreRecord anyOf: either is enough, so the reason says "one of".
+            return problem(400,
+                           "Bad Request",
+                           "mlModelInfo or mlModels is required",
+                           "MANDATORY_IE_MISSING",
+                           one_of_absent({"mlModelInfo", "mlModels"}));
         }
-        for (const auto& m : request.value("mlModels", json::array())) {
-            if (!m.contains("modelUniqueId") || !m.contains("mlModel")) {
-                return problem(400,
-                               "Bad Request",
-                               "MLModel requires modelUniqueId and mlModel",
-                               "MANDATORY_IE_MISSING");
+        // The members MLModel / MLModelInfo require (TS29575_Nadrf_MLModelManagement.yaml allOf
+        // required) that this check looks at, each missing one named by its JSON Pointer.
+        const auto missing_members = [](const json& list,
+                                        const std::string& list_name,
+                                        std::initializer_list<const char*> members) {
+            std::vector<sbi_core::InvalidParam> invalid;
+            if (!list.is_array()) {
+                return invalid;
             }
+            for (std::size_t i = 0; i < list.size(); ++i) {
+                for (const char* member : members) {
+                    if (!list[i].contains(member)) {
+                        invalid.push_back(sbi_core::invalid_body_ie(
+                            json::json_pointer("/" + list_name + "/" + std::to_string(i) + "/" +
+                                               member),
+                            "missing"));
+                    }
+                }
+            }
+            return invalid;
+        };
+        if (auto invalid = missing_members(
+                request.value("mlModels", json::array()), "mlModels", {"modelUniqueId", "mlModel"});
+            !invalid.empty()) {
+            return problem(400,
+                           "Bad Request",
+                           "MLModel requires modelUniqueId and mlModel",
+                           "MANDATORY_IE_MISSING",
+                           std::move(invalid));
         }
-        for (const auto& i : request.value("mlModelInfo", json::array())) {
-            if (!i.contains("modelUniqueId") || !i.contains("mlFileAddr")) {
-                return problem(400,
-                               "Bad Request",
-                               "MLModelInfo requires modelUniqueId and mlFileAddr",
-                               "MANDATORY_IE_MISSING");
-            }
+        if (auto invalid = missing_members(request.value("mlModelInfo", json::array()),
+                                           "mlModelInfo",
+                                           {"modelUniqueId", "mlFileAddr"});
+            !invalid.empty()) {
+            return problem(400,
+                           "Bad Request",
+                           "MLModelInfo requires modelUniqueId and mlFileAddr",
+                           "MANDATORY_IE_MISSING",
+                           std::move(invalid));
         }
         return std::nullopt;
     };
@@ -1645,12 +1748,21 @@ int main() {
         [&](const sbi_core::http2::Request& req) {
             const auto by_record = req.query_params.find("store-trans-id");
             const auto by_ids = req.query_params.find("model-unique-ids");
-            if ((by_record != req.query_params.end()) == (by_ids != req.query_params.end())) {
+            if (const bool both = by_record != req.query_params.end();
+                both == (by_ids != req.query_params.end())) {
+                // NOTE 1 (ADR-0624): both absent or both present -- either way both are named.
+                const std::string reason =
+                    both ? "both present; exactly one of store-trans-id and model-unique-ids is "
+                           "allowed"
+                         : "both absent; exactly one of store-trans-id and model-unique-ids is "
+                           "required";
                 return problem(400,
                                "Bad Request",
                                "exactly one of store-trans-id, model-unique-ids (TS 29.575 "
                                "4.3.2.3.2)",
-                               "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               {sbi_core::invalid_query_param("store-trans-id", reason),
+                                sbi_core::invalid_query_param("model-unique-ids", reason)});
             }
             adrf::StoreResult<std::vector<adrf::StoredModel>> read;
             if (by_record != req.query_params.end()) {
@@ -1664,7 +1776,9 @@ int main() {
                         return problem(400,
                                        "Bad Request",
                                        "model-unique-ids must be integers",
-                                       "INVALID_QUERY_PARAM");
+                                       "INVALID_QUERY_PARAM",
+                                       {sbi_core::invalid_query_param(
+                                           "model-unique-ids", "'" + s + "' is not an integer")});
                     }
                 }
                 read = models.models_by_ids(ids);
@@ -1799,10 +1913,13 @@ int main() {
                 return err;
             }
             if (ids->empty()) {
+                // The request body is the array itself (minItems: 1): JSON Pointer "".
                 return problem(400,
                                "Bad Request",
                                "the list of ML model identifiers shall not be empty",
-                               "MANDATORY_IE_MISSING");
+                               "MANDATORY_IE_MISSING",
+                               {sbi_core::invalid_body_ie(json::json_pointer(""),
+                                                          "empty array; minItems is 1")});
             }
             json results = json::array();
             int deleted = 0;

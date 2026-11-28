@@ -410,10 +410,13 @@ int main() {
             }
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
-                return sbi_core::http2::problem_response(400,
-                                                         "Invalid Service Request",
-                                                         "Content-Type header is required",
-                                                         "MANDATORY_IE_MISSING");
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0632): name the missing header.
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Invalid Service Request",
+                    "Content-Type header is required",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_header("Content-Type", "missing")});
             }
             auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
             if (!parts.has_value() || parts->empty()) {
@@ -535,10 +538,13 @@ int main() {
             }
             const auto content_type_it = req.headers.find("content-type");
             if (content_type_it == req.headers.end()) {
-                return sbi_core::http2::problem_response(400,
-                                                         "Invalid Service Request",
-                                                         "Content-Type header is required",
-                                                         "MANDATORY_IE_MISSING");
+                // TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0632): name the missing header.
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Invalid Service Request",
+                    "Content-Type header is required",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_header("Content-Type", "missing")});
             }
             auto parts = sbi_core::multipart::parse(content_type_it->second, req.body);
             if (!parts.has_value() || parts->empty()) {

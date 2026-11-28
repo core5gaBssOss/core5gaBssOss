@@ -11,6 +11,8 @@
 #include <chrono>
 #include <map>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
 #include "TS29520_Nnwdaf_MLModelTraining.hpp"
@@ -82,9 +84,15 @@ std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::R
     return verifier.verify(value.substr(kPrefix.size()));
 }
 
-sbi_core::http2::Response
-problem(int status, const std::string& title, const std::string& detail, const char* cause) {
-    auto pd = sbi_core::make_problem_details(status, title, detail, cause);
+// `invalid_params`: TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0607, ADR-0625); empty leaves the
+// attribute out.
+sbi_core::http2::Response problem(int status,
+                                  const std::string& title,
+                                  const std::string& detail,
+                                  const char* cause,
+                                  std::vector<sbi_core::InvalidParam> invalid_params = {}) {
+    auto pd =
+        sbi_core::make_problem_details(status, title, detail, cause, std::move(invalid_params));
     sbi_core::http2::Response r;
     r.status = status;
     r.headers.emplace("content-type", "application/problem+json");
@@ -1225,7 +1233,8 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
         json request = json::parse(req.body);
         json failures = json::array();
         int accepted = 0;
-        for (const auto& es : dto->mLEventSubscs) {
+        for (std::size_t i = 0; i < dto->mLEventSubscs.size(); ++i) {
+            const auto& es = dto->mLEventSubscs[i];
             if (es.posModelReqInd.value_or(false)) {
                 failures.push_back(
                     json{{"event", es.mLEvent ? json(es.mLEvent->value) : json()},
@@ -1234,11 +1243,14 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
                 continue; // Ue_Positioning models: not trained here
             }
             if (!es.mLEvent) {
-                err = problem(400,
-                              "Bad Request",
-                              "MLEventSubscription requires mLEvent and mLEventFilter, or "
-                              "posModelReqInd",
-                              "MANDATORY_IE_MISSING");
+                err =
+                    problem(400,
+                            "Bad Request",
+                            "MLEventSubscription requires mLEvent and mLEventFilter, or "
+                            "posModelReqInd",
+                            "MANDATORY_IE_MISSING",
+                            {sbi_core::invalid_body_ie(
+                                json::json_pointer("/mLEventSubscs") / i / "mLEvent", "missing")});
                 return;
             }
             if (trains(es.mLEvent->value)) {
@@ -1367,13 +1379,28 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
                 return bad;
             }
             if (!dto->modelId) {
-                return problem(400, "Bad Request", "modelId is required", "MANDATORY_IE_MISSING");
+                return problem(400,
+                               "Bad Request",
+                               "modelId is required",
+                               "MANDATORY_IE_MISSING",
+                               {sbi_core::invalid_body_ie(json::json_pointer("/modelId"))});
             }
             if (dto->consumerId.has_value() == dto->consumerSetId.has_value()) {
+                // Both absent is MANDATORY_IE_MISSING (NOTE 1: name both); both present is
+                // INVALID_MSG_FORMAT, which NOTE 1 does not cover.
+                std::vector<sbi_core::InvalidParam> missing;
+                if (!dto->consumerId) {
+                    const std::string reason = "missing; one of consumerId, consumerSetId is "
+                                               "required";
+                    missing = {
+                        sbi_core::invalid_body_ie(json::json_pointer("/consumerId"), reason),
+                        sbi_core::invalid_body_ie(json::json_pointer("/consumerSetId"), reason)};
+                }
                 return problem(400,
                                "Bad Request",
                                "exactly one of consumerId, consumerSetId (MLModelMonitorReg oneOf)",
-                               dto->consumerId ? "INVALID_MSG_FORMAT" : "MANDATORY_IE_MISSING");
+                               dto->consumerId ? "INVALID_MSG_FORMAT" : "MANDATORY_IE_MISSING",
+                               std::move(missing));
             }
             const json request = json::parse(req.body);
             const auto auth = check_bearer(req, verifier_);
@@ -1416,11 +1443,16 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
                 return bad;
             }
             if (!dto->modelAccuInfos && !dto->anaFeedbacks) {
-                return problem(400,
-                               "Bad Request",
-                               "modelAccuInfos or anaFeedbacks is required (MLModelMonitorNotify "
-                               "anyOf)",
-                               "MANDATORY_IE_MISSING");
+                const std::string reason =
+                    "missing; at least one of modelAccuInfos, anaFeedbacks is required";
+                return problem(
+                    400,
+                    "Bad Request",
+                    "modelAccuInfos or anaFeedbacks is required (MLModelMonitorNotify "
+                    "anyOf)",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/modelAccuInfos"), reason),
+                     sbi_core::invalid_body_ie(json::json_pointer("/anaFeedbacks"), reason)});
             }
             try {
                 on_monitor_notification(json::parse(req.body));
@@ -1464,16 +1496,20 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
         json request = json::parse(req.body);
         for (const char* required : {"mLEventSubscs", "notifUri", "notifCorreId"}) {
             if (!request.contains(required)) {
-                err = problem(400,
-                              "Bad Request",
-                              std::string(required) + " is required (NwdafMLModelTrainSubsc)",
-                              "MANDATORY_IE_MISSING");
+                err = problem(
+                    400,
+                    "Bad Request",
+                    std::string(required) + " is required (NwdafMLModelTrainSubsc)",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_body_ie(json::json_pointer() / required, "missing")});
                 return;
             }
         }
         json failures = json::array();
         int accepted = 0;
-        for (const auto& es : request.at("mLEventSubscs")) {
+        const json& subscs = request.at("mLEventSubscs");
+        for (std::size_t i = 0; i < subscs.size(); ++i) {
+            const json& es = subscs[i];
             const auto event = es.value("mLEvent", "");
             if (!event.empty() && trains(event)) {
                 ++accepted;
@@ -1482,10 +1518,13 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
                 // required by the YAML. mLTrainEvent is a NwdafEvent, so an absent mLEvent has
                 // nothing to put there and is a 400 instead.
                 if (event.empty()) {
-                    err = problem(400,
-                                  "Bad Request",
-                                  "MLEventSubscription requires mLEvent (NwdafMLModelTrainSubsc)",
-                                  "MANDATORY_IE_MISSING");
+                    err = problem(
+                        400,
+                        "Bad Request",
+                        "MLEventSubscription requires mLEvent (NwdafMLModelTrainSubsc)",
+                        "MANDATORY_IE_MISSING",
+                        {sbi_core::invalid_body_ie(
+                            json::json_pointer("/mLEventSubscs") / i / "mLEvent", "missing")});
                     return;
                 }
                 failures.push_back(json{
@@ -1665,10 +1704,12 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
             }
             const json body = json::parse(req.body);
             if (!body.contains("termCause")) {
-                return problem(400,
-                               "Bad Request",
-                               "termCause is required (TrainingUnsubscribeInfo)",
-                               "MANDATORY_IE_MISSING");
+                return problem(
+                    400,
+                    "Bad Request",
+                    "termCause is required (TrainingUnsubscribeInfo)",
+                    "MANDATORY_IE_MISSING",
+                    {sbi_core::invalid_body_ie(json::json_pointer("/termCause"), "missing")});
             }
             const auto id = req.path_params.at("subscriptionId");
             if (!store_.remove_training_subscription(id)) {

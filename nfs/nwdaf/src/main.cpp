@@ -101,6 +101,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
@@ -1181,10 +1182,12 @@ int main() {
         with_li_query([&](const sbi_core::http2::Request& req) {
             const auto ev = req.query_params.find("event-id");
             if (ev == req.query_params.end()) {
-                return sbi_core::http2::problem_response(400,
-                                                         "Bad Request",
-                                                         "query parameter 'event-id' is required",
-                                                         "MANDATORY_QUERY_PARAM_MISSING");
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Bad Request",
+                    "query parameter 'event-id' is required",
+                    "MANDATORY_QUERY_PARAM_MISSING",
+                    {sbi_core::invalid_query_param("event-id", "missing")});
             }
             std::string err;
             auto filter =
@@ -1369,15 +1372,21 @@ int main() {
 
     // ============ Phase C: data collection via the DCCF, and Nnwdaf_DataManagement ============
 
-    const auto problem =
-        [](int status, const std::string& title, const std::string& detail, const char* cause) {
-            auto pd = sbi_core::make_problem_details(status, title, detail, cause);
-            sbi_core::http2::Response r;
-            r.status = status;
-            r.headers.emplace("content-type", "application/problem+json");
-            r.body = json(pd).dump();
-            return r;
-        };
+    // `invalid_params`: TS 29.500 Table 5.2.7.2-1 NOTE 1 (ADR-0607, ADR-0625); empty leaves the
+    // attribute out.
+    const auto problem = [](int status,
+                            const std::string& title,
+                            const std::string& detail,
+                            const char* cause,
+                            std::vector<sbi_core::InvalidParam> invalid_params = {}) {
+        auto pd =
+            sbi_core::make_problem_details(status, title, detail, cause, std::move(invalid_params));
+        sbi_core::http2::Response r;
+        r.status = status;
+        r.headers.emplace("content-type", "application/problem+json");
+        r.body = json(pd).dump();
+        return r;
+    };
 
     // Nnwdaf_DataManagement_Notify: one NnwdafDataManagementNotif per subscription, carrying the
     // collected NRF events as a DataNotification -- or, under consTrigNotif, a fetch instruction.
@@ -1597,8 +1606,12 @@ int main() {
             return;
         }
         if (dto->modelIds.empty()) {
-            err =
-                problem(400, "Bad Request", "modelIds shall not be empty", "MANDATORY_IE_MISSING");
+            err = problem(
+                400,
+                "Bad Request",
+                "modelIds shall not be empty",
+                "MANDATORY_IE_MISSING",
+                {sbi_core::invalid_body_ie(json::json_pointer("/modelIds"), "empty; minItems 1")});
             return;
         }
         if (dto->mLEvent && dto->mLEvent->value != sbi_gen::NwdafEvent::NF_LOAD) {
@@ -1710,10 +1723,14 @@ int main() {
                 return err;
             }
             if (ids->empty()) {
-                return problem(400,
-                               "Bad Request",
-                               "fetch correlation identifiers shall not be empty",
-                               "MANDATORY_IE_MISSING");
+                return problem(
+                    400,
+                    "Bad Request",
+                    "fetch correlation identifiers shall not be empty",
+                    "MANDATORY_IE_MISSING",
+                    // The request body is the array itself (the Fetch callback's
+                    // schema), so the JSON Pointer is "", the whole body.
+                    {sbi_core::invalid_body_ie(json::json_pointer(), "empty; minItems 1")});
             }
             // Merge every buffered notification into one (4.4.2.5.2: "find the data").
             json merged;
@@ -1751,12 +1768,21 @@ int main() {
     const auto serving_source = [&](const json& request,
                                     std::optional<sbi_core::http2::Response>& err) -> std::string {
         if (request.contains("anaSub") == request.contains("dataSub")) {
+            // Both absent is MANDATORY_IE_MISSING (NOTE 1: name both); both present is
+            // INVALID_MSG_FORMAT, which NOTE 1 does not cover.
+            std::vector<sbi_core::InvalidParam> missing;
+            if (!request.contains("anaSub")) {
+                const std::string reason = "missing; one of anaSub, dataSub is required";
+                missing = {sbi_core::invalid_body_ie(json::json_pointer("/anaSub"), reason),
+                           sbi_core::invalid_body_ie(json::json_pointer("/dataSub"), reason)};
+            }
             err =
                 problem(400,
                         "Bad Request",
                         "exactly one of anaSub, dataSub (TS 29.520 NnwdafDataManagementSubsc "
                         "oneOf)",
-                        request.contains("anaSub") ? "INVALID_MSG_FORMAT" : "MANDATORY_IE_MISSING");
+                        request.contains("anaSub") ? "INVALID_MSG_FORMAT" : "MANDATORY_IE_MISSING",
+                        std::move(missing));
             return "";
         }
         if (request.contains("dataSub")) {
