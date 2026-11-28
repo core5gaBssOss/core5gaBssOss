@@ -110,6 +110,13 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   0619, 0623 and 0634-0639 (BSS TMF `Error` PRs 2 and 5; SBI-03 step 2 for the NEF, GMLC, AMF, LMF,
   MFAF, TSCTSF and AAnF). `docs/decisions/_order.json` lists nine ADRs once instead of twice (the
   duplicates came in with #65). No code changes.
+- `bss/subscriber-management` answers its TMF632 Party Management handler errors (a store
+  rejection 400, a duplicate identifier 409, a bad `POST /individual` or `/organization` body 400,
+  an unknown party 404) as the TM Forum `Error` via `libs/tmf-core` instead of 3GPP
+  ProblemDetails. The internal `/bss-api/subscriberManagement/v1` POSTs no longer send a 3GPP
+  `cause`, and their parse error no longer quotes the input. Statuses are unchanged; the sbi-core
+  framework's own errors are not covered yet
+  ([ADR-0620](docs/decisions/ADR-0620-bss-subscriber-management-answers-the-tmf632-error-via-libs.md)).
 - Self-hosted CI parallelism follows the runner's RAM: `CI_JOBS=2` under 12 GiB, else 4, in `ci.yml`
   and `fuzz-nightly.yml`
   ([ADR-0582](docs/decisions/ADR-0582-self-hosted-ci-parallelism-follows-runner-ram-ci-jobs-2.md)).
