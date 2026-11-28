@@ -159,6 +159,7 @@ add_executable(integration_tests
     test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_nssf_invalid_params.cpp
     test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_chf_invalid_params.cpp
     test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_adrf_invalid_params.cpp
+    test_nef_invalid_params.cpp test_gmlc_invalid_params.cpp test_amf_invalid_params.cpp test_lmf_invalid_params.cpp test_mfaf_invalid_params.cpp test_tsctsf_invalid_params.cpp test_bsf_invalid_params.cpp
 )
 # ADR-0605: the AMF's own URI builders (header-only nfs/amf/src/peer_uris.hpp), for this one file
 # only, so no other test in the target can pick up an AMF-private header by accident.

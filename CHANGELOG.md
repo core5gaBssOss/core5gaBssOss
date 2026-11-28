@@ -302,6 +302,10 @@ is 0.x, a minor release may break configuration or APIs. How releases are cut:
   is present; `/mlModels/<i>/<member>` for a missing MLModel member; `""` for an empty
   remove-stored-mlmodel list); statuses and causes are unchanged
   ([ADR-0624](docs/decisions/ADR-0624-adrf-problemdetails-carry-invalidparams-sbi-03-step-2-adrf.md)).
+- BSF: the two 400s with a TS 29.500 Table 5.2.7.2-1 NOTE 1 cause carry `invalidParams`:
+  `/supi` for a CreatePCFBinding without supi, `query mbs-session-id` for a GetPCFMbsBinding
+  without (or with a non-JSON) mbs-session-id; statuses and causes are unchanged
+  ([ADR-0628](docs/decisions/ADR-0628-bsf-problemdetails-carry-invalidparams-sbi-03-step-2-ts-29.md)).
 - AMF: the SUPI is encoded as one path segment in the Nsmsf_SMService Activate and UplinkSMS URIs
   and in the `smContextStatusUri` it gives the SMF, so a SUPI with `?` or `/` (the AMF's NAS
   decoder writes `?` for an invalid BCD digit) can no longer reach another subscriber's resource
